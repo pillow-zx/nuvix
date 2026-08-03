@@ -407,7 +407,7 @@ int eventpoll_ctl(struct file *epfile, int op, int fd, struct file *file,
 int eventpoll_wait(struct file *epfile, struct epoll_event *events,
 		   int maxevents, const struct wait_deadline *deadline)
 {
-	struct epoll_snapshot_item snapshot[NR_OPEN];
+	struct epoll_snapshot_item snapshot[NR_OPEN] = {};
 	struct epoll_scan_ctx scan_ctx;
 	struct wait_request source = { .kind = WAIT_KIND_POLL };
 	struct eventpoll *ep;
