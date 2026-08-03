@@ -137,7 +137,7 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
+	ret = wait_for_interruptible(NULL, &deadline, &outcome);
 	if (ret < 0)
 		return ret;
 	if (outcome == WAIT_OUTCOME_TIMEOUT)
@@ -201,7 +201,7 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 			return ret;
 	}
 
-	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
+	ret = wait_for_interruptible(NULL, &deadline, &outcome);
 	if (ret < 0)
 		return ret;
 	if (outcome == WAIT_OUTCOME_TIMEOUT)

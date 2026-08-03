@@ -279,8 +279,7 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 			if (options & WNOHANG)
 				return 0;
 
-			int ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE,
-					   &deadline, &outcome);
+			int ret = wait_for_interruptible(&source, &deadline, &outcome);
 			if (ret < 0)
 				return ret;
 			if (outcome == WAIT_OUTCOME_SIGNAL)

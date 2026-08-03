@@ -151,6 +151,8 @@ int wait_session_watch(struct wait_session *session, struct wait_channel *channe
  * make any outcome true are retried internally. On every return the current
  * task is running and all channel watches and timeout state are cleaned. A
  * negative return is an operation error and leaves outcome set to zero.
+ * Production callers should use the fixed-policy wrappers below; direct use
+ * is reserved for the wait implementation and white-box tests.
  * Calling this function when wait_context_can_sleep() is false is a kernel
  * context violation and triggers BUG_ON.
  */
@@ -160,6 +162,54 @@ int wait_for(const struct wait_request *request, wait_flags_t flags,
 	     const struct wait_deadline *deadline,
 	     wait_outcome_t *outcome);
 
+/**
+ * @brief Wait with one fixed signal-sleep policy.
+ *
+ * These wrappers preserve wait_for()'s core error and outcome contract while
+ * preventing callers from combining incompatible wait flags.
+ */
+__always_inline __must_check __access_no_size(write_only, 3)
+__access_no_size(read_only, 1) __access_no_size(read_only, 2)
+static inline int wait_for_interruptible(const struct wait_request *request,
+				 const struct wait_deadline *deadline,
+				 wait_outcome_t *outcome)
+{
+	return wait_for(request, WAIT_FLAG_INTERRUPTIBLE, deadline, outcome);
+}
+
+__always_inline __must_check __access_no_size(write_only, 3)
+__access_no_size(read_only, 1) __access_no_size(read_only, 2)
+static inline int wait_for_killable(const struct wait_request *request,
+				const struct wait_deadline *deadline,
+				wait_outcome_t *outcome)
+{
+	return wait_for(request, WAIT_FLAG_KILLABLE, deadline, outcome);
+}
+
+__always_inline __must_check __access_no_size(write_only, 3)
+__access_no_size(read_only, 1) __access_no_size(read_only, 2)
+static inline int wait_for_uninterruptible(const struct wait_request *request,
+				    const struct wait_deadline *deadline,
+				    wait_outcome_t *outcome)
+{
+	return wait_for(request, 0, deadline, outcome);
+}
+
+/**
+ * @brief Wait for a request to produce an event without signal interruption.
+ *
+ * This is the no-deadline form used by mutex-like paths. A successful return
+ * means the request produced WAIT_OUTCOME_EVENT.
+ */
+__must_check __access_no_size(read_only, 1)
+int wait_event_uninterruptible(const struct wait_request *request);
+
+/**
+ * @brief Sleep until an active deadline expires without a request or signal.
+ * @return zero after WAIT_OUTCOME_TIMEOUT, or a negative operation error.
+ */
+__must_check __access_no_size(read_only, 1)
+int wait_sleep_until(const struct wait_deadline *deadline);
 
 void wait_cancel_task(struct task_struct *task);
 

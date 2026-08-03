@@ -104,6 +104,7 @@ static int wait_test_error_probe(struct wait_session *session, void *arg)
 int test_wait_for_timeout(void)
 {
 	struct wait_deadline deadline = wait_deadline_at(timer_now());
+	struct wait_deadline wrapper_deadline = wait_deadline_at(timer_now());
 	wait_outcome_t outcome = 99;
 
 	TEST_BEGIN("wait outcome: timeout");
@@ -113,6 +114,7 @@ int test_wait_for_timeout(void)
 			       (wait_outcome_t)WAIT_OUTCOME_TIMEOUT);
 		TEST_ASSERT_EQ(task_state(current_task()),
 			       (uint32_t)TASK_RUNNING);
+		TEST_ASSERT_EQ(wait_sleep_until(&wrapper_deadline), 0);
 	}
 	TEST_END("wait outcome: timeout");
 	return __test_ret;
@@ -433,6 +435,10 @@ int test_wait_for_validation(void)
 		TEST_ASSERT_EQ(wait_for(NULL, WAIT_FLAG_MASK << 1, &deadline,
 					     &outcome),
 			       -EINVAL);
+		TEST_ASSERT_EQ(outcome, (wait_outcome_t)0);
+		TEST_ASSERT_EQ(
+			wait_for(NULL, WAIT_FLAG_MASK, &deadline, &outcome),
+			-EINVAL);
 		TEST_ASSERT_EQ(outcome, (wait_outcome_t)0);
 		outcome = 99;
 		TEST_ASSERT_EQ(wait_for(NULL, 0, &no_deadline,

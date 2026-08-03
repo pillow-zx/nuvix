@@ -242,11 +242,14 @@ struct wait_request {
 };
 ```
 
-`wait_for()` 是唯一通用阻塞入口。condition check 在拥有 event state 的
-adapter 内检查或领取 event，并通过 opaque wait context 注册 wait channel。
-`kind` 是 wait outcome 的 dispatch 标签；条件对象本身仍由 adapter 拥有，
-其内部 check 只在 adapter 的 adapter lock 下检查/领取并登记，锁顺序为 source
-lock 后 wait-channel lock。
+wait module 只有一个通用阻塞 core：`wait_for()`。生产 adapter 通过
+`wait_for_interruptible()`、`wait_for_killable()` 或
+`wait_for_uninterruptible()` 进入固定策略入口；纯 mutex-like event 使用
+`wait_event_uninterruptible()`，纯 deadline sleep 使用 `wait_sleep_until()`。
+condition check 在拥有 event state 的 adapter 内检查或领取 event，并通过
+opaque wait context 注册 wait channel。`kind` 是 wait outcome 的 dispatch
+标签；条件对象本身仍由 adapter 拥有，其内部 check 只在 adapter 的 adapter
+lock 下检查/领取并登记，锁顺序为 source lock 后 wait-channel lock。
 
 等待流程由 wait module 统一拥有：
 
@@ -264,25 +267,33 @@ wait entry 持有 task lifecycle reference；wake 只摘除 entry，不转移或
 reference，cleanup 在 channel lock 外统一 `task_put()`。stable session 和
 timer cancel-sync 仍是后续阶段。
 
-对外 API 包括：
+wait module interface 包括：
 
 ```c
 void wait_channel_init(struct wait_channel *channel);
 int wait_session_watch(struct wait_session *session,
                   struct wait_channel *channel);
-int wait_for(const struct wait_request *request,
-                  wait_flags_t flags,
+int wait_for_interruptible(const struct wait_request *request,
                   const struct wait_deadline *deadline,
                   wait_outcome_t *outcome);
+int wait_for_killable(const struct wait_request *request,
+                  const struct wait_deadline *deadline,
+                  wait_outcome_t *outcome);
+int wait_for_uninterruptible(const struct wait_request *request,
+                  const struct wait_deadline *deadline,
+                  wait_outcome_t *outcome);
+int wait_event_uninterruptible(const struct wait_request *request);
+int wait_sleep_until(const struct wait_deadline *deadline);
 void wait_cancel_task(struct task_struct *task);
 bool wait_channel_wake_one(struct wait_channel *channel);
 void wait_channel_wake_all(struct wait_channel *channel);
 ```
 
-`wait_for()` 只能从 non-idle task context 调用，不能处于 hard IRQ、禁抢占
+所有 wait entry 都只能从 non-idle task context 调用，不能处于 hard IRQ、禁抢占
 或持有 spinlock context；IRQ-off task context 仍可进入。违反这些契约会触发
-`BUG_ON`。它返回时恢复调用者进入前的本地 IRQ 状态，并清理等待登记和
-timeout。
+`BUG_ON`。wait core 返回时恢复调用者进入前的本地 IRQ 状态，并清理等待
+登记和 timeout。`wait_for()` 只供 wait implementation 和 white-box tests 使用，
+生产 adapter 不应直接组合 flags。
 
 wait outcome 是内核语义结果，不是 errno。sleep、futex、pipe、poll 和
 child-wait adapter 分别把 EVENT、SIGNAL、TIMEOUT 映射为所属 ABI 的返回值。timeout

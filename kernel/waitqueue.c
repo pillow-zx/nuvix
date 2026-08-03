@@ -290,6 +290,8 @@ int wait_for(const struct wait_request *request, wait_flags_t flags,
 	}
 	if (flags & ~WAIT_FLAG_MASK)
 		return -EINVAL;
+	if ((flags & WAIT_FLAG_MASK) == WAIT_FLAG_MASK)
+		return -EINVAL;
 	if (request && (!request->check || request->channel_limit == 0 ||
 			request->channel_limit > WAIT_SESSION_MAX_CHANNELS))
 		return -EINVAL;
@@ -355,6 +357,31 @@ int wait_for(const struct wait_request *request, wait_flags_t flags,
 	if (ret < 0)
 		*outcome = 0;
 	return ret;
+}
+
+int wait_event_uninterruptible(const struct wait_request *request)
+{
+	const struct wait_deadline deadline = wait_deadline_none();
+	wait_outcome_t outcome;
+	int ret;
+
+	ret = wait_for_uninterruptible(request, &deadline, &outcome);
+	if (ret < 0)
+		return ret;
+	BUG_ON(outcome != WAIT_OUTCOME_EVENT);
+	return 0;
+}
+
+int wait_sleep_until(const struct wait_deadline *deadline)
+{
+	wait_outcome_t outcome;
+	int ret;
+
+	ret = wait_for_uninterruptible(NULL, deadline, &outcome);
+	if (ret < 0)
+		return ret;
+	BUG_ON(outcome != WAIT_OUTCOME_TIMEOUT);
+	return 0;
 }
 
 void wait_channel_init(struct wait_channel *channel)

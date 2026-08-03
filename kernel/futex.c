@@ -204,7 +204,7 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	source.arg = &wait_ctx;
 	source.channel_limit = 1;
 
-	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, deadline, &outcome);
+	ret = wait_for_interruptible(&source, deadline, &outcome);
 
 	futex_waiter_detach(&wait_ctx);
 

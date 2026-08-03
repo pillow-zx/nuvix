@@ -205,7 +205,7 @@ static void clone_wait_for_vfork(struct task_struct *child)
 	wait_outcome_t outcome;
 	int ret;
 
-	ret = wait_for(&source, WAIT_FLAG_KILLABLE, &deadline, &outcome);
+	ret = wait_for_killable(&source, &deadline, &outcome);
 	BUG_ON(ret < 0);
 	BUG_ON(outcome != WAIT_OUTCOME_EVENT && outcome != WAIT_OUTCOME_SIGNAL);
 }

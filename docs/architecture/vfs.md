@@ -477,7 +477,7 @@ foreground `(SID, PGID)`，在锁外让 signal module 以 lifecycle-pinned PID l
 group 和完整 hangup 规则仍不属于当前模型。
 
 UART 仍是 polling transport。PID 1 创建后，TTY module 启动一个普通内核线程；它通过
-`wait_for()` 的一个 tick deadline 醒来，drain UART 并在 TTY-owned 受锁输入状态中
+`wait_sleep_until()` 的一个 tick deadline 醒来，drain UART 并在 TTY-owned 受锁输入状态中
 执行 termios 行规程、echo 和前台进程组信号投递；`VSUSP` 会投递 `SIGTSTP`。
 时钟中断只执行通用 timer/wakeup，
 不直接访问 UART 或运行 TTY 策略。TTY console `read()` 和 `poll()` 都以该输入状态的
@@ -496,7 +496,7 @@ int vfs_poll(struct file *file, uint32_t events,
 
 file operation 的 `poll()` 返回当前 readiness，并通过 wait session 登记
 等待 channel；watch 错误使用负 errno 传播。ppoll/pselect 在进入
-`wait_for()` 前 pin 稳定 file snapshot。epoll 使用 eventpoll 私有锁、
+`wait_for_interruptible()` 前 pin 稳定 file snapshot。epoll 使用 eventpoll 私有锁、
 item/file snapshot 和 mutation generation；generation 变化只触发 adapter
 内部重建，不直接形成用户可见 event。
 

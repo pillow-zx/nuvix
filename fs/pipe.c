@@ -167,7 +167,7 @@ static int pipe_wait(void *arg, wait_check_fn probe)
 	wait_outcome_t outcome;
 	int ret;
 
-	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
+	ret = wait_for_interruptible(&source, &deadline, &outcome);
 	if (ret < 0)
 		return ret;
 	if (outcome == WAIT_OUTCOME_SIGNAL)

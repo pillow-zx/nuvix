@@ -454,13 +454,11 @@ static void console_input_thread(void *arg)
 		const struct wait_deadline deadline =
 			wait_deadline_at(mtime_deadline_after(timer_now(),
 							      CLOCKS_PER_TICK));
-		wait_outcome_t outcome;
 		int ret;
 
 		console_input_drain_uart();
-		ret = wait_for(NULL, 0, &deadline, &outcome);
+		ret = wait_sleep_until(&deadline);
 		BUG_ON(ret < 0);
-		BUG_ON(outcome != WAIT_OUTCOME_TIMEOUT);
 	}
 }
 
@@ -482,8 +480,7 @@ static ssize_t console_read(struct file *file, char *buf, size_t count)
 
 	for (;;) {
 		wait_outcome_t outcome;
-		int ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, &deadline,
-				   &outcome);
+		int ret = wait_for_interruptible(&source, &deadline, &outcome);
 
 		if (ret < 0)
 			return ret;

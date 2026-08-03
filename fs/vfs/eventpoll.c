@@ -444,8 +444,7 @@ int eventpoll_wait(struct file *epfile, struct epoll_event *events,
 		ret = epoll_snapshot_get(ep, &scan_ctx);
 		if (ret < 0)
 			break;
-		ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, deadline,
-				    &outcome);
+		ret = wait_for_interruptible(&source, deadline, &outcome);
 		epoll_snapshot_put(&scan_ctx);
 		if (ret < 0)
 			break;

@@ -44,24 +44,19 @@ bool mutex_trylock(mutex_t *mutex)
 
 void mutex_lock(mutex_t *mutex)
 {
-	const struct wait_deadline deadline = {
-		.active = false,
-	};
 	struct wait_request source = {
 		.kind = WAIT_KIND_MUTEX,
 		.check = mutex_lock_probe,
 		.arg = mutex,
 		.channel_limit = 1,
 	};
-	wait_outcome_t outcome;
 	int ret;
 
 	if (mutex_trylock(mutex))
 		return;
 
-	ret = wait_for(&source, 0, &deadline, &outcome);
+	ret = wait_event_uninterruptible(&source);
 	BUG_ON(ret < 0);
-	BUG_ON(outcome != WAIT_OUTCOME_EVENT);
 }
 
 void mutex_unlock(mutex_t *mutex)

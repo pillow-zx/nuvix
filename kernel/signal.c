@@ -1128,7 +1128,7 @@ int signal_sigsuspend(uint64_t mask)
 
 	blocked = signal_blocked_mask(current_task());
 	signal_set_blocked_mask(current_task(), mask);
-	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
+	ret = wait_for_interruptible(NULL, &deadline, &outcome);
 	if (ret < 0) {
 		signal_set_blocked_mask(current_task(), blocked);
 		return ret;
@@ -1161,7 +1161,7 @@ int signal_wait_pending(uint64_t set, const struct timespec *timeout,
 
 	blocked = signal_blocked_mask(current_task());
 	signal_set_blocked_mask(current_task(), blocked & ~set);
-	ret = wait_for(NULL, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
+	ret = wait_for_interruptible(NULL, &deadline, &outcome);
 	signal_set_blocked_mask(current_task(), blocked);
 	if (ret < 0)
 		return ret;

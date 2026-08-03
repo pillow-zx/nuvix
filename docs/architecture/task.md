@@ -602,7 +602,7 @@ void worker_run_periodic(unsigned int interval_sec,
                          void *arg);
 ```
 
-它循环构造下一次 `wait_deadline`，通过 `wait_for()` 执行不可中断的纯
+它循环构造下一次 `wait_deadline`，通过 `wait_sleep_until()` 执行不可中断的纯
 deadline wait，然后执行 work。page cache 写回线程用它每 5 秒调用一次全局同步。
 
 ## 设计约束
