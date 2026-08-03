@@ -22,8 +22,6 @@ static int mutex_lock_probe(struct wait_session *session, void *arg)
 
 void mutex_init(mutex_t *mutex)
 {
-	BUG_ON(!mutex);
-
 	spin_lock_init(&mutex->lock);
 	mutex->owner = NULL;
 	wait_channel_init(&mutex->wait);
@@ -33,8 +31,6 @@ bool mutex_trylock(mutex_t *mutex)
 {
 	irq_flags_t flags;
 	bool locked = false;
-
-	BUG_ON(!mutex);
 
 	spin_lock_irqsave(&mutex->lock, &flags);
 	if (!mutex->owner) {
@@ -60,7 +56,6 @@ void mutex_lock(mutex_t *mutex)
 	wait_outcome_t outcome;
 	int ret;
 
-	BUG_ON(!mutex);
 	if (mutex_trylock(mutex))
 		return;
 
@@ -73,12 +68,10 @@ void mutex_unlock(mutex_t *mutex)
 {
 	irq_flags_t flags;
 
-	BUG_ON(!mutex);
-
 	spin_lock_irqsave(&mutex->lock, &flags);
 	BUG_ON(mutex->owner != current_task());
 
 	mutex->owner = NULL;
-	(void)wait_channel_wake_one(&mutex->wait);
 	spin_unlock_irqrestore(&mutex->lock, flags);
+	wait_channel_wake_one(&mutex->wait);
 }

@@ -47,13 +47,17 @@ struct wait_deadline {
 /**
  * @brief Test whether the current context may enter wait_for().
  *
- * Waiting requires task context, a preemptible CPU, and no hard-IRQ handler.
- * This read-only guard does not change IRQ state, preempt_count, or task state.
+ * Waiting requires non-idle task context, a preemptible CPU, no hard-IRQ
+ * handler, and no held spinlock. IRQ-off task context is allowed; wait_for()
+ * handles the IRQ-enabled handoff before WFI. This read-only guard does not
+ * change IRQ state, preempt_count, or task state.
  * wait_for() diagnoses a false result with BUG_ON before touching its inputs.
  */
+__always_inline __must_check __pure
 static inline bool wait_context_can_sleep(void)
 {
-	return !in_irq() && cpu_preempt_count(current_cpu()) == 0;
+	return in_task_context() && cpu_preempt_count(current_cpu()) == 0 &&
+	       !spinlock_held();
 }
 
 /**
@@ -69,6 +73,16 @@ static inline bool wait_context_can_sleep(void)
 typedef int (*wait_check_fn)(struct wait_session *context, void *arg);
 
 /**
+ * @brief Cancel adapter-owned state for a task being torn down.
+ * @param arg Adapter argument originally supplied by wait_request.
+ *
+ * The wait core has already removed task-owned channel registrations before
+ * invoking this callback. The adapter must release any state that is not
+ * represented by a wait entry, such as a secondary waiter list.
+ */
+typedef void (*wait_cancel_fn)(void *arg);
+
+/**
  * @struct wait_request
  * @brief Adapter-owned condition observed by wait_for().
  *
@@ -79,15 +93,18 @@ typedef int (*wait_check_fn)(struct wait_session *context, void *arg);
 struct wait_request {
 	enum wait_kind kind;
 	wait_check_fn check;
+	wait_cancel_fn cancel;
 	void *arg;
 	uint32_t channel_limit;
 };
 
+__always_inline __must_check __const
 static inline struct wait_deadline wait_deadline_none(void)
 {
 	return (struct wait_deadline){.active = false, .expires = 0};
 }
 
+__always_inline __must_check __const
 static inline struct wait_deadline wait_deadline_at(uint64_t expires)
 {
 	return (struct wait_deadline){.active = true, .expires = expires};
@@ -122,10 +139,11 @@ int wait_session_watch(struct wait_session *session, struct wait_channel *channe
 /**
  * @brief Wait for an event, signal, or deadline.
  *
- * The caller must be in task context, outside hard-IRQ context, and
- * preemption-enabled. The function may block and may allocate wait-session
- * state; it preserves the caller's local IRQ state on return. It acquires
- * wait-channel locks only through the request callback and owns no caller lock.
+ * The caller must be in non-idle task context, outside hard-IRQ context, with
+ * preemption enabled and no held spinlock. The function may block and may
+ * allocate wait-session state; it preserves the caller's local IRQ state on
+ * return. It acquires wait-channel locks only through the request callback and
+ * owns no caller lock.
  * The request, deadline, and outcome storage must remain valid until return.
  * Outcome priority is EVENT, then SIGNAL, then TIMEOUT.
  * `WAIT_FLAG_INTERRUPTIBLE` reports an unblocked pending signal;
@@ -136,17 +154,31 @@ int wait_session_watch(struct wait_session *session, struct wait_channel *channe
  * Calling this function when wait_context_can_sleep() is false is a kernel
  * context violation and triggers BUG_ON.
  */
+__must_check __access_no_size(write_only, 4)
+__access_no_size(read_only, 1) __access_no_size(read_only, 3)
 int wait_for(const struct wait_request *request, wait_flags_t flags,
 	     const struct wait_deadline *deadline,
-	     wait_outcome_t *outcome) __must_check
-	__access_no_size(read_only, 1) __access_no_size(read_only, 3)
-		__access_no_size(write_only, 4);
+	     wait_outcome_t *outcome);
+
 
 void wait_cancel_task(struct task_struct *task);
 
+__nonnull(1) __access_no_size(write_only, 1)
 void wait_channel_init(struct wait_channel *channel);
-struct task_struct *wait_channel_wake_one(struct wait_channel *channel);
 
+/**
+ * @brief Detach and wake one sleeping waiter, if present.
+ * @return true when a waiter was detached and passed to the scheduler.
+ *
+ * Only the channel lock is held while the waiter is removed. The wait entry
+ * keeps its task reference until the owning wait_for() cleanup. The wake path
+ * takes an additional task reference while it invokes the scheduler outside
+ * the channel lock.
+ */
+__nonnull(1) __access_no_size(read_write, 1)
+bool wait_channel_wake_one(struct wait_channel *channel);
+
+__nonnull(1) __access_no_size(read_write, 1)
 void wait_channel_wake_all(struct wait_channel *channel);
 
 #endif

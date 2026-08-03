@@ -41,6 +41,13 @@ struct task_child_notification {
 	int status;
 	bool send_sigchld;
 	bool parent_ref;
+	bool wake_parent;
+};
+
+struct task_child_wakeup {
+	struct task_struct *parent;
+	bool parent_ref;
+	bool pending;
 };
 
 struct task_struct idle_task;
@@ -214,23 +221,31 @@ static void task_child_event_clear_claims_locked(struct task_struct *child)
 		event->claimer = NULL;
 }
 
-static void task_reparent_children_locked(struct task_struct *dead)
+static void task_reparent_children_locked(struct task_struct *dead,
+					  struct task_child_wakeup *wakeup)
 {
 	struct list_head *pos;
 	struct list_head *next;
+	struct task_struct *parent = init_task ? init_task : &idle_task;
 
 	list_for_each_safe (pos, next, &dead->links.children) {
 		struct task_struct *child =
 			list_entry(pos, struct task_struct, links.sibling);
 
 		list_del_init(&child->links.sibling);
-		child->links.parent = init_task ? init_task : &idle_task;
+		child->links.parent = parent;
 		list_add_tail(&child->links.sibling,
-			      &child->links.parent->links.children);
+			      &parent->links.children);
 		task_child_event_clear_claims_locked(child);
 		if (!list_empty(&child->lifecycle.child_events))
-			wait_channel_wake_one(
-				&child->links.parent->links.wait_child_queue);
+			wakeup->pending = true;
+	}
+
+	if (wakeup->pending && task_try_get(parent)) {
+		wakeup->parent = parent;
+		wakeup->parent_ref = parent != &idle_task;
+	} else if (wakeup->pending) {
+		wakeup->pending = false;
 	}
 }
 
@@ -248,20 +263,17 @@ task_child_event_publish_locked(struct task_struct *child,
 	memset(notification, 0, sizeof(*notification));
 	if (!parent)
 		return;
+	if (!task_try_get(parent))
+		return;
 
 	notification->parent = parent;
+	notification->parent_ref = parent != &idle_task;
+	notification->wake_parent = true;
 	notification->pid = task_pid(child);
 	notification->uid = task_uid(child);
 	notification->code = code;
 	notification->status = signal_status;
 	notification->send_sigchld = task_exit_signal(child) == SIGCHLD;
-	if (notification->send_sigchld && parent != &idle_task) {
-		if (task_try_get_published(parent))
-			notification->parent_ref = true;
-		else
-			notification->send_sigchld = false;
-	}
-	wait_channel_wake_one(&parent->links.wait_child_queue);
 }
 
 static void task_child_event_send_notification(
@@ -269,8 +281,11 @@ static void task_child_event_send_notification(
 {
 	siginfo_t info = {0};
 
+	if (notification->wake_parent)
+		wait_channel_wake_one(&notification->parent->links.wait_child_queue);
+
 	if (!notification->send_sigchld)
-		return;
+		goto out;
 
 	info.si_signo = SIGCHLD;
 	info.si_code = notification->code;
@@ -278,8 +293,21 @@ static void task_child_event_send_notification(
 	info.si_uid = notification->uid;
 	info.si_status = notification->status;
 	(void)send_signal_info(SIGCHLD, &info, notification->parent);
+
+out:
 	if (notification->parent_ref)
 		task_put(notification->parent);
+}
+
+static void task_child_wake_parent(struct task_child_wakeup *wakeup)
+{
+	if (!wakeup || !wakeup->pending)
+		return;
+
+	wait_channel_wake_all(&wakeup->parent->links.wait_child_queue);
+	if (wakeup->parent_ref)
+		task_put(wakeup->parent);
+	wakeup->pending = false;
 }
 
 void cpu_boot_init(struct task_struct *idle)
@@ -434,10 +462,12 @@ void task_unpublish(struct task_struct *task)
 	pid_detach_task(task->ids.pid, task);
 }
 
-bool task_try_get_published(struct task_struct *task)
+bool task_try_get(struct task_struct *task)
 {
-	if (!task->lifecycle.published)
+	if (!task)
 		return false;
+	if (task == &idle_task)
+		return true;
 
 	return refcount_inc_not_zero(&task->lifecycle.refs);
 }
@@ -513,7 +543,6 @@ struct task_struct *kernel_thread(void (*fn)(void *), void *arg)
 
 void set_init_task(struct task_struct *task)
 {
-	BUG_ON(!task);
 	BUG_ON(task->ids.pid != 1);
 	BUG_ON(init_task && init_task != task);
 
@@ -872,17 +901,19 @@ void task_child_publish_exit(struct task_struct *task, int status)
 {
 	struct task_child_event_record *event;
 	struct task_child_notification notification;
+	struct task_child_wakeup reparent_wakeup = {0};
 	irq_flags_t flags;
 
 	BUG_ON(!task_is_group_leader(task));
 	event = task_child_event_alloc(TASK_CHILD_EVENT_EXIT, status);
 	task_child_lock(&flags);
-	task_reparent_children_locked(task);
+	task_reparent_children_locked(task, &reparent_wakeup);
 	task_set_state(task, TASK_ZOMBIE);
 	task_child_event_publish_locked(task, event, child_exit_si_code(status),
 					child_exit_si_status(status),
 					&notification);
 	task_child_unlock(flags);
+	task_child_wake_parent(&reparent_wakeup);
 	task_child_event_send_notification(&notification);
 }
 
@@ -963,6 +994,8 @@ bool task_child_event_commit(const struct task_child_event_claim *claim)
 void task_child_event_abort(const struct task_child_event_claim *claim)
 {
 	struct task_child_event_record *event;
+	struct task_struct *parent = NULL;
+	bool parent_ref = false;
 	irq_flags_t flags;
 
 	if (!claim->parent || !claim->child)
@@ -973,15 +1006,25 @@ void task_child_event_abort(const struct task_child_event_claim *claim)
 						      claim->sequence);
 	if (event && event->claimer == claim->parent) {
 		event->claimer = NULL;
-		wait_channel_wake_one(&claim->parent->links.wait_child_queue);
+		if (task_try_get(claim->parent)) {
+			parent = claim->parent;
+			parent_ref = parent != &idle_task;
+		}
 	}
 	task_child_unlock(flags);
+	if (parent) {
+		wait_channel_wake_one(&parent->links.wait_child_queue);
+		if (parent_ref)
+			task_put(parent);
+	}
 }
 
 void task_child_release_zombie(struct task_struct *task)
 {
 	LIST_HEAD(discarded);
 	struct task_struct *parent;
+	bool parent_ref = false;
+	bool wake_parent = false;
 	irq_flags_t flags;
 
 	task_child_lock(&flags);
@@ -995,9 +1038,16 @@ void task_child_release_zombie(struct task_struct *task)
 	task->links.parent = NULL;
 	task_set_state(task, TASK_DEAD);
 	task_child_event_discard_all_locked(task, &discarded);
-	if (parent)
-		wait_channel_wake_all(&parent->links.wait_child_queue);
+	if (parent && task_try_get(parent)) {
+		parent_ref = parent != &idle_task;
+		wake_parent = true;
+	}
 	task_child_unlock(flags);
+	if (wake_parent) {
+		wait_channel_wake_all(&parent->links.wait_child_queue);
+		if (parent_ref)
+			task_put(parent);
+	}
 	task_child_event_free_list(&discarded);
 }
 

@@ -180,7 +180,6 @@ static void pipe_commit_read_locked(struct pipe_buffer *pipe, size_t count)
 {
 	pipe->tail = (pipe->tail + count) % PIPE_SIZE;
 	pipe->used -= count;
-	wait_channel_wake_all(&pipe->writers_wq);
 }
 
 static void pipe_commit_write_locked(struct pipe_buffer *pipe, const char *buf,
@@ -200,7 +199,6 @@ static void pipe_commit_write_locked(struct pipe_buffer *pipe, const char *buf,
 		done += chunk;
 	}
 
-	wait_channel_wake_one(&pipe->readers_wq);
 }
 
 static struct pipe_buffer *pipe_buffer_alloc(void)
@@ -280,6 +278,7 @@ static ssize_t pipe_read(struct file *file, char *buf, size_t count)
 		memcpy(buf + done, pipe->data + pipe->tail, chunk);
 		pipe_commit_read_locked(pipe, chunk);
 		spin_unlock_irqrestore(&pipe->lock, flags);
+		wait_channel_wake_all(&pipe->writers_wq);
 		done += chunk;
 	}
 
@@ -330,6 +329,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 		if (atomic) {
 			pipe_commit_write_locked(pipe, buf, count);
 			spin_unlock_irqrestore(&pipe->lock, flags);
+			wait_channel_wake_one(&pipe->readers_wq);
 			return (ssize_t)count;
 		}
 
@@ -338,6 +338,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 		pipe_commit_write_locked(pipe, buf + done, space);
 		done += space;
 		spin_unlock_irqrestore(&pipe->lock, flags);
+		wait_channel_wake_one(&pipe->readers_wq);
 	}
 
 	return (ssize_t)done;
@@ -389,6 +390,8 @@ static int pipe_release(struct file *file)
 	struct pipe_buffer *pipe = file->private_data;
 	irq_flags_t flags;
 	bool free_pipe;
+	bool wake_writers = false;
+	bool wake_readers = false;
 
 	if (!pipe)
 		return 0;
@@ -398,18 +401,22 @@ static int pipe_release(struct file *file)
 		if (pipe->readers > 0)
 			pipe->readers--;
 		if (pipe->readers == 0)
-			wait_channel_wake_all(&pipe->writers_wq);
+			wake_writers = true;
 	}
 
 	if (file->f_mode & FMODE_WRITE) {
 		if (pipe->writers > 0)
 			pipe->writers--;
 		if (pipe->writers == 0)
-			wait_channel_wake_all(&pipe->readers_wq);
+			wake_readers = true;
 	}
 
 	free_pipe = pipe->readers == 0 && pipe->writers == 0;
 	spin_unlock_irqrestore(&pipe->lock, flags);
+	if (wake_writers)
+		wait_channel_wake_all(&pipe->writers_wq);
+	if (wake_readers)
+		wait_channel_wake_all(&pipe->readers_wq);
 
 	if (free_pipe)
 		pipe_buffer_free(pipe);
@@ -476,6 +483,7 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 		BUG_ON((size_t)ret > pipe->used);
 		pipe_commit_read_locked(pipe, (size_t)ret);
 		spin_unlock_irqrestore(&pipe->lock, flags);
+		wait_channel_wake_all(&pipe->writers_wq);
 		done += (size_t)ret;
 		if ((size_t)ret < chunk)
 			break;

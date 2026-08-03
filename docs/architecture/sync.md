@@ -74,8 +74,9 @@ reclaim 和 writeback。锁内只可更新由该锁线性化的状态，或取�
 
 ### 当前缺口
 
-- wait session、timer cancel-sync、exit/reaper 和 kernel stack 释放仍属于 F/G，
-  当前 `wait_for()` 仍使用调用栈 session。
+- wait session、timer cancel-sync、exit/reaper 和 kernel stack 释放仍属于 F/G；
+  当前 `wait_for()` 仍使用调用栈 session，但每个已注册 wait entry 已持有
+  task lifecycle reference。
 - allocator 尚未接受 `ALLOC_NOWAIT` / `ALLOC_SLEEPABLE` mode；page cache、VFS、
   scheduler 锁内分配/free/I/O 的全面审计属于 E/H。
 - mm active CPU/TLB shootdown、SMP page cache busy/in-flight、block request
@@ -85,12 +86,16 @@ reclaim 和 writeback。锁内只可更新由该锁线性化的状态，或取�
 
 ### Wait
 
-`wait_for()` 的目标入口是 task context、`preempt_count()==0`、无 held
-spinlock。IRQ-off task 可以进入，但真正 WFI 前必须打开 IRQ，返回时恢复原
-状态；不能仅以 `irqs_disabled()` 判断 handoff 合法。source lock 内完成
+`wait_for()` 的入口实际检查 non-idle task context、`preempt_count()==0` 和无
+held spinlock。IRQ-off task 可以进入，但真正 WFI 前必须打开 IRQ，返回时恢复
+原状态；不能仅以 `irqs_disabled()` 判断 handoff 合法。source lock 内完成
 check + latch + watch，source lock 释放后才 wake。唤醒不表示条件成立，waiter
-必须重新检查条件。当前 wait consumer 仍是后续 D/F 工作，A/B 只提供可查询
-的 context 状态和泄漏检查。
+必须重新检查条件。每个成功注册的 wait entry 持有一个 task lifecycle reference；
+它可能先被 wake 摘链，但只在 wait cleanup 时释放。当前 wait core 已提供
+task-exit cancellation callback，futex adapter 使用它在 channel registration
+清理后从 futex bucket 摘除 waiter 并释放 owner reference；这只闭合了 futex
+特定的退出路径。stable session、timer cancel-sync 和通用 task exit
+cancellation 仍属于 F/G。
 
 ### Allocator
 
@@ -112,8 +117,9 @@ scheduler core 不能执行分配、等待、I/O、reclaim 或 reaping；后者�
 
 ## 上下文矩阵测试
 
-`test_task_context_matrix()` 用可返回查询覆盖下表；`test_spinlock_held_tracking()`
-覆盖锁列，`test_irq_nesting_context()` 覆盖 nesting/preempt 独立性。hard IRQ
+`test_task_context_matrix()` 用可返回查询覆盖下表，包括
+`wait_context_can_sleep()`；`test_spinlock_held_tracking()` 覆盖锁列，
+`test_irq_nesting_context()` 覆盖 nesting/preempt 独立性。hard IRQ
 行使用 synthetic `irq_enter()`，并分别设置硬件 IRQ bit，以确认两个事实不互相
 替代。
 
@@ -129,12 +135,14 @@ scheduler core 不能执行分配、等待、I/O、reclaim 或 reaping；后者�
 
 runner 在每个 case 后统一检查 `held_lock_depth()==0`、`preempt_count()==0`
 和 `irq_nesting()==0`；发现泄漏即停止后续 case，避免在被污染的 context 上
-继续产生假结果。真正的 underflow/overflow、错误 unlock、递归锁和容量错误由
-独立 `make kpanic CASE=...` QEMU harness 触发，不并入 `make ci`。
+继续产生假结果。真正的 underflow/overflow、错误 unlock、递归锁、容量错误和
+wait context 错误由独立 `make kpanic CASE=...` QEMU harness 触发，不并入
+`make ci`。
 
 ## 验证与未闭合范围
 
-已验证：普通 kernel build、debug-off kernel build、kernel self-test 和七个
+已验证：普通 kernel build、debug-off kernel build、kernel self-test，以及
+`wait-held-lock`、`wait-preempt-disabled`、`wait-hard-irq` 三个 wait context
 panic case。阶段 1 整体仍未完成；secondary hart、内核抢占、stable wait
 session、allocator mode、task reaper、page-cache/block 异步 lifetime、完整
-lockdep 和 D/E/F/G/H/I-2 仍按 `TODO.md` 保持未完成。
+lockdep 以及 F/G/H/I-2 仍按 `TODO.md` 保持未完成。

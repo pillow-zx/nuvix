@@ -23,6 +23,7 @@ struct wait_entry {
 	struct list_head node;
 	struct task_struct *task;
 	struct wait_channel *channel;
+	bool task_ref;
 };
 
 struct wait_watch {
@@ -41,6 +42,8 @@ struct wait_session {
 	struct wait_watch_set *watch_set;
 	struct wait_timer *timer;
 	bool *timer_active;
+	wait_cancel_fn cancel;
+	void *cancel_arg;
 };
 
 static void wait_finish_current_state(void)
@@ -95,8 +98,8 @@ static void wait_timer_cancel(struct wait_timer *timer)
 }
 
 static void init_wait_entry(struct wait_entry *entry, struct task_struct *task);
-static void prepare_wait_entry(struct wait_channel *channel,
-			       struct wait_entry *entry);
+static int prepare_wait_entry(struct wait_channel *channel,
+			      struct wait_entry *entry);
 static void finish_wait_entry(struct wait_entry *entry);
 
 static void wait_watch_init(struct wait_watch *registration,
@@ -138,6 +141,7 @@ static void wait_session_cleanup(struct wait_watch_set *session)
 }
 
 static void wait_session_attach(struct wait_session *session,
+				const struct wait_request *request,
 				struct wait_watch_set *watch_set,
 				struct wait_timer *timer, bool *timer_active)
 {
@@ -148,6 +152,8 @@ static void wait_session_attach(struct wait_session *session,
 	session->watch_set = watch_set;
 	session->timer = timer;
 	session->timer_active = timer_active;
+	session->cancel = request ? request->cancel : NULL;
+	session->cancel_arg = request ? request->arg : NULL;
 	task->active_wait = session;
 }
 
@@ -175,6 +181,8 @@ void wait_cancel_task(struct task_struct *task)
 		*session->timer_active = false;
 	}
 	wait_session_cleanup(session->watch_set);
+	if (session->cancel)
+		session->cancel(session->cancel_arg);
 }
 
 int wait_session_watch(struct wait_session *session,
@@ -193,8 +201,8 @@ int wait_session_watch(struct wait_session *session,
 		registration = &watch_set->entries[index];
 		if (registration->channel == channel) {
 			if (!registration->entry.channel)
-				prepare_wait_entry(channel,
-						   &registration->entry);
+				return prepare_wait_entry(channel,
+							  &registration->entry);
 			return 0;
 		}
 		if (!registration->channel && !free_registration)
@@ -203,8 +211,13 @@ int wait_session_watch(struct wait_session *session,
 
 	if (!free_registration)
 		return -E2BIG;
+	{
+		int ret = prepare_wait_entry(channel, &free_registration->entry);
+
+		if (ret < 0)
+			return ret;
+	}
 	free_registration->channel = channel;
-	prepare_wait_entry(channel, &free_registration->entry);
 	return 0;
 }
 
@@ -288,7 +301,7 @@ int wait_for(const struct wait_request *request, wait_flags_t flags,
 	if (ret < 0)
 		return ret;
 	wait_timer_init(&timer, current_task());
-	wait_session_attach(&session, &watch_set, &timer, &timer_active);
+	wait_session_attach(&session, request, &watch_set, &timer, &timer_active);
 
 	for (;;) {
 		probe_result = wait_check(request, &session);
@@ -346,8 +359,6 @@ int wait_for(const struct wait_request *request, wait_flags_t flags,
 
 void wait_channel_init(struct wait_channel *channel)
 {
-	BUG_ON(!channel);
-
 	spin_lock_init(&channel->lock);
 	INIT_LIST_HEAD(&channel->waiters);
 }
@@ -359,45 +370,68 @@ static void init_wait_entry(struct wait_entry *entry, struct task_struct *task)
 	INIT_LIST_HEAD(&entry->node);
 	entry->task = task;
 	entry->channel = NULL;
+	entry->task_ref = false;
 }
 
-static void prepare_wait_entry(struct wait_channel *channel,
-			       struct wait_entry *entry)
+static int prepare_wait_entry(struct wait_channel *channel,
+			      struct wait_entry *entry)
 {
+	bool acquired_ref = false;
+	bool attached = false;
 	irq_flags_t flags;
 
 	if (!channel || !entry)
-		return;
+		return -EINVAL;
+
+	if (!entry->task_ref) {
+		if (!task_try_get(entry->task))
+			return -ESRCH;
+		acquired_ref = true;
+	}
 
 	spin_lock_irqsave(&channel->lock, &flags);
 	if (!entry->channel && list_empty(&entry->node)) {
 		entry->channel = channel;
+		entry->task_ref = true;
 		list_add_tail(&entry->node, &channel->waiters);
+		attached = true;
 	}
 	spin_unlock_irqrestore(&channel->lock, flags);
+
+	if (acquired_ref && !attached)
+		task_put(entry->task);
+	return 0;
 }
 
 static void finish_wait_entry(struct wait_entry *entry)
 {
 	struct wait_channel *channel;
+	struct task_struct *task;
+	bool put_task;
 	irq_flags_t flags;
 
 	if (!entry)
 		return;
 
 	channel = entry->channel;
-	if (!channel)
-		return;
-
-	spin_lock_irqsave(&channel->lock, &flags);
-	if (entry->channel == channel && !list_empty(&entry->node)) {
-		list_del_init(&entry->node);
-		entry->channel = NULL;
+	if (channel) {
+		spin_lock_irqsave(&channel->lock, &flags);
+		if (entry->channel == channel && !list_empty(&entry->node)) {
+			list_del_init(&entry->node);
+			entry->channel = NULL;
+		}
+		spin_unlock_irqrestore(&channel->lock, flags);
 	}
-	spin_unlock_irqrestore(&channel->lock, flags);
+
+	put_task = entry->task_ref;
+	task = entry->task;
+	entry->channel = NULL;
+	entry->task_ref = false;
+	if (put_task)
+		task_put(task);
 }
 
-struct task_struct *wait_channel_wake_one(struct wait_channel *channel)
+bool wait_channel_wake_one(struct wait_channel *channel)
 {
 	struct wait_entry *entry;
 	struct task_struct *task = NULL;
@@ -405,15 +439,13 @@ struct task_struct *wait_channel_wake_one(struct wait_channel *channel)
 	struct list_head *next;
 	irq_flags_t flags;
 
-	if (!channel)
-		return NULL;
-
 	spin_lock_irqsave(&channel->lock, &flags);
 	list_for_each_safe (pos, next, &channel->waiters) {
 		entry = list_entry(pos, struct wait_entry, node);
 		if (!wait_task_is_sleeping(entry->task))
 			continue;
 
+		BUG_ON(!task_try_get(entry->task));
 		task = entry->task;
 		list_del_init(&entry->node);
 		entry->channel = NULL;
@@ -421,9 +453,11 @@ struct task_struct *wait_channel_wake_one(struct wait_channel *channel)
 	}
 	spin_unlock_irqrestore(&channel->lock, flags);
 
-	if (task)
+	if (task) {
 		sched_wake_task(task);
-	return task;
+		task_put(task);
+	}
+	return task != NULL;
 }
 
 void wait_channel_wake_all(struct wait_channel *channel)

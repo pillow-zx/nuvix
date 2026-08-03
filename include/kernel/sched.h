@@ -44,18 +44,21 @@ void sched_yield(void);
  * @brief Initialize scheduler fields in a new task.
  * @param task Task being initialized.
  */
+__nonnull(1) __access_no_size(read_write, 1)
 void sched_task_init(struct task_struct *task);
 
 /**
  * @brief Insert a runnable task into the scheduler.
  * @param task Task in TASK_RUNNING state.
  */
+__nonnull(1) __access_no_size(read_write, 1)
 void sched_enqueue(struct task_struct *task);
 
 /**
  * @brief Make a sleeping task runnable.
  * @param task Task to wake.
  */
+__nonnull(1) __access_no_size(read_write, 1)
 void sched_wakeup(struct task_struct *task);
 bool sched_has_runnable(void);
 
@@ -63,6 +66,7 @@ bool sched_has_runnable(void);
  * @brief Wake a specific task and enqueue it if needed.
  * @param task Task to wake.
  */
+__nonnull(1) __access_no_size(read_write, 1)
 void sched_wake_task(struct task_struct *task);
 
 /**

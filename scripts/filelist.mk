@@ -157,6 +157,12 @@ else ifeq ($(KERNEL_PANIC_CASE),schedule-held-lock)
 CFLAGS += -DKPANIC_CASE_SCHEDULE_HELD_LOCK
 else ifeq ($(KERNEL_PANIC_CASE),schedule-preempt-disabled)
 CFLAGS += -DKPANIC_CASE_SCHEDULE_PREEMPT_DISABLED
+else ifeq ($(KERNEL_PANIC_CASE),wait-held-lock)
+CFLAGS += -DKPANIC_CASE_WAIT_HELD_LOCK
+else ifeq ($(KERNEL_PANIC_CASE),wait-preempt-disabled)
+CFLAGS += -DKPANIC_CASE_WAIT_PREEMPT_DISABLED
+else ifeq ($(KERNEL_PANIC_CASE),wait-hard-irq)
+CFLAGS += -DKPANIC_CASE_WAIT_HARD_IRQ
 endif
 else
 KERNEL_PANIC_OBJS =

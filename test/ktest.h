@@ -63,6 +63,7 @@ int test_wait_for_spurious_retry(void);
 int test_wait_for_priority(void);
 int test_wait_for_wake_before_block(void);
 int test_wait_for_registration(void);
+int test_wait_cancel_callback(void);
 int test_wait_for_partial_error_cleanup(void);
 int test_wait_for_signal_only(void);
 int test_wait_for_validation(void);
@@ -117,6 +118,7 @@ int test_task_process_tree(void);
 int test_task_idle(void);
 int test_task_free_null(void);
 int test_task_publish_lookup_lifetime(void);
+int test_task_try_get_lifetime(void);
 int test_wait4_stop_continue_events(void);
 int test_wait4_signal_exit_status(void);
 

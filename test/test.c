@@ -121,6 +121,7 @@ static const struct ktest_case task_cases[] = {
 	KTEST_CASE(test_task_process_tree),
 	KTEST_CASE(test_task_free_null),
 	KTEST_CASE(test_task_publish_lookup_lifetime),
+	KTEST_CASE(test_task_try_get_lifetime),
 	KTEST_CASE(test_wait4_stop_continue_events),
 	KTEST_CASE(test_wait4_signal_exit_status),
 };
@@ -171,6 +172,7 @@ static const struct ktest_case waitqueue_cases[] = {
 	KTEST_CASE(test_wait_for_priority),
 	KTEST_CASE(test_wait_for_wake_before_block),
 	KTEST_CASE(test_wait_for_registration),
+	KTEST_CASE(test_wait_cancel_callback),
 	KTEST_CASE(test_wait_for_partial_error_cleanup),
 	KTEST_CASE(test_wait_for_signal_only),
 	KTEST_CASE(test_wait_for_validation),

@@ -235,6 +235,37 @@ cleanup:
 	return __test_ret;
 }
 
+int test_task_try_get_lifetime(void)
+{
+	struct task_struct *task = NULL;
+	int refs;
+
+	TEST_BEGIN("task: try-get lifetime");
+	{
+		task = task_alloc();
+		TEST_ASSERT_NOT_NULL(task);
+		TEST_ASSERT(!task_try_get(NULL));
+		refs = refcount_read(&task->lifecycle.refs);
+		TEST_ASSERT(task_try_get(task));
+		TEST_ASSERT_EQ(refcount_read(&task->lifecycle.refs), refs + 1);
+		task_put(task);
+		TEST_ASSERT_EQ(refcount_read(&task->lifecycle.refs), refs);
+		TEST_ASSERT(task_try_get(&idle_task));
+		TEST_ASSERT_EQ(refcount_read(&idle_task.lifecycle.refs), 1);
+	}
+	TEST_END("task: try-get lifetime");
+	if (task)
+		task_free(task);
+	return __test_ret;
+fail:
+	TEST_FAIL("task: try-get lifetime", "see above");
+	if (task && refcount_read(&task->lifecycle.refs) > 1)
+		task_put(task);
+	if (task)
+		task_free(task);
+	return __test_ret;
+}
+
 int test_wait4_stop_continue_events(void)
 {
 	struct task_struct *saved = current_task();

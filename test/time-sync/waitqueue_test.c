@@ -1,5 +1,7 @@
 #include <kernel/errno.h>
+#include <kernel/exit.h>
 #include <kernel/signal.h>
+#include <kernel/sched.h>
 #include <kernel/task.h>
 #include <kernel/test.h>
 #include <kernel/timer.h>
@@ -17,6 +19,48 @@ struct wait_test_source {
 	uint32_t timeout_probe;
 	bool duplicate_first;
 };
+
+struct wait_cancel_test {
+	struct wait_channel channel;
+	volatile bool started;
+	volatile bool resumed;
+	int cancel_count;
+};
+
+static int wait_cancel_probe(struct wait_session *session, void *arg)
+{
+	struct wait_cancel_test *test = arg;
+
+	test->started = true;
+	return wait_session_watch(session, &test->channel);
+}
+
+static void wait_cancel_callback(void *arg)
+{
+	struct wait_cancel_test *test = arg;
+
+	test->cancel_count++;
+}
+
+static void wait_cancel_target(void *arg)
+{
+	struct wait_cancel_test *test = arg;
+	const struct wait_deadline deadline = wait_deadline_none();
+	const struct wait_request source = {
+		.kind = WAIT_KIND_GENERIC,
+		.check = wait_cancel_probe,
+		.cancel = wait_cancel_callback,
+		.arg = test,
+		.channel_limit = 1,
+	};
+	wait_outcome_t outcome;
+	int ret;
+
+	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
+	(void)ret;
+	test->resumed = true;
+	do_exit(1);
+}
 
 static int wait_test_probe(struct wait_session *session, void *arg)
 {
@@ -239,6 +283,7 @@ int test_wait_for_registration(void)
 	struct wait_test_source test_source = { 0 };
 	struct wait_request source;
 	wait_outcome_t outcome = 0;
+	int refs = refcount_read(&current_task()->lifecycle.refs);
 
 	TEST_BEGIN("wait outcome: registration");
 	{
@@ -260,11 +305,50 @@ int test_wait_for_registration(void)
 			       (wait_outcome_t)WAIT_OUTCOME_EVENT);
 		TEST_ASSERT(list_empty(&first.waiters));
 		TEST_ASSERT(list_empty(&second.waiters));
+		TEST_ASSERT_EQ(refcount_read(&current_task()->lifecycle.refs), refs);
 	}
 	TEST_END("wait outcome: registration");
 	return __test_ret;
 fail:
 	TEST_FAIL("wait outcome: registration", "see above");
+	return __test_ret;
+}
+
+int test_wait_cancel_callback(void)
+{
+	struct wait_cancel_test test = {0};
+	struct task_struct *target = NULL;
+
+	TEST_BEGIN("wait cancellation: adapter cleanup");
+	{
+		wait_channel_init(&test.channel);
+		target = kernel_thread(wait_cancel_target, &test);
+		TEST_ASSERT_NOT_NULL(target);
+		for (int attempt = 0; attempt < 3 && !test.started; attempt++)
+			schedule();
+		TEST_ASSERT(test.started);
+		TEST_ASSERT_EQ(task_state(target), (uint32_t)TASK_INTERRUPTIBLE);
+
+		wait_cancel_task(target);
+		TEST_ASSERT_EQ(test.cancel_count, 1);
+		TEST_ASSERT(list_empty(&test.channel.waiters));
+		TEST_ASSERT(!test.resumed);
+		wait_cancel_task(target);
+		TEST_ASSERT_EQ(test.cancel_count, 1);
+
+		task_set_state(target, TASK_ZOMBIE);
+		release_task(target);
+		target = NULL;
+	}
+	TEST_END("wait cancellation: adapter cleanup");
+	return __test_ret;
+fail:
+	TEST_FAIL("wait cancellation: adapter cleanup", "see above");
+	if (target) {
+		wait_cancel_task(target);
+		task_set_state(target, TASK_ZOMBIE);
+		release_task(target);
+	}
 	return __test_ret;
 }
 

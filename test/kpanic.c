@@ -3,6 +3,7 @@
 #include <kernel/sched.h>
 #include <kernel/spinlock.h>
 #include <kernel/test.h>
+#include <kernel/wait.h>
 
 #ifdef KERNEL_PANIC_TEST
 
@@ -12,7 +13,10 @@
 	!defined(KPANIC_CASE_SPINLOCK_RECURSIVE) && \
 	!defined(KPANIC_CASE_SPINLOCK_CAPACITY) && \
 	!defined(KPANIC_CASE_SCHEDULE_HELD_LOCK) && \
-	!defined(KPANIC_CASE_SCHEDULE_PREEMPT_DISABLED)
+	!defined(KPANIC_CASE_SCHEDULE_PREEMPT_DISABLED) && \
+	!defined(KPANIC_CASE_WAIT_HELD_LOCK) && \
+	!defined(KPANIC_CASE_WAIT_PREEMPT_DISABLED) && \
+	!defined(KPANIC_CASE_WAIT_HARD_IRQ)
 #error "KERNEL_PANIC_TEST requires a valid KERNEL_PANIC_CASE"
 #endif
 
@@ -66,6 +70,36 @@ void kernel_panic_test_run(void)
 	pr_info("[KPANIC] case=schedule-preempt-disabled\n");
 	preempt_disable();
 	schedule();
+#elif defined(KPANIC_CASE_WAIT_HELD_LOCK)
+	spinlock_t lock = SPINLOCK_INIT;
+	irq_flags_t flags;
+	struct wait_deadline deadline = wait_deadline_none();
+	wait_outcome_t outcome;
+	int ret;
+
+	pr_info("[KPANIC] case=wait-held-lock\n");
+	spin_lock_init(&lock);
+	spin_lock_irqsave(&lock, &flags);
+	ret = wait_for(NULL, 0, &deadline, &outcome);
+	(void)ret;
+#elif defined(KPANIC_CASE_WAIT_PREEMPT_DISABLED)
+	struct wait_deadline deadline = wait_deadline_none();
+	wait_outcome_t outcome;
+	int ret;
+
+	pr_info("[KPANIC] case=wait-preempt-disabled\n");
+	preempt_disable();
+	ret = wait_for(NULL, 0, &deadline, &outcome);
+	(void)ret;
+#elif defined(KPANIC_CASE_WAIT_HARD_IRQ)
+	struct wait_deadline deadline = wait_deadline_none();
+	wait_outcome_t outcome;
+	int ret;
+
+	pr_info("[KPANIC] case=wait-hard-irq\n");
+	irq_enter();
+	ret = wait_for(NULL, 0, &deadline, &outcome);
+	(void)ret;
 #endif
 
 	panic("kpanic case returned without triggering its assertion\n");

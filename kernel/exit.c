@@ -59,8 +59,9 @@ static void clear_child_tid(struct task_struct *task)
 	if (!clear_tid)
 		return;
 
-	if (copy_to_user(clear_tid, &zero, sizeof(zero)) == 0)
-		futex_wake_mm(task_mm(task), clear_tid, 1);
+	if (copy_to_user(clear_tid, &zero, sizeof(zero)) == 0 &&
+	    futex_wake_mm(task_mm(task), clear_tid, 1) < 0)
+		pr_debug("futex: clear_child_tid wake failed\n");
 	task_set_clear_child_tid(task, NULL);
 }
 

@@ -80,6 +80,7 @@ void futex_init(void);
  * @param nr Maximum number of waiters to wake.
  * @return Number of tasks woken.
  */
+__must_check __nonnull(1, 2)
 int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr);
 
 /**
@@ -93,9 +94,15 @@ void futex_exit_robust_list(struct task_struct *task);
  * @param args Decoded futex syscall arguments.
  * @return Operation result or a negative errno.
  */
+__must_check __nonnull(1) __access_no_size(read_only, 1)
 int kernel_futex(const struct kernel_futex_args *args);
+
+__must_check
 int futex_set_robust_list(struct task_struct *task,
 			  struct robust_list_head *head, size_t len);
+
+__must_check __nonnull(1, 2, 3)
+__access_no_size(write_only, 2) __access_no_size(write_only, 3)
 int futex_get_robust_list(struct task_struct *task,
 			  struct robust_list_head **head, size_t *len);
 

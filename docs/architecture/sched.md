@@ -57,7 +57,11 @@ struct task_sched_entity {
 其中：
 
 - `run_list` 是 MLFQ 队列节点。
-- 等待注册不在调度实体中：`task_struct` 只暂存 opaque 活动等待指针供 exit 撤销（见等待队列一节）。
+- 等待注册不在调度实体中：`task_struct` 只暂存 opaque 活动等待指针供 exit
+  撤销（见等待队列一节）。wait core 撤销 active wait 时先清理 channel
+  registration，再调用 request 的 adapter cancellation callback；futex callback
+  在自身 bucket lock 下摘除 waiter 并释放 owner reference。callback 不在
+  channel lock 内执行，也不把 `wait_for()` 的栈上 session 延长为稳定对象。
 - `need_resched` 由 `sched_request()` 设置，用户 trap 返回点或显式调度点消费。
 - `sched_level` 是 MLFQ 层级，0 最高。
 - `time_slice` 是当前层剩余预算。
@@ -255,8 +259,10 @@ lock 后 wait-channel lock。
 
 活动等待上下文仍由 `wait_for()` 的调用栈拥有，但 current task 暂存一个
 opaque 指针，使 task exit 能在释放 sibling 内核栈前调用 `wait_cancel_task()`，
-同步撤销 wait-queue registrations 和栈上 deadline timer。该指针不暴露 probe、
-wait session 或 timer 实现，也不把等待策略移入 task module。
+同步撤销 wait-queue registrations 和栈上 deadline timer。每个成功登记的
+wait entry 持有 task lifecycle reference；wake 只摘除 entry，不转移或释放该
+reference，cleanup 在 channel lock 外统一 `task_put()`。stable session 和
+timer cancel-sync 仍是后续阶段。
 
 对外 API 包括：
 
@@ -269,13 +275,14 @@ int wait_for(const struct wait_request *request,
                   const struct wait_deadline *deadline,
                   wait_outcome_t *outcome);
 void wait_cancel_task(struct task_struct *task);
-struct task_struct *wait_channel_wake_one(struct wait_channel *channel);
+bool wait_channel_wake_one(struct wait_channel *channel);
 void wait_channel_wake_all(struct wait_channel *channel);
 ```
 
-`wait_for()` 只能从 task context 调用，不能处于 hard IRQ 或禁抢占
-context；违反此契约会触发 `BUG_ON`。它返回时恢复调用者进入前的本地 IRQ
-状态，并清理等待登记和 timeout。
+`wait_for()` 只能从 non-idle task context 调用，不能处于 hard IRQ、禁抢占
+或持有 spinlock context；IRQ-off task context 仍可进入。违反这些契约会触发
+`BUG_ON`。它返回时恢复调用者进入前的本地 IRQ 状态，并清理等待登记和
+timeout。
 
 wait outcome 是内核语义结果，不是 errno。sleep、futex、pipe、poll 和
 child-wait adapter 分别把 EVENT、SIGNAL、TIMEOUT 映射为所属 ABI 的返回值。timeout
@@ -306,7 +313,9 @@ mutex 内部有：
 - wait channel 存放等待者。
 - owner 必须是当前任务才能 unlock。
 
-`mutex_lock()` 获取失败时，将当前任务加入 wait channel 并进入不可中断睡眠。`mutex_unlock()` 清空 owner 并 `wait_channel_wake_one()`。
+`mutex_lock()` 获取失败时，将当前任务加入 wait channel 并进入不可中断睡眠。
+`mutex_unlock()` 先清空 owner 并释放 mutex source lock，再调用
+`wait_channel_wake_one()`。
 
 ## 设计约束
 

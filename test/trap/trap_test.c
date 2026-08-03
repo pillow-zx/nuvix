@@ -205,7 +205,9 @@ cleanup:
 int test_task_context_matrix(void)
 {
 	struct task_struct *saved_task = current_task();
+	spinlock_t lock = SPINLOCK_INIT;
 	irq_flags_t saved_flags = local_irq_save();
+	irq_flags_t lock_flags;
 	int saved_preempt_count = preempt_count();
 	uint32_t saved_nesting = irq_nesting();
 
@@ -222,6 +224,7 @@ int test_task_context_matrix(void)
 		TEST_ASSERT(!in_irq());
 		TEST_ASSERT_EQ(preempt_count(), 0);
 		TEST_ASSERT(in_task_context());
+		TEST_ASSERT(wait_context_can_sleep());
 
 		/* Hard IRQ context is independent from the hardware IRQ bit. */
 		local_irq_enable();
@@ -229,6 +232,7 @@ int test_task_context_matrix(void)
 		TEST_ASSERT(!irqs_disabled());
 		TEST_ASSERT(in_irq());
 		TEST_ASSERT(!in_task_context());
+		TEST_ASSERT(!wait_context_can_sleep());
 		TEST_ASSERT_EQ(preempt_count(), 0);
 		irq_exit();
 
@@ -237,15 +241,26 @@ int test_task_context_matrix(void)
 		TEST_ASSERT(!preemptible());
 		TEST_ASSERT(!in_irq());
 		TEST_ASSERT(in_task_context());
+		TEST_ASSERT(!wait_context_can_sleep());
 		preempt_enable();
 		TEST_ASSERT_EQ(preempt_count(), 0);
+		TEST_ASSERT(wait_context_can_sleep());
+
+		spin_lock_init(&lock);
+		spin_lock_irqsave(&lock, &lock_flags);
+		TEST_ASSERT(spinlock_held());
+		TEST_ASSERT(!wait_context_can_sleep());
+		spin_unlock_irqrestore(&lock, lock_flags);
 
 		set_current_task(NULL);
 		TEST_ASSERT(!in_task_context());
+		TEST_ASSERT(!wait_context_can_sleep());
 		set_current_task(&idle_task);
 		TEST_ASSERT(!in_task_context());
+		TEST_ASSERT(!wait_context_can_sleep());
 		set_current_task(saved_task);
 		TEST_ASSERT(in_task_context());
+		TEST_ASSERT(wait_context_can_sleep());
 	}
 	TEST_END("irq: task-context matrix");
 	goto cleanup;

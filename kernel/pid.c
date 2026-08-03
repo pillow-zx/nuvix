@@ -93,7 +93,8 @@ struct task_struct *pid_task_get(pid_t pid)
 		return NULL;
 
 	mutex_lock(&pid_lock);
-	if (pid_tasks[pid] && task_try_get_published(pid_tasks[pid]))
+	if (pid_tasks[pid] && pid_tasks[pid]->lifecycle.published &&
+	    task_try_get(pid_tasks[pid]))
 		task = pid_tasks[pid];
 	mutex_unlock(&pid_lock);
 

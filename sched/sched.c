@@ -70,9 +70,6 @@ void sched_wakeup(struct task_struct *task)
 
 void sched_wake_task(struct task_struct *task)
 {
-	if (!task)
-		return;
-
 	task_set_state(task, TASK_RUNNING);
 	if (task != current_task())
 		sched_wakeup(task);

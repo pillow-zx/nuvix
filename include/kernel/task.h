@@ -723,7 +723,7 @@ void task_init(void);
  * invisible to PID lookup until task_publish() commits it.
  * @return New task on success, or NULL when allocation fails.
  */
-__must_check
+__must_check __malloc
 struct task_struct *task_alloc(void);
 
 /**
@@ -754,7 +754,7 @@ void task_free(struct task_struct *task);
  * A successful PID lookup returns an additional lifecycle reference; it never
  * returns an unpinned raw task pointer.
  */
-__nonnull(1)
+__nonnull(1) __access_no_size(read_write, 1)
 void task_publish(struct task_struct *task);
 
 /**
@@ -764,8 +764,20 @@ void task_publish(struct task_struct *task);
  * Existing lookup references remain valid and must be released with
  * task_put().  This is normally the last step of zombie reaping.
  */
-__nonnull(1)
+__nonnull(1) __access_no_size(read_write, 1)
 void task_unpublish(struct task_struct *task);
+
+/**
+ * @brief Try to acquire one lifecycle reference without requiring publication.
+ * @param task Task to pin, or NULL.
+ * @return true when the task remains alive and the caller owns a reference.
+ *
+ * The statically allocated idle task is always considered alive and does not
+ * acquire a reference.  A successful call for every other task must be paired
+ * with task_put().
+ */
+__must_check
+bool task_try_get(struct task_struct *task);
 
 /**
  * @brief Drop one task lifecycle reference.
@@ -846,13 +858,14 @@ void arch_task_test_setup_user_return(struct task_struct *task, size_t user_pc,
  * @param arg Opaque argument passed to @p fn.
  * @return New task on success, or NULL on allocation/setup failure.
  */
-__must_check
+__must_check __malloc __nonnull(1)
 struct task_struct *kernel_thread(void (*fn)(void *), void *arg);
 
 /**
  * @brief Publish the process that becomes PID 1 after exec.
  * @param task Task selected as the init task.
  */
+__nonnull(1) __access_no_size(read_only, 1)
 void set_init_task(struct task_struct *task);
 
 /**

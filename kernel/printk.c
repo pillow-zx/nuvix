@@ -81,8 +81,8 @@ static void printk_ring_append(const char *source, size_t size)
 
 	spin_lock_irqsave(&printk_ring.lock, &flags);
 	printk_ring_append_locked(source, size);
-	(void)wait_channel_wake_one(&printk_ring.read_wait);
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
+	wait_channel_wake_one(&printk_ring.read_wait);
 }
 #endif
 
@@ -117,8 +117,8 @@ static void printk_ring_append_message(int level, const char *message,
 	spin_lock_irqsave(&printk_ring.lock, &flags);
 	printk_ring_append_locked(priority, sizeof(priority));
 	printk_ring_append_locked(message, size);
-	(void)wait_channel_wake_one(&printk_ring.read_wait);
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
+	wait_channel_wake_one(&printk_ring.read_wait);
 }
 
 static void console_write(const char *s)

@@ -3,9 +3,6 @@
 
 #include <kernel/task.h>
 
-/* PID-registry-only lifecycle primitive. */
-bool task_try_get_published(struct task_struct *task);
-
 /* Fork/exec-only user-process role transitions. */
 void task_inherit_process_role(struct task_struct *child,
 			       const struct task_struct *parent);

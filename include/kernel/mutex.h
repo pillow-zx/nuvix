@@ -23,9 +23,16 @@ typedef struct {
 	}
 #define DEFINE_MUTEX(name) mutex_t name = MUTEX_INIT(name)
 
+__nonnull(1) __access_no_size(write_only, 1)
 void mutex_init(mutex_t *mutex);
+
+__nonnull(1) __access_no_size(read_write, 1)
 void mutex_lock(mutex_t *mutex);
+
+__must_check __nonnull(1) __access_no_size(read_write, 1)
 bool mutex_trylock(mutex_t *mutex);
+
+__nonnull(1) __access_no_size(read_write, 1)
 void mutex_unlock(mutex_t *mutex);
 
 #endif

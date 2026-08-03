@@ -95,6 +95,9 @@ struct task_struct {
 | `TASK_STOPPED` | 被停止信号暂停 |
 
 `TASK_ANY_SLEEP` 是全部睡眠状态的组合。等待队列和 mutex 通过这些状态与调度器交互。
+task 退出时，exit 路径先取消 active wait；wait core 撤销 channel registration，
+futex adapter 随后从 futex bucket 摘除对应 waiter，因此正常返回和 task-exit
+cancellation 都不会留下旧 task、owner ref 或旧 mm key。
 
 ## CPU-local current
 
@@ -138,6 +141,13 @@ lifecycle-pinned task，调用者必须配对 `task_put()`。reaper 先
 `task_unpublish()` 使 PID 不再产生新引用，再 drop base reference；已有 lookup
 reference 结束前对象和 PID 都不会释放或复用。registry mutex 只保护 PID 映射和 pin
 取得，不替代后续 SMP 阶段的 parent/child、thread-group 或资源并发协议。
+
+需要跨越一个锁外唤醒或通知阶段时，task module 使用
+`task_try_get()` 获取不要求 PID published 的 lifecycle reference；`NULL` 返回
+false，idle task 永久存活且不增加引用，普通 task 使用
+`refcount_inc_not_zero()`。调用者必须为普通 task 配对 `task_put()`；该接口
+不负责判断 PID registry 的 published 状态；PID lookup 在持有 registry lock
+时完成 published 检查后直接使用该通用接口。
 
 跨 subsystem 的进程身份读取只使用 `task_process_snapshot()`；SID/PGID 的 mutation
 接口是 task module 私有接口，只由 session coordinator 调用。进程范围 signal policy
@@ -302,9 +312,10 @@ stateDiagram-v2
    wait。
 7. task 模块将 leader 的子进程 reparent 给 `init_task` 或 idle，设置
    `TASK_ZOMBIE`，并向该 child 的 event FIFO 发布 exit edge。
-8. task 模块为非 idle、已发布的父进程持有 lifecycle reference，然后释放
-   child-relation source lock 并发送 `SIGCHLD`；投递后释放该 reference，事件发布
-   期间已唤醒 parent wait channel。
+8. task 模块为 parent 持有一个覆盖锁外 wait-channel wake 和 `SIGCHLD` 投递的
+   lifecycle reference，然后释放 child-relation source lock；两项操作完成后
+   统一释放该 reference。reparent 使用稳定的 `init_task` 或 idle 目标，并在
+   解锁后唤醒对应 wait channel。
 9. 调用 `schedule()`，由统一入口保留当前 IRQ 状态；该函数不再返回。
 
 `do_exit_group(code)` 以线程组为单位终止。
@@ -501,6 +512,10 @@ timeout 是 relative；`FUTEX_WAIT_BITSET` 的 timeout 是 absolute。
 4. 值不等于 expected 返回 `-EAGAIN`。
 5. 加入 waiter list，并进入 interruptible sleep。
 6. 被 wake、signal 或 timeout 唤醒。
+
+futex waiter 本身由稳定的 heap object 拥有，而不是由 `futex_wait()` 的调用栈
+拥有。bucket lock 解锁后执行 wake 时会持有 waiter 临时 reference；调用者
+完成 wait cleanup 并从 bucket 摘除后才释放 owner reference。
 
 退出时 `futex_exit_robust_list()` 遍历用户 robust list，设置 `FUTEX_OWNER_DIED` 并唤醒等待者。
 
