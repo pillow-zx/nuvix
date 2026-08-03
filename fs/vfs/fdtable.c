@@ -16,7 +16,7 @@ static struct files_struct *current_files(void)
 
 struct files_struct *files_alloc(void)
 {
-	struct files_struct *files = kmalloc(sizeof(*files));
+	struct files_struct *files = kmalloc(sizeof(*files), ALLOC_NOWAIT);
 
 	if (!files)
 		return NULL;

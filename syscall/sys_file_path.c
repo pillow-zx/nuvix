@@ -338,7 +338,7 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 	if (!ubuf || size == 0)
 		return -EINVAL;
 
-	path = get_free_page(0);
+	path = get_free_page(0, ALLOC_NOWAIT);
 	if (!path)
 		return -ENOMEM;
 
@@ -447,7 +447,7 @@ ssize_t sys_readlinkat(struct trap_frame *tf)
 		return ret;
 
 	link_size = bufsiz < VFS_PATH_MAX ? bufsiz : VFS_PATH_MAX;
-	link = get_free_page(0);
+	link = get_free_page(0, ALLOC_NOWAIT);
 	if (!link)
 		return -ENOMEM;
 

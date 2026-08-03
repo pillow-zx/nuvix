@@ -29,7 +29,7 @@ void icache_init(void)
 
 struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
 {
-	struct inode *inode = kmalloc(sizeof(*inode));
+	struct inode *inode = kmalloc(sizeof(*inode), ALLOC_NOWAIT);
 	if (!inode)
 		return NULL;
 

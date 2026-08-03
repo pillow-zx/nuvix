@@ -26,7 +26,7 @@ struct page_cache_assoc {
 	struct list_head mapping_node;
 };
 
-void page_cache_init_once(void);
+void page_cache_init(void);
 void page_cache_wb_init(void);
 struct page_cache *page_cache_find(dev_t dev, uint64_t block);
 struct page_cache *page_cache_find_mapping(struct page_mapping *mapping,
@@ -37,12 +37,14 @@ struct page_cache *page_cache_dirty_any(void);
 struct page_cache *page_cache_dirty_any_locked(void);
 int page_cache_wb_run(struct page_cache *start, struct page_mapping *mapping);
 void page_cache_assoc_remove_mapping(struct page_mapping *mapping);
-void page_cache_assoc_remove_page_locked(struct page_cache *page);
+void page_cache_assoc_remove_page_locked(struct page_cache *page,
+					 struct list_head *removed);
+void page_cache_assoc_free_list(struct list_head *removed);
 bool page_cache_assoc_has_page_locked(struct page_cache *page);
 int page_cache_assoc_add(struct page_mapping *mapping, uint64_t index,
 			 struct page_cache *page);
-extern spinlock_t page_cache_lock;
-extern struct list_head page_cache_associations;
-extern struct list_head page_cache_dirty_list;
+extern spinlock_t pgcache_lock;
+extern struct list_head pgcache_associations;
+extern struct list_head pgcache_dirty_list;
 
 #endif

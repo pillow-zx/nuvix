@@ -6,6 +6,7 @@
 #ifndef _CUTEOS_KERNEL_SLAB_H
 #define _CUTEOS_KERNEL_SLAB_H
 
+#include <kernel/alloc.h>
 #include <kernel/types.h>
 #include <kernel/compiler.h>
 #include <kernel/cleanup.h>
@@ -18,19 +19,22 @@ void slab_init(void);
 /**
  * @brief Allocate a small kernel heap object.
  * @param size Requested object size in bytes.
+ * @param mode Context permission for the allocation.
  * @return Allocated object, or NULL.
  */
 __must_check __malloc __alloc_size(1)
-void *kmalloc(size_t size) ;
+void *kmalloc(size_t size, enum alloc_mode mode);
 
 /**
  * @brief Allocate n * size space
  * @param n number of requirement
  * @param size per size of requirement obj
+ * @param mode Context permission for the allocation.
  * @return Allocated objects, or NULL
  */
 __must_check
-static inline void *kmalloc_array(size_t n, size_t size)
+static inline void *kmalloc_array(size_t n, size_t size,
+				  enum alloc_mode mode)
 {
 	size_t bytes;
 
@@ -38,7 +42,7 @@ static inline void *kmalloc_array(size_t n, size_t size)
 		return NULL;
 
 	bytes = n * size;
-	return kmalloc(bytes);
+	return kmalloc(bytes, mode);
 }
 
 /**
@@ -52,12 +56,13 @@ CLEANUP_DEFINE(kfree, void *, if (_T) kfree(_T));
 /**
  * @brief Allocate and zero a small kernel heap object.
  * @param size Requested object size in bytes.
+ * @param mode Context permission for the allocation.
  * @return Zero-filled object, or NULL.
  */
 __must_check __malloc __alloc_size(1)
-static inline void *kzalloc(size_t size)
+static inline void *kzalloc(size_t size, enum alloc_mode mode)
 {
-	void *ptr = kmalloc(size);
+	void *ptr = kmalloc(size, mode);
 	if (ptr)
 		memset(ptr, 0, size);
 

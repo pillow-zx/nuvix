@@ -98,7 +98,8 @@ DRAM 高半区和恒等映射共享下级页表，这让启动阶段从临时页
 typedef void *(*page_alloc_fn)(void);
 ```
 
-启动早期使用 `early_alloc_page()`。`buddy_init()` 完成后，`kernel_main()` 调用 `pagetable_use_buddy()`，把页表页分配切换为 `get_free_page(0)`。
+启动早期使用 `early_alloc_page()`。`buddy_init()` 完成后，`kernel_main()` 调用
+`pagetable_use_buddy()`，把页表页分配切换为 `get_free_page(0, ALLOC_NOWAIT)`。
 
 这个切换点很重要：
 

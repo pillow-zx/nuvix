@@ -31,7 +31,7 @@ int copy_user_path(char **pathp, const char *user)
 	if (!user)
 		return -EFAULT;
 
-	dst = get_free_page(0);
+	dst = get_free_page(0, ALLOC_NOWAIT);
 	if (!dst)
 		return -ENOMEM;
 
@@ -57,7 +57,7 @@ int copy_user_path_allow_empty(char **pathp, const char *user)
 	if (!user)
 		return -EFAULT;
 
-	dst = get_free_page(0);
+	dst = get_free_page(0, ALLOC_NOWAIT);
 	if (!dst)
 		return -ENOMEM;
 

@@ -15,7 +15,7 @@ int test_vmalloc_alloc_writable_pages(void)
 					 PAGE_SIZE);
 		vmalloc_end = vmalloc_start + MM_TEST_VMALLOC_SIZE;
 
-		ptr = vmalloc(PAGE_SIZE + 1);
+		ptr = vmalloc(PAGE_SIZE + 1, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(ptr);
 		TEST_ASSERT_ALIGNED(ptr, PAGE_SIZE);
 
@@ -62,13 +62,13 @@ int test_vmalloc_vfree_reuses_range(void)
 
 	TEST_BEGIN("vmalloc: vfree reuses range");
 	{
-		warm = vmalloc(PAGE_SIZE);
+		warm = vmalloc(PAGE_SIZE, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(warm);
 		vfree(warm);
 		warm = NULL;
 
 		free_before = buddy_free_pages();
-		first = vmalloc(2 * PAGE_SIZE);
+		first = vmalloc(2 * PAGE_SIZE, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(first);
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before - 2);
 		first_addr = (uintptr_t)first;
@@ -77,7 +77,7 @@ int test_vmalloc_vfree_reuses_range(void)
 		first = NULL;
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
 
-		second = vmalloc(2 * PAGE_SIZE);
+		second = vmalloc(2 * PAGE_SIZE, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(second);
 		TEST_ASSERT_EQ((uintptr_t)second, first_addr);
 
@@ -109,9 +109,9 @@ int test_vmalloc_free_merges_adjacent_ranges(void)
 
 	TEST_BEGIN("vmalloc: free merges adjacent ranges");
 	{
-		a = vmalloc(PAGE_SIZE);
-		b = vmalloc(PAGE_SIZE);
-		c = vmalloc(PAGE_SIZE);
+		a = vmalloc(PAGE_SIZE, ALLOC_NOWAIT);
+		b = vmalloc(PAGE_SIZE, ALLOC_NOWAIT);
+		c = vmalloc(PAGE_SIZE, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(a);
 		TEST_ASSERT_NOT_NULL(b);
 		TEST_ASSERT_NOT_NULL(c);
@@ -122,7 +122,7 @@ int test_vmalloc_free_merges_adjacent_ranges(void)
 		vfree(b);
 		b = NULL;
 
-		merged = vmalloc(2 * PAGE_SIZE);
+		merged = vmalloc(2 * PAGE_SIZE, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(merged);
 		TEST_ASSERT_EQ((uintptr_t)merged, a_addr);
 
@@ -162,7 +162,7 @@ int test_vmalloc_mapping_failure_rolls_back(void)
 
 	TEST_BEGIN("vmalloc: mapping failure rolls back");
 	{
-		marker = vmalloc(PAGE_SIZE);
+		marker = vmalloc(PAGE_SIZE, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(marker);
 		cursor = (uintptr_t)marker;
 		vfree(marker);
@@ -171,12 +171,12 @@ int test_vmalloc_mapping_failure_rolls_back(void)
 		padding_size =
 			ALIGN_UP(cursor, MM_TEST_VMALLOC_L0_SIZE) - cursor;
 		if (padding_size) {
-			padding = vmalloc(padding_size);
+			padding = vmalloc(padding_size, ALLOC_NOWAIT);
 			TEST_ASSERT_NOT_NULL(padding);
 			TEST_ASSERT_EQ((uintptr_t)padding, cursor);
 		}
 
-		prefix = vmalloc(prefix_size);
+		prefix = vmalloc(prefix_size, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(prefix);
 		TEST_ASSERT_ALIGNED(prefix, MM_TEST_VMALLOC_L0_SIZE);
 
@@ -184,7 +184,7 @@ int test_vmalloc_mapping_failure_rolls_back(void)
 		free_before = buddy_free_pages();
 
 		pagetable_test_fail_alloc_after(0);
-		TEST_ASSERT_NULL(vmalloc(2 * PAGE_SIZE));
+		TEST_ASSERT_NULL(vmalloc(2 * PAGE_SIZE, ALLOC_NOWAIT));
 		pagetable_test_clear_alloc_failure();
 
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
@@ -194,7 +194,7 @@ int test_vmalloc_mapping_failure_rolls_back(void)
 		TEST_ASSERT_NULL(
 			pagetable_lookup_current(failed_start + PAGE_SIZE));
 
-		probe = vmalloc(3 * PAGE_SIZE);
+		probe = vmalloc(3 * PAGE_SIZE, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(probe);
 		TEST_ASSERT_EQ((uintptr_t)probe, failed_start);
 

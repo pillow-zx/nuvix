@@ -194,7 +194,7 @@ int file_set_status_flags(struct file *file, uint32_t flags)
 struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 			void *private_data)
 {
-	struct file *file = kmalloc(sizeof(*file));
+	struct file *file = kmalloc(sizeof(*file), ALLOC_NOWAIT);
 	if (!file)
 		return NULL;
 

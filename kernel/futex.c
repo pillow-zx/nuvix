@@ -184,7 +184,7 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 		return -EFAULT;
 
 	bucket = futex_bucket_for(&key);
-	waiter = kmalloc(sizeof(*waiter));
+	waiter = kmalloc(sizeof(*waiter), ALLOC_NOWAIT);
 	if (!waiter)
 		return -ENOMEM;
 	memset(waiter, 0, sizeof(*waiter));

@@ -74,14 +74,15 @@ static struct vmalloc_area *vmalloc_find_free_area(size_t size)
 	return NULL;
 }
 
-static int vmalloc_split_area(struct vmalloc_area *area, size_t size)
+static int vmalloc_split_area(struct vmalloc_area *area, size_t size,
+			      enum alloc_mode mode)
 {
 	struct vmalloc_area *tail;
 
 	if (vmalloc_area_size(area) == size)
 		return 0;
 
-	tail = kmalloc(sizeof(*tail));
+	tail = kmalloc(sizeof(*tail), mode);
 	if (!tail)
 		return -ENOMEM;
 
@@ -136,7 +137,7 @@ void vmalloc_init(void)
 	if (vmalloc_ready)
 		return;
 
-	area = kmalloc(sizeof(*area));
+	area = kmalloc(sizeof(*area), ALLOC_NOWAIT);
 	BUG_ON(!area);
 
 	vmalloc_start =
@@ -154,13 +155,14 @@ void vmalloc_init(void)
 		(void *)vmalloc_end);
 }
 
-void *vmalloc(size_t size)
+void *vmalloc(size_t size, enum alloc_mode mode)
 {
 	struct vmalloc_area *area;
 	uintptr_t start;
 	uintptr_t end;
 	int ret;
 
+	alloc_check(mode);
 	if (size == 0)
 		return NULL;
 	BUG_ON(!vmalloc_ready);
@@ -174,7 +176,7 @@ void *vmalloc(size_t size)
 	area = vmalloc_find_free_area(size);
 	if (!area)
 		return NULL;
-	ret = vmalloc_split_area(area, size);
+	ret = vmalloc_split_area(area, size, mode);
 	if (ret < 0)
 		return NULL;
 
@@ -182,7 +184,7 @@ void *vmalloc(size_t size)
 	end = area->end;
 
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		void *page = get_free_page(0);
+		void *page = get_free_page(0, mode);
 
 		if (!page)
 			goto fail;
@@ -211,6 +213,7 @@ void vfree(void *ptr)
 	struct vmalloc_area *area;
 	uintptr_t start;
 
+	alloc_free_check();
 	start = (uintptr_t)ptr;
 	area = vmalloc_find_area(start);
 	if (!area)

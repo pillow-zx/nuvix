@@ -163,6 +163,14 @@ else ifeq ($(KERNEL_PANIC_CASE),wait-preempt-disabled)
 CFLAGS += -DKPANIC_CASE_WAIT_PREEMPT_DISABLED
 else ifeq ($(KERNEL_PANIC_CASE),wait-hard-irq)
 CFLAGS += -DKPANIC_CASE_WAIT_HARD_IRQ
+else ifeq ($(KERNEL_PANIC_CASE),alloc-held-lock)
+CFLAGS += -DKPANIC_CASE_ALLOC_HELD_LOCK
+else ifeq ($(KERNEL_PANIC_CASE),alloc-free-held-lock)
+CFLAGS += -DKPANIC_CASE_ALLOC_FREE_HELD_LOCK
+else ifeq ($(KERNEL_PANIC_CASE),alloc-hard-irq)
+CFLAGS += -DKPANIC_CASE_ALLOC_HARD_IRQ
+else ifeq ($(KERNEL_PANIC_CASE),alloc-sleepable-irq-off)
+CFLAGS += -DKPANIC_CASE_ALLOC_SLEEPABLE_IRQ_OFF
 endif
 else
 KERNEL_PANIC_OBJS =

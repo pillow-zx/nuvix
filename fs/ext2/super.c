@@ -200,7 +200,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 	uint32_t first_block = EXT2_BGDT_BLOCK(sbi->s_first_data_block);
 	uint8_t *dst;
 
-	sbi->s_group_desc = vmalloc(bytes);
+	sbi->s_group_desc = vmalloc(bytes, ALLOC_NOWAIT);
 	if (!sbi->s_group_desc)
 		return -ENOMEM;
 
@@ -236,7 +236,7 @@ static int ext2_read_super(struct super_block *sb)
 	if (!sb)
 		return -EINVAL;
 
-	es = kmalloc(sizeof(*es));
+	es = kmalloc(sizeof(*es), ALLOC_NOWAIT);
 	if (!es)
 		return -ENOMEM;
 
@@ -249,7 +249,7 @@ static int ext2_read_super(struct super_block *sb)
 	if (ret < 0)
 		return ret;
 
-	sbi = kmalloc(sizeof(*sbi));
+	sbi = kmalloc(sizeof(*sbi), ALLOC_NOWAIT);
 	if (!sbi)
 		return -ENOMEM;
 	memset(sbi, 0, sizeof(*sbi));
@@ -286,7 +286,7 @@ static int ext2_probe(dev_t dev)
 	struct ext2_super_block *es;
 	int ret;
 
-	es = kmalloc(sizeof(*es));
+	es = kmalloc(sizeof(*es), ALLOC_NOWAIT);
 	if (!es)
 		return -ENOMEM;
 

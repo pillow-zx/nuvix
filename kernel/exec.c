@@ -159,7 +159,7 @@ static int setup_user_stack(struct mm_struct *mm,
 			    const Elf64_Ehdr *ehdr, vaddr_t phdr_addr,
 			    vaddr_t *sp_out)
 {
-	void *stack = vmalloc(USER_STACK_SIZE);
+	void *stack = vmalloc(USER_STACK_SIZE, ALLOC_NOWAIT);
 	uintptr_t random_ptr;
 	uintptr_t execfn_ptr;
 	uint8_t random_bytes[16];
@@ -299,7 +299,7 @@ static int read_elf_phdr_table(struct exec_image *image, const Elf64_Ehdr *ehdr,
 	    phdr_bytes > image->size - ehdr->e_phoff)
 		return -ENOEXEC;
 
-	table->entries = kmalloc((size_t)phdr_bytes);
+	table->entries = kmalloc((size_t)phdr_bytes, ALLOC_NOWAIT);
 	if (!table->entries)
 		return -ENOMEM;
 
@@ -442,7 +442,7 @@ static int map_segment_page(struct exec_image *image, struct mm_struct *mm,
 	void *page;
 	int ret;
 
-	page = get_free_page(0);
+	page = get_free_page(0, ALLOC_NOWAIT);
 	if (!page)
 		return -ENOMEM;
 	memset(page, 0, PAGE_SIZE);
@@ -651,7 +651,7 @@ void exec_user_path(const char *path)
 	size_t len;
 	int ret;
 
-	args = kzalloc(sizeof(*args));
+	args = kzalloc(sizeof(*args), ALLOC_NOWAIT);
 	if (!args)
 		panic("exec: failed to allocate init args");
 

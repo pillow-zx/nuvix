@@ -16,7 +16,7 @@ int test_slab_basic(void)
 
 
 		for (int i = 0; i < SLAB_NR_CACHES; i++) {
-			ptrs[i] = kmalloc(sizes[i]);
+			ptrs[i] = kmalloc(sizes[i], ALLOC_NOWAIT);
 			TEST_ASSERT_NOT_NULL(ptrs[i]);
 			memset(ptrs[i], 0xAA, sizes[i]);
 		}
@@ -27,7 +27,7 @@ int test_slab_basic(void)
 
 
 		for (int i = 0; i < SLAB_NR_CACHES; i++) {
-			ptrs[i] = kmalloc(sizes[i]);
+			ptrs[i] = kmalloc(sizes[i], ALLOC_NOWAIT);
 			TEST_ASSERT_NOT_NULL(ptrs[i]);
 		}
 
@@ -56,7 +56,7 @@ int test_slab_cross_cache(void)
 		TEST_ASSERT(n <= 16);
 
 		for (int i = 0; i < n; i++) {
-			ptrs[i] = kmalloc(odd_sizes[i]);
+			ptrs[i] = kmalloc(odd_sizes[i], ALLOC_NOWAIT);
 			TEST_ASSERT_NOT_NULL(ptrs[i]);
 			memset(ptrs[i], 0xEE, odd_sizes[i]);
 		}
@@ -83,7 +83,7 @@ int test_slab_stress(void)
 			for (int i = 0; i < SLAB_STRESS_N; i++) {
 
 				size_t sz = 16 << (i % 8);
-				ptrs[i] = kmalloc(sz);
+				ptrs[i] = kmalloc(sz, ALLOC_NOWAIT);
 				TEST_ASSERT_NOT_NULL(ptrs[i]);
 				memset(ptrs[i], (uint8_t)round, sz);
 			}
@@ -115,7 +115,7 @@ int test_slab_returns_empty_page_to_buddy(void)
 
 		while (nr_ptrs < SLAB_RECLAIM_PTRS &&
 		       buddy_free_pages() == free_before) {
-			ptrs[nr_ptrs] = kmalloc(16);
+			ptrs[nr_ptrs] = kmalloc(16, ALLOC_NOWAIT);
 			TEST_ASSERT_NOT_NULL(ptrs[nr_ptrs]);
 			memset(ptrs[nr_ptrs], 0x5a, 16);
 			nr_ptrs++;
@@ -134,7 +134,7 @@ int test_slab_returns_empty_page_to_buddy(void)
 		kfree(ptrs[nr_ptrs - 1]);
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
 
-		ptrs[0] = kmalloc(16);
+		ptrs[0] = kmalloc(16, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(ptrs[0]);
 		kfree(ptrs[0]);
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
@@ -153,7 +153,7 @@ int test_kmalloc_large_alloc_free(void)
 	TEST_BEGIN("kmalloc: large alloc/free");
 	{
 		size_t free_before = buddy_free_pages();
-		void *ptr = kmalloc(3000);
+		void *ptr = kmalloc(3000, ALLOC_NOWAIT);
 
 		TEST_ASSERT_NOT_NULL(ptr);
 		memset(ptr, 0x6b, 3000);
@@ -176,7 +176,7 @@ int test_kzalloc_large_zeroes_requested_size(void)
 {
 	TEST_BEGIN("kzalloc: large zeroes requested size");
 	{
-		uint8_t *ptr = kzalloc(3000);
+		uint8_t *ptr = kzalloc(3000, ALLOC_NOWAIT);
 
 		TEST_ASSERT_NOT_NULL(ptr);
 		for (size_t i = 0; i < 3000; i++)
@@ -197,7 +197,8 @@ int test_kmalloc_oversize_preserves_free_count(void)
 	TEST_BEGIN("kmalloc: oversize preserves free count");
 	{
 		size_t free_before = buddy_free_pages();
-		void *ptr = kmalloc((size_t)PAGE_SIZE << MAX_ORDER);
+		void *ptr = kmalloc((size_t)PAGE_SIZE << MAX_ORDER,
+				    ALLOC_NOWAIT);
 
 		TEST_ASSERT_NULL(ptr);
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);

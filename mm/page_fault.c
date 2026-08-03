@@ -109,7 +109,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			return mapping_error ? mapping_error : -EIO;
 
 		if (!file_page) {
-			void *zero_page = get_free_page(0);
+			void *zero_page = get_free_page(0, ALLOC_NOWAIT);
 			int ret;
 
 			if (!zero_page)
@@ -149,7 +149,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			return 0;
 		}
 
-		void *page = get_free_page(0);
+		void *page = get_free_page(0, ALLOC_NOWAIT);
 		if (!page) {
 			page_cache_put_page(file_page);
 			return -ENOMEM;
@@ -174,7 +174,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		return 0;
 	}
 
-	void *page = get_free_page(0);
+	void *page = get_free_page(0, ALLOC_NOWAIT);
 	if (!page)
 		return -ENOMEM;
 

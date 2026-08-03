@@ -75,7 +75,8 @@ static int signal_frame_clone(struct task_struct *child,
 
 	for (source = signal_frame_top(parent); source;
 	     source = source->previous) {
-		struct signal_frame_state *copy = kmalloc(sizeof(*copy));
+		struct signal_frame_state *copy = kmalloc(sizeof(*copy),
+							 ALLOC_NOWAIT);
 
 		if (!copy) {
 			signal_clear_frames(child);
@@ -93,7 +94,7 @@ static int signal_frame_clone(struct task_struct *child,
 
 static struct signal_frame_state *signal_frame_alloc(uintptr_t sp, int sig)
 {
-	struct signal_frame_state *state = kmalloc(sizeof(*state));
+	struct signal_frame_state *state = kmalloc(sizeof(*state), ALLOC_NOWAIT);
 
 	if (!state)
 		return NULL;
@@ -203,7 +204,7 @@ uint64_t unblockable_mask(void)
 
 static struct sighand_struct *sighand_alloc(void)
 {
-	struct sighand_struct *sighand = kmalloc(sizeof(*sighand));
+	struct sighand_struct *sighand = kmalloc(sizeof(*sighand), ALLOC_NOWAIT);
 
 	if (!sighand)
 		return NULL;
@@ -247,7 +248,7 @@ static void sighand_put(struct sighand_struct *sighand)
 
 static struct signal_struct *signal_state_alloc(void)
 {
-	struct signal_struct *signal = kmalloc(sizeof(*signal));
+	struct signal_struct *signal = kmalloc(sizeof(*signal), ALLOC_NOWAIT);
 
 	if (!signal)
 		return NULL;
@@ -888,7 +889,7 @@ static int signal_map_trampoline(pte_t *pgd)
 	};
 
 	if (!trampoline_page) {
-		trampoline_page = get_free_page(0);
+		trampoline_page = get_free_page(0, ALLOC_NOWAIT);
 		if (!trampoline_page)
 			return -ENOMEM;
 		memset(trampoline_page, 0, PAGE_SIZE);

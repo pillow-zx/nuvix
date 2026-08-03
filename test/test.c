@@ -71,6 +71,10 @@ static const struct ktest_case slab_cases[] = {
 	KTEST_CASE(test_kmalloc_oversize_preserves_free_count),
 };
 
+static const struct ktest_case alloc_cases[] = {
+	KTEST_CASE(test_alloc_context_guards),
+};
+
 static const struct ktest_case vmalloc_cases[] = {
 	KTEST_CASE(test_vmalloc_alloc_writable_pages),
 	KTEST_CASE(test_vmalloc_vfree_reuses_range),
@@ -293,6 +297,8 @@ static const struct ktest_module memory_buddy_module =
 	KTEST_MODULE("buddy", buddy_cases);
 static const struct ktest_module memory_slab_module =
 	KTEST_MODULE("slab", slab_cases);
+static const struct ktest_module memory_alloc_module =
+	KTEST_MODULE("alloc", alloc_cases);
 static const struct ktest_module memory_vmalloc_module =
 	KTEST_MODULE("vmalloc", vmalloc_cases);
 static const struct ktest_module memory_pagetable_module =
@@ -354,6 +360,7 @@ static const struct ktest_module *const core_modules[] = {
 static const struct ktest_module *const memory_modules[] = {
 	&memory_buddy_module,
 	&memory_slab_module,
+	&memory_alloc_module,
 	&memory_vmalloc_module,
 	&memory_pagetable_module,
 	&memory_vma_module,

@@ -120,7 +120,7 @@ ssize_t sys_execve(struct trap_frame *tf)
 	ssize_t path_len;
 	int ret;
 
-	path = get_free_page(0);
+	path = get_free_page(0, ALLOC_NOWAIT);
 	if (!path)
 		return -ENOMEM;
 
@@ -131,7 +131,7 @@ ssize_t sys_execve(struct trap_frame *tf)
 	if (path_len == 0)
 		return -ENOENT;
 
-	args = kmalloc(sizeof(*args));
+	args = kmalloc(sizeof(*args), ALLOC_NOWAIT);
 	if (!args)
 		return -ENOMEM;
 

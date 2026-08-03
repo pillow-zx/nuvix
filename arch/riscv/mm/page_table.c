@@ -35,7 +35,7 @@ static void *early_alloc_page(void)
 
 static void *buddy_alloc_page(void)
 {
-	void *p = get_free_page(0);
+	void *p = get_free_page(0, ALLOC_NOWAIT);
 	if (p)
 		memset(p, 0, PAGE_SIZE);
 	return p;
@@ -205,7 +205,7 @@ void pagetable_init(void)
 {
 	extern char _end[];
 	paddr_t end_addr;
-	pte_t *root = nullptr;
+	pte_t *root = NULL;
 
 	end_addr = (paddr_t)_end;
 	early_alloc_ptr = (char *)ALIGN_UP(end_addr, PAGE_SIZE);

@@ -188,8 +188,13 @@ page cache 满 512 页时：
 2. 无 clean victim 时取 dirty 链表头执行 `page_cache_sync_page()` 单页写回，
    不检查引用与写回状态；已处于 writeback 的 dirty 页返回 `-EBUSY`。
 
-`dropped` 是保留字段，当前从不置位；关联移除路径改为清 dirty 并置
-`uptodate=false`。
+victim 在 `page_cache_lock` 内只从 hash/LRU/association/dirty 结构摘除并标记
+`dropped`；page、data page 和 association 对象在解锁后释放。page-cache miss 的
+page/data 以及 association 对象也都在锁外预分配，发布前在锁内重新检查物理 identity。
+当前仍没有 busy/in-flight 状态，因此这不是 SMP 并发填充协议。
+
+关联移除路径仍改为清 dirty 并置 `uptodate=false`；这只影响 mapping 关联，不会
+在 `page_cache_lock` 内释放物理 page。
 
 ## dirty list
 

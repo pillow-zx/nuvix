@@ -43,8 +43,8 @@ KPANIC_KERNEL = $(KPANIC_OUTROOT)/kernel/$(KERNEL_NAME)
 
 kpanic: check-gcc-version check-qemu-version
 	@case "$(CASE)" in \
-		preempt-underflow|preempt-overflow|spinlock-wrong-unlock|spinlock-recursive|spinlock-capacity|schedule-held-lock|schedule-preempt-disabled|wait-held-lock|wait-preempt-disabled|wait-hard-irq) ;; \
-		*) echo "ERROR: use CASE=preempt-underflow|preempt-overflow|spinlock-wrong-unlock|spinlock-recursive|spinlock-capacity|schedule-held-lock|schedule-preempt-disabled|wait-held-lock|wait-preempt-disabled|wait-hard-irq" >&2; exit 2 ;; \
+		preempt-underflow|preempt-overflow|spinlock-wrong-unlock|spinlock-recursive|spinlock-capacity|schedule-held-lock|schedule-preempt-disabled|wait-held-lock|wait-preempt-disabled|wait-hard-irq|alloc-held-lock|alloc-free-held-lock|alloc-hard-irq|alloc-sleepable-irq-off) ;; \
+		*) echo "ERROR: use CASE=preempt-underflow|preempt-overflow|spinlock-wrong-unlock|spinlock-recursive|spinlock-capacity|schedule-held-lock|schedule-preempt-disabled|wait-held-lock|wait-preempt-disabled|wait-hard-irq|alloc-held-lock|alloc-free-held-lock|alloc-hard-irq|alloc-sleepable-irq-off" >&2; exit 2 ;; \
 	esac
 	$(Q)$(MAKE) KERNEL_PANIC=1 KERNEL_PANIC_CASE="$(CASE)" \
 		OUTROOT="$(KPANIC_OUTROOT)" all

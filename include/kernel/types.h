@@ -41,7 +41,11 @@ typedef uint32_t		dev_t;
 typedef uintptr_t		paddr_t;
 typedef uintptr_t		vaddr_t;
 
+#if __STDC_VERSION__ >= 202311L
+#define NULL			nullptr
+#else
 #define NULL	                ((void *)0)
+#endif
 
 #define INT8_MIN                (-1 - 0x7f)
 #define INT16_MIN               (-1 - 0x7fff)

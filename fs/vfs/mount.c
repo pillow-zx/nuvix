@@ -31,7 +31,7 @@ int vfs_sync_all(void)
 	list_for_each_entry (mnt, &mount_list, mnt_list)
 		count++;
 	if (count != 0) {
-		mounts = kmalloc_array(count, sizeof(*mounts));
+		mounts = kmalloc_array(count, sizeof(*mounts), ALLOC_NOWAIT);
 		if (!mounts) {
 			mutex_unlock(&mount_lock);
 			return first_error < 0 ? first_error : -ENOMEM;
@@ -217,7 +217,7 @@ static int mount_add(const struct path *mountpoint, struct dentry *root,
 	if (!mountpoint || !mountpoint->dentry || !root || !sb)
 		return -EINVAL;
 
-	mnt = kmalloc(sizeof(*mnt));
+	mnt = kmalloc(sizeof(*mnt), ALLOC_NOWAIT);
 	if (!mnt)
 		return -ENOMEM;
 

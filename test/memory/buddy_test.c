@@ -8,7 +8,7 @@ int test_buddy_single_page(void)
 {
 	TEST_BEGIN("buddy: single page alloc/free");
 	{
-		void *p = get_free_page(0);
+		void *p = get_free_page(0, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(p);
 		TEST_ASSERT_ALIGNED(p, PAGE_SIZE);
 
@@ -37,7 +37,7 @@ int test_buddy_multi_order(void)
 			size_t size = (size_t)PAGE_SIZE << order;
 			size_t align = size;
 
-			ptrs[order] = get_free_page(order);
+			ptrs[order] = get_free_page(order, ALLOC_NOWAIT);
 			TEST_ASSERT_NOT_NULL(ptrs[order]);
 			TEST_ASSERT_ALIGNED(ptrs[order], align);
 
@@ -64,10 +64,10 @@ int test_buddy_merge(void)
 	TEST_BEGIN("buddy: buddy merging");
 	{
 
-		void *p0 = get_free_page(0);
-		void *p1 = get_free_page(0);
-		void *p2 = get_free_page(0);
-		void *p3 = get_free_page(0);
+		void *p0 = get_free_page(0, ALLOC_NOWAIT);
+		void *p1 = get_free_page(0, ALLOC_NOWAIT);
+		void *p2 = get_free_page(0, ALLOC_NOWAIT);
+		void *p3 = get_free_page(0, ALLOC_NOWAIT);
 
 		TEST_ASSERT_NOT_NULL(p0);
 		TEST_ASSERT_NOT_NULL(p1);
@@ -81,7 +81,7 @@ int test_buddy_merge(void)
 		free_page(p3, 0);
 
 
-		void *big = get_free_page(2);
+		void *big = get_free_page(2, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(big);
 		TEST_ASSERT_ALIGNED(big, (size_t)PAGE_SIZE << 2);
 
@@ -105,7 +105,7 @@ int test_buddy_stress(void)
 		for (int round = 0; round < 3; round++) {
 
 			for (int i = 0; i < BUDDY_STRESS_N; i++) {
-				ptrs[i] = get_free_page(0);
+				ptrs[i] = get_free_page(0, ALLOC_NOWAIT);
 				TEST_ASSERT_NOT_NULL(ptrs[i]);
 				memset(ptrs[i], (uint8_t)(round + i),
 				       PAGE_SIZE);
@@ -130,7 +130,7 @@ int test_buddy_split(void)
 	TEST_BEGIN("buddy: order split");
 	{
 
-		void *big = get_free_page(3);
+		void *big = get_free_page(3, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(big);
 
 
@@ -140,7 +140,7 @@ int test_buddy_split(void)
 
 		void *pages[8];
 		for (int i = 0; i < 8; i++) {
-			pages[i] = get_free_page(0);
+			pages[i] = get_free_page(0, ALLOC_NOWAIT);
 			TEST_ASSERT_NOT_NULL(pages[i]);
 		}
 
@@ -160,7 +160,7 @@ int test_buddy_over_order_preserves_free_count(void)
 	TEST_BEGIN("buddy: over-order preserves free count");
 	{
 		size_t free_before = buddy_free_pages();
-		void *ptr = get_free_page(MAX_ORDER + 1);
+		void *ptr = get_free_page(MAX_ORDER + 1, ALLOC_NOWAIT);
 
 		TEST_ASSERT_NULL(ptr);
 		TEST_ASSERT_EQ(buddy_free_pages(), free_before);
@@ -181,7 +181,7 @@ int test_buddy_multi_order_preserves_free_count(void)
 		size_t free_before = buddy_free_pages();
 
 		for (uint32_t order = 0; order <= 4; order++) {
-			ptrs[order] = get_free_page(order);
+			ptrs[order] = get_free_page(order, ALLOC_NOWAIT);
 			TEST_ASSERT_NOT_NULL(ptrs[order]);
 		}
 

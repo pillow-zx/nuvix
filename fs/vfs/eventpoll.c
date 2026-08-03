@@ -299,7 +299,7 @@ struct file *eventpoll_file_alloc(void)
 	struct eventpoll *ep __cleanup_with(eventpoll) = NULL;
 	struct file *file;
 
-	ep = kmalloc(sizeof(*ep));
+	ep = kmalloc(sizeof(*ep), ALLOC_NOWAIT);
 	if (!ep)
 		return NULL;
 
@@ -344,7 +344,7 @@ int eventpoll_ctl(struct file *epfile, int op, int fd, struct file *file,
 		if (!eventpoll_events_ok(event->events))
 			return -EINVAL;
 
-		item = kmalloc(sizeof(*item));
+	item = kmalloc(sizeof(*item), ALLOC_NOWAIT);
 		if (!item)
 			return -ENOMEM;
 

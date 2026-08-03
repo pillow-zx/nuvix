@@ -4,8 +4,8 @@ int test_map_page_first_table_oom_rolls_back(void)
 {
 	TEST_BEGIN("map_page: first table OOM rolls back");
 	{
-		pte_t *root = get_free_page(0);
-		void *page = get_free_page(0);
+		pte_t *root = get_free_page(0, ALLOC_NOWAIT);
+		void *page = get_free_page(0, ALLOC_NOWAIT);
 		size_t free_before;
 		int ret;
 
@@ -39,8 +39,8 @@ int test_map_page_second_table_oom_rolls_back(void)
 {
 	TEST_BEGIN("map_page: second table OOM rolls back");
 	{
-		pte_t *root = get_free_page(0);
-		void *page = get_free_page(0);
+		pte_t *root = get_free_page(0, ALLOC_NOWAIT);
+		void *page = get_free_page(0, ALLOC_NOWAIT);
 		size_t free_before;
 		int ret;
 

@@ -121,8 +121,8 @@ uint32_t nr_cpu_ids;
 
 `task_alloc()` 执行：
 
-1. `kmalloc(sizeof(struct task_struct))`
-2. `get_free_page(KSTACK_ORDER)` 分配 8 KiB 内核栈。
+1. `kmalloc(sizeof(struct task_struct), ALLOC_NOWAIT)`
+2. `get_free_page(KSTACK_ORDER, ALLOC_NOWAIT)` 分配 8 KiB 内核栈。
 3. `alloc_pid()` 分配 PID。
 4. 清零并初始化 task 字段。
 5. `arch_task_init()` 初始化架构状态。

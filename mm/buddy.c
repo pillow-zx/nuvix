@@ -129,11 +129,12 @@ void buddy_init(void)
 		(int)(nr_free_pages * PAGE_SIZE >> 20));
 }
 
-void *get_free_page(uint32_t order)
+void *get_free_page(uint32_t order, enum alloc_mode mode)
 {
 	struct list_head *node;
 	struct page *page;
 
+	alloc_check(mode);
 	if (order > MAX_ORDER)
 		return NULL;
 
@@ -184,6 +185,7 @@ void free_page(void *addr, uint32_t order)
 	size_t pfn;
 	struct page *page;
 
+	alloc_free_check();
 	if (order > MAX_ORDER)
 		panic("free_page: order %d > MAX_ORDER", order);
 

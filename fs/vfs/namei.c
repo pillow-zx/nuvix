@@ -349,7 +349,7 @@ static int follow_symlink(const struct path *dir, struct path *link,
 	}
 	ctx->symlink_depth++;
 
-	target = get_free_page(0);
+	target = get_free_page(0, ALLOC_NOWAIT);
 	if (!target) {
 		path_put(link);
 		return -ENOMEM;

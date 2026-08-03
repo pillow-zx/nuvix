@@ -656,7 +656,7 @@ int posix_timer_create(struct signal_struct *signal, clockid_t clock_id,
 	if (ret < 0)
 		return ret;
 
-	timer = kmalloc(sizeof(*timer));
+	timer = kmalloc(sizeof(*timer), ALLOC_NOWAIT);
 	if (!timer)
 		return -ENOMEM;
 

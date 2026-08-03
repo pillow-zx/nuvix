@@ -82,7 +82,7 @@ int unregister_filesystem(struct file_system_type *fs_type)
 
 struct super_block *super_alloc(struct file_system_type *fs_type, dev_t dev)
 {
-	struct super_block *sb = kmalloc(sizeof(*sb));
+	struct super_block *sb = kmalloc(sizeof(*sb), ALLOC_NOWAIT);
 	if (!sb)
 		return NULL;
 

@@ -3,7 +3,8 @@
 本文是阶段 1 的同步资料，按 `PLAN.md` §8.1 固化共享对象的第一版契约。
 它区分当前单 hart、不可抢占基线与后续目标：A/B 实现 CPU-local context
 查询、preempt 计数保护和 held-spinlock 诊断，C 收敛 scheduler 的上下文
-入口与 deferred reschedule 契约；wait 和 allocator 的策略入口仍待后续阶段。
+入口与 deferred reschedule 契约；allocator mode 和 page-cache 锁外清理也在本阶段
+收敛。stable wait session、timer cancel-sync 和完整 page-cache busy 协议仍待后续阶段。
 
 ## CPU-local context
 
@@ -77,8 +78,10 @@ reclaim 和 writeback。锁内只可更新由该锁线性化的状态，或取�
 - wait session、timer cancel-sync、exit/reaper 和 kernel stack 释放仍属于 F/G；
   当前 `wait_for()` 仍使用调用栈 session，但每个已注册 wait entry 已持有
   task lifecycle reference。
-- allocator 尚未接受 `ALLOC_NOWAIT` / `ALLOC_SLEEPABLE` mode；page cache、VFS、
-  scheduler 锁内分配/free/I/O 的全面审计属于 E/H。
+- allocator 已接受 `ALLOC_NOWAIT` / `ALLOC_SLEEPABLE` mode，所有现有生产调用点
+  当前明确使用 `ALLOC_NOWAIT`；需要 reclaim 或等待的例外尚未实现。
+- page-cache miss、association、eviction、truncate 和 invalidate 的分配/free
+  已完成锁外清理；busy/in-flight 和 SMP page-cache lifetime 仍属于后续阶段。
 - mm active CPU/TLB shootdown、SMP page cache busy/in-flight、block request
   异步 lifetime 和完整 lockdep 均未闭合。
 
@@ -99,11 +102,12 @@ cancellation 仍属于 F/G。
 
 ### Allocator
 
-目标接口显式传播 `ALLOC_NOWAIT` 或 `ALLOC_SLEEPABLE`：前者不得等待、reclaim、
-writeback 或可睡眠 I/O；后者要求 task context、IRQ enabled、preempt enabled、
-无 held spinlock。free API 虽没有 mode，也必须执行持锁和生命周期检查。当前
-allocator 尚未改签 mode，因此本文件只冻结规则，不把普通 allocator 宣称为
-hard-IRQ-safe。
+allocator 接口显式传播 `ALLOC_NOWAIT` 或 `ALLOC_SLEEPABLE`：前者只表示调用者
+不能依赖等待、reclaim、writeback 或可睡眠 I/O，且普通 allocator 仍拒绝 hard
+IRQ 和持有 spinlock 的上下文；后者要求 task context、IRQ enabled、preempt
+enabled、无 held spinlock。free API 虽没有 mode，也必须拒绝 hard IRQ 和持有
+spinlock 的上下文。所有 wrapper 和 vmalloc 内部 page allocation 都原样传播
+mode；当前没有 reclaim/wait adapter，因此现有调用点统一使用 `ALLOC_NOWAIT`。
 
 ### Scheduler
 
@@ -142,7 +146,8 @@ wait context 错误由独立 `make kpanic CASE=...` QEMU harness 触发，不并
 ## 验证与未闭合范围
 
 已验证：普通 kernel build、debug-off kernel build、kernel self-test，以及
-`wait-held-lock`、`wait-preempt-disabled`、`wait-hard-irq` 三个 wait context
-panic case。阶段 1 整体仍未完成；secondary hart、内核抢占、stable wait
-session、allocator mode、task reaper、page-cache/block 异步 lifetime、完整
-lockdep 以及 F/G/H/I-2 仍按 `TODO.md` 保持未完成。
+`wait-held-lock`、`wait-preempt-disabled`、`wait-hard-irq` 和 allocator context
+panic cases。allocator query/mode 传播放在 `memory/alloc` ktest 中覆盖；page-cache
+现有 allocation/free/writeback/invalidate 回归仍通过。阶段 1 整体仍未完成；
+secondary hart、内核抢占、stable wait session、task reaper、page-cache busy/in-flight
+和 block 异步 lifetime、完整 lockdep 以及 F/G/I-2 仍按 `TODO.md` 保持未完成。

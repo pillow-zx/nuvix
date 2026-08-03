@@ -69,14 +69,14 @@ DRAM_BASE + DRAM_SIZE
 
 ```c
 void buddy_init(void);
-void *get_free_page(uint32_t order);
+void *get_free_page(uint32_t order, enum alloc_mode mode);
 void free_page(void *addr, uint32_t order);
 struct page *virt_to_page(const void *addr);
 ```
 
 `bootmem_end()` 由架构层提供，声明于 `arch/riscv/include/arch/page.h`。
 
-`get_free_page(order)` 返回直接映射区内核虚拟地址。`free_page()` 会检查：
+`get_free_page(order, mode)` 返回直接映射区内核虚拟地址。`free_page()` 会检查：
 
 - 地址非空且页对齐。
 - 地址属于 DRAM 直接映射范围。
@@ -87,6 +87,12 @@ struct page *virt_to_page(const void *addr);
 
 这些检查让底层分配错误尽早 panic，而不是静默破坏 free list。
 
+所有普通 allocator 都通过 `include/kernel/alloc.h` 接受显式 mode。`ALLOC_NOWAIT`
+允许不依赖等待的 bootstrap、idle、IRQ-off task 或禁抢占路径，但普通 allocator
+仍拒绝 hard IRQ 和持有 spinlock 的上下文；它不宣称 hard-IRQ-safe。`ALLOC_SLEEPABLE`
+只允许 IRQ-enabled、可抢占、无持有 spinlock 的 task context。free API 虽不接受
+mode，也执行 hard-IRQ 和 held-spinlock 检查。
+
 ## 小对象分配：slab/kmalloc
 
 `slab_init()` 在 buddy 之后运行。slab 提供 8 个固定 size class：
@@ -95,7 +101,7 @@ struct page *virt_to_page(const void *addr);
 16, 32, 64, 128, 256, 512, 1024, 2048
 ```
 
-`kmalloc(size)` 选择第一个可容纳请求大小的 cache。cache 空时，从 buddy 分配 1 页并切成 slot。每个 slot 前有 `kmalloc_header`，用于 `kfree()` 判断对象来源和 double free。
+`kmalloc(size, mode)` 选择第一个可容纳请求大小的 cache。cache 空时，从 buddy 分配 1 页并切成 slot。每个 slot 前有 `kmalloc_header`，用于 `kfree()` 判断对象来源和 double free。`kzalloc()` 和 `kmalloc_array()` 原样传播 mode。
 
 大于 2048 字节的请求走 large allocation：按页阶从 buddy 分配，header 记录 order。
 
@@ -103,7 +109,7 @@ struct page *virt_to_page(const void *addr);
 
 ```c
 void slab_init(void);
-void *kmalloc(size_t size);
+void *kmalloc(size_t size, enum alloc_mode mode);
 void kfree(void *ptr);
 ```
 
@@ -117,7 +123,7 @@ slab 页会在 `struct page` 上设置 `PG_SLAB`，因此不能通过 `free_page
 
 ```c
 void vmalloc_init(void);
-void *vmalloc(size_t size);
+void *vmalloc(size_t size, enum alloc_mode mode);
 void vfree(void *addr);
 ```
 

@@ -62,9 +62,10 @@ static int find_cache(size_t size)
 	return -1;
 }
 
-static void refill_cache(struct kmem_cache *cache, uint32_t cache_idx)
+static void refill_cache(struct kmem_cache *cache, uint32_t cache_idx,
+			 enum alloc_mode mode)
 {
-	void *page = get_free_page(0);
+	void *page = get_free_page(0, mode);
 	struct slab_page_header *slab;
 	struct page *meta;
 	uintptr_t cursor;
@@ -154,7 +155,7 @@ static uint32_t kmalloc_large_order(size_t size)
 	return MAX_ORDER + 1;
 }
 
-static void *kmalloc_large(size_t size)
+static void *kmalloc_large(size_t size, enum alloc_mode mode)
 {
 	uint32_t order = kmalloc_large_order(size);
 	struct kmalloc_header *hdr;
@@ -162,7 +163,7 @@ static void *kmalloc_large(size_t size)
 	if (order > MAX_ORDER)
 		return NULL;
 
-	hdr = get_free_page(order);
+	hdr = get_free_page(order, mode);
 	if (!hdr)
 		return NULL;
 
@@ -184,18 +185,19 @@ void slab_init(void)
 	pr_info("slab: %d caches initialized (16..2048 bytes)\n", NR_CACHES);
 }
 
-void *kmalloc(size_t size)
+void *kmalloc(size_t size, enum alloc_mode mode)
 {
+	alloc_check(mode);
 	int idx = find_cache(size);
 	if (size == 0)
 		return NULL;
 	if (idx < 0)
-		return kmalloc_large(size);
+		return kmalloc_large(size, mode);
 
 	struct kmem_cache *cache = &caches[idx];
 
 	if (list_empty(&cache->free_list)) {
-		refill_cache(cache, (uint32_t)idx);
+		refill_cache(cache, (uint32_t)idx, mode);
 		if (list_empty(&cache->free_list))
 			return NULL;
 	}
@@ -217,6 +219,7 @@ void *kmalloc(size_t size)
 
 void kfree(void *ptr)
 {
+	alloc_free_check();
 	if (!ptr)
 		return;
 

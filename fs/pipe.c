@@ -203,13 +203,13 @@ static void pipe_commit_write_locked(struct pipe_buffer *pipe, const char *buf,
 
 static struct pipe_buffer *pipe_buffer_alloc(void)
 {
-	struct pipe_buffer *pipe = kmalloc(sizeof(*pipe));
+	struct pipe_buffer *pipe = kmalloc(sizeof(*pipe), ALLOC_NOWAIT);
 	if (!pipe)
 		return NULL;
 
 	memset(pipe, 0, sizeof(*pipe));
 	pipe->lock = (spinlock_t)SPINLOCK_INIT;
-	pipe->data = get_free_page(0);
+	pipe->data = get_free_page(0, ALLOC_NOWAIT);
 	if (!pipe->data) {
 		kfree(pipe);
 		return NULL;
@@ -463,7 +463,7 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 
 		if (!buffer) {
 			spin_unlock_irqrestore(&pipe->lock, flags);
-			buffer = get_free_page(0);
+			buffer = get_free_page(0, ALLOC_NOWAIT);
 			if (!buffer)
 				return done ? (ssize_t)done : -ENOMEM;
 			continue;

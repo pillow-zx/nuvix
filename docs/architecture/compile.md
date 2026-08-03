@@ -70,9 +70,11 @@ LIB_OBJS
 `test/io/memory_fixture.[ch]` 提供的内存 block/file fixture，因此不会触发
 `scripts/userspace.mk`、ext2 镜像制作或 BusyBox 构建。
 
-held-lock 和 `preempt_count` 的不可恢复错误由独立的 `make kpanic
-CASE=<case>` harness 验证。它为每个 case 使用独立的 `build/kpanic/<case>`
-输出目录，在 QEMU 中观察预期 panic；可用 case 为
+held-lock、`preempt_count` 和 allocator context 的不可恢复错误由独立的
+`make kpanic CASE=<case>` harness 验证。它为每个 case 使用独立的
+`build/kpanic/<case>` 输出目录，在 QEMU 中观察预期 panic；allocator 相关
+case 包括 `alloc-held-lock`、`alloc-free-held-lock`、`alloc-hard-irq` 和
+`alloc-sleepable-irq-off`；其余 context case 包括
 `preempt-underflow`、`preempt-overflow`、`spinlock-wrong-unlock`、
 `spinlock-recursive` 和 `spinlock-capacity`。这些故障注入不属于 `make ci`。
 

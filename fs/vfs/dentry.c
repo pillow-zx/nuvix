@@ -41,7 +41,7 @@ struct dentry *dentry_alloc(struct dentry *parent, const char *name,
 	if (!name || namelen > VFS_NAME_MAX)
 		return NULL;
 
-	struct dentry *dentry = kmalloc(sizeof(*dentry));
+	struct dentry *dentry = kmalloc(sizeof(*dentry), ALLOC_NOWAIT);
 	if (!dentry)
 		return NULL;
 

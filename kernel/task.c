@@ -87,7 +87,8 @@ static int child_stop_status(int sig)
 static struct task_child_event_record *
 task_child_event_alloc(enum task_child_event_type type, int status)
 {
-	struct task_child_event_record *event = kzalloc(sizeof(*event));
+	struct task_child_event_record *event =
+		kzalloc(sizeof(*event), ALLOC_NOWAIT);
 
 	BUG_ON(!event);
 	INIT_LIST_HEAD(&event->node);
@@ -340,11 +341,12 @@ void cpu_boot_init(struct task_struct *idle)
 
 struct task_struct *task_alloc(void)
 {
-	struct task_struct *task = kmalloc(sizeof(struct task_struct));
+	struct task_struct *task =
+		kmalloc(sizeof(struct task_struct), ALLOC_NOWAIT);
 	if (!task)
 		return NULL;
 
-	void *kstack = get_free_page(KSTACK_ORDER);
+	void *kstack = get_free_page(KSTACK_ORDER, ALLOC_NOWAIT);
 	if (!kstack) {
 		kfree(task);
 		return NULL;

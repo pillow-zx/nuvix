@@ -339,7 +339,8 @@ static void free_user_page_tables(pte_t *pgd)
 
 struct mm_struct *mm_alloc(void)
 {
-	struct mm_struct *mm = kmalloc(sizeof(struct mm_struct));
+	struct mm_struct *mm =
+		kmalloc(sizeof(struct mm_struct), ALLOC_NOWAIT);
 	if (!mm)
 		return NULL;
 
@@ -441,7 +442,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 				continue;
 
 			uintptr_t old_pa = pte_phys_addr(*pte);
-			void *new_page = get_free_page(0);
+			void *new_page = get_free_page(0, ALLOC_NOWAIT);
 			if (!new_page) {
 				mm_unlock(oldmm);
 				mm_destroy(newmm);
@@ -487,7 +488,7 @@ pte_t *mm_create_user_pgd(void)
 	pte_t *kern_root;
 	int ret;
 
-	user_pgd = (pte_t *)get_free_page(0);
+	user_pgd = (pte_t *)get_free_page(0, ALLOC_NOWAIT);
 	if (!user_pgd)
 		return NULL;
 	memset(user_pgd, 0, PAGE_SIZE);
@@ -1302,7 +1303,7 @@ int mm_add_stack(struct mm_struct *mm, const void *stack, size_t stack_size)
 	vma->vm_type = VMA_STACK;
 	vma->used = true;
 	for (size_t offset = 0; offset < stack_size; offset += PAGE_SIZE) {
-		void *page = get_free_page(0);
+		void *page = get_free_page(0, ALLOC_NOWAIT);
 
 		if (!page) {
 			ret = -ENOMEM;

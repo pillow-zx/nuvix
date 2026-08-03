@@ -1,6 +1,8 @@
 #include <kernel/cpu.h>
+#include <kernel/alloc.h>
 #include <kernel/printk.h>
 #include <kernel/sched.h>
+#include <kernel/slab.h>
 #include <kernel/spinlock.h>
 #include <kernel/test.h>
 #include <kernel/wait.h>
@@ -16,7 +18,11 @@
 	!defined(KPANIC_CASE_SCHEDULE_PREEMPT_DISABLED) && \
 	!defined(KPANIC_CASE_WAIT_HELD_LOCK) && \
 	!defined(KPANIC_CASE_WAIT_PREEMPT_DISABLED) && \
-	!defined(KPANIC_CASE_WAIT_HARD_IRQ)
+	!defined(KPANIC_CASE_WAIT_HARD_IRQ) && \
+	!defined(KPANIC_CASE_ALLOC_HELD_LOCK) && \
+	!defined(KPANIC_CASE_ALLOC_FREE_HELD_LOCK) && \
+	!defined(KPANIC_CASE_ALLOC_HARD_IRQ) && \
+	!defined(KPANIC_CASE_ALLOC_SLEEPABLE_IRQ_OFF)
 #error "KERNEL_PANIC_TEST requires a valid KERNEL_PANIC_CASE"
 #endif
 
@@ -100,6 +106,40 @@ void kernel_panic_test_run(void)
 	irq_enter();
 	ret = wait_for(NULL, 0, &deadline, &outcome);
 	(void)ret;
+#elif defined(KPANIC_CASE_ALLOC_HELD_LOCK)
+	spinlock_t lock = SPINLOCK_INIT;
+	irq_flags_t flags;
+	void *ptr;
+
+	pr_info("[KPANIC] case=alloc-held-lock\n");
+	spin_lock_init(&lock);
+	spin_lock_irqsave(&lock, &flags);
+	ptr = kmalloc(16, ALLOC_NOWAIT);
+	(void)ptr;
+#elif defined(KPANIC_CASE_ALLOC_FREE_HELD_LOCK)
+	spinlock_t lock = SPINLOCK_INIT;
+	irq_flags_t flags;
+	void *ptr;
+
+	pr_info("[KPANIC] case=alloc-free-held-lock\n");
+	ptr = kmalloc(16, ALLOC_NOWAIT);
+	spin_lock_init(&lock);
+	spin_lock_irqsave(&lock, &flags);
+	kfree(ptr);
+#elif defined(KPANIC_CASE_ALLOC_HARD_IRQ)
+	void *ptr;
+
+	pr_info("[KPANIC] case=alloc-hard-irq\n");
+	irq_enter();
+	ptr = kmalloc(16, ALLOC_NOWAIT);
+	(void)ptr;
+#elif defined(KPANIC_CASE_ALLOC_SLEEPABLE_IRQ_OFF)
+	void *ptr;
+
+	pr_info("[KPANIC] case=alloc-sleepable-irq-off\n");
+	local_irq_disable();
+	ptr = kmalloc(16, ALLOC_SLEEPABLE);
+	(void)ptr;
 #endif
 
 	panic("kpanic case returned without triggering its assertion\n");

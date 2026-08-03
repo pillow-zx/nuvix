@@ -159,7 +159,7 @@ int tty_ctty_clone_attachment(struct task_struct *parent,
 	session = parent_attachment->session;
 	mutex_unlock(&console_tty.lock);
 
-	child_attachment = kzalloc(sizeof(*child_attachment));
+	child_attachment = kzalloc(sizeof(*child_attachment), ALLOC_NOWAIT);
 	if (!child_attachment)
 		return -ENOMEM;
 	INIT_LIST_HEAD(&child_attachment->node);
@@ -238,7 +238,7 @@ int tty_ctty_claim(struct tty_endpoint *tty, struct task_struct *task,
 	if (!tty || !leader || sid <= 0 || pgid <= 0)
 		return -EINVAL;
 
-	fresh = kzalloc(sizeof(*fresh));
+	fresh = kzalloc(sizeof(*fresh), ALLOC_NOWAIT);
 	if (!fresh)
 		return -ENOMEM;
 	INIT_LIST_HEAD(&fresh->node);

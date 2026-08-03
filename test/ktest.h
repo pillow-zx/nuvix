@@ -38,6 +38,7 @@ int test_slab_returns_empty_page_to_buddy(void);
 int test_kmalloc_large_alloc_free(void);
 int test_kzalloc_large_zeroes_requested_size(void);
 int test_kmalloc_oversize_preserves_free_count(void);
+int test_alloc_context_guards(void);
 
 int test_trap_frame_layout(void);
 int test_trap_from_user(void);

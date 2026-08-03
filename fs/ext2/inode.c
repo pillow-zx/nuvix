@@ -432,7 +432,7 @@ int ext2_read_inode(struct inode *inode)
 	if (!inode || !inode->i_sb)
 		return -EINVAL;
 
-	ei = kmalloc(sizeof(*ei));
+	ei = kmalloc(sizeof(*ei), ALLOC_NOWAIT);
 	if (!ei)
 		return -ENOMEM;
 	memset(ei, 0, sizeof(*ei));

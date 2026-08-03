@@ -24,7 +24,7 @@ static void fs_set_initial_root(struct fs_struct *fs)
 
 struct fs_struct *fs_alloc(void)
 {
-	struct fs_struct *fs = kmalloc(sizeof(*fs));
+	struct fs_struct *fs = kmalloc(sizeof(*fs), ALLOC_NOWAIT);
 
 	if (!fs)
 		return NULL;

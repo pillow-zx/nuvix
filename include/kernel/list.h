@@ -81,8 +81,8 @@ static inline void __list_del(struct list_head *prev,
 static inline void list_del(struct list_head *entry)
 {
 	__list_del(entry->prev, entry->next);
-	entry->prev = nullptr;
-	entry->next = nullptr;
+	entry->prev = NULL;
+	entry->next = NULL;
 }
 
 static inline void list_del_init(struct list_head *entry)

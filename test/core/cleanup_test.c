@@ -260,7 +260,7 @@ int test_cleanup_kfree_scope(void)
 
 	free_before = buddy_free_pages();
 	{
-		void *ptr __cleanup_with(kfree) = kmalloc(3000);
+	void *ptr __cleanup_with(kfree) = kmalloc(3000, ALLOC_NOWAIT);
 
 		TEST_ASSERT_NOT_NULL(ptr);
 		memset(ptr, 0x42, 3000);

@@ -6,6 +6,7 @@
 #ifndef _CUTEOS_KERNEL_BUDDY_H
 #define _CUTEOS_KERNEL_BUDDY_H
 
+#include <kernel/alloc.h>
 #include <kernel/types.h>
 #include <kernel/page.h>
 #include <kernel/list.h>
@@ -49,10 +50,11 @@ void buddy_init(void);
 /**
  * @brief Allocate a physically contiguous power-of-two page block.
  * @param order Buddy order; allocation size is PAGE_SIZE << order.
+ * @param mode Context permission for the allocation.
  * @return Direct-map virtual address of the block, or NULL.
  */
 __must_check __malloc
-void *get_free_page(uint32_t order);
+void *get_free_page(uint32_t order, enum alloc_mode mode);
 
 
 /**

@@ -200,7 +200,7 @@ static int printk_log_wait_for_unread(void)
 
 ssize_t printk_log_read(void *buffer, size_t size)
 {
-	char *snapshot __cleanup_with(kfree) = nullptr;
+	char *snapshot __cleanup_with(kfree) = NULL;
 	irq_flags_t flags;
 	uint64_t sequence;
 	size_t copied;
@@ -212,7 +212,7 @@ ssize_t printk_log_read(void *buffer, size_t size)
 		return 0;
 	if (size > PRINTK_LOG_BUF_SIZE)
 		size = PRINTK_LOG_BUF_SIZE;
-	snapshot = kmalloc(size);
+	snapshot = kmalloc(size, ALLOC_NOWAIT);
 	if (!snapshot)
 		return -ENOMEM;
 
@@ -247,7 +247,7 @@ unlock:
 
 ssize_t printk_log_read_all(void *buffer, size_t size, bool clear)
 {
-	char *snapshot __cleanup_with(kfree) = nullptr;
+	char *snapshot __cleanup_with(kfree) = NULL;
 	irq_flags_t flags;
 	uint64_t sequence;
 	uint64_t clear_to;
@@ -259,7 +259,7 @@ ssize_t printk_log_read_all(void *buffer, size_t size, bool clear)
 	if (size > PRINTK_LOG_BUF_SIZE)
 		size = PRINTK_LOG_BUF_SIZE;
 	if (size != 0) {
-		snapshot = kmalloc(size);
+		snapshot = kmalloc(size, ALLOC_NOWAIT);
 		if (!snapshot)
 			return -ENOMEM;
 	}

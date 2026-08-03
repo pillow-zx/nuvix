@@ -207,9 +207,9 @@ int test_trap_user_return_task_setup(void)
 	{
 		TEST_ASSERT(sched_test_runqueue_empty());
 
-		code_page = get_free_page(0);
+		code_page = get_free_page(0, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(code_page);
-		stack_page = vmalloc(USER_STACK_SIZE);
+		stack_page = vmalloc(USER_STACK_SIZE, ALLOC_NOWAIT);
 		TEST_ASSERT_NOT_NULL(stack_page);
 
 		memset(stack_page, 0, USER_STACK_SIZE);

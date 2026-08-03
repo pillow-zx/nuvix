@@ -119,7 +119,7 @@ static int wait_session_init(struct wait_watch_set *session,
 	session->entries = &session->inline_entry;
 	if (capacity > 1) {
 		session->entries =
-			kmalloc(sizeof(*session->entries) * capacity);
+			kmalloc(sizeof(*session->entries) * capacity, ALLOC_NOWAIT);
 		if (!session->entries)
 			return -ENOMEM;
 	}

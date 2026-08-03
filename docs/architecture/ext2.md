@@ -58,7 +58,7 @@ struct ext2_sb_info {
 };
 ```
 
-block group descriptor table 通过 `vmalloc()` 分配并读入内存。metadata block 的读取使用块设备 page cache：
+block group descriptor table 通过 `vmalloc(bytes, ALLOC_NOWAIT)` 分配并读入内存。metadata block 的读取使用块设备 page cache：
 
 ```c
 page_cache_get_block(sb->s_dev, block)
