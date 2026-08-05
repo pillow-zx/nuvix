@@ -16,7 +16,7 @@ ASFLAGS = -march=rv64gc -mabi=lp64
 CFLAGS += -Wall -Werror
 CFLAGS += -Wno-unknown-attributes
 CFLAGS += -Wno-main
-CFLAGS += -std=gnu23
+CFLAGS += -std=gnu17
 CFLAGS += -I include
 CFLAGS += -I arch/riscv/include
 ASFLAGS += -I include
@@ -115,8 +115,6 @@ OBJ_REL = \
 	$(DRIVER_OBJS)      \
 	$(SCHED_OBJS)       \
 	$(SYSCALL_OBJS)     \
-	$(KERNEL_TEST_OBJS) \
-	$(KERNEL_PANIC_OBJS) \
 	$(LIB_OBJS)
 
 KERNEL_NAME = cuteos

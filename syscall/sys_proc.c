@@ -12,18 +12,25 @@
 ssize_t sys_getpid(struct trap_frame *tf)
 {
 	(void)tf;
-	return (ssize_t)task_tgid(current_task());
+	return current_task()->proc && current_task()->proc->pid
+		       ? (ssize_t)current_task()->proc->pid->nr
+		       : 0;
 }
 
 ssize_t sys_getppid(struct trap_frame *tf)
 {
-	struct task_struct *parent = task_parent(current_task());
+	struct proc_struct *parent;
+	pid_t ppid;
 
 	(void)tf;
+	if (!current_task()->proc)
+		return 0;
+	parent = proc_parent_get(current_task()->proc);
 	if (!parent)
 		return 0;
-
-	return (ssize_t)task_pid(parent);
+	ppid = parent->pid ? parent->pid->nr : 0;
+	proc_put(parent);
+	return ppid;
 }
 
 ssize_t sys_getuid(struct trap_frame *tf)
@@ -35,7 +42,7 @@ ssize_t sys_getuid(struct trap_frame *tf)
 ssize_t sys_geteuid(struct trap_frame *tf)
 {
 	(void)tf;
-	return task_uid(current_task());
+	return task_euid(current_task());
 }
 
 ssize_t sys_getgid(struct trap_frame *tf)
@@ -47,13 +54,13 @@ ssize_t sys_getgid(struct trap_frame *tf)
 ssize_t sys_getegid(struct trap_frame *tf)
 {
 	(void)tf;
-	return task_gid(current_task());
+	return task_egid(current_task());
 }
 
 ssize_t sys_gettid(struct trap_frame *tf)
 {
 	(void)tf;
-	return (ssize_t)task_pid(current_task());
+	return current_task()->tid ? (ssize_t)current_task()->tid->nr : 0;
 }
 
 /*
@@ -65,29 +72,8 @@ ssize_t sys_gettid(struct trap_frame *tf)
 ssize_t sys_getpgid(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
-	struct task_struct *task;
-	struct task_process_identity identity;
-	bool put_task = false;
-	int ret;
 
-	if (pid < 0)
-		return -ESRCH;
-
-	if (pid == 0)
-		task = current_task();
-	else {
-		task = task_find_group_leader((pid_t)pid);
-		put_task = true;
-	}
-	if (!task)
-		return -ESRCH;
-
-	ret = task_process_snapshot(task, &identity);
-	if (put_task)
-		task_put(task);
-	if (ret < 0)
-		return ret;
-	return (ssize_t)identity.pgid;
+	return session_process_getpgid((pid_t)pid);
 }
 
 /*
@@ -100,29 +86,8 @@ ssize_t sys_getpgid(struct trap_frame *tf)
 ssize_t sys_getsid(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
-	struct task_struct *task;
-	struct task_process_identity identity;
-	bool put_task = false;
-	int ret;
 
-	if (pid < 0)
-		return -ESRCH;
-
-	if (pid == 0)
-		task = current_task();
-	else {
-		task = task_find_group_leader((pid_t)pid);
-		put_task = true;
-	}
-	if (!task)
-		return -ESRCH;
-
-	ret = task_process_snapshot(task, &identity);
-	if (put_task)
-		task_put(task);
-	if (ret < 0)
-		return ret;
-	return (ssize_t)identity.sid;
+	return session_process_getsid((pid_t)pid);
 }
 
 /*

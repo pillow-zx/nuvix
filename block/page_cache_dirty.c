@@ -2,7 +2,7 @@
 
 #include "internal.h"
 
-void page_cache_clear_dirty_locked(struct page_cache *page)
+void pgcache_clear_dirty_locked(struct pgcache *page)
 {
 	if (!page)
 		return;
@@ -11,17 +11,17 @@ void page_cache_clear_dirty_locked(struct page_cache *page)
 	page->dirty = false;
 }
 
-void page_cache_clear_dirty(struct page_cache *page)
+void pgcache_clear_dirty(struct pgcache *page)
 {
 	irq_flags_t flags;
 	if (!page)
 		return;
 	spin_lock_irqsave(&pgcache_lock, &flags);
-	page_cache_clear_dirty_locked(page);
+	pgcache_clear_dirty_locked(page);
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 }
 
-void page_cache_mark_dirty(struct page_cache *page)
+void pgcache_mark_dirty(struct pgcache *page)
 {
 	irq_flags_t flags;
 	if (!page)
@@ -34,23 +34,23 @@ void page_cache_mark_dirty(struct page_cache *page)
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 }
 
-struct page_cache *page_cache_dirty_any(void)
+struct pgcache *pgcache_dirty_any(void)
 {
-	struct page_cache *page;
+	struct pgcache *page;
 	irq_flags_t flags;
 
 	spin_lock_irqsave(&pgcache_lock, &flags);
-	page = page_cache_dirty_any_locked();
+	page = pgcache_dirty_any_locked();
 	if (page)
 		page->refcount++;
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	return page;
 }
 
-struct page_cache *page_cache_dirty_any_locked(void)
+struct pgcache *pgcache_dirty_any_locked(void)
 {
 	if (list_empty(&pgcache_dirty_list))
 		return NULL;
-	return list_first_entry(&pgcache_dirty_list, struct page_cache,
+	return list_first_entry(&pgcache_dirty_list, struct pgcache,
 				dirty_node);
 }

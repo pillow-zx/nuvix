@@ -9,13 +9,7 @@
 #define __has_attribute(x) 0
 #endif
 
-#ifndef __has_c_attribute
-#define __has_c_attribute 0
-#endif
-
-#if __has_c_attribute(gnu::packed)
-#define __packed           [[gnu::packed]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(packed)
 #define __packed	   __attribute__((__packed__))
 #else
@@ -23,9 +17,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::aligned)
-#define __aligned(x)       [[gnu::aligned((x))]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(aligned)
 #define __aligned(x)	   __attribute__((__aligned__(x)))
 #else
@@ -33,9 +25,8 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::used)
-#define __used             [[gnu::used]]
-#elif defined(__GNUC__) || defined(__clang__)
+
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(used)
 #define __used		   __attribute__((__used__))
 #else
@@ -43,10 +34,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::unused)
-#define __unused           [[gnu::unused]]
-#define __maybe_unused     [[gnu::unused]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(unused)
 #define __unused	   __attribute__((__unused__))
 #define __maybe_unused	   __attribute__((__unused__))
@@ -56,9 +44,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::warn_unused_result)
-#define __must_check       [[gnu::warn_unused_result]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(warn_unused_result)
 #define __must_check	   __attribute__((__warn_unused_result__))
 #else
@@ -66,9 +52,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::noreturn)
-#define __noreturn         [[gnu::noreturn]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(noreturn)
 #define __noreturn	   __attribute__((__noreturn__))
 #else
@@ -76,9 +60,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::always_inline)
-#define __always_inline	   [[gnu::always_inline]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(always_inline)
 #define __always_inline	   __attribute__((__always_inline__))
 #else
@@ -86,9 +68,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::noinline)
-#define __noinline [[gnu::noinline]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(noinline)
 #define __noinline	   __attribute__((__noinline__))
 #else
@@ -96,9 +76,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::hot)
-#define __hot              [[gnu::hot]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(hot)
 #define __hot		   __attribute__((__hot__))
 #else
@@ -106,9 +84,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::cold)
-#define __cold	           [[gnu::cold]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(cold)
 #define __cold		   __attribute__((__cold__))
 #else
@@ -116,9 +92,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::alias)
-#define __alias(str)       [[gnu::alias(#str)]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(alias)
 #define __alias(str)	   __attribute__((__alias__(#str)))
 #else
@@ -126,9 +100,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::pure)
-#define __pure             [[gnu::pure]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(pure)
 #define __pure		   __attribute__((__pure__))
 #else
@@ -136,9 +108,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::const)
-#define __const            [[gnu::const]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(const)
 #define __const		   __attribute__((__const__))
 #else
@@ -146,9 +116,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::section)
-#define __section(_section) [[gnu::section(_section)]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(section)
 #define __section(section) __attribute__((__section__(section)))
 #else
@@ -156,9 +124,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::weak)
-#define __weak             [[gnu::weak]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(weak)
 #define __weak		   __attribute__((__weak__))
 #else
@@ -166,9 +132,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::format)
-#define __printf(a, b)     [[gnu::format(printf, a, b)]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(format)
 #define __printf(a, b)	   __attribute__((__format__(printf, a, b)))
 #else
@@ -176,9 +140,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::malloc)
-#define __malloc           [[gnu::malloc]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(malloc)
 #define __malloc           __attribute__((__malloc__))
 #else
@@ -186,9 +148,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::alloc_size)
-#define __alloc_size(...) [[gnu::alloc_size(__VA_ARGS__)]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(alloc_size)
 #define __alloc_size(...)       __attribute__((__alloc_size__(__VA_ARGS__)))
 #else
@@ -196,9 +156,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::returns_nonnull)
-#define __returns_nonnull [[gnu::returns_nonnull]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(returns_nonnull)
 #define __returns_nonnull __attribute__((__returns_nonnull__))
 #else
@@ -206,9 +164,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::nonnull)
-#define __nonnull(...) [[gnu::nonnull(__VA_ARGS__)]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(nonnull)
 #define __nonnull(...) __attribute__((__nonnull__(__VA_ARGS__)))
 #else
@@ -216,10 +172,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::access)
-#define __access(mode, ref, size)   [[gnu::access(mode, ref, size)]]
-#define __access_no_size(mode, ref) [[gnu::access(mode, ref)]]
-#elif defined(__GNUC__)
+#if defined(__GNUC__) || defined (__clang__)
 #if __has_attribute(access)
 #define __access(mode, ref, size)                                              \
 	__attribute__((__access__(mode, ref, size)))
@@ -230,9 +183,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::cleanup)
-#define __cleanup(func) [[gnu::cleanup(func)]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(cleanup)
 #define __cleanup(func) __attribute__((__cleanup__(func)))
 #else
@@ -240,9 +191,7 @@
 #endif
 #endif
 
-#if __has_c_attribute(gnu::deprecated)
-#define __deprecated(msg) [[gnu::deprecated(msg)]]
-#elif defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(deprecated)
 #define __deprecated(msg) __attribute__((__deprecated__(msg)))
 #else

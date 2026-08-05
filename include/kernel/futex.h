@@ -37,28 +37,28 @@ __must_check __pure
 static inline int *
 task_clear_child_tid(struct task_struct *task)
 {
-	return task ? task->sigctx.clear_child_tid : NULL;
+	return task ? task->signal.clear_child_tid : NULL;
 }
 
 static inline void task_set_clear_child_tid(struct task_struct *task,
 						     int *uaddr)
 {
 	if (task)
-		task->sigctx.clear_child_tid = uaddr;
+		task->signal.clear_child_tid = uaddr;
 }
 
 __must_check __pure
 static inline struct robust_list_head *
 task_robust_list(struct task_struct *task)
 {
-	return task ? task->sigctx.robust_list : NULL;
+	return task ? task->signal.robust_list : NULL;
 }
 
 __must_check __pure
 static inline size_t
 task_robust_list_len(struct task_struct *task)
 {
-	return task ? task->sigctx.robust_list_len : 0;
+	return task ? task->signal.robust_list_len : 0;
 }
 
 static inline void task_set_robust_list(struct task_struct *task,
@@ -67,8 +67,8 @@ static inline void task_set_robust_list(struct task_struct *task,
 {
 	if (!task)
 		return;
-	task->sigctx.robust_list = head;
-	task->sigctx.robust_list_len = len;
+	task->signal.robust_list = head;
+	task->signal.robust_list_len = len;
 }
 
 void futex_init(void);

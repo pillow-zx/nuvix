@@ -1,4 +1,4 @@
-# Build workflows: emulator, self-tests, developer tools, and cleanup.
+# Build workflows: emulator, user-space tests, developer tools, and cleanup.
 
 MIN_QEMU_VERSION = 7.2
 
@@ -35,38 +35,10 @@ qemu-gdb: check-gcc-version $(KERNEL) $(KERNEL_IMG) .gdbinit
 	@echo "*** Now run 'gdb' in another window (target remote :$(GDBPORT))." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
-TEST_OUTROOT ?= build/test
-TEST_KERNEL = $(TEST_OUTROOT)/kernel/$(KERNEL_NAME)
-
-KPANIC_OUTROOT ?= build/kpanic/$(CASE)
-KPANIC_KERNEL = $(KPANIC_OUTROOT)/kernel/$(KERNEL_NAME)
-
-kpanic: check-gcc-version check-qemu-version
-	@case "$(CASE)" in \
-		preempt-underflow|preempt-overflow|spinlock-wrong-unlock|spinlock-recursive|spinlock-capacity|schedule-held-lock|schedule-preempt-disabled|wait-held-lock|wait-preempt-disabled|wait-hard-irq|alloc-held-lock|alloc-free-held-lock|alloc-hard-irq|alloc-sleepable-irq-off) ;; \
-		*) echo "ERROR: use CASE=preempt-underflow|preempt-overflow|spinlock-wrong-unlock|spinlock-recursive|spinlock-capacity|schedule-held-lock|schedule-preempt-disabled|wait-held-lock|wait-preempt-disabled|wait-hard-irq|alloc-held-lock|alloc-free-held-lock|alloc-hard-irq|alloc-sleepable-irq-off" >&2; exit 2 ;; \
-	esac
-	$(Q)$(MAKE) KERNEL_PANIC=1 KERNEL_PANIC_CASE="$(CASE)" \
-		OUTROOT="$(KPANIC_OUTROOT)" all
-	$(Q)scripts/tools/run-kernel-panic.sh \
-		"$(QEMU)" "$(KPANIC_KERNEL)" "$(CONFIG_DRAM_SIZE_MB)" \
-		"$(CPUS)" "$(CASE)"
-
-ktest: check-gcc-version check-qemu-version
-	$(Q)$(MAKE) KERNEL_SELFTEST=1 OUTROOT=$(TEST_OUTROOT) \
-		TEST_OUTROOT=$(TEST_OUTROOT) all
-	$(Q)scripts/tools/run-kernel-tests.sh \
-		"$(QEMU)" "$(TEST_KERNEL)" \
-		"$(CONFIG_DRAM_SIZE_MB)" "$(CPUS)"
-
 utest: check-gcc-version check-qemu-version $(KERNEL) $(UTEST_IMG)
 	$(Q)scripts/tools/run-user-tests.sh \
 		"$(QEMU)" "$(KERNEL)" "$(UTEST_IMG)" \
 		"$(CONFIG_DRAM_SIZE_MB)" "$(CPUS)"
-
-ci:
-	$(Q)$(MAKE) ktest
-	$(Q)$(MAKE) utest
 
 print-gdbport:
 	@echo $(GDBPORT)
@@ -108,11 +80,8 @@ help:
 	@printf '  make defconfig               Reset .config from configs/cuteos_defconfig\n'
 	@printf '  make menuconfig              Configure build options\n'
 	@printf '  make qemu                    Build image and boot QEMU\n'
-	@printf '  make ktest                   Run diskless kernel self-test regression suite\n'
-	@printf '  make kpanic CASE=<case>      Run one expected-panic diagnostic case\n'
 	@printf '  make utest-build             Build user-space test ELFs and rootfs image\n'
 	@printf '  make utest                   Boot the user-space regression suite\n'
-	@printf '  make check                   Run kernel and user-space regression suites\n'
 	@printf '  make qemu-gdb                Boot QEMU paused with GDB stub\n'
 	@printf '  make .gdbinit                Generate GDB startup file\n'
 	@printf '  make user                    Build user-space ELFs only\n'
@@ -142,6 +111,6 @@ clean: clean-user clean-kernel
 
 FORCE:
 
-.PHONY: help qemu qemu-gdb ktest kpanic utest check check-qemu-version print-gdbport \
+.PHONY: help qemu qemu-gdb utest check-qemu-version print-gdbport \
 	print-toolprefix
 .PHONY: tags gtags clean FORCE

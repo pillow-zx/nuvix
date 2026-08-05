@@ -50,7 +50,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm);
  * @return RISC-V satp value, or 0 for NULL.
  */
 __must_check
-uintptr_t mm_user_satp(const struct mm_struct *mm);
+uintptr_t mm_pgroot(const struct mm_struct *mm);
 
 __must_check
 int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident);

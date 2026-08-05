@@ -5,13 +5,14 @@
 #include <kernel/errno.h>
 #include <kernel/blkdev.h>
 #include <kernel/fdtable.h>
+#include <kernel/proc.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 
 static struct files_struct *current_files(void)
 {
-	return task_files_safe(current_task());
+	return current_task()->proc ? current_task()->proc->files : NULL;
 }
 
 struct files_struct *files_alloc(void)
@@ -203,25 +204,35 @@ void files_close_on_exec(struct files_struct *files)
 		file_put(closing[fd]);
 }
 
-int files_unshare_for_exec(struct task_struct *task)
+int files_prepare_exec(const struct proc_struct *proc,
+			       struct files_struct **prepared)
 {
 	struct files_struct *old;
-	struct files_struct *files;
 
-	if (!task)
+	if (!proc || !prepared)
 		return -EINVAL;
+	*prepared = NULL;
 
-	old = task_files_safe(task);
-	if (!old || refcount_read(&old->refcount) == 1)
-		return 0;
-
-	files = files_dup(old);
-	if (!files)
+	old = proc->files;
+	*prepared = files_dup(old);
+	if (!*prepared)
 		return -ENOMEM;
-
-	task_set_files(task, files);
-	files_put(old);
 	return 0;
+}
+
+void files_commit_exec(struct proc_struct *proc,
+			       struct files_struct *prepared)
+{
+	struct files_struct *old;
+
+	BUG_ON(!proc || !prepared);
+	old = proc_replace_files(proc, prepared);
+	files_put(old);
+}
+
+void files_abort_exec(struct files_struct *prepared)
+{
+	files_put(prepared);
 }
 
 int fd_close(int fd)
@@ -347,53 +358,56 @@ int fd_dup2(int oldfd, int newfd, int cloexec)
 	return newfd;
 }
 
-int init_files(struct task_struct *task)
+int init_files(struct proc_struct *proc)
 {
-	if (!task)
+	struct files_struct *files;
+	struct files_struct *old;
+
+	if (!proc)
 		return -EINVAL;
 
-	task_set_files(task, files_alloc());
-	if (!task_files_safe(task))
+	files = files_alloc();
+	if (!files)
 		return -ENOMEM;
 
-	files_install_standard_fds(task_files_safe(task));
+	files_install_standard_fds(files);
+	old = proc_replace_files(proc, files);
+	files_put(old);
 	return 0;
 }
 
-int copy_files(struct task_struct *child, bool share)
+int copy_files(const struct proc_struct *source, struct proc_struct *dest,
+		       bool share)
 {
 	struct files_struct *files;
+	struct files_struct *old;
 
-	if (!child)
+	if (!dest)
 		return -EINVAL;
 
 	if (share) {
-		files = task_files_safe(current_task());
+		files = source ? source->files : NULL;
 		if (!files)
-			return init_files(child);
+			return init_files(dest);
 		files_get(files);
 	} else {
-		files = files_dup(task_files_safe(current_task()));
+		files = files_dup(source ? source->files : NULL);
 		if (!files)
 			return -ENOMEM;
 	}
 
-	close_files(child);
-	task_set_files(child, files);
+	old = proc_replace_files(dest, files);
+	files_put(old);
 	return 0;
 }
 
-void close_files(struct task_struct *task)
+void close_files(struct proc_struct *proc)
 {
 	struct files_struct *files;
 
-	if (!task)
+	if (!proc)
 		return;
 
-	files = task_files_safe(task);
-	if (!files)
-		return;
-
+	files = proc_replace_files(proc, NULL);
 	files_put(files);
-	task_set_files(task, NULL);
 }

@@ -10,6 +10,8 @@
  * must stay Linux-compatible.
  */
 
+#define CSIGNAL 0x000000ff
+
 #define CLONE_NEWTIME	     0x00000080
 #define CLONE_VM	     0x00000100
 #define CLONE_FS	     0x00000200

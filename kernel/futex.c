@@ -7,10 +7,9 @@
 #include <kernel/task.h>
 #include <kernel/wait.h>
 #include <kernel/processor.h>
-#include <kernel/uaccess_arch.h>
 
-constexpr int32_t FUTEX_BUCKETS = 32;
-constexpr int32_t ROBUST_LIST_LIMIT = 2048;
+#define FUTEX_BUCKETS		32
+#define ROBUST_LIST_LIMIT	2048
 
 struct futex_key {
 	struct mm_struct *mm;
@@ -19,12 +18,11 @@ struct futex_key {
 
 struct futex_waiter {
 	struct futex_key key;
-	struct wait_channel wait;
 	struct list_head node;
+	struct task_struct *task;
+	uint64_t generation;
 	uint32_t bitset;
 	bool woken;
-	bool owner_ref;
-	refcount_t refs;
 };
 
 struct futex_bucket {
@@ -32,60 +30,27 @@ struct futex_bucket {
 	struct list_head waiters;
 };
 
-struct futex_wait_ctx {
-	struct futex_bucket *bucket;
-	struct futex_waiter *waiter;
-	int *uaddr;
-	int expected;
-};
-
 static struct futex_bucket futex_buckets[FUTEX_BUCKETS];
 
-static bool futex_waiter_get(struct futex_waiter *waiter)
+static void futex_waiter_detach(struct futex_bucket *bucket,
+				struct futex_waiter *waiter)
 {
-	return waiter && refcount_inc_not_zero(&waiter->refs);
-}
-
-static void futex_waiter_put(struct futex_waiter *waiter)
-{
-	if (waiter && refcount_dec_and_test(&waiter->refs))
-		kfree(waiter);
-}
-
-static void futex_waiter_detach(struct futex_wait_ctx *ctx)
-{
-	struct futex_waiter *waiter;
-	struct futex_bucket *bucket;
 	irq_flags_t flags;
-	bool release_owner = false;
 
-	if (!ctx || !ctx->waiter || !ctx->bucket)
+	if (!bucket || !waiter)
 		return;
-
-	waiter = ctx->waiter;
-	bucket = ctx->bucket;
 	spin_lock_irqsave(&bucket->lock, &flags);
 	if (!list_empty(&waiter->node))
 		list_del_init(&waiter->node);
-	if (waiter->owner_ref) {
-		waiter->owner_ref = false;
-		release_owner = true;
-	}
 	spin_unlock_irqrestore(&bucket->lock, flags);
-
-	if (release_owner)
-		futex_waiter_put(waiter);
-}
-
-static void futex_wait_cancel(void *arg)
-{
-	futex_waiter_detach(arg);
 }
 
 void futex_init(void)
 {
 	for (int i = 0; i < FUTEX_BUCKETS; i++) {
-		spin_lock_init(&futex_buckets[i].lock);
+		/* Bucket lock ranks with wait channels: wake paths hand a
+		 * target off to wait_wake_event() outside the bucket lock. */
+		spin_lock_init(&futex_buckets[i].lock, LOCK_RANK_WAIT_CHANNEL);
 		INIT_LIST_HEAD(&futex_buckets[i].waiters);
 	}
 }
@@ -118,96 +83,70 @@ static int futex_make_key(struct mm_struct *mm, int *uaddr,
 
 static int futex_read_user_value_checked(int *uaddr, int *value)
 {
-	if (!access_ok(uaddr, sizeof(*uaddr)))
+	if (!uaddr || !value || !access_ok(uaddr, sizeof(*uaddr)))
 		return -EFAULT;
-
-	bool had_sum = user_access_begin();
-
-	*value = *(volatile int *)uaddr;
-	user_access_end(had_sum);
+	if (copy_from_user(value, uaddr, sizeof(*value)) != 0)
+		return -EFAULT;
 	return 0;
 }
 
-static int futex_wait_check(struct wait_session *session, void *arg)
-{
-	struct futex_wait_ctx *ctx = arg;
-	struct futex_waiter *waiter = ctx->waiter;
-	irq_flags_t flags;
-	int ret;
-	int value;
-	bool newly_queued = false;
-
-	spin_lock_irqsave(&ctx->bucket->lock, &flags);
-	if (waiter->woken) {
-		ret = 1;
-		goto out;
-	}
-
-	if (list_empty(&waiter->node)) {
-		ret = futex_read_user_value_checked(ctx->uaddr, &value);
-		if (ret < 0)
-			goto out;
-		if (value != ctx->expected) {
-			ret = -EAGAIN;
-			goto out;
-		}
-		list_add_tail(&waiter->node, &ctx->bucket->waiters);
-		newly_queued = true;
-	}
-
-	ret = wait_session_watch(session, &waiter->wait);
-	if (ret < 0 && newly_queued)
-		list_del_init(&waiter->node);
-out:
-	spin_unlock_irqrestore(&ctx->bucket->lock, flags);
-	return ret;
-}
-
 static int futex_wait(int *uaddr, int expected, uint32_t bitset,
-		      const struct wait_deadline *deadline)
+			      const struct wait_deadline *deadline)
 {
 	struct futex_key key;
 	struct futex_bucket *bucket;
-	struct futex_waiter *waiter;
-	struct futex_wait_ctx wait_ctx;
-	struct wait_request source = {.kind = WAIT_KIND_FUTEX};
+	struct futex_waiter waiter;
+	struct task_wait *wait = &current_task()->wait;
 	wait_outcome_t outcome;
+	irq_flags_t flags;
+	int value;
 	int ret;
 
 	if (bitset == 0)
 		return -EINVAL;
 
-	ret = futex_make_key(task_mm(current_task()), uaddr, &key);
+	ret = futex_make_key(current_task()->proc ? current_task()->proc->mm : NULL,
+			    uaddr, &key);
 	if (ret < 0)
 		return ret;
 	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0)
 		return -EFAULT;
 
 	bucket = futex_bucket_for(&key);
-	waiter = kmalloc(sizeof(*waiter), ALLOC_NOWAIT);
-	if (!waiter)
-		return -ENOMEM;
-	memset(waiter, 0, sizeof(*waiter));
-	waiter->key = key;
-	waiter->bitset = bitset;
-	waiter->owner_ref = true;
-	refcount_set(&waiter->refs, 1);
-	wait_channel_init(&waiter->wait);
-	INIT_LIST_HEAD(&waiter->node);
-	wait_ctx.bucket = bucket;
-	wait_ctx.waiter = waiter;
-	wait_ctx.uaddr = uaddr;
-	wait_ctx.expected = expected;
-	source.kind = WAIT_KIND_FUTEX;
-	source.check = futex_wait_check;
-	source.cancel = futex_wait_cancel;
-	source.arg = &wait_ctx;
-	source.channel_limit = 1;
+	ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, deadline);
+	if (ret < 0)
+		return ret;
+	memset(&waiter, 0, sizeof(waiter));
+	waiter.key = key;
+	waiter.bitset = bitset;
+	waiter.task = current_task();
+	waiter.generation = wait->generation;
+	INIT_LIST_HEAD(&waiter.node);
+	ret = futex_read_user_value_checked(uaddr, &value);
+	if (ret < 0)
+		goto finish_wait;
+	spin_lock_irqsave(&bucket->lock, &flags);
+	if (value != expected) {
+		spin_unlock_irqrestore(&bucket->lock, flags);
+		ret = -EAGAIN;
+		goto finish_wait;
+	}
+	list_add_tail(&waiter.node, &bucket->waiters);
+	spin_unlock_irqrestore(&bucket->lock, flags);
+	ret = futex_read_user_value_checked(uaddr, &value);
+	if (ret < 0)
+		goto detach_waiter;
+	if (value != expected) {
+		ret = -EAGAIN;
+		goto detach_waiter;
+	}
+	ret = wait_block(wait, &outcome);
 
-	futex_waiter_get(waiter);
-	ret = wait_for_interruptible(&source, deadline, &outcome);
-	futex_waiter_detach(&wait_ctx);
-	futex_waiter_put(waiter);
+detach_waiter:
+	futex_waiter_detach(bucket, &waiter);
+
+finish_wait:
+	wait_finish(wait);
 
 	if (ret < 0)
 		return ret;
@@ -241,8 +180,9 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 	bucket = futex_bucket_for(&key);
 
 	while (woken < nr) {
-		struct futex_waiter *selected = NULL;
+		struct task_struct *target = NULL;
 		struct list_head *pos;
+		uint64_t generation = 0;
 
 		spin_lock_irqsave(&bucket->lock, &flags);
 		list_for_each (pos, &bucket->waiters) {
@@ -255,18 +195,21 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 				continue;
 			if (waiter->woken)
 				continue;
-			BUG_ON(!futex_waiter_get(waiter));
+			if (!task_try_get(waiter->task))
+				continue;
 			waiter->woken = true;
-			selected = waiter;
+			list_del_init(&waiter->node);
+			target = waiter->task;
+			generation = waiter->generation;
 			break;
 		}
 		spin_unlock_irqrestore(&bucket->lock, flags);
 
-		if (!selected)
+		if (!target)
 			break;
-		if (wait_channel_wake_one(&selected->wait))
+		if (wait_wake_event(target, generation))
 			woken++;
-		futex_waiter_put(selected);
+		task_put(target);
 	}
 
 	return woken;
@@ -284,7 +227,8 @@ static int futex_wake(int *uaddr, int nr, uint32_t bitset)
 
 	if (bitset == 0)
 		return -EINVAL;
-	ret = futex_make_key(task_mm(current_task()), uaddr, &key);
+	ret = futex_make_key(current_task()->proc ? current_task()->proc->mm : NULL,
+			    uaddr, &key);
 	if (ret < 0)
 		return ret;
 	if (!access_ok(uaddr, sizeof(*uaddr)))
@@ -301,7 +245,7 @@ static void robust_wake_owner(struct task_struct *task,
 	int new_value;
 	int *uaddr;
 
-	if (!task || !task_mm(task) || !node)
+	if (!task || !task->proc || !task->proc->mm || !node)
 		return;
 
 	addr = (uintptr_t)node + (uintptr_t)futex_offset;
@@ -310,14 +254,15 @@ static void robust_wake_owner(struct task_struct *task,
 	uaddr = (int *)addr;
 	if (copy_from_user(&old_value, uaddr, sizeof(old_value)) != 0)
 		return;
-	if (((uint32_t)old_value & FUTEX_TID_MASK) != (uint32_t)task_pid(task))
+	if (((uint32_t)old_value & FUTEX_TID_MASK) !=
+	    (uint32_t)(task->tid ? task->tid->nr : 0))
 		return;
 
 	new_value = (old_value & FUTEX_WAITERS) | FUTEX_OWNER_DIED;
 	if (copy_to_user(uaddr, &new_value, sizeof(new_value)) != 0)
 		return;
 
-	if (futex_wake_mm(task_mm(task), uaddr, 1) < 0)
+	if (futex_wake_mm(task->proc->mm, uaddr, 1) < 0)
 		return;
 }
 

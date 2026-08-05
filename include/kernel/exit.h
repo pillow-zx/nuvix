@@ -8,6 +8,7 @@
 
 #include <kernel/types.h>
 #include <kernel/task.h>
+#include <kernel/proc.h>
 
 /**
  * @brief Terminate the current task with a normal userspace exit code.
@@ -30,7 +31,8 @@ void do_exit_group(int code);
 __noreturn
 void do_exit_signal(int sig);
 
-void reap_exited_threads(void);
+/** Start the non-exiting kernel reaper task. */
+int task_reaper_start(void);
 
 /**
  * @struct wait4_result
@@ -43,7 +45,7 @@ void reap_exited_threads(void);
  * - @c status: Linux wait status.
  */
 struct wait4_result {
-	struct task_child_event_claim claim;
+	struct proc_wait_claim claim;
 	struct task_cputime cputime;
 	pid_t pid;
 	int status;

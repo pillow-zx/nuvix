@@ -27,7 +27,7 @@ I/O 和 ABI 契约应当闭合，并不意味着当前项目承诺完整 Linux �
 | 硬件机制 | ISA、异常、IRQ、timer、IPI、页表和内存序 | RISC-V trap、`sfence.vma` |
 | 通用内核机制 | 生命周期、同步、状态机和共享服务 | task、wait queue、VFS、page cache |
 | 策略接缝 | 可替换行为的稳定接口及其不变量 | scheduler、block dispatch |
-| 默认策略 | 当前系统实际使用的一套选择规则和参数 | MLFQ、当前分配与写回方案 |
+| 默认策略 | 当前系统实际使用的一套选择规则和参数 | FIFO RR、当前分配与写回方案 |
 | ABI/用户语义 | 用户程序可观察的布局、错误和时序 | syscall、signal frame、ELF |
 
 机制层不应知道默认策略的内部字段；策略层不应绕过通用对象的生命周期和同步
@@ -41,7 +41,7 @@ I/O 和 ABI 契约应当闭合，并不意味着当前项目承诺完整 Linux �
 | 领域 | 当前状态 | 长期目标 |
 | --- | --- | --- |
 | CPU | 只启动 hart 0，从核启动阶段 park | SMP 多核、per-CPU 状态、IPI 和远程唤醒 |
-| 调度 | 全局四级 MLFQ，用户返回点可按 timer 请求切换 | 通用调度机制加可替换策略，支持迁移和负载管理 |
+| 调度 | per-CPU FIFO RR（固定时间片），用户返回点可按 timer 请求切换 | 通用调度机制加可替换策略，支持迁移和负载管理 |
 | 内核抢占 | 未实现；内核路径不可抢占 | 完整的 preempt/IRQ/sleep 契约和内核抢占 |
 | 内存 | Sv39、固定 VMA 数组、延迟缺页、复制式 fork | 共享 mm 并发、uaccess、COW、TLB shootdown 和可扩展 MM 机制 |
 | 存储 | VFS、ext2、page cache、virtio-blk，主要为轮询 I/O | 并发安全的文件系统、页缓存、请求生命周期和 I/O 策略接缝 |
@@ -110,10 +110,8 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验
 | `make user-rootfs` | 构建交互式用户态 rootfs |
 | `make user-image` | 构建包含用户态 rootfs 的 ext2 镜像 |
 | `make qemu` | 构建镜像并启动 QEMU |
-| `make ktest` | 在无磁盘 QEMU 中使用内存 fixture 运行内核自测 |
 | `make utest-build` | 构建用户态测试 ELF 和专用 rootfs 镜像 |
 | `make utest` | 从测试 rootfs 启动用户态回归套件，验证真实存储栈 |
-| `make ci` | 串行运行内核和用户态回归套件 |
 | `make qemu-gdb` | 启动带 GDB stub 的暂停 QEMU |
 | `make analyze` | 运行 GCC analyzer 和额外诊断 |
 | `make clean` | 删除构建产物 |
@@ -123,17 +121,14 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验
 
 ### 测试边界
 
-`make ktest` 只验证内核机制、生命周期、错误路径和接口契约。需要后端的
-page-cache、writeback 和文件映射测试使用内存 block/file fixture，不初始化
-真实文件系统、virtio-blk 或 rootfs。ext2 磁盘格式、路径树、挂载以及驱动与
-文件系统的底层集成由 `make utest` 中的用户程序验证；普通 `make qemu` 仍使用
-ext2 rootfs 和 virtio-blk 启动。
+内核不再内置 kernel self-test。ext2 磁盘格式、路径树、挂载以及驱动与文件
+系统的底层集成由 `make utest` 中的用户程序验证，普通 `make qemu` 使用 ext2
+rootfs 和 virtio-blk 启动。module interface 的 host 单元测试计划在不启动内核
+的前提下运行。
 
 ## 代码与文档导航
 
-- [CONTEXT.md](CONTEXT.md)：维护者和编码代理使用的架构契约、稳定边界、并发规则和修改顺序。
 - [SYSCALL.md](SYSCALL.md)：syscall 成熟度、语义边界、已知缺口和优先级。
-- `docs/architecture/`：boot、trap、调度、时间、日志、内存、VFS、block 和 ext2 的详细设计。
 - [AGENTS.md](AGENTS.md)：贡献、ABI、构建、测试和自动化修改规则。
 - `include/kernel/`：通用内核接口、对象契约和跨子系统类型。
 - `include/uapi/`：用户可见的 syscall、结构、常量和 ABI 定义。

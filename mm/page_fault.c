@@ -63,7 +63,8 @@ static void signal_or_panic_segv(struct trap_frame *tf, int code)
 
 	panic("kernel page fault: type=%s addr=%p sepc=%p pid=%d",
 	      trap_fault_name(tf), (void *)trap_fault_addr(tf),
-	      (void *)trap_user_pc(tf), task_pid(current_task()));
+	      (void *)trap_user_pc(tf),
+	      current_task()->proc ? current_task()->proc->pid->nr : 0);
 }
 
 static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
@@ -79,7 +80,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		return -EFAULT;
 
 	page_addr = fault_addr & PAGE_MASK;
-	existing = pagetable_lookup(mm->pgd, page_addr);
+	existing = pgtable_lookup(mm->pgd, page_addr);
 
 	if (existing && pte_is_present(*existing)) {
 		if (pte_allows_fault(access, *existing)) {
@@ -93,13 +94,13 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 	}
 
 	if (vma->vm_file) {
-		struct page_cache *file_page;
+		struct pgcache *file_page;
 		uint64_t page_index;
 		pgprot_t pte_flags;
 		int mapping_error = 0;
 
 		page_index = vma_page_index(vma, page_addr);
-		file_page = page_cache_get_mapping(
+		file_page = pgcache_get_mapping(
 			&vma->vm_file->f_inode->i_pages, page_index,
 			PAGE_CACHE_READ |
 			((vma->vm_shared && (vma->vm_flags & VM_WRITE)) ?
@@ -141,7 +142,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 				__pa((uintptr_t)page_cache_data(file_page)),
 				pte_flags);
 			if (ret < 0) {
-				page_cache_put_page(file_page);
+				pgcache_put_page(file_page);
 				return ret;
 			}
 			flush_tlb_page(page_addr);
@@ -151,7 +152,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 
 		void *page = get_free_page(0, ALLOC_NOWAIT);
 		if (!page) {
-			page_cache_put_page(file_page);
+			pgcache_put_page(file_page);
 			return -ENOMEM;
 		}
 
@@ -163,7 +164,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 
 			memset((uint8_t *)page + keep, 0, PAGE_SIZE - keep);
 		}
-		page_cache_put_page(file_page);
+		pgcache_put_page(file_page);
 		int ret = map_page(mm->pgd, page_addr, __pa((uintptr_t)page),
 				   pte_flags);
 		if (ret < 0) {
@@ -253,7 +254,7 @@ void do_page_fault(struct trap_frame *tf)
 	vaddr_t fault_addr = trap_fault_addr(tf);
 	const char *fault_name = trap_fault_name(tf);
 	bool from_user_mode = trap_frame_from_user(tf);
-	struct mm_struct *mm = task_mm(current_task());
+	struct mm_struct *mm = current_task()->proc ? current_task()->proc->mm : NULL;
 	int access = (int)trap_fault_access(tf);
 	pte_t fault_pte = 0;
 	int ret;
@@ -273,7 +274,8 @@ void do_page_fault(struct trap_frame *tf)
 
 	if (ret == -ENOMEM) {
 		pr_err("page fault: OOM at addr=%p pid=%d\n",
-		       (void *)fault_addr, task_pid(current_task()));
+		       (void *)fault_addr,
+		       current_task()->proc ? current_task()->proc->pid->nr : 0);
 		do_exit(1);
 		unreachable();
 	}
@@ -289,7 +291,7 @@ void do_page_fault(struct trap_frame *tf)
 			fault_name, (void *)fault_addr,
 			(void *)trap_user_pc(tf),
 			from_user_mode ? "user" : "kernel",
-			task_pid(current_task()));
+			current_task()->proc ? current_task()->proc->pid->nr : 0);
 		signal_or_panic_segv(tf, SEGV_MAPERR);
 		return;
 	}
@@ -304,7 +306,7 @@ void do_page_fault(struct trap_frame *tf)
 			fault_name, (void *)fault_addr, vm_flags,
 			(void *)trap_user_pc(tf),
 			from_user_mode ? "user" : "kernel",
-			task_pid(current_task()));
+			 current_task()->proc ? current_task()->proc->pid->nr : 0);
 		signal_or_panic_segv(tf, SEGV_ACCERR);
 		return;
 	}
@@ -314,6 +316,6 @@ void do_page_fault(struct trap_frame *tf)
 		"type=%s addr=%p pte=0x%lx sepc=%p origin=%s pid=%d\n",
 		fault_name, (void *)fault_addr, (size_t)fault_pte,
 		(void *)trap_user_pc(tf), from_user_mode ? "user" : "kernel",
-		task_pid(current_task()));
+		current_task()->proc ? current_task()->proc->pid->nr : 0);
 	signal_or_panic_segv(tf, SEGV_ACCERR);
 }

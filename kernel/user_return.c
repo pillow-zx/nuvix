@@ -5,28 +5,29 @@
 #include <kernel/user_return.h>
 #include <kernel/exit.h>
 #include <kernel/rseq.h>
+#include <kernel/proc.h>
 #include <kernel/signal.h>
 #include <kernel/trap.h>
 #include <uapi/signal.h>
 
-#ifdef KERNEL_SELFTEST
-static user_return_test_hook_t user_return_test_hook;
-
-void user_return_set_test_hook(user_return_test_hook_t hook)
-{
-	user_return_test_hook = hook;
-}
-#endif
-
 void user_return_work(struct trap_frame *tf)
 {
+	int group_status;
+
+	if (current_task()->proc &&
+	    proc_group_exit_pending(current_task()->proc, &group_status)) {
+		if (group_status & 0x7f)
+			do_exit_signal(group_status & 0x7f);
+		do_exit_group((group_status >> 8) & 0xff);
+	}
+
+	if (task_exec_exit_requested(current_task()))
+		do_exit(0);
+
 	if (rseq_resume_user(tf) < 0)
 		do_exit_signal(SIGSEGV);
 
-#ifdef KERNEL_SELFTEST
-	if (user_return_test_hook)
-		user_return_test_hook(tf);
-#endif
+	signal_write_child_tid(current_task());
 
 	do_signal(tf);
 	trap_disable_user_fpu(tf);

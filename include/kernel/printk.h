@@ -73,11 +73,4 @@ void __panic(const char *fmt, ...);
 			      #cond);                                          \
 	} while (0)
 
-#ifdef KERNEL_SELFTEST
-void printk_test_reset(void);
-void printk_test_append(const char *data, size_t size);
-size_t printk_test_read(char *buffer, size_t size);
-size_t printk_test_read_all(char *buffer, size_t size, bool clear);
-#endif
-
 #endif

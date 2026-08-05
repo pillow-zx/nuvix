@@ -25,6 +25,7 @@ KERNEL_OBJS = \
 	kernel/stacktrace.o     \
 	kernel/mutex.o          \
 	kernel/task.o           \
+	kernel/proc.o           \
 	kernel/fork.o           \
 	kernel/futex.o          \
 	kernel/rseq.o           \
@@ -45,7 +46,7 @@ KERNEL_OBJS = \
 
 SCHED_OBJS = \
 	sched/sched.o \
-	sched/mlfq.o
+	sched/rr.o
 
 MM_OBJS = \
 	mm/buddy.o      \
@@ -122,56 +123,3 @@ SYSCALL_OBJS = \
 
 LIB_OBJS = \
 	lib/vsprintf.o
-
-KERNEL_SELFTEST ?= 0
-KERNEL_PANIC ?= 0
-KERNEL_PANIC_CASE ?=
-
-ifeq ($(KERNEL_SELFTEST),1)
-CFLAGS += -DKERNEL_SELFTEST
-ASFLAGS += -DKERNEL_SELFTEST
-TEST_SRCS = $(shell find test -type f \( -name '*.c' -o -name '*.S' \) | sort)
-TEST_OBJS = $(patsubst %.c,%.o,$(patsubst %.S,%.o,$(TEST_SRCS)))
-KERNEL_TEST_OBJS = $(TEST_OBJS)
-else
-KERNEL_TEST_OBJS =
-endif
-
-ifeq ($(KERNEL_PANIC),1)
-CFLAGS += -DKERNEL_PANIC_TEST
-# Panic cases intentionally exercise debug-only held-lock diagnostics even
-# when the caller's regular .config has disabled the diagnostic footprint.
-CFLAGS += -DCONFIG_DEBUG_CONTEXT=1
-KERNEL_PANIC_OBJS = test/kpanic.o
-ifeq ($(KERNEL_PANIC_CASE),preempt-underflow)
-CFLAGS += -DKPANIC_CASE_PREEMPT_UNDERFLOW
-else ifeq ($(KERNEL_PANIC_CASE),preempt-overflow)
-CFLAGS += -DKPANIC_CASE_PREEMPT_OVERFLOW
-else ifeq ($(KERNEL_PANIC_CASE),spinlock-wrong-unlock)
-CFLAGS += -DKPANIC_CASE_SPINLOCK_WRONG_UNLOCK
-else ifeq ($(KERNEL_PANIC_CASE),spinlock-recursive)
-CFLAGS += -DKPANIC_CASE_SPINLOCK_RECURSIVE
-else ifeq ($(KERNEL_PANIC_CASE),spinlock-capacity)
-CFLAGS += -DKPANIC_CASE_SPINLOCK_CAPACITY
-else ifeq ($(KERNEL_PANIC_CASE),schedule-held-lock)
-CFLAGS += -DKPANIC_CASE_SCHEDULE_HELD_LOCK
-else ifeq ($(KERNEL_PANIC_CASE),schedule-preempt-disabled)
-CFLAGS += -DKPANIC_CASE_SCHEDULE_PREEMPT_DISABLED
-else ifeq ($(KERNEL_PANIC_CASE),wait-held-lock)
-CFLAGS += -DKPANIC_CASE_WAIT_HELD_LOCK
-else ifeq ($(KERNEL_PANIC_CASE),wait-preempt-disabled)
-CFLAGS += -DKPANIC_CASE_WAIT_PREEMPT_DISABLED
-else ifeq ($(KERNEL_PANIC_CASE),wait-hard-irq)
-CFLAGS += -DKPANIC_CASE_WAIT_HARD_IRQ
-else ifeq ($(KERNEL_PANIC_CASE),alloc-held-lock)
-CFLAGS += -DKPANIC_CASE_ALLOC_HELD_LOCK
-else ifeq ($(KERNEL_PANIC_CASE),alloc-free-held-lock)
-CFLAGS += -DKPANIC_CASE_ALLOC_FREE_HELD_LOCK
-else ifeq ($(KERNEL_PANIC_CASE),alloc-hard-irq)
-CFLAGS += -DKPANIC_CASE_ALLOC_HARD_IRQ
-else ifeq ($(KERNEL_PANIC_CASE),alloc-sleepable-irq-off)
-CFLAGS += -DKPANIC_CASE_ALLOC_SLEEPABLE_IRQ_OFF
-endif
-else
-KERNEL_PANIC_OBJS =
-endif

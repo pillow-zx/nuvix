@@ -10,6 +10,7 @@
 #include <kernel/list.h>
 #include <kernel/slab.h>
 #include <kernel/spinlock.h>
+#include <kernel/task.h>
 #include <kernel/tools.h>
 #include <kernel/wait.h>
 #include <uapi/poll.h>
@@ -49,7 +50,7 @@ CLEANUP_DEFINE(eventpoll, struct eventpoll *, if (_T) kfree(_T));
 
 static int eventpoll_release(struct file *file);
 static int eventpoll_poll(struct file *file, uint32_t events,
-			  struct wait_session *context);
+			  struct task_wait *wait);
 
 static const struct file_operations eventpoll_fops = {
 	.poll = eventpoll_poll,
@@ -155,7 +156,7 @@ static struct epitem *eventpoll_find_locked(struct eventpoll *ep, int fd,
 	return NULL;
 }
 
-static int eventpoll_scan(struct wait_session *context, void *arg)
+static int eventpoll_scan(struct task_wait *wait, void *arg)
 {
 	struct epoll_scan_ctx *ctx = arg;
 	irq_flags_t flags;
@@ -165,14 +166,15 @@ static int eventpoll_scan(struct wait_session *context, void *arg)
 
 	ctx->nr_ready = 0;
 	ctx->generation_changed = false;
-	if (context) {
-		int ret = wait_session_watch(context, &ctx->ep->waitq);
-
-		if (ret < 0)
-			return ret;
-	}
-
 	spin_lock_irqsave(&ctx->ep->lock, &flags);
+	if (wait) {
+		int ret = wait_prepare(wait, &ctx->ep->waitq, false);
+
+		if (ret < 0) {
+			spin_unlock_irqrestore(&ctx->ep->lock, flags);
+			return ret;
+		}
+	}
 	ctx->generation_changed = ctx->generation != ctx->ep->generation;
 	spin_unlock_irqrestore(&ctx->ep->lock, flags);
 	if (ctx->generation_changed)
@@ -185,7 +187,7 @@ static int eventpoll_scan(struct wait_session *context, void *arg)
 
 		mask = vfs_poll(item->file,
 				epoll_poll_events(item->file, &item->event),
-				context);
+				wait);
 		if (mask < 0)
 			return mask;
 		events = epoll_result_events(&item->event, (uint32_t)mask);
@@ -203,16 +205,19 @@ static int eventpoll_scan(struct wait_session *context, void *arg)
 }
 
 static int eventpoll_poll(struct file *file, uint32_t events,
-			  struct wait_session *context)
+				  struct task_wait *wait)
 {
 	struct eventpoll *ep = file ? file->private_data : NULL;
+	irq_flags_t flags;
 	int ret;
 
 	if (!ep)
 		return POLLERR;
 
-	if (context && (events & (POLLIN | POLLOUT))) {
-		ret = wait_session_watch(context, &ep->waitq);
+	if (wait && (events & (POLLIN | POLLOUT))) {
+		spin_lock_irqsave(&ep->lock, &flags);
+		ret = wait_prepare(wait, &ep->waitq, false);
+		spin_unlock_irqrestore(&ep->lock, flags);
 		if (ret < 0)
 			return ret;
 	}
@@ -303,7 +308,7 @@ struct file *eventpoll_file_alloc(void)
 	if (!ep)
 		return NULL;
 
-	ep->lock = (spinlock_t)SPINLOCK_INIT;
+	spin_lock_init(&ep->lock, LOCK_RANK_WAIT_CHANNEL);
 	INIT_LIST_HEAD(&ep->items);
 	wait_channel_init(&ep->waitq);
 	ep->generation = 0;
@@ -409,9 +414,8 @@ int eventpoll_wait(struct file *epfile, struct epoll_event *events,
 {
 	struct epoll_snapshot_item snapshot[NR_OPEN] = {};
 	struct epoll_scan_ctx scan_ctx;
-	struct wait_request source = { .kind = WAIT_KIND_POLL };
+	struct task_wait *wait = &current_task()->wait;
 	struct eventpoll *ep;
-	wait_outcome_t outcome;
 	size_t scan_limit;
 	int ret;
 
@@ -435,27 +439,32 @@ int eventpoll_wait(struct file *epfile, struct epoll_event *events,
 	scan_ctx.maxevents = scan_limit;
 	scan_ctx.nr_ready = 0;
 	scan_ctx.generation_changed = false;
-	source.kind = WAIT_KIND_POLL;
-	source.check = eventpoll_scan;
-	source.arg = &scan_ctx;
-	source.channel_limit = WAIT_SESSION_MAX_CHANNELS;
-
 	while (true) {
+		wait_outcome_t outcome;
+
 		ret = epoll_snapshot_get(ep, &scan_ctx);
 		if (ret < 0)
 			break;
-		ret = wait_for_interruptible(&source, deadline, &outcome);
+		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, deadline);
+		if (ret == 0)
+			ret = eventpoll_scan(wait, &scan_ctx);
+		if (ret == 0)
+			ret = wait_block(wait, &outcome);
+		wait_finish(wait);
 		epoll_snapshot_put(&scan_ctx);
 		if (ret < 0)
 			break;
+		if (ret > 0) {
+			if (!scan_ctx.generation_changed)
+				return (int)scan_ctx.nr_ready;
+			continue;
+		}
 		if (outcome == WAIT_OUTCOME_SIGNAL)
 			return -EINTR;
 		if (outcome == WAIT_OUTCOME_TIMEOUT)
 			return 0;
 		if (outcome != WAIT_OUTCOME_EVENT)
 			return -EINVAL;
-		if (!scan_ctx.generation_changed)
-			return (int)scan_ctx.nr_ready;
 	}
 
 	return ret;

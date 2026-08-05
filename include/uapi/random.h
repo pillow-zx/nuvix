@@ -5,4 +5,13 @@
 #define GRND_RANDOM   0x0002
 #define GRND_INSECURE 0x0004
 
+/* Linux random-device ioctl numbers for the generic RISC-V ioctl encoding. */
+#define RNDGETENTCNT   0x80045200
+#define RNDADDTOENTCNT 0x40045201
+#define RNDGETPOOL     0x80085202
+#define RNDADDENTROPY  0x40085203
+#define RNDZAPENTCNT   0x00005204
+#define RNDCLEARPOOL   0x00005206
+#define RNDRESEEDCRNG  0x00005207
+
 #endif

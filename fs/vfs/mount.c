@@ -15,7 +15,7 @@
 #include "namei_internal.h"
 
 static LIST_HEAD(mount_list);
-static DEFINE_MUTEX(mount_lock);
+static DEFINE_MUTEX(mount_lock, LOCK_RANK_VFS_MOUNT);
 static struct vfsmount *root_mount;
 
 int vfs_sync_all(void)
@@ -26,7 +26,7 @@ int vfs_sync_all(void)
 	size_t count = 0;
 	size_t index = 0;
 
-	first_error = page_cache_sync_all();
+	first_error = pgcache_sync_all();
 	mutex_lock(&mount_lock);
 	list_for_each_entry (mnt, &mount_list, mnt_list)
 		count++;
@@ -289,7 +289,7 @@ static int vfs_select_rootfs(dev_t dev, struct file_system_type **out_fs)
 		return -EINVAL;
 	*out_fs = NULL;
 
-	if (!lookup_block_device(dev))
+	if (!lookup_blkdev(dev))
 		return -ENXIO;
 
 	for (fs_type = get_next_filesystem_type(NULL); fs_type;
@@ -422,7 +422,7 @@ int vfs_mount(const char *source, const char *target, const char *type,
 	dev = source_inode->i_rdev;
 	path_put(&source_path);
 
-	if (!lookup_block_device(dev))
+	if (!lookup_blkdev(dev))
 		return -ENXIO;
 
 	ret = path_lookupat_path(NULL, target, LOOKUP_NO_MOUNT, &target_path);
@@ -446,13 +446,6 @@ int vfs_mount(const char *source, const char *target, const char *type,
 	path_put(&target_path);
 	return ret;
 }
-
-#ifdef KERNEL_SELFTEST
-int vfs_test_select_rootfs(dev_t dev, struct file_system_type **out_fs)
-{
-	return vfs_select_rootfs(dev, out_fs);
-}
-#endif
 
 static bool mount_busy(struct vfsmount *mnt)
 {

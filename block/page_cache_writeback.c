@@ -7,13 +7,13 @@
 #include <kernel/errno.h>
 #include <kernel/worker.h>
 
-constexpr uint32_t PAGE_CACHE_WB_MAX = 32;
+#define PAGE_CACHE_WB_MAX 32
 
 static uint8_t *wb_buf;
 static uint32_t wb_pages;
 static bool wb_ready;
 
-static bool page_cache_has_mapping_locked(struct page_cache *page,
+static bool pgcache_has_mapping_locked(struct pgcache *page,
 					  struct page_mapping *mapping)
 {
 	struct list_head *pos;
@@ -21,8 +21,8 @@ static bool page_cache_has_mapping_locked(struct page_cache *page,
 	if (!mapping)
 		return true;
 	list_for_each (pos, &pgcache_associations) {
-		struct page_cache_assoc *assoc =
-			list_entry(pos, struct page_cache_assoc, mapping_node);
+		struct pgcache_assoc *assoc =
+			list_entry(pos, struct pgcache_assoc, mapping_node);
 
 		if (assoc->page == page && assoc->mapping == mapping)
 			return true;
@@ -30,7 +30,7 @@ static bool page_cache_has_mapping_locked(struct page_cache *page,
 	return false;
 }
 
-void page_cache_wb_init(void)
+void pgcache_wb_init(void)
 {
 	if (wb_ready)
 		return;
@@ -44,13 +44,13 @@ void page_cache_wb_init(void)
 	wb_ready = true;
 }
 
-static int page_cache_write_physical(struct page_cache *page)
+static int pgcache_write_physical(struct pgcache *page)
 {
-	struct block_device *bdev;
+	struct blkdev *bdev;
 	int ret;
 	if (!page)
 		return -EINVAL;
-	bdev = lookup_block_device(page->dev);
+	bdev = lookup_blkdev(page->dev);
 	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->write_sectors)
 		return -ENXIO;
 	ret = bdev->bd_ops->write_sectors(
@@ -58,7 +58,7 @@ static int page_cache_write_physical(struct page_cache *page)
 	return ret;
 }
 
-int page_cache_sync_page(struct page_cache *page)
+int pgcache_sync_page(struct pgcache *page)
 {
 	irq_flags_t flags;
 	int ret;
@@ -71,27 +71,27 @@ int page_cache_sync_page(struct page_cache *page)
 	}
 	page->writeback = true;
 	spin_unlock_irqrestore(&pgcache_lock, flags);
-	ret = page_cache_write_physical(page);
+	ret = pgcache_write_physical(page);
 	spin_lock_irqsave(&pgcache_lock, &flags);
 	page->writeback = false;
 	if (ret == 0)
-		page_cache_clear_dirty_locked(page);
+		pgcache_clear_dirty_locked(page);
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	return ret;
 }
 
-int page_cache_wb_run(struct page_cache *start, struct page_mapping *mapping)
+int pgcache_wb_run(struct pgcache *start, struct page_mapping *mapping)
 {
-	struct page_cache *pages[PAGE_CACHE_WB_MAX] = {0};
+	struct pgcache *pages[PAGE_CACHE_WB_MAX] = {0};
 	struct list_head *pos;
 	uint32_t nr = 0;
-	struct block_device *bdev;
+	struct blkdev *bdev;
 	irq_flags_t flags;
 	int ret;
 
 	if (!start)
 		return -EINVAL;
-	page_cache_wb_init();
+	pgcache_wb_init();
 	if (!wb_buf || !wb_pages)
 		return -ENOMEM;
 	spin_lock_irqsave(&pgcache_lock, &flags);
@@ -101,19 +101,19 @@ int page_cache_wb_run(struct page_cache *start, struct page_mapping *mapping)
 	}
 	pages[nr++] = start;
 	list_for_each (pos, &pgcache_dirty_list) {
-		struct page_cache *page =
-			list_entry(pos, struct page_cache, dirty_node);
+		struct pgcache *page =
+			list_entry(pos, struct pgcache, dirty_node);
 		if (nr >= PAGE_CACHE_WB_MAX || nr >= wb_pages ||
 		    page == start || page->dev != start->dev ||
 		    page->block != start->block + nr || page->writeback ||
-		    !page_cache_has_mapping_locked(page, mapping))
+		    !pgcache_has_mapping_locked(page, mapping))
 			continue;
 		pages[nr++] = page;
 	}
 	for (uint32_t i = 0; i < nr; i++)
 		pages[i]->writeback = true;
 	spin_unlock_irqrestore(&pgcache_lock, flags);
-	bdev = lookup_block_device(start->dev);
+	bdev = lookup_blkdev(start->dev);
 	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->write_sectors) {
 		spin_lock_irqsave(&pgcache_lock, &flags);
 		for (uint32_t i = 0; i < nr; i++)
@@ -129,15 +129,15 @@ int page_cache_wb_run(struct page_cache *start, struct page_mapping *mapping)
 	for (uint32_t i = 0; i < nr; i++) {
 		pages[i]->writeback = false;
 		if (ret == 0)
-			page_cache_clear_dirty_locked(pages[i]);
+			pgcache_clear_dirty_locked(pages[i]);
 	}
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	return ret;
 }
 
-int page_cache_sync_mapping(struct page_mapping *mapping)
+int pgcache_sync_mapping(struct page_mapping *mapping)
 {
-	struct page_cache *page;
+	struct pgcache *page;
 	struct list_head *pos;
 	irq_flags_t flags;
 	if (!mapping)
@@ -146,8 +146,8 @@ int page_cache_sync_mapping(struct page_mapping *mapping)
 		page = NULL;
 		spin_lock_irqsave(&pgcache_lock, &flags);
 		list_for_each (pos, &pgcache_associations) {
-			struct page_cache_assoc *assoc = list_entry(
-				pos, struct page_cache_assoc, mapping_node);
+			struct pgcache_assoc *assoc = list_entry(
+				pos, struct pgcache_assoc, mapping_node);
 			if (assoc->mapping != mapping || !assoc->page->dirty)
 				continue;
 			page = assoc->page;
@@ -157,42 +157,42 @@ int page_cache_sync_mapping(struct page_mapping *mapping)
 		spin_unlock_irqrestore(&pgcache_lock, flags);
 		if (!page)
 			return 0;
-		int ret = page_cache_wb_run(page, mapping);
+		int ret = pgcache_wb_run(page, mapping);
 
 		if (ret < 0) {
-			page_cache_put_page(page);
+			pgcache_put_page(page);
 			return ret;
 		}
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 }
 
-int page_cache_sync_inode(struct inode *inode)
+int pgcache_sync_inode(struct inode *inode)
 {
-	return inode ? page_cache_sync_mapping(&inode->i_pages) : -EINVAL;
+	return inode ? pgcache_sync_mapping(&inode->i_pages) : -EINVAL;
 }
 
-int page_cache_sync_all(void)
+int pgcache_sync_all(void)
 {
-	struct page_cache *page;
-	while ((page = page_cache_dirty_any()) != NULL) {
-		int ret = page_cache_wb_run(page, NULL);
-		page_cache_put_page(page);
+	struct pgcache *page;
+	while ((page = pgcache_dirty_any()) != NULL) {
+		int ret = pgcache_wb_run(page, NULL);
+		pgcache_put_page(page);
 		if (ret < 0)
 			return ret;
 	}
 	return 0;
 }
 
-static void page_cache_wb_once(void *arg)
+static void pgcache_wb_once(void *arg)
 {
 	int ret;
 	(void)arg;
-	ret = page_cache_sync_all();
+	ret = pgcache_sync_all();
 	(void)ret;
 }
 
-void page_cache_wb_thread(void *arg)
+void pgcache_wb_thread(void *arg)
 {
-	worker_run_periodic(5, page_cache_wb_once, arg);
+	worker_run_periodic(5, pgcache_wb_once, arg);
 }

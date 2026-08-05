@@ -41,6 +41,11 @@ typedef uint32_t		dev_t;
 typedef uintptr_t		paddr_t;
 typedef uintptr_t		vaddr_t;
 
+typedef _Bool                   bool ;
+
+#define false                   0
+#define true                    1
+
 #if __STDC_VERSION__ >= 202311L
 #define NULL			nullptr
 #else

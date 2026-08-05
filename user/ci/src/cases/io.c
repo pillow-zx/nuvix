@@ -294,19 +294,16 @@ UT_CASE(io_pipe_nonblocking_and_endpoint_lifecycle, 5000)
 	UT_EXPECT(count > 0 && count <= 128);
 	UT_ASSERT_EQ(close(pipefd[0]), 0);
 	UT_ASSERT_EQ(close(pipefd[1]), 0);
-
 	UT_ASSERT_EQ(pipe(pipefd), 0);
 	UT_ASSERT_EQ(close(pipefd[1]), 0);
 	UT_EXPECT_EQ(read(pipefd[0], &byte, 1), 0);
 	UT_ASSERT_EQ(close(pipefd[0]), 0);
-
 	UT_ASSERT_EQ(sigaction(SIGPIPE, &ignore, &old_action), 0);
 	UT_ASSERT_EQ(pipe(pipefd), 0);
 	UT_ASSERT_EQ(close(pipefd[0]), 0);
 	UT_EXPECT_ERRNO(write(pipefd[1], "x", 1), EPIPE);
 	UT_ASSERT_EQ(close(pipefd[1]), 0);
 	UT_ASSERT_EQ(sigaction(SIGPIPE, &old_action, NULL), 0);
-
 	UT_ASSERT_EQ(pipe(data_pipe), 0);
 	UT_ASSERT_EQ(pipe(ready_pipe), 0);
 	io_fill_pipe(data_pipe[1], 'f');

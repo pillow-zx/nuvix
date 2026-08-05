@@ -4,12 +4,11 @@
 
 #include <kernel/errno.h>
 #include <kernel/mm.h>
+#include <kernel/pid.h>
 #include <kernel/sched.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/trap.h>
-
-constexpr uint64_t SINGLE_CPU_AFFINITY_MASK = 1ULL;
 
 static struct task_struct *affinity_target_task(pid_t pid, bool *put_task)
 {
@@ -19,15 +18,16 @@ static struct task_struct *affinity_target_task(pid_t pid, bool *put_task)
 	}
 
 	*put_task = true;
-	return task_find_thread(pid);
+	return pid_lookup_task(pid);
 }
 
 /*
  * SYSCALL_SUPPORT(C): sched_setaffinity
- * Current: accepts masks that include CPU0 on the single online CPU.
+	 * Current: stores the requested mask intersected with online CPUs.
  * Unsupported errno: empty CPU set returns -EINVAL; missing target returns
  * -ESRCH; unauthorized cross-user target returns -EPERM.
- * Future: store per-task affinity when SMP support exists.
+	 * The scheduler owns the stored affinity and rejects changes while queued or
+	 * running; the current single-CPU adapter therefore accepts only bit 0.
  */
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
@@ -62,10 +62,7 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 		ret = -EFAULT;
 		goto out;
 	}
-	if ((mask & SINGLE_CPU_AFFINITY_MASK) == 0) {
-		ret = -EINVAL;
-		goto out;
-	}
+	ret = sched_set_affinity(task, mask);
 
 out:
 	if (put_task)
@@ -75,17 +72,17 @@ out:
 
 /*
  * SYSCALL_SUPPORT(C): sched_getaffinity
- * Current: reports a fixed CPU0 mask for any existing target task.
+	 * Current: reports the scheduler-owned mask for any existing target task.
  * Unsupported errno: too-small cpusetsize returns -EINVAL; missing target
  * returns -ESRCH.
- * Future: return stored per-task affinity when SMP support exists.
+	 * The returned mask is intersected with the currently online CPUs.
  */
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
 	unsigned long *umask = (unsigned long *)syscall_arg(tf, 2);
-	unsigned long mask = SINGLE_CPU_AFFINITY_MASK;
+	unsigned long mask;
 	struct task_struct *task;
 	bool put_task;
 	ssize_t ret;
@@ -100,6 +97,7 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 	task = affinity_target_task(pid, &put_task);
 	if (!task)
 		return -ESRCH;
+	mask = (unsigned long)sched_get_affinity(task);
 
 	ret = copy_to_user(umask, &mask, sizeof(mask)) != 0
 		      ? -EFAULT

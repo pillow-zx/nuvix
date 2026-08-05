@@ -14,7 +14,7 @@
  * @def BITMAP_WORD_BITS
  * @brief Number of bits represented by one uintptr_t bitmap word.
  */
-constexpr size_t BITMAP_WORD_BITS = sizeof(uintptr_t) * 8U;
+#define BITMAP_WORD_BITS sizeof(uintptr_t) * 8U
 
 /**
  * @def BITMAP_WORDS

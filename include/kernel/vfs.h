@@ -41,12 +41,12 @@ void dcache_init(void);
 
 extern struct dentry *root_dentry;
 
-constexpr uint32_t LOOKUP_NOFOLLOW = 0x0001;
-constexpr uint32_t LOOKUP_NO_MOUNT = 0x0002;
+#define LOOKUP_NOFOLLOW         0x0001
+#define LOOKUP_NO_MOUNT         0x0002
 
-constexpr uint32_t VFS_MAY_EXEC = 0x1;
-constexpr uint32_t VFS_MAY_WRITE = 0x2;
-constexpr uint32_t VFS_MAY_READ = 0x4;
+#define VFS_MAY_EXEC            0x1
+#define VFS_MAY_WRITE           0x2
+#define VFS_MAY_READ            0x4
 
 __must_check
 int path_lookupat_path(const struct path *base, const char *path,
@@ -157,13 +157,5 @@ void vfs_init(void);
 
 __must_check
 int filesystems_init(void);
-
-#ifdef KERNEL_SELFTEST
-__must_check
-int unregister_filesystem(struct file_system_type *fs_type);
-
-__must_check
-int vfs_test_select_rootfs(dev_t dev, struct file_system_type **out_fs);
-#endif
 
 #endif

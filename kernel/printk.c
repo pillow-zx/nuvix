@@ -10,13 +10,14 @@
 #include <kernel/compiler.h>
 #include <kernel/sbi.h>
 #include <kernel/slab.h>
+#include <kernel/task.h>
 #include <kernel/spinlock.h>
 #include <kernel/mutex.h>
 #include <kernel/wait.h>
 #include <drivers/uart.h>
 
-constexpr size_t PRINTK_BUF_SIZE = 1024;
-constexpr size_t PRINTK_LOG_BUF_SIZE = 4096;
+#define PRINTK_BUF_SIZE	    1024
+#define PRINTK_LOG_BUF_SIZE 4096
 
 struct printk_ring {
 	spinlock_t lock;
@@ -33,9 +34,9 @@ static void (*console_putc)(int ch);
 static bool printk_panic_mode;
 
 static struct printk_ring printk_ring = {
-	.lock = SPINLOCK_INIT,
+	.lock = SPINLOCK_INIT(LOCK_RANK_PRINTK_RING),
 	.read_wait = WAIT_CHANNEL_INIT(printk_ring.read_wait),
-	.read_lock = MUTEX_INIT(printk_ring.read_lock),
+	.read_lock = MUTEX_INIT(printk_ring.read_lock, LOCK_RANK_PRINTK_READ),
 };
 
 static size_t printk_ring_normalize_locked(uint64_t *sequence)
@@ -70,21 +71,6 @@ static void printk_ring_append_locked(const char *source, size_t size)
 	(void)printk_ring_normalize_locked(&printk_ring.read_seq);
 	(void)printk_ring_normalize_locked(&printk_ring.clear_seq);
 }
-
-#ifdef KERNEL_SELFTEST
-static void printk_ring_append(const char *source, size_t size)
-{
-	irq_flags_t flags;
-
-	if (!source || size == 0)
-		return;
-
-	spin_lock_irqsave(&printk_ring.lock, &flags);
-	printk_ring_append_locked(source, size);
-	spin_unlock_irqrestore(&printk_ring.lock, flags);
-	wait_channel_wake_one(&printk_ring.read_wait);
-}
-#endif
 
 static uint32_t printk_log_level(int level)
 {
@@ -157,45 +143,42 @@ size_t printk_log_unread_size(void)
 	return size;
 }
 
-static int printk_log_read_probe(struct wait_session *session, void *arg)
-{
-	irq_flags_t flags;
-	int ret;
-
-	(void)arg;
-	spin_lock_irqsave(&printk_ring.lock, &flags);
-	if (printk_ring_normalize_locked(&printk_ring.read_seq) != 0) {
-		spin_unlock_irqrestore(&printk_ring.lock, flags);
-		return 1;
-	}
-	ret = wait_session_watch(session, &printk_ring.read_wait);
-	if (ret < 0) {
-		spin_unlock_irqrestore(&printk_ring.lock, flags);
-		return ret;
-	}
-	ret = printk_ring_normalize_locked(&printk_ring.read_seq) != 0;
-	spin_unlock_irqrestore(&printk_ring.lock, flags);
-	return ret;
-}
-
 static int printk_log_wait_for_unread(void)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
-	const struct wait_request source = {
-		.kind = WAIT_KIND_GENERIC,
-		.check = printk_log_read_probe,
-		.channel_limit = 1,
-	};
-	wait_outcome_t outcome;
-	int ret;
+	struct task_wait *wait = &current_task()->wait;
 
-	ret = wait_for_interruptible(&source, &deadline, &outcome);
-	if (ret < 0)
-		return ret;
-	if (outcome == WAIT_OUTCOME_SIGNAL)
-		return -EINTR;
-	BUG_ON(outcome != WAIT_OUTCOME_EVENT);
-	return 0;
+	for (;;) {
+		wait_outcome_t outcome;
+		irq_flags_t flags;
+		int ret;
+		bool ready;
+
+		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+		if (ret < 0)
+			return ret;
+		spin_lock_irqsave(&printk_ring.lock, &flags);
+		ready = printk_ring_normalize_locked(&printk_ring.read_seq) !=
+			0;
+		if (!ready)
+			ret = wait_prepare(wait, &printk_ring.read_wait, true);
+		spin_unlock_irqrestore(&printk_ring.lock, flags);
+		if (ret < 0) {
+			wait_finish(wait);
+			return ret;
+		}
+		if (ready) {
+			wait_finish(wait);
+			return 0;
+		}
+		ret = wait_block(wait, &outcome);
+		wait_finish(wait);
+		if (ret < 0)
+			return ret;
+		if (outcome == WAIT_OUTCOME_SIGNAL)
+			return -EINTR;
+		BUG_ON(outcome == WAIT_OUTCOME_TIMEOUT);
+	}
 }
 
 ssize_t printk_log_read(void *buffer, size_t size)
@@ -339,7 +322,8 @@ int __printk(int level, const char *fmt, ...)
 __noreturn
 void __panic(const char *fmt, ...)
 {
-	/* Panic logging must remain usable even when the failure fills tracking. */
+	/* Panic logging must remain usable even when the failure fills
+	 * tracking. */
 	printk_panic_mode = true;
 	local_irq_disable();
 	pr_err("\nKERNEL PANIC: ");
@@ -362,68 +346,3 @@ void __panic(const char *fmt, ...)
 
 	unreachable();
 }
-
-#ifdef KERNEL_SELFTEST
-void printk_test_reset(void)
-{
-	irq_flags_t flags;
-
-	spin_lock_irqsave(&printk_ring.lock, &flags);
-	memset(printk_ring.storage, 0, sizeof(printk_ring.storage));
-	printk_ring.first_seq = 0;
-	printk_ring.head_seq = 0;
-	printk_ring.read_seq = 0;
-	printk_ring.clear_seq = 0;
-	spin_unlock_irqrestore(&printk_ring.lock, flags);
-}
-
-void printk_test_append(const char *data, size_t size)
-{
-	printk_ring_append(data, size);
-}
-
-size_t printk_test_read(char *buffer, size_t size)
-{
-	irq_flags_t flags;
-	size_t copied;
-
-	if (!buffer || size == 0)
-		return 0;
-
-	spin_lock_irqsave(&printk_ring.lock, &flags);
-	copied = printk_ring_normalize_locked(&printk_ring.read_seq);
-	if (copied > size)
-		copied = size;
-	printk_ring_copy_locked(buffer, printk_ring.read_seq, copied);
-	printk_ring.read_seq += copied;
-	spin_unlock_irqrestore(&printk_ring.lock, flags);
-	return copied;
-}
-
-size_t printk_test_read_all(char *buffer, size_t size, bool clear)
-{
-	irq_flags_t flags;
-	uint64_t sequence;
-	uint64_t clear_to;
-	size_t available;
-	size_t copied;
-
-	if (!buffer || size == 0)
-		return 0;
-
-	spin_lock_irqsave(&printk_ring.lock, &flags);
-	sequence = printk_ring.clear_seq;
-	available = printk_ring_normalize_locked(&sequence);
-	clear_to = printk_ring.head_seq;
-	copied = available;
-	if (copied > size)
-		copied = size;
-	if (available > copied)
-		sequence = printk_ring.head_seq - copied;
-	printk_ring_copy_locked(buffer, sequence, copied);
-	if (clear && printk_ring.clear_seq < clear_to)
-		printk_ring.clear_seq = clear_to;
-	spin_unlock_irqrestore(&printk_ring.lock, flags);
-	return copied;
-}
-#endif

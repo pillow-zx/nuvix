@@ -10,12 +10,15 @@
 #include <kernel/init.h>
 #include <kernel/mm.h>
 #include <kernel/pid.h>
+#include <kernel/printk.h>
+#include <kernel/proc.h>
 #include <kernel/sched.h>
 #include <kernel/rseq.h>
 #include <kernel/signal.h>
 #include <kernel/slab.h>
 #include <kernel/task.h>
 #include <kernel/syscall.h>
+#include <kernel/time.h>
 #include <kernel/user_map.h>
 #include <kernel/wait.h>
 #include <uapi/syscall.h>
@@ -35,19 +38,20 @@ struct signal_frame_state {
 static_assert(SYS_rt_sigreturn >= 0 && SYS_rt_sigreturn < 2048,
 	      "SYS_sigreturn must fit in a RISC-V addi immediate");
 
-constexpr uint32_t RISCV_REG_ZERO = 0;
-constexpr uint32_t RISCV_REG_A7 = 17;
-constexpr uint32_t RISCV_OP_IMM = 0x13;
-constexpr uint32_t RISCV_ECALL = 0x00000073;
-constexpr uint32_t RISCV_J_SELF = 0x0000006f;
+#define RISCV_REG_ZERO 0
+#define RISCV_REG_A7   17
+#define RISCV_OP_IMM   0x13
+#define RISCV_ECALL    0x00000073
+#define RISCV_J_SELF   0x0000006f
 
 #define RISCV_ADDI(rd, rs1, imm)                                               \
 	((((uint32_t)(imm) & 0xfff) << 20) | ((uint32_t)(rs1) << 15) |         \
 	 ((uint32_t)(rd) << 7) | RISCV_OP_IMM)
 
-static struct signal_frame_state *signal_frame_top(const struct task_struct *task)
+static struct signal_frame_state *
+signal_frame_top(const struct task_struct *task)
 {
-	return task ? task->sigctx.signal_frames : NULL;
+	return task ? task->signal.signal_frames : NULL;
 }
 
 void signal_clear_frames(struct task_struct *task)
@@ -64,19 +68,19 @@ void signal_clear_frames(struct task_struct *task)
 		kfree(state);
 		state = previous;
 	}
-	task->sigctx.signal_frames = NULL;
+	task->signal.signal_frames = NULL;
 }
 
 static int signal_frame_clone(struct task_struct *child,
 			      const struct task_struct *parent)
 {
 	const struct signal_frame_state *source;
-	struct signal_frame_state **destination = &child->sigctx.signal_frames;
+	struct signal_frame_state **destination = &child->signal.signal_frames;
 
 	for (source = signal_frame_top(parent); source;
 	     source = source->previous) {
-		struct signal_frame_state *copy = kmalloc(sizeof(*copy),
-							 ALLOC_NOWAIT);
+		struct signal_frame_state *copy =
+			kmalloc(sizeof(*copy), ALLOC_NOWAIT);
 
 		if (!copy) {
 			signal_clear_frames(child);
@@ -94,7 +98,8 @@ static int signal_frame_clone(struct task_struct *child,
 
 static struct signal_frame_state *signal_frame_alloc(uintptr_t sp, int sig)
 {
-	struct signal_frame_state *state = kmalloc(sizeof(*state), ALLOC_NOWAIT);
+	struct signal_frame_state *state =
+		kmalloc(sizeof(*state), ALLOC_NOWAIT);
 
 	if (!state)
 		return NULL;
@@ -108,7 +113,7 @@ static void signal_frame_push(struct task_struct *task,
 			      struct signal_frame_state *state)
 {
 	state->previous = signal_frame_top(task);
-	task->sigctx.signal_frames = state;
+	task->signal.signal_frames = state;
 }
 
 static int signal_frame_sp(uintptr_t top, uintptr_t floor, uintptr_t *sp)
@@ -130,14 +135,13 @@ static void signal_frame_pop(struct task_struct *task)
 	struct signal_frame_state *state = signal_frame_top(task);
 
 	BUG_ON(!state);
-	task->sigctx.signal_frames = state->previous;
+	task->signal.signal_frames = state->previous;
 	kfree(state);
 }
 
 static bool signal_frame_contains(const struct task_struct *task, int sig)
 {
-	const struct signal_frame_state *state =
-		signal_frame_top(task);
+	const struct signal_frame_state *state = signal_frame_top(task);
 
 	for (; state; state = state->previous) {
 		if (state->sig == sig)
@@ -148,7 +152,7 @@ static bool signal_frame_contains(const struct task_struct *task, int sig)
 
 bool signal_is_valid(int sig)
 {
-	return sig > 0 && sig < NSIG;
+	return sig > 0 && sig <= NSIG;
 }
 
 uint64_t signal_mask(int sig)
@@ -204,14 +208,15 @@ uint64_t unblockable_mask(void)
 
 static struct sighand_struct *sighand_alloc(void)
 {
-	struct sighand_struct *sighand = kmalloc(sizeof(*sighand), ALLOC_NOWAIT);
+	struct sighand_struct *sighand =
+		kmalloc(sizeof(*sighand), ALLOC_NOWAIT);
 
 	if (!sighand)
 		return NULL;
 
 	memset(sighand, 0, sizeof(*sighand));
 	refcount_set(&sighand->refcount, 1);
-	mutex_init(&sighand->lock);
+	mutex_init(&sighand->lock, LOCK_RANK_SIGNAL);
 	return sighand;
 }
 
@@ -255,18 +260,8 @@ static struct signal_struct *signal_state_alloc(void)
 
 	memset(signal, 0, sizeof(*signal));
 	refcount_set(&signal->refcount, 1);
-	mutex_init(&signal->lock);
-	for (size_t i = 0; i < ITIMER_COUNT; i++)
-		itimer_state_init(&signal->itimers[i]);
-	posix_timer_table_init(&signal->posix_timers);
-	rlimits_init(signal->rlimits);
+	mutex_init(&signal->lock, LOCK_RANK_SIGNAL);
 	return signal;
-}
-
-static void signal_state_get(struct signal_struct *signal)
-{
-	if (signal)
-		refcount_inc(&signal->refcount);
 }
 
 static void signal_state_put(struct signal_struct *signal)
@@ -274,20 +269,13 @@ static void signal_state_put(struct signal_struct *signal)
 	if (!signal)
 		return;
 
-	if (refcount_dec_and_test(&signal->refcount)) {
-		for (size_t i = 0; i < ITIMER_COUNT; i++)
-			itimer_state_destroy(&signal->itimers[i]);
-		posix_timer_table_destroy(&signal->posix_timers);
+	if (refcount_dec_and_test(&signal->refcount))
 		kfree(signal);
-	}
 }
 
 static bool task_signal_target_dead(struct task_struct *task)
 {
-	if (!task)
-		return true;
-
-	return task_state(task) == TASK_DEAD || task_state(task) == TASK_ZOMBIE;
+	return !task || task_is_exiting(task);
 }
 
 static __sighandler_t signal_handler_for_task(struct task_struct *task, int sig)
@@ -304,6 +292,47 @@ static __sighandler_t signal_handler_for_task(struct task_struct *task, int sig)
 	return handler;
 }
 
+static struct sigaction signal_sigchld_action(const struct proc_struct *proc)
+{
+	struct sigaction action = {0};
+	struct sighand_struct *sighand;
+
+	if (!proc)
+		return action;
+	sighand = proc->sighand;
+	if (!sighand)
+		return action;
+	mutex_lock(&sighand->lock);
+	action = sighand->sigactions[SIGCHLD];
+	mutex_unlock(&sighand->lock);
+	return action;
+}
+
+struct sigchld_exit_policy signal_sigchld_exit_policy(
+	const struct proc_struct *proc)
+{
+	struct sigaction action = signal_sigchld_action(proc);
+	struct sigchld_exit_policy policy;
+
+	policy.auto_reap = action.sa_handler == SIG_IGN ||
+			   (action.sa_flags & SA_NOCLDWAIT) != 0;
+	policy.notify = action.sa_handler != SIG_IGN;
+	return policy;
+}
+
+bool signal_sigchld_stop_suppressed(const struct proc_struct *proc)
+{
+	struct sigaction action = signal_sigchld_action(proc);
+
+	return action.sa_handler == SIG_IGN ||
+	       (action.sa_flags & SA_NOCLDSTOP) != 0;
+}
+
+bool signal_sigchld_ignored(const struct proc_struct *proc)
+{
+	return signal_sigchld_action(proc).sa_handler == SIG_IGN;
+}
+
 static bool signal_init_default_ignored(struct task_struct *task, int sig)
 {
 	if (!init_process_is_task(task) || sig == SIGSTOP)
@@ -313,7 +342,7 @@ static bool signal_init_default_ignored(struct task_struct *task, int sig)
 	       signal_handler_for_task(task, sig) == SIG_DFL;
 }
 
-static void reset_task_altstack(struct task_struct *task)
+void signal_reset_altstack(struct task_struct *task)
 {
 	struct stack_t *sas = task_altstack_safe(task);
 
@@ -324,35 +353,77 @@ static void reset_task_altstack(struct task_struct *task)
 	sas->ss_size = 0;
 }
 
-int signals_init(struct task_struct *task)
+int signal_proc_init(struct proc_struct *proc)
 {
 	struct sighand_struct *sighand;
 	struct signal_struct *signal;
 
-	if (!task)
+	if (!proc)
 		return -EINVAL;
 
 	sighand = sighand_alloc();
 	if (!sighand)
 		return -ENOMEM;
-	task_set_sighand(task, sighand);
+	proc->sighand = sighand;
 
 	signal = signal_state_alloc();
 	if (!signal) {
 		sighand_put(sighand);
-		task_set_sighand(task, NULL);
+		proc->sighand = NULL;
 		return -ENOMEM;
 	}
-	task_set_signal_state(task, signal);
+	proc->signal = signal;
+	return 0;
+}
+
+int signals_init(struct task_struct *task)
+{
+	int ret;
+
+	if (!task || !task->proc)
+		return -EINVAL;
+	if (!task->proc->signal) {
+		ret = signal_proc_init(task->proc);
+		if (ret < 0)
+			return ret;
+	}
 
 	signal_set_blocked_mask(task, 0);
 	signal_clear_pending(task, ~0UL);
-	task->sigctx.forced_pending = 0;
+	task->signal.forced_pending = 0;
 	signal_clear_frames(task);
-	task->sigctx.restore_mask = 0;
-	task->sigctx.restore_mask_pending = false;
-	reset_task_altstack(task);
+	task->signal.restore_mask = 0;
+	task->signal.restore_mask_pending = false;
+	signal_reset_altstack(task);
 	return 0;
+}
+
+void signal_write_child_tid(struct task_struct *task)
+{
+	int *child_tid;
+	int tid;
+
+	if (!task)
+		return;
+	child_tid = task->signal.set_child_tid;
+	if (!child_tid)
+		return;
+	tid = task->tid ? task->tid->nr : 0;
+	if (copy_to_user(child_tid, &tid, sizeof(tid)) != 0)
+		pr_debug("signal: CLONE_CHILD_SETTID write failed for tid=%d\n",
+			 tid);
+	task->signal.set_child_tid = NULL;
+}
+
+void signal_proc_release(struct proc_struct *proc)
+{
+	if (!proc)
+		return;
+
+	sighand_put(proc->sighand);
+	signal_state_put(proc->signal);
+	proc->sighand = NULL;
+	proc->signal = NULL;
 }
 
 void signals_release(struct task_struct *task)
@@ -360,32 +431,17 @@ void signals_release(struct task_struct *task)
 	if (!task)
 		return;
 
-	sighand_put(task_sighand(task));
-	signal_state_put(task_signal_state(task));
-	task_set_sighand(task, NULL);
-	task_set_signal_state(task, NULL);
 	signal_set_blocked_mask(task, 0);
 	signal_clear_pending(task, ~0UL);
-	task->sigctx.forced_pending = 0;
+	task->signal.forced_pending = 0;
 	signal_clear_frames(task);
-	task->sigctx.restore_mask = 0;
-	task->sigctx.restore_mask_pending = false;
-	reset_task_altstack(task);
-}
-
-static void signal_copy_process_state(struct signal_struct *dst,
-				      struct signal_struct *src)
-{
-	if (!dst || !src)
-		return;
-
-	mutex_lock(&src->lock);
-	memcpy(dst->rlimits, src->rlimits, sizeof(dst->rlimits));
-	mutex_unlock(&src->lock);
+	task->signal.restore_mask = 0;
+	task->signal.restore_mask_pending = false;
+	signal_reset_altstack(task);
 }
 
 int signals_clone(struct task_struct *child, bool share_sighand,
-		  bool share_signal, bool disable_altstack)
+		  bool disable_altstack)
 {
 	struct sighand_struct *sighand;
 	struct signal_struct *signal;
@@ -404,33 +460,22 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 			return -ENOMEM;
 	}
 
-	if (share_signal) {
-		signal = task_signal_state(current_task());
-		if (!signal) {
-			sighand_put(sighand);
-			return -EINVAL;
-		}
-		signal_state_get(signal);
-	} else {
-		signal = signal_state_alloc();
-		if (!signal) {
-			sighand_put(sighand);
-			return -ENOMEM;
-		}
-		signal_copy_process_state(signal,
-					  task_signal_state(current_task()));
+	signal = signal_state_alloc();
+	if (!signal) {
+		sighand_put(sighand);
+		return -ENOMEM;
 	}
 
 	signals_release(child);
-	task_set_sighand(child, sighand);
-	task_set_signal_state(child, signal);
+	child->proc->sighand = sighand;
+	child->proc->signal = signal;
 	signal_set_blocked_mask(child, signal_blocked_mask(current_task()));
 	signal_clear_pending(child, ~0UL);
-	child->sigctx.forced_pending = 0;
+	child->signal.forced_pending = 0;
 	signal_clear_frames(child);
-	child->sigctx.restore_mask = 0;
-	child->sigctx.restore_mask_pending = false;
-	if (!share_signal) {
+	child->signal.restore_mask = 0;
+	child->signal.restore_mask_pending = false;
+	{
 		int ret = signal_frame_clone(child, current_task());
 
 		if (ret < 0)
@@ -442,23 +487,17 @@ int signals_clone(struct task_struct *child, bool share_sighand,
 		*child_sas = *task_altstack(current_task());
 		child_sas->ss_flags &= ~SS_ONSTACK;
 	} else {
-		reset_task_altstack(child);
+		signal_reset_altstack(child);
 	}
 	return 0;
 }
 
-void signals_execve(struct task_struct *task)
+static void sighand_reset_for_exec(struct sighand_struct *sighand)
 {
-	struct sighand_struct *sighand;
-
-	if (!task)
-		return;
-	sighand = task_sighand(task);
 	if (!sighand)
 		return;
-
 	mutex_lock(&sighand->lock);
-	for (int sig = 1; sig < NSIG; sig++) {
+	for (int sig = 1; sig <= NSIG; sig++) {
 		struct sigaction *action = &sighand->sigactions[sig];
 
 		if (action->sa_handler != SIG_IGN)
@@ -467,9 +506,36 @@ void signals_execve(struct task_struct *task)
 	mutex_unlock(&sighand->lock);
 }
 
-static struct task_struct *find_task_by_pid(pid_t pid)
+int signals_prepare_exec(const struct task_struct *task,
+			 struct sighand_struct **prepared)
 {
-	return task_find_thread(pid);
+	struct sighand_struct *sighand;
+
+	if (!task || !prepared)
+		return -EINVAL;
+	*prepared = NULL;
+	sighand = sighand_dup(task_sighand(task));
+	if (!sighand)
+		return -ENOMEM;
+	sighand_reset_for_exec(sighand);
+	*prepared = sighand;
+	return 0;
+}
+
+void signals_commit_exec(struct task_struct *task,
+			 struct sighand_struct *prepared)
+{
+	struct sighand_struct *old;
+
+	BUG_ON(!task || !task->proc || !prepared);
+	old = task_sighand(task);
+	task->proc->sighand = prepared;
+	sighand_put(old);
+}
+
+void signals_abort_exec(struct sighand_struct *prepared)
+{
+	sighand_put(prepared);
 }
 
 bool signal_pending(struct task_struct *task)
@@ -511,7 +577,7 @@ bool signal_fatal_pending(struct task_struct *task)
 		return false;
 
 	pending = task_pending_mask(task);
-	forced = task->sigctx.forced_pending;
+	forced = task->signal.forced_pending;
 	if (task_signal_state(task)) {
 		struct signal_struct *signal = task_signal_state(task);
 
@@ -556,13 +622,13 @@ void signal_clear_pending(struct task_struct *task, uint64_t mask)
 	if (!task)
 		return;
 
-	for (int sig = 1; sig < NSIG; sig++) {
+	for (int sig = 1; sig <= NSIG; sig++) {
 		if (mask & signal_mask(sig))
-			memset(&task->sigctx.pending_info[sig], 0,
-			       sizeof(task->sigctx.pending_info[sig]));
+			memset(&task->signal.pending_info[sig], 0,
+			       sizeof(task->signal.pending_info[sig]));
 	}
 	task_and_pending_mask(task, ~mask);
-	task->sigctx.forced_pending &= ~mask;
+	task->signal.forced_pending &= ~mask;
 }
 
 static void signal_clear_opposite_pending(struct task_struct *task, int sig)
@@ -604,21 +670,21 @@ void signal_defer_mask_restore(struct task_struct *task, uint64_t mask)
 	if (!task)
 		return;
 
-	task->sigctx.restore_mask = mask & ~unblockable_mask();
-	task->sigctx.restore_mask_pending = true;
+	task->signal.restore_mask = mask & ~unblockable_mask();
+	task->signal.restore_mask_pending = true;
 }
 
 static bool signal_restore_mask_pending(struct task_struct *task)
 {
-	return task && task->sigctx.restore_mask_pending;
+	return task && task->signal.restore_mask_pending;
 }
 
 static uint64_t signal_take_restore_mask(struct task_struct *task)
 {
-	uint64_t mask = task->sigctx.restore_mask;
+	uint64_t mask = task->signal.restore_mask;
 
-	task->sigctx.restore_mask = 0;
-	task->sigctx.restore_mask_pending = false;
+	task->signal.restore_mask = 0;
+	task->signal.restore_mask_pending = false;
 	return mask;
 }
 
@@ -630,32 +696,30 @@ static void signal_restore_deferred_mask(struct task_struct *task)
 
 static void wake_signal_target(struct task_struct *task, int sig)
 {
-	uint32_t state;
-
 	if (!task)
 		return;
 
-	state = task_state(task);
-	if (state == TASK_INTERRUPTIBLE &&
+	if (task->run_state == TASK_BLOCKED &&
 	    ((signal_mask(sig) & ~task_blocked_mask(task)) ||
 	     !signal_is_catchable(sig))) {
-		sched_wake_task(task);
+		(void)wait_wake_signal(task, false);
 		return;
 	}
-	if (state == TASK_KILLABLE && signal_fatal_pending(task)) {
-		sched_wake_task(task);
+	if (task->run_state == TASK_BLOCKED && signal_fatal_pending(task)) {
+		(void)wait_wake_signal(task, true);
 		return;
 	}
 
-	if (sig == SIGCONT && state == TASK_STOPPED) {
-		task_child_publish_continue(task);
-		sched_wake_task(task);
+	if (sig == SIGCONT && task->run_state == TASK_STOPPED) {
+		(void)sched_resume(task);
 		return;
 	}
 
 	if (sig == SIGKILL) {
-		if (state == TASK_STOPPED || state == TASK_UNINTERRUPTIBLE)
-			sched_wake_task(task);
+		if (task->run_state == TASK_STOPPED)
+			(void)sched_resume(task);
+		else if (task->run_state == TASK_BLOCKED)
+			(void)wait_wake_signal(task, true);
 	}
 }
 
@@ -675,13 +739,20 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 	signal_clear_opposite_pending(task, sig);
 	signal_clear_task_shared_opposite_pending(task, sig);
 	if (!(task_pending_mask(task) & mask)) {
-		task->sigctx.pending_info[sig] = *info;
-		task->sigctx.pending_info[sig].si_signo = sig;
+		task->signal.pending_info[sig] = *info;
+		task->signal.pending_info[sig].si_signo = sig;
 		signal_mark_pending(task, mask);
 	}
 	if (force)
-		task->sigctx.forced_pending |= mask;
+		task->signal.forced_pending |= mask;
 	wake_signal_target(task, sig);
+	if (sig == SIGCONT && task->proc) {
+		struct proc_parent_event event;
+
+		proc_publish_continue(task->proc, &event);
+		signal_notify_proc_parent(&event);
+		proc_parent_event_release(&event);
+	}
 
 	return 0;
 }
@@ -708,19 +779,26 @@ int send_current_signal(int sig)
 int send_group_signal_info(int sig, const siginfo_t *info,
 			   struct task_struct *leader)
 {
+	struct task_struct **targets;
 	uint64_t mask;
+	size_t count;
 
 	if (!signal_is_valid(sig))
 		return -EINVAL;
 	if (!info)
 		return -EINVAL;
-	if (task_signal_target_dead(leader))
-		return -ESRCH;
+	/* Process-directed delivery must not bail on an exiting leader:
+	 * shared pending plus live-sibling wake-up is still valid. Dead
+	 * pids are rejected at the pid lookup layer. */
 
 	if (!task_signal_state(leader))
 		return send_signal_info(sig, info, leader);
 
 	struct signal_struct *signal = task_signal_state(leader);
+
+	targets = kmalloc_array(PID_COUNT, sizeof(*targets), ALLOC_NOWAIT);
+	if (!targets)
+		return -ENOMEM;
 
 	mutex_lock(&signal->lock);
 	mask = signal_mask(sig);
@@ -733,16 +811,27 @@ int send_group_signal_info(int sig, const siginfo_t *info,
 	mutex_unlock(&signal->lock);
 
 	signal_clear_opposite_pending(leader, sig);
-	wake_signal_target(leader, sig);
-	if (task_is_group_leader(leader)) {
-		struct task_struct *thread;
-
-		list_for_each_entry (thread, &leader->links.thread_group,
-				     links.thread_node) {
-			signal_clear_opposite_pending(thread, sig);
-			wake_signal_target(thread, sig);
+	if (leader->proc) {
+		count = proc_task_snapshot(leader->proc, NULL, targets,
+					   PID_COUNT);
+		for (size_t index = 0; index < count; index++) {
+			signal_clear_opposite_pending(targets[index], sig);
+			wake_signal_target(targets[index], sig);
+			task_put(targets[index]);
 		}
+		/* Publish once per proc, after all targets were woken, so the
+		 * continue event reflects the whole-proc resume state. */
+		if (sig == SIGCONT) {
+			struct proc_parent_event event;
+
+			proc_publish_continue(leader->proc, &event);
+			signal_notify_proc_parent(&event);
+			proc_parent_event_release(&event);
+		}
+	} else {
+		wake_signal_target(leader, sig);
 	}
+	kfree(targets);
 
 	return 0;
 }
@@ -764,79 +853,132 @@ int signal_pending_info(const struct task_struct *task, int sig,
 	if (!(task_pending_mask(task) & signal_mask(sig)))
 		return -ENOENT;
 
-	*info = task->sigctx.pending_info[sig];
+	*info = task->signal.pending_info[sig];
 	return 0;
 }
 
-static int send_pgrp_signal_info(int sig, const siginfo_t *info, pid_t pgid,
-				 pid_t sid)
+int signal_send_pgrp_snapshot(int sig, const siginfo_t *info,
+			      struct pgrp_struct *pgrp,
+			      struct session_struct *session)
 {
-	bool probe_found = false;
 	bool delivered = false;
 	int first_error = 0;
+	struct task_struct **tasks;
+	size_t count;
+	size_t index;
 
 	if (sig != 0 && (!signal_is_valid(sig) || !info))
 		return -EINVAL;
-	if (pgid <= 0 || sid < 0)
+	if (!pgrp || !session || pgrp->session != session)
 		return -ESRCH;
+	tasks = kmalloc_array(PID_COUNT, sizeof(*tasks), ALLOC_NOWAIT);
+	if (!tasks)
+		return -ENOMEM;
+	count = proc_pgrp_task_snapshot(pgrp, session, tasks, PID_COUNT);
+	if (sig == 0) {
+		for (index = 0; index < count; index++)
+			task_put(tasks[index]);
+		kfree(tasks);
+		return count ? 0 : -ESRCH;
+	}
+	for (index = 0; index < count; index++) {
+		int ret = send_group_signal_info(sig, info, tasks[index]);
 
-	for (pid_t pid = 1; pid <= PID_MAX; pid++) {
-		struct task_struct *task = task_find_thread(pid);
-		struct task_process_identity identity;
-		int ret;
-
-		if (!task || !task_is_group_leader(task) ||
-		    task_process_snapshot(task, &identity) < 0 ||
-		    identity.pgid != pgid ||
-		    (sid != 0 && identity.sid != sid)) {
-			task_put(task);
-			continue;
-		}
-
-		if (sig == 0) {
-			probe_found = true;
-			task_put(task);
-			continue;
-		}
-
-		ret = send_group_signal_info(sig, info, task);
-		task_put(task);
 		if (ret == 0) {
 			delivered = true;
 		} else if (ret != -ESRCH && first_error == 0) {
 			first_error = ret;
 		}
+		task_put(tasks[index]);
 	}
-
-	if (sig == 0)
-		return probe_found ? 0 : -ESRCH;
+	kfree(tasks);
 	return delivered ? 0 : first_error ? first_error : -ESRCH;
 }
 
-int send_pgrp_signal(int sig, pid_t pgid)
+static int send_pgrp_signal_info(int sig, const siginfo_t *info, pid_t pgid,
+				 pid_t sid)
 {
-	siginfo_t info = {0};
+	struct pgrp_struct *pgrp;
+	struct session_struct *session;
+	int ret;
 
-	if (!signal_is_valid(sig))
-		return -EINVAL;
-
-	info.si_signo = sig;
-	info.si_code = SI_KERNEL;
-	return send_pgrp_signal_info(sig, &info, pgid, 0);
+	if (pgid <= 0 || sid < 0)
+		return -ESRCH;
+	pgrp = proc_lookup_pgrp(pgid);
+	if (!pgrp)
+		return -ESRCH;
+	session = pgrp->session;
+	if (!session) {
+		proc_pgrp_put(pgrp);
+		return -ESRCH;
+	}
+	if (!proc_session_try_get(session)) {
+		proc_pgrp_put(pgrp);
+		return -ESRCH;
+	}
+	if (sid != 0 && (!session->sid || session->sid->nr != sid)) {
+		proc_session_put(session);
+		proc_pgrp_put(pgrp);
+		return -ESRCH;
+	}
+	ret = signal_send_pgrp_snapshot(sig, info, pgrp, session);
+	proc_session_put(session);
+	proc_pgrp_put(pgrp);
+	return ret;
 }
 
-int send_session_pgrp_signal(int sig, pid_t pgid, pid_t sid)
+void signal_orphaned_pgrp_event(const struct proc_orphan_event *event)
 {
 	siginfo_t info = {0};
 
-	if (!signal_is_valid(sig))
-		return -EINVAL;
-	if (sid <= 0)
-		return -ESRCH;
-
-	info.si_signo = sig;
+	if (!event || !event->pgrp || !event->session)
+		return;
 	info.si_code = SI_KERNEL;
-	return send_pgrp_signal_info(sig, &info, pgid, sid);
+	info.si_signo = SIGHUP;
+	(void)signal_send_pgrp_snapshot(SIGHUP, &info, event->pgrp,
+					event->session);
+	info.si_signo = SIGCONT;
+	(void)signal_send_pgrp_snapshot(SIGCONT, &info, event->pgrp,
+					event->session);
+}
+
+void signal_notify_proc_parent(const struct proc_parent_event *event)
+{
+	struct task_struct *target;
+	siginfo_t info = {0};
+	bool suppress;
+
+	if (!event || !event->parent || !event->child)
+		return;
+	wait_channel_wake_all(&event->parent->wait_state.channel);
+	if (event->signal == 0)
+		return;
+	if (event->code == CLD_EXITED || event->code == CLD_KILLED ||
+	    event->code == CLD_DUMPED) {
+		/* Exit notification is frozen at child exit.  Auto-reap is
+		 * independent: SA_NOCLDWAIT still reports SIGCHLD when the
+		 * disposition is not SIG_IGN. */
+		suppress = !event->child->exit_sigchld_notify;
+	} else {
+		suppress = signal_sigchld_ignored(event->parent) ||
+			   signal_sigchld_stop_suppressed(event->parent);
+	}
+	if (suppress)
+		return;
+	/* SIGCHLD is a process-level notification: deliver through the group
+	 * path so a blocked/stopped/exiting leader cannot drop it. */
+	target = proc_leader_get(event->parent);
+	if (!target)
+		return;
+	info.si_signo = event->signal;
+	info.si_code = event->code;
+	info.si_pid = event->pid;
+	info.si_uid = event->uid;
+	info.si_status = event->status;
+	info.si_utime = cputime_to_clock_t(event->cputime.utime_ticks);
+	info.si_stime = cputime_to_clock_t(event->cputime.stime_ticks);
+	(void)send_group_signal_info(info.si_signo, &info, target);
+	task_put(target);
 }
 
 int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task)
@@ -914,9 +1056,18 @@ void signal_user_map_init(void)
 
 static void stop_current(int sig)
 {
-	task_mark_stopped(current_task());
-	task_child_publish_stop(current_task(), sig);
-	schedule();
+	struct proc_parent_event event;
+
+	(void)sched_stop(current_task());
+	if (current_task()->proc) {
+		proc_publish_stop(current_task()->proc, sig, &event);
+		signal_notify_proc_parent(&event);
+		proc_parent_event_release(&event);
+	}
+	if (irqs_disabled())
+		schedule_irqoff();
+	else
+		schedule();
 }
 
 static void signal_save_user_regs(struct user_regs_struct *regs,
@@ -1079,7 +1230,7 @@ static int take_shared_pending_from_set(uint64_t set, siginfo_t *info)
 		return 0;
 
 	mutex_lock(&signal->lock);
-	for (int sig = 1; sig < NSIG; sig++) {
+	for (int sig = 1; sig <= NSIG; sig++) {
 		uint64_t mask = signal_mask(sig);
 
 		if (!(signal->shared_pending & set & mask))
@@ -1106,7 +1257,7 @@ static int take_pending_from_set(uint64_t set, siginfo_t *info)
 {
 	uint64_t pending = task_pending_mask(current_task()) & set;
 
-	for (int sig = 1; sig < NSIG; sig++) {
+	for (int sig = 1; sig <= NSIG; sig++) {
 		uint64_t mask = signal_mask(sig);
 
 		if (!(pending & mask))
@@ -1123,13 +1274,17 @@ static int take_pending_from_set(uint64_t set, siginfo_t *info)
 int signal_sigsuspend(uint64_t mask)
 {
 	struct wait_deadline deadline = wait_deadline_none();
+	struct task_wait *wait = &current_task()->wait;
 	uint64_t blocked;
 	wait_outcome_t outcome;
 	int ret;
 
 	blocked = signal_blocked_mask(current_task());
 	signal_set_blocked_mask(current_task(), mask);
-	ret = wait_for_interruptible(NULL, &deadline, &outcome);
+	ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+	if (ret == 0)
+		ret = wait_block(wait, &outcome);
+	wait_finish(wait);
 	if (ret < 0) {
 		signal_set_blocked_mask(current_task(), blocked);
 		return ret;
@@ -1162,7 +1317,11 @@ int signal_wait_pending(uint64_t set, const struct timespec *timeout,
 
 	blocked = signal_blocked_mask(current_task());
 	signal_set_blocked_mask(current_task(), blocked & ~set);
-	ret = wait_for_interruptible(NULL, &deadline, &outcome);
+	ret = wait_start(&current_task()->wait, WAIT_FLAG_INTERRUPTIBLE,
+			 &deadline);
+	if (ret == 0)
+		ret = wait_block(&current_task()->wait, &outcome);
+	wait_finish(&current_task()->wait);
 	signal_set_blocked_mask(current_task(), blocked);
 	if (ret < 0)
 		return ret;
@@ -1183,13 +1342,12 @@ static int next_signal(bool *shared)
 	uint64_t deliverable;
 
 	*shared = false;
-	pending &= (1UL << (NSIG - 1)) - 1;
 	deliverable = pending & ~(signal_blocked_mask(current_task()) &
 				  ~unblockable_mask());
 	if (!deliverable)
 		return 0;
 
-	for (int sig = 1; sig < NSIG; sig++) {
+	for (int sig = 1; sig <= NSIG; sig++) {
 		if (deliverable & signal_mask(sig)) {
 			*shared = (task_pending_mask(current_task()) &
 				   signal_mask(sig)) == 0 &&
@@ -1245,7 +1403,7 @@ void do_signal(struct trap_frame *tf)
 		struct sigaction action = get_signal_action(sig);
 		__sighandler_t handler = action.sa_handler;
 		forced = !shared &&
-			 (current_task()->sigctx.forced_pending & mask) != 0;
+			 (current_task()->signal.forced_pending & mask) != 0;
 
 		if (shared) {
 			if (take_shared_pending(sig, &info) < 0)
@@ -1301,20 +1459,20 @@ static int kill_all_processes(int sig, const siginfo_t *info)
 {
 	bool found = false;
 	int first_error = 0;
-	pid_t caller_tgid = task_tgid(current_task());
+	pid_t caller_tgid = current_task()->proc->pid->nr;
 
 	for (pid_t nr = 1; nr <= PID_MAX; nr++) {
-		struct task_struct *task = task_find_thread(nr);
+		struct task_struct *task = pid_lookup_task(nr);
 		int ret;
 
-		if (!task_is_user_process(task) ||
-		    task_state(task) == TASK_ZOMBIE ||
-		    task_state(task) == TASK_DEAD) {
+		if (!task || !task->proc || !proc_is_user_process(task->proc) ||
+		    task_is_exiting(task)) {
 			task_put(task);
 			continue;
 		}
 		if (init_process_is_task(task) ||
-		    task_tgid(task) == caller_tgid) {
+		    (task->proc && task->proc->pid &&
+		     task->proc->pid->nr == caller_tgid)) {
 			task_put(task);
 			continue;
 		}
@@ -1338,9 +1496,10 @@ static int kill_all_processes(int sig, const siginfo_t *info)
 int do_kill(pid_t pid, int sig)
 {
 	struct task_struct *task;
-	struct task_process_identity identity;
 	siginfo_t info = {0};
 	long pgid;
+	pid_t current_pgid;
+	pid_t sid;
 	int ret;
 
 	if (sig != 0 && !signal_is_valid(sig))
@@ -1348,15 +1507,16 @@ int do_kill(pid_t pid, int sig)
 
 	info.si_signo = sig;
 	info.si_code = SI_USER;
-	info.si_pid = task_pid(current_task());
+	info.si_pid = current_task()->proc ? current_task()->proc->pid->nr : 0;
 	info.si_uid = task_uid(current_task());
 	if (pid == -1)
 		return kill_all_processes(sig, &info);
 	if (pid == 0) {
-		ret = task_process_snapshot(current_task(), &identity);
+		ret = proc_snapshot_topology(current_task()->proc,
+					     &current_pgid, &sid);
 		if (ret < 0)
 			return ret;
-		return send_pgrp_signal_info(sig, &info, identity.pgid, 0);
+		return send_pgrp_signal_info(sig, &info, current_pgid, 0);
 	}
 	if (pid < -1) {
 		pgid = -(long)pid;
@@ -1365,7 +1525,14 @@ int do_kill(pid_t pid, int sig)
 		return send_pgrp_signal_info(sig, &info, (pid_t)pgid, 0);
 	}
 
-	task = task_find_group_leader(pid);
+	{
+		struct proc_struct *proc = pid_lookup_proc(pid);
+
+		if (!proc)
+			return -ESRCH;
+		task = proc_leader_get(proc);
+		proc_put(proc);
+	}
 	if (!task)
 		return -ESRCH;
 	if (sig == 0) {
@@ -1389,7 +1556,7 @@ int do_tkill(pid_t tid, int sig)
 	if (tid <= 0)
 		return -EINVAL;
 
-	task = task_find_thread(tid);
+	task = pid_lookup_task(tid);
 	if (!task)
 		return -ESRCH;
 	if (sig == 0) {
@@ -1399,7 +1566,7 @@ int do_tkill(pid_t tid, int sig)
 
 	info.si_signo = sig;
 	info.si_code = SI_USER;
-	info.si_pid = task_pid(current_task());
+	info.si_pid = current_task()->proc ? current_task()->proc->pid->nr : 0;
 	info.si_uid = task_uid(current_task());
 	int ret = send_signal_info(sig, &info, task);
 
@@ -1409,6 +1576,7 @@ int do_tkill(pid_t tid, int sig)
 
 int do_tgkill(pid_t tgid, pid_t tid, int sig)
 {
+	struct proc_struct *proc;
 	struct task_struct *task;
 	siginfo_t info = {0};
 
@@ -1417,11 +1585,14 @@ int do_tgkill(pid_t tgid, pid_t tid, int sig)
 	if (tgid <= 0 || tid <= 0)
 		return -EINVAL;
 
-	task = find_task_by_pid(tid);
-	if (!task || !task_in_thread_group(task, tgid)) {
+	task = pid_lookup_task(tid);
+	proc = pid_lookup_proc(tgid);
+	if (!task || !proc || !proc_task_is_member(proc, task)) {
 		task_put(task);
+		proc_put(proc);
 		return -ESRCH;
 	}
+	proc_put(proc);
 	if (sig == 0) {
 		task_put(task);
 		return 0;
@@ -1429,7 +1600,7 @@ int do_tgkill(pid_t tgid, pid_t tid, int sig)
 
 	info.si_signo = sig;
 	info.si_code = SI_USER;
-	info.si_pid = task_pid(current_task());
+	info.si_pid = current_task()->proc ? current_task()->proc->pid->nr : 0;
 	info.si_uid = task_uid(current_task());
 	int ret = send_signal_info(sig, &info, task);
 
@@ -1452,7 +1623,7 @@ int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 			return -EINVAL;
 
 		if (ss->ss_flags & SS_DISABLE) {
-			reset_task_altstack(current_task());
+			signal_reset_altstack(current_task());
 		} else {
 			if (ss->ss_size < MINSIGSTKSZ)
 				return -ENOMEM;
@@ -1466,9 +1637,9 @@ int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss)
 
 int do_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact)
 {
-	const unsigned long supported_flags = SA_SIGINFO | SA_ONSTACK |
-					      SA_RESTART | SA_NODEFER |
-					      SA_RESETHAND;
+	const unsigned long supported_flags =
+		SA_SIGINFO | SA_ONSTACK | SA_RESTART | SA_NODEFER |
+		SA_RESETHAND | SA_NOCLDSTOP | SA_NOCLDWAIT;
 	struct sighand_struct *sighand = task_sighand(current_task());
 	struct sigaction kact;
 
@@ -1536,6 +1707,7 @@ int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset)
 
 ssize_t do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 {
+	struct task_struct *task = current_task();
 	struct rt_sigframe frame;
 	struct rt_sigframe *user_frame = (struct rt_sigframe *)sp;
 	const unsigned char *fp_state;
@@ -1576,6 +1748,6 @@ ssize_t do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 	signal_set_blocked_mask(current_task(), frame.uc.uc_sigmask);
 	signal_frame_pop(current_task());
 	*task_altstack(current_task()) = frame.uc.uc_stack;
-	task_set_trap_frame(current_task(), tf);
+	task->arch.tf = tf;
 	return (ssize_t)trap_return_value(tf);
 }

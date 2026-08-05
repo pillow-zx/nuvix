@@ -15,8 +15,6 @@
 !sched/
 !block/
 !init/
-!test/
-!test/**/
 !docs/
 !scripts/
 !scripts/tools/
@@ -71,9 +69,6 @@
 !tools/kconfig/*.y
 !tools/kconfig/lxdialog/*.c
 !tools/kconfig/lxdialog/*.h
-!test/**/*.c
-!test/**/*.h
-!test/**/*.S
 !drivers/*.c
 !syscall/*.c
 !sched/*.c
@@ -85,8 +80,6 @@
 !user/ci/**/*.md
 !user/ci/rootfs/inittab
 !user/Makefile
-!docs/architecture/
-!docs/architecture/*
 !.clang-format
 !.clangd
 !.editorconfig

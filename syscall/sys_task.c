@@ -49,12 +49,6 @@ ssize_t sys_clone(struct trap_frame *tf)
 		if (ret < 0)
 			goto abort;
 	}
-	if (flags & CLONE_CHILD_SETTID) {
-		ret = sys_write_tid(child_tid, clone.pid);
-		if (ret < 0)
-			goto abort;
-	}
-
 	return kernel_clone_commit(&clone);
 
 abort:
@@ -64,13 +58,11 @@ abort:
 
 /*
  * SYSCALL_SUPPORT(B): wait4
- * Current: waits for pid -1 or a positive pid; WNOHANG, WUNTRACED, and
- * WCONTINUED report Linux-compatible exit, signal, stop, and continue
- * statuses. It can return rusage; SA_RESTART replays an interrupted blocking
- * wait after its handler returns.
- * Unsupported errno: pid 0, pid < -1, and unsupported options return -EINVAL;
- * no wait target returns -ECHILD.
- * Future: add a process-group selector only when a real shell trace needs it.
+ * Current: supports all pid selectors, WNOHANG/WUNTRACED/WCONTINUED and the
+ * Linux internal __WNOTHREAD/__WCLONE/__WALL filters. It can return rusage;
+ * SA_RESTART replays an interrupted blocking wait after its handler returns.
+ * Unsupported errno: unknown option bits return -EINVAL; no wait target
+ * returns -ECHILD.
  */
 ssize_t sys_wait4(struct trap_frame *tf)
 {

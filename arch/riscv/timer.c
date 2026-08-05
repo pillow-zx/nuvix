@@ -3,9 +3,7 @@
  */
 
 #include <kernel/timer.h>
-#include <kernel/time.h>
-
-volatile uint64_t jiffies = 0;
+#include <asm/csr.h>
 
 uint64_t timer_now(void)
 {
@@ -15,11 +13,6 @@ uint64_t timer_now(void)
 void timer_set(uint64_t value)
 {
 	csr_write(stimecmp, value);
-}
-
-void timer_run_expired(uint64_t now)
-{
-	ktimer_run_expired(now);
 }
 
 void timer_init(void)

@@ -8,30 +8,44 @@
  * @brief Linux-compatible signal UAPI constants and layouts.
  */
 
-#define SIGHUP	1
-#define SIGINT	2
-#define SIGQUIT 3
-#define SIGILL	4
-#define SIGTRAP 5
-#define SIGABRT 6
-#define SIGBUS	7
-#define SIGFPE	8
-#define SIGKILL 9
-#define SIGUSR1 10
-#define SIGSEGV 11
-#define SIGUSR2 12
-#define SIGPIPE 13
-#define SIGALRM 14
-#define SIGTERM 15
-#define SIGCHLD 17
-#define SIGCONT 18
-#define SIGSTOP 19
-#define SIGTSTP 20
-#define SIGTTIN 21
-#define SIGTTOU 22
-#define SIGSYS	31
+#define SIGHUP	  1
+#define SIGINT	  2
+#define SIGQUIT	  3
+#define SIGILL	  4
+#define SIGTRAP	  5
+#define SIGABRT	  6
+#define SIGIOT	  SIGABRT
+#define SIGBUS	  7
+#define SIGFPE	  8
+#define SIGKILL	  9
+#define SIGUSR1	  10
+#define SIGSEGV	  11
+#define SIGUSR2	  12
+#define SIGPIPE	  13
+#define SIGALRM	  14
+#define SIGTERM	  15
+#define SIGSTKFLT 16
+#define SIGCHLD	  17
+#define SIGCONT	  18
+#define SIGSTOP	  19
+#define SIGTSTP	  20
+#define SIGTTIN	  21
+#define SIGTTOU	  22
+#define SIGURG	  23
+#define SIGXCPU	  24
+#define SIGXFSZ	  25
+#define SIGVTALRM 26
+#define SIGPROF	  27
+#define SIGWINCH  28
+#define SIGIO	  29
+#define SIGPOLL	  SIGIO
+#define SIGPWR	  30
+#define SIGSYS	  31
+#define SIGUNUSED SIGSYS
 
-#define NSIG 32
+#define NSIG	 64
+#define SIGRTMIN 32
+#define SIGRTMAX NSIG
 
 /**
  * @typedef __sighandler_t
@@ -39,12 +53,6 @@
  */
 typedef void (*__sighandler_t)(int);
 typedef void (*__sigactionhandler_t)(int, siginfo_t *, void *);
-
-/**
- * @typedef __sigrestorer_t
- * @brief Userspace trampoline pointer used to enter rt_sigreturn.
- */
-typedef void (*__sigrestorer_t)(void);
 
 /**
  * @union sigval
@@ -69,13 +77,18 @@ typedef union sigval {
 
 /**
  * @struct sigaction
- * @brief Linux rt_sigaction layout used by userspace and the kernel.
+ * @brief Linux riscv64 rt_sigaction syscall layout (kernel-side view).
+ *
+ * Matches the riscv64 Linux uapi (asm-generic/signal.h; riscv64 does not
+ * define SA_RESTORER, so the sigset follows sa_flags at offset 16).
+ * Userspace musl defines its own struct (sa_mask first, then sa_flags) and
+ * converts in the libc wrapper; this kernel struct matches the converted
+ * syscall layout. The Linux riscv64 signal set has one unsigned-long word.
  *
  * @par Fields
  * - @c sa_handler: Handler, SIG_DFL, or SIG_IGN.
  * - @c sa_flags: SA_* behavior flags.
- * - @c sa_restorer: Userspace restorer trampoline.
- * - @c sa_mask: Additional blocked signal mask.
+ * - @c sa_mask: Additional blocked signal mask (low word of the sigset).
  */
 struct sigaction {
 	union {
@@ -83,20 +96,23 @@ struct sigaction {
 		__sigactionhandler_t sigaction;
 	} handler;
 	unsigned long sa_flags;
-	__sigrestorer_t sa_restorer;
 	unsigned long sa_mask;
 };
 
 #define sa_handler   handler.handler
 #define sa_sigaction handler.sigaction
 
-#define SA_NOCLDSTOP 0x00000001
-#define SA_NOCLDWAIT 0x00000002
-#define SA_SIGINFO   0x00000004
-#define SA_ONSTACK   0x08000000
-#define SA_RESTART   0x10000000
-#define SA_NODEFER   0x40000000
-#define SA_RESETHAND 0x80000000
+#define SA_NOCLDSTOP	  0x00000001
+#define SA_NOCLDWAIT	  0x00000002
+#define SA_SIGINFO	  0x00000004
+#define SA_ONSTACK	  0x08000000
+#define SA_RESTART	  0x10000000
+#define SA_NODEFER	  0x40000000
+#define SA_RESETHAND	  0x80000000
+#define SA_UNSUPPORTED	  0x00000400
+#define SA_EXPOSE_TAGBITS 0x00000800
+#define SA_NOMASK	  SA_NODEFER
+#define SA_ONESHOT	  SA_RESETHAND
 
 #define SIGEV_SIGNAL	0
 #define SIGEV_NONE	1
@@ -169,6 +185,12 @@ struct stack_t {
 #define offsetof(t, d) __builtin_offsetof(t, d)
 
 _Static_assert(sizeof(sigval_t) == 8, "sigval_t ABI size mismatch");
+_Static_assert(sizeof(struct sigaction) == 24,
+	       "Linux riscv64 sigaction size mismatch");
+_Static_assert(offsetof(struct sigaction, sa_flags) == 8,
+	       "Linux riscv64 sigaction flags offset mismatch");
+_Static_assert(offsetof(struct sigaction, sa_mask) == 16,
+	       "Linux riscv64 sigaction mask offset mismatch");
 _Static_assert(sizeof(sigevent_t) == 64, "sigevent_t ABI size mismatch");
 _Static_assert(offsetof(sigevent_t, sigev_signo) == 8,
 	       "sigevent signo ABI offset mismatch");

@@ -13,7 +13,11 @@
 #define statement_expr(...)	 __extension__({__VA_ARGS__})
 /** @def same_type Test compile-time type compatibility. */
 #define same_type(a, b)		 types_compatible(a, b)
-/** @def BitInt to declare bit width required */
-#define BitInt(x)		 _BitInt(x)
+
+#define static_assert(cond, ...) _Static_assert(cond, __VA_ARGS__)
+
+#define auto			 __auto_type
+
+#define alignof(type)		_Alignof(type)
 
 #endif

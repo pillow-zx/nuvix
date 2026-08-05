@@ -11,7 +11,6 @@
 #include <kernel/mutex.h>
 #include <kernel/resource.h>
 #include <kernel/task.h>
-#include <kernel/time.h>
 #include <kernel/page.h>
 #include <kernel/pgtable.h>
 #include <kernel/trap.h>
@@ -29,36 +28,30 @@
 struct sighand_struct {
 	refcount_t refcount;
 	mutex_t lock;
-	struct sigaction sigactions[NSIG];
+	struct sigaction sigactions[NSIG + 1];
 };
 
 /**
  * @struct signal_struct
- * @brief Thread-group shared signal, timer, and resource-limit state.
+ * @brief Thread-group shared signal and resource-limit state.
  *
  * @par Fields
  * - @c refcount: References from tasks in the group.
  * - @c lock: Serializes shared signal-state updates.
  * - @c shared_pending: Pending process-directed signal mask.
- * - @c itimers: setitimer state.
- * - @c posix_timers: POSIX timer table.
- * - @c rlimits: prlimit64 state.
  */
 struct signal_struct {
 	refcount_t refcount;
 	mutex_t lock;
 	uint64_t shared_pending;
-	siginfo_t shared_pending_info[NSIG];
-	struct itimer_state itimers[ITIMER_COUNT];
-	struct posix_timer_table posix_timers;
-	struct rlimit64 rlimits[RLIM_NLIMITS];
+	siginfo_t shared_pending_info[NSIG + 1];
 };
 
 /**
  * @def SIGNAL_TRAMPOLINE_ADDR
  * @brief Fixed user virtual address of the signal trampoline mapping.
  */
-constexpr vaddr_t SIGNAL_TRAMPOLINE_ADDR = USER_STACK_GUARD_BASE - PAGE_SIZE;
+#define SIGNAL_TRAMPOLINE_ADDR (USER_STACK_GUARD_BASE - PAGE_SIZE)
 
 /**
  * @struct signal_frame
@@ -78,91 +71,89 @@ static_assert(sizeof(struct rt_sigframe) == 1088,
 	      "Linux riscv64 rt_sigframe size mismatch");
 
 struct task_struct;
+struct proc_struct;
+struct pgrp_struct;
+struct session_struct;
+
+/**
+ * @struct sigchld_exit_policy
+ * @brief SIGCHLD exit handling decisions from one action snapshot.
+ */
+struct sigchld_exit_policy {
+	bool auto_reap;
+	bool notify;
+};
 
 __must_check __pure
 static inline struct signal_struct *task_signal_state(const struct task_struct *task)
 {
-	return task ? task->resources.signal : NULL;
+	return task && task->proc ? task->proc->signal : NULL;
 }
 
 __must_check __pure
 static inline struct sighand_struct *task_sighand(const struct task_struct *task)
 {
-	return task ? task->resources.sighand : NULL;
-}
-
-static inline void task_set_sighand(struct task_struct *task,
-					     struct sighand_struct *sighand)
-{
-	if (task)
-		task->resources.sighand = sighand;
-}
-
-static inline void task_set_signal_state(struct task_struct *task,
-						  struct signal_struct *signal)
-{
-	if (task)
-		task->resources.signal = signal;
+	return task && task->proc ? task->proc->sighand : NULL;
 }
 
 __must_check __pure
 static inline uint64_t task_blocked_mask(const struct task_struct *task)
 {
-	return task ? task->sigctx.blocked : 0;
+	return task ? task->signal.blocked : 0;
 }
 
 static inline void task_set_blocked_mask(struct task_struct *task,
 						  uint64_t mask)
 {
 	if (task)
-		task->sigctx.blocked = mask;
+		task->signal.blocked = mask;
 }
 
 static inline void task_or_blocked_mask(struct task_struct *task,
 						 uint64_t mask)
 {
 	if (task)
-		task->sigctx.blocked |= mask;
+		task->signal.blocked |= mask;
 }
 
 static inline void task_and_blocked_mask(struct task_struct *task,
 						  uint64_t mask)
 {
 	if (task)
-		task->sigctx.blocked &= mask;
+		task->signal.blocked &= mask;
 }
 
 __must_check __pure
 static inline uint64_t task_pending_mask(const struct task_struct *task)
 {
-	return task ? task->sigctx.pending : 0;
+	return task ? task->signal.pending : 0;
 }
 
 static inline void task_set_pending_mask(struct task_struct *task,
 						  uint64_t mask)
 {
 	if (task)
-		task->sigctx.pending = mask;
+		task->signal.pending = mask;
 }
 
 static inline void task_or_pending_mask(struct task_struct *task,
 						 uint64_t mask)
 {
 	if (task)
-		task->sigctx.pending |= mask;
+		task->signal.pending |= mask;
 }
 
 static inline void task_and_pending_mask(struct task_struct *task,
 						  uint64_t mask)
 {
 	if (task)
-		task->sigctx.pending &= mask;
+		task->signal.pending &= mask;
 }
 
 __must_check __pure __nonnull(1) __returns_nonnull
 static inline struct stack_t *task_altstack(struct task_struct *task)
 {
-	return &task->sigctx.sas;
+	return &task->signal.sas;
 }
 
 __must_check __pure
@@ -193,8 +184,23 @@ int send_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
 int send_group_signal(int sig, struct task_struct *leader);
 int send_group_signal_info(int sig, const siginfo_t *info,
 			   struct task_struct *leader);
-int send_pgrp_signal(int sig, pid_t pgid);
-int send_session_pgrp_signal(int sig, pid_t pgid, pid_t sid);
+/**
+ * @brief Deliver one signal to every task of an already-snapshot pgrp.
+ * @param sig Signal number, or 0 for an existence probe.
+ * @param info Signal info; must be non-NULL when @p sig is non-zero.
+ * @param pgrp Snapshot pgrp reference held by the caller.
+ * @param session Snapshot session reference holding @p pgrp.
+ * @return 0 if delivered to at least one task, -ESRCH for an empty or
+ *         mismatched pgrp, or a negative errno from delivery.
+ *
+ * The caller must hold strong references to @p pgrp and @p session.  IDs are
+ * never re-resolved from their numeric values inside or after this call.
+ */
+int signal_send_pgrp_snapshot(int sig, const siginfo_t *info,
+			      struct pgrp_struct *pgrp,
+			      struct session_struct *session);
+void signal_orphaned_pgrp_event(const struct proc_orphan_event *event);
+void signal_notify_proc_parent(const struct proc_parent_event *event);
 int send_current_signal(int sig);
 int force_signal(int sig, struct task_struct *task);
 int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
@@ -203,18 +209,31 @@ int signal_pending_info(const struct task_struct *task, int sig,
 bool signal_pending(struct task_struct *task);
 bool signal_fatal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);
+void signal_write_child_tid(struct task_struct *task);
+int signal_proc_init(struct proc_struct *proc);
+struct sigchld_exit_policy signal_sigchld_exit_policy(
+	const struct proc_struct *proc);
+bool signal_sigchld_stop_suppressed(const struct proc_struct *proc);
+bool signal_sigchld_ignored(const struct proc_struct *proc);
 int signals_clone(struct task_struct *child, bool share_sighand,
-		  bool share_signal, bool disable_altstack);
+			  bool disable_altstack);
 
 /**
- * @brief Apply the signal-disposition transition required by exec.
- * @param task Task that successfully installed a new user image.
+ * @brief Prepare the private signal-handler table required by exec.
+ * @param task Task replacing its image.
+ * @param prepared Receives the uncommitted handler table.
+ * @return 0, or a negative errno.
  *
- * Caught dispositions are reset to @c SIG_DFL, while @c SIG_IGN remains
- * ignored. The signal mask and pending signals are left unchanged.
+ * The current proc handler table is not modified.  The caller must either
+ * commit or abort the returned table.
  */
-void signals_execve(struct task_struct *task);
+int signals_prepare_exec(const struct task_struct *task,
+			 struct sighand_struct **prepared);
+void signals_commit_exec(struct task_struct *task,
+			 struct sighand_struct *prepared);
+void signals_abort_exec(struct sighand_struct *prepared);
 void signals_release(struct task_struct *task);
+void signal_proc_release(struct proc_struct *proc);
 /**
  * @brief Discard all active signal-frame validation records for a task.
  * @param task Task whose signal-frame chain is cleared.
@@ -222,6 +241,12 @@ void signals_release(struct task_struct *task);
  * This is used when an address space is replaced and during signal teardown.
  */
 void signal_clear_frames(struct task_struct *task);
+/**
+ * @brief Reset the alternate signal stack to SS_DISABLE.
+ *
+ * Used when an address space is replaced (exec) and during task teardown.
+ */
+void signal_reset_altstack(struct task_struct *task);
 /**
  * @brief Deliver one pending signal before returning to userspace.
  * @param tf User trap frame to rewrite for handler entry.

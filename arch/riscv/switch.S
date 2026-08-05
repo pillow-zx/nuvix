@@ -6,7 +6,23 @@
 
 	.section .text.entry
 	.globl switch_to
+	.globl activate_pgroot
 	.align 4
+
+/*
+ * activate_pgroot(a0 = target satp)
+ *
+ * Keep SATP activation and invalidation as one operation.  The fence is also
+ * required when a recycled page-table root happens to produce the same value.
+ * t0 is scratch; the helper uses the normal C ABI return register.
+ */
+activate_pgroot:
+	csrr    t0, satp
+	beq     t0, a0, .Lsatp_ready
+	csrw    satp, a0
+.Lsatp_ready:
+	sfence.vma zero, zero
+	ret
 
 switch_to:
 	sd      ra,  CTX_RA(a0)
@@ -23,6 +39,15 @@ switch_to:
 	sd      s9,  CTX_S9(a0)
 	sd      s10, CTX_S10(a0)
 	sd      s11, CTX_S11(a0)
+
+	/*
+	 * Keep the address-space and stack handoff indivisible.  In particular,
+	 * the boot idle context still uses its low-address OpenSBI stack, which is
+	 * not mapped by a user page table.  After activating satp, do not touch the
+	 * outgoing stack before loading the incoming one below.
+	 */
+	mv      a0, a2
+	jal     ra, activate_pgroot
 
 	ld      ra,  CTX_RA(a1)
 	ld      sp,  CTX_SP(a1)

@@ -38,7 +38,7 @@ static void ext2_evict_inode(struct inode *inode)
 	if (!inode)
 		return;
 
-	page_cache_invalidate_inode(inode);
+	pgcache_invalidate_inode(inode);
 	if (inode->i_nlink == 0 && inode->i_private) {
 		ext2_free_inode_blocks(inode);
 		ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
@@ -142,23 +142,23 @@ static uint32_t div_round_up_u32(uint32_t value, uint32_t divisor)
 
 static int ext2_read_super_block(dev_t dev, struct ext2_super_block *es)
 {
-	struct page_cache *page;
+	struct pgcache *page;
 	uint32_t super_block;
 	uint32_t super_off;
 
 	if (!es)
 		return -EINVAL;
-	if (!lookup_block_device(dev))
+	if (!lookup_blkdev(dev))
 		return -ENXIO;
 
 	super_block = ext2_super_blocknr(BLOCK_SIZE);
 	super_off = ext2_super_offset(BLOCK_SIZE);
-	page = page_cache_get_block(dev, super_block);
+	page = pgcache_get_block(dev, super_block);
 	if (!page)
 		return -EIO;
 
 	memcpy(es, page_cache_data(page) + super_off, sizeof(*es));
-	page_cache_put_page(page);
+	pgcache_put_page(page);
 	return 0;
 }
 
@@ -208,8 +208,8 @@ static int ext2_read_bgdt(struct super_block *sb)
 	for (uint32_t block = 0;
 	     block < div_round_up_u32(sbi->s_groups_count, desc_per_block);
 	     block++) {
-		struct page_cache *page =
-			page_cache_get_block(sb->s_dev, first_block + block);
+		struct pgcache *page =
+			pgcache_get_block(sb->s_dev, first_block + block);
 		uint32_t copy = bytes - block * BLOCK_SIZE;
 
 		if (!page) {
@@ -221,7 +221,7 @@ static int ext2_read_bgdt(struct super_block *sb)
 			copy = BLOCK_SIZE;
 
 		memcpy(dst + block * BLOCK_SIZE, page_cache_data(page), copy);
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 
 	return 0;

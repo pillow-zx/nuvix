@@ -4,10 +4,10 @@
 #include <kernel/compiler.h>
 #include <kernel/trap.h>
 
-constexpr int32_t EXEC_MAX_ARGS = 16;
-constexpr size_t EXEC_MAX_ARG_LEN = 128;
-constexpr int32_t EXEC_MAX_ENVS = 16;
-constexpr size_t EXEC_MAX_ENV_LEN = 128;
+#define EXEC_MAX_ARGS		16
+#define EXEC_MAX_ARG_LEN	128
+#define EXEC_MAX_ENVS		16
+#define EXEC_MAX_ENV_LEN	128
 
 struct exec_args_envp {
 	int argc;

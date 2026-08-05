@@ -10,6 +10,13 @@
 #include <kernel/task.h>
 #include <kernel/irq.h>
 #include <kernel/spinlock.h>
+#include <arch/processor.h>
+
+/*
+ * Boot baseline: every task is affine to CPU 0 until sched_set_affinity
+ * replaces the mask. Single-CPU build (nr_cpu_ids fixed at boot).
+ */
+#define SCHED_BOOT_AFFINITY_MASK BIT(0)
 
 /**
  * @brief Initialize scheduler queues and policy state.
@@ -19,11 +26,23 @@ void sched_init(void);
 /**
  * @brief Switch from current task to the next runnable task.
  *
- * The caller must be in a task context, with no held spinlock and a zero
- * preemption-disable depth. Local IRQs may be enabled or disabled; the
- * scheduler preserves the entry state. Invalid callers trigger a diagnostic.
+ * The caller must be in a task context, with no held spinlock, a zero
+ * preemption-disable depth, and local IRQs enabled. IRQ-disabled callers must
+ * use schedule_irqoff(). Invalid callers trigger a diagnostic.
  */
 void schedule(void);
+
+/** Scheduler/interrupt-return entry with local IRQs already disabled. */
+void schedule_irqoff(void);
+
+/**
+ * @brief Switch task contexts and activate the next address space.
+ *
+ * The scheduler owns this seam. Callers must have local IRQs disabled and
+ * hold no spinlock; the function does not establish these preconditions.
+ */
+__nonnull(1, 2)
+void task_switch(struct task_struct *prev, struct task_struct *next);
 
 /**
  * @brief Request a reschedule of the current task without switching.
@@ -51,23 +70,30 @@ void sched_task_init(struct task_struct *task);
  * @brief Insert a runnable task into the scheduler.
  * @param task Task in TASK_RUNNING state.
  */
-__nonnull(1) __access_no_size(read_write, 1)
-void sched_enqueue(struct task_struct *task);
+void sched_enqueue_new(struct task_struct *task);
 
-/**
- * @brief Make a sleeping task runnable.
- * @param task Task to wake.
- */
-__nonnull(1) __access_no_size(read_write, 1)
-void sched_wakeup(struct task_struct *task);
 bool sched_has_runnable(void);
 
-/**
- * @brief Wake a specific task and enqueue it if needed.
- * @param task Task to wake.
- */
-__nonnull(1) __access_no_size(read_write, 1)
-void sched_wake_task(struct task_struct *task);
+/** Block the current task for one wait generation. */
+int sched_block_current(struct task_wait *wait);
+
+/** Wake a task only when it still belongs to the supplied wait generation. */
+bool sched_wake(struct task_struct *task, uint64_t generation);
+
+/** Wake a task waiting on a scheduler-owned completion channel. */
+bool sched_wake_external(struct task_struct *task);
+
+int sched_set_affinity(struct task_struct *task, uint64_t mask);
+
+uint64_t sched_get_affinity(const struct task_struct *task);
+
+/** Transfer one retired task to the independent reaper. */
+__must_check
+bool sched_retired_pop(struct task_struct **task);
+
+/** Leave the current task forever after its task/proc cleanup is complete. */
+__noreturn
+void sched_exit_current(void);
 
 /**
  * @brief Remove a task from its runqueue.
@@ -75,11 +101,19 @@ void sched_wake_task(struct task_struct *task);
  */
 void sched_dequeue(struct task_struct *task);
 
+/** Move a stopped task back to the runnable state. */
+bool sched_resume(struct task_struct *task);
+
+/** Mark a live task stopped and remove it from its runqueue. */
+bool sched_stop(struct task_struct *task);
+
+__always_inline
 static inline void preempt_disable(void)
 {
 	cpu_inc_preempt_count(current_cpu());
 }
 
+__always_inline __pure
 static inline bool preemptible(void)
 {
 	return cpu_preempt_count(current_cpu()) == 0;
@@ -94,8 +128,7 @@ static inline bool preemptible(void)
  */
 static inline bool sched_context_can_schedule(void)
 {
-	return current_task() && !in_irq() &&
-	       preemptible() && !spinlock_held();
+	return current_task() && !in_irq() && preemptible() && !spinlock_held();
 }
 
 /**
@@ -107,24 +140,8 @@ static inline void preempt_enable(void)
 
 	cpu_dec_preempt_count(current_cpu());
 	if (preemptible() && !irqs_disabled() && task &&
-	    task_need_resched(task) &&
-	    sched_context_can_schedule())
+	    task_need_resched(task) && sched_context_can_schedule())
 		schedule();
 }
-
-#ifdef KERNEL_SELFTEST
-bool sched_test_runqueue_empty(void);
-uint32_t sched_test_runnable_count(void);
-struct task_struct *sched_test_peek_next(void);
-void sched_test_force_boost(void);
-uint8_t sched_test_level_slice(uint8_t level);
-uint8_t sched_test_level(const struct task_struct *task);
-uint8_t sched_test_time_slice(const struct task_struct *task);
-uint8_t sched_test_ticks(const struct task_struct *task);
-uint8_t sched_test_need_resched(const struct task_struct *task);
-void sched_test_set_level(struct task_struct *task, uint8_t level);
-void sched_test_set_budget(struct task_struct *task, uint8_t slice,
-			   uint8_t ticks);
-#endif
 
 #endif

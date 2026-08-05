@@ -233,26 +233,44 @@ static void poll_file_snapshot_put(struct file **files, size_t nr_files)
 	}
 }
 
-static int poll_wait(struct wait_request *source,
+typedef int (*poll_scan_fn)(struct task_wait *wait, void *arg);
+
+static int poll_wait(poll_scan_fn scan, void *arg,
 		     const struct wait_deadline *deadline, int *ready)
 {
-	wait_outcome_t outcome;
-	int ret;
+	struct task_wait *wait = &current_task()->wait;
 
-	ret = wait_for_interruptible(source, deadline, &outcome);
-	if (ret < 0)
-		return ret;
-	if (outcome == WAIT_OUTCOME_SIGNAL)
-		return -EINTR;
-	if (outcome == WAIT_OUTCOME_TIMEOUT)
-		return 0;
-	if (outcome != WAIT_OUTCOME_EVENT)
-		return -EINVAL;
+	for (;;) {
+		wait_outcome_t outcome;
+		int ret;
 
-	return ready ? *ready : 1;
+		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, deadline);
+		if (ret < 0)
+			return ret;
+		ret = scan(wait, arg);
+		if (ret > 0) {
+			int result = ready ? *ready : ret;
+
+			wait_finish(wait);
+			return result;
+		}
+		if (ret < 0) {
+			wait_finish(wait);
+			return ret;
+		}
+		ret = wait_block(wait, &outcome);
+		wait_finish(wait);
+		if (ret < 0)
+			return ret;
+		if (outcome == WAIT_OUTCOME_SIGNAL)
+			return -EINTR;
+		if (outcome == WAIT_OUTCOME_TIMEOUT)
+			return 0;
+		BUG_ON(outcome != WAIT_OUTCOME_EVENT);
+	}
 }
 
-static int ppoll_scan(struct wait_session *session, void *arg)
+static int ppoll_scan(struct task_wait *wait, void *arg)
 {
 	struct ppoll_scan_ctx *ctx = arg;
 	int ready = 0;
@@ -272,7 +290,7 @@ static int ppoll_scan(struct wait_session *session, void *arg)
 		}
 
 		mask = vfs_poll(file, poll_req((uint32_t)ctx->fds[i].events),
-				session);
+				 wait);
 		if (mask < 0)
 			return mask;
 		mask = (int)poll_res((uint32_t)mask,
@@ -288,7 +306,7 @@ static int ppoll_scan(struct wait_session *session, void *arg)
 	return ready;
 }
 
-static int pselect_scan(struct wait_session *session, void *arg)
+static int pselect_scan(struct task_wait *wait, void *arg)
 {
 	struct pselect_scan_ctx *ctx = arg;
 	int ready = 0;
@@ -314,7 +332,7 @@ static int pselect_scan(struct wait_session *session, void *arg)
 		if (!file)
 			return -EBADF;
 
-		mask = vfs_poll(file, events, session);
+		mask = vfs_poll(file, events, wait);
 		if (mask < 0)
 			return mask;
 
@@ -494,7 +512,6 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	struct file *files[NR_OPEN] = {0};
 	struct timespec timeout;
 	struct ppoll_scan_ctx scan_ctx;
-	struct wait_request source;
 	struct poll_sigmask_guard sigmask_guard __cleanup_with(
 		poll_sigmask_restore) = {
 		.task = current_task(),
@@ -542,11 +559,7 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	scan_ctx.files = files;
 	scan_ctx.nfds = nfds;
 	scan_ctx.ready = 0;
-	source.kind = WAIT_KIND_POLL;
-	source.check = ppoll_scan;
-	source.arg = &scan_ctx;
-	source.channel_limit = WAIT_SESSION_MAX_CHANNELS;
-	ret = poll_wait(&source, &deadline, &scan_ctx.ready);
+	ret = poll_wait(ppoll_scan, &scan_ctx, &deadline, &scan_ctx.ready);
 	poll_file_snapshot_put(files, nfds);
 	if (ret == -EINTR)
 		poll_defer_sigmask_restore(&sigmask_guard);
@@ -584,7 +597,6 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	struct file *files[NR_OPEN] = {0};
 	struct timespec timeout;
 	struct pselect_scan_ctx scan_ctx;
-	struct wait_request source;
 	struct poll_sigmask_guard sigmask_guard
 		__cleanup_with(poll_sigmask_restore) = {
 		.task = current_task(),
@@ -658,11 +670,8 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	scan_ctx.files = files;
 	scan_ctx.nfds = (size_t)nfds;
 	scan_ctx.ready = 0;
-	source.kind = WAIT_KIND_POLL;
-	source.check = pselect_scan;
-	source.arg = &scan_ctx;
-	source.channel_limit = WAIT_SESSION_MAX_CHANNELS;
-	ready = poll_wait(&source, &deadline, &scan_ctx.ready);
+	ready = poll_wait(pselect_scan, &scan_ctx, &deadline,
+				 &scan_ctx.ready);
 	poll_file_snapshot_put(files, (size_t)nfds);
 	if (ready == -EINTR)
 		poll_defer_sigmask_restore(&sigmask_guard);

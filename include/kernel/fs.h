@@ -24,58 +24,58 @@ struct inode;
 struct dentry;
 struct super_block;
 struct statfs64;
-struct wait_session;
+struct task_wait;
 
 /**
  * @def VFS_NAME_MAX
  * @brief Maximum single path-component length accepted by VFS.
  */
-constexpr size_t VFS_NAME_MAX = 255;
+#define VFS_NAME_MAX 255
 
 /**
  * @def VFS_PATH_MAX
  * @brief Maximum absolute or relative path string length copied from userspace.
  */
-constexpr size_t VFS_PATH_MAX = 4096;
+#define VFS_PATH_MAX 4096
 
 /** @def KERN_STDIN Kernel-reserved stdin file descriptor number. */
-constexpr int32_t KERN_STDIN = 0;
+#define KERN_STDIN 0
 
 /** @def KERN_STDOUT Kernel-reserved stdout file descriptor number. */
-constexpr int32_t KERN_STDOUT = 1;
+#define KERN_STDOUT 1
 
 /** @def KERN_STDERR Kernel-reserved stderr file descriptor number. */
-constexpr int32_t KERN_STDERR = 2;
+#define KERN_STDERR 2
 
 /**
  * @def NR_OPEN
  * @brief Per-task fdtable size and poll/select descriptor ceiling.
  */
-constexpr int32_t NR_OPEN = 32;
+#define NR_OPEN 32
 
 /** @def FMODE_READ File object permits read operations. */
-constexpr uint32_t FMODE_READ = 0x1;
+#define FMODE_READ 0x1
 
 /** @def FMODE_WRITE File object permits write operations. */
-constexpr uint32_t FMODE_WRITE = 0x2;
+#define FMODE_WRITE 0x2
 
 /** @def VFS_MODE_CHMOD_MASK Special and permission bits set by chmod. */
-constexpr uint32_t VFS_MODE_CHMOD_MASK = 07777;
+#define VFS_MODE_CHMOD_MASK 07777
 
 /** @def VFS_MODE_SETID_MASK Set-user-ID and set-group-ID mode bits. */
-constexpr uint32_t VFS_MODE_SETID_MASK = 06000;
+#define VFS_MODE_SETID_MASK 06000
 
 /** @def VFS_ATTR_MODE Update the inode permission and special mode bits. */
-constexpr uint32_t VFS_ATTR_MODE = 0x0001;
+#define VFS_ATTR_MODE 0x0001
 
 /** @def VFS_ATTR_UID Update the inode owner uid. */
-constexpr uint32_t VFS_ATTR_UID = 0x0002;
+#define VFS_ATTR_UID 0x0002
 
 /** @def VFS_ATTR_GID Update the inode owner gid. */
-constexpr uint32_t VFS_ATTR_GID = 0x0004;
+#define VFS_ATTR_GID 0x0004
 
 /** @def VFS_ATTR_ALL All attributes supported by vfs_inode_setattr(). */
-constexpr uint32_t VFS_ATTR_ALL = VFS_ATTR_MODE | VFS_ATTR_UID | VFS_ATTR_GID;
+#define VFS_ATTR_ALL (VFS_ATTR_MODE | VFS_ATTR_UID | VFS_ATTR_GID)
 
 /**
  * @struct vfs_inode_attrs
@@ -184,8 +184,7 @@ struct file_operations {
 	loff_t (*llseek)(struct file *file, loff_t offset, int whence);
 	int (*open)(struct inode *inode, struct file *file);
 	int (*readdir)(struct file *file, void *ctx, filldir_t filldir);
-	int (*poll)(struct file *file, uint32_t events,
-		    struct wait_session *context);
+	int (*poll)(struct file *file, uint32_t events, struct task_wait *wait);
 	int (*ioctl)(struct file *file, uint64_t cmd, uint64_t arg);
 	int (*release)(struct file *file);
 };
@@ -397,7 +396,8 @@ int vfs_open(const char *path, uint32_t flags, uint32_t mode);
  * @return File descriptor, or a negative errno.
  */
 __must_check
-int vfs_openat_path(const struct path *base, const char *path, uint32_t flags, uint32_t mode);
+int vfs_openat_path(const struct path *base, const char *path,
+				 uint32_t flags, uint32_t mode);
 
 /**
  * @brief Open a path relative to a base dentry.
@@ -461,8 +461,8 @@ ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count, loff_t *
 void vfs_rewind_pos(struct file *file, loff_t count);
 
 __must_check
-ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file, loff_t *in_pos,
-                loff_t *out_pos, size_t len);
+ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file,
+		loff_t *in_pos, loff_t *out_pos, size_t len);
 
 /**
  * @brief Reposition an open file according to Linux SEEK_* semantics.
@@ -542,8 +542,7 @@ int vfs_statfs(struct super_block *sb, struct statfs64 *buf);
  * @return Ready event mask, or a negative errno.
  */
 __must_check
-int vfs_poll(struct file *file, uint32_t events,
-			  struct wait_session *context);
+int vfs_poll(struct file *file, uint32_t events, struct task_wait *wait);
 
 __must_check
 int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg);

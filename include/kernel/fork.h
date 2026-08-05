@@ -24,6 +24,8 @@ struct kernel_clone {
 	struct task_struct *task;
 	unsigned long flags;
 	pid_t pid;
+	int *child_tid;
+	bool new_proc;
 };
 
 /**

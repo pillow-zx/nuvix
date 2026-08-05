@@ -20,8 +20,7 @@
 #include "internal.h"
 
 __must_check
-static int mm_unmap_range_locked(struct mm_struct *mm,
-					      uintptr_t addr, uintptr_t end);
+static int mm_unmap_range_locked(struct mm_struct *mm, uintptr_t addr, uintptr_t end);
 
 #define MM_MMAP_COMPAT_FLAGS                                                   \
 	(MAP_DENYWRITE | MAP_EXECUTABLE | MAP_NORESERVE | MAP_STACK)
@@ -161,13 +160,13 @@ static int install_vma_locked(struct mm_struct *mm, uintptr_t start,
 	return 0;
 }
 
-static struct page_cache *vma_page_cache_get(const struct vm_area_struct *vma,
+static struct pgcache *vma_page_cache_get(const struct vm_area_struct *vma,
 					     uintptr_t va)
 {
 	if (!vma || !vma->vm_file || !vma->vm_file->f_inode)
 		return NULL;
 
-	return page_cache_get_mapping(&vma->vm_file->f_inode->i_pages,
+	return pgcache_get_mapping(&vma->vm_file->f_inode->i_pages,
 				      vma_page_index(vma, va), PAGE_CACHE_READ,
 				      NULL);
 }
@@ -175,7 +174,7 @@ static struct page_cache *vma_page_cache_get(const struct vm_area_struct *vma,
 static void vma_mark_shared_page_dirty(const struct vm_area_struct *vma,
 				       uintptr_t va)
 {
-	struct page_cache *page;
+	struct pgcache *page;
 
 	if (!vma || !vma->vm_file || !vma->vm_shared ||
 	    !(vma->vm_flags & VM_WRITE))
@@ -185,13 +184,13 @@ static void vma_mark_shared_page_dirty(const struct vm_area_struct *vma,
 	if (!page)
 		return;
 
-	page_cache_mark_dirty(page);
-	page_cache_put_page(page);
+	pgcache_mark_dirty(page);
+	pgcache_put_page(page);
 }
 
 static void release_shared_pte_page(paddr_t pa, bool writable)
 {
-	struct page_cache *page = page_cache_get_data(__va(pa));
+	struct pgcache *page = pgcache_get_data(__va(pa));
 
 	if (!page) {
 		if (mm_owns_page_frame(pa))
@@ -199,9 +198,9 @@ static void release_shared_pte_page(paddr_t pa, bool writable)
 		return;
 	}
 	if (writable)
-		page_cache_mark_dirty(page);
-	page_cache_put_page(page);
-	page_cache_put_page(page);
+		pgcache_mark_dirty(page);
+	pgcache_put_page(page);
+	pgcache_put_page(page);
 }
 
 void mm_unmap_user_pages_locked(struct mm_struct *mm,
@@ -209,7 +208,7 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 				uintptr_t start, uintptr_t end)
 {
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = pagetable_lookup(mm->pgd, va);
+		pte_t *pte = pgtable_lookup(mm->pgd, va);
 
 		if (!pte || !pte_is_user_page(*pte))
 			continue;
@@ -245,7 +244,7 @@ static int mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa,
 	if (ret < 0)
 		return ret;
 
-	pte = pagetable_lookup(root, va);
+	pte = pgtable_lookup(root, va);
 	BUG_ON(!pte);
 	*pte = pte_make(pa, perm);
 	return 0;
@@ -270,7 +269,7 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 		return -EINVAL;
 
 	for (uintptr_t va = new_start; va < new_end; va += PAGE_SIZE) {
-		pte_t *pte = pagetable_lookup(mm->pgd, va);
+		pte_t *pte = pgtable_lookup(mm->pgd, va);
 
 		if (pte && pte_is_user_page(*pte))
 			return -EEXIST;
@@ -280,7 +279,7 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 
 	for (uintptr_t old_va = old_start, new_va = new_start; old_va < old_end;
 	     old_va += PAGE_SIZE, new_va += PAGE_SIZE) {
-		pte_t *old_pte = pagetable_lookup(mm->pgd, old_va);
+		pte_t *old_pte = pgtable_lookup(mm->pgd, old_va);
 		pte_t old_entry;
 		int ret;
 
@@ -293,7 +292,7 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 		if (ret < 0) {
 			for (uintptr_t va = new_start; va < mapped_end;
 			     va += PAGE_SIZE) {
-				pte_t *pte = pagetable_lookup(mm->pgd, va);
+				pte_t *pte = pgtable_lookup(mm->pgd, va);
 
 				if (pte)
 					*pte = 0;
@@ -305,7 +304,7 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 
 	for (uintptr_t old_va = old_start; old_va < old_end;
 	     old_va += PAGE_SIZE) {
-		pte_t *old_pte = pagetable_lookup(mm->pgd, old_va);
+		pte_t *old_pte = pgtable_lookup(mm->pgd, old_va);
 
 		if (!old_pte || !pte_is_user_page(*old_pte))
 			continue;
@@ -393,10 +392,10 @@ uint32_t mm_membarrier_registrations(const struct mm_struct *mm)
 	return mm->membarrier_registrations;
 }
 
-uintptr_t mm_user_satp(const struct mm_struct *mm)
+uintptr_t mm_pgroot(const struct mm_struct *mm)
 {
 	BUG_ON(!mm || !mm->pgd);
-	return pgtable_make_user_token(mm->pgd);
+	return pgtable_make_token(mm->pgd);
 }
 
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
@@ -437,7 +436,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 		uintptr_t end = oldmm->vma[i].vm_end;
 
 		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-			pte_t *pte = pagetable_lookup(oldmm->pgd, va);
+			pte_t *pte = pgtable_lookup(oldmm->pgd, va);
 			if (!pte || !pte_is_user_page(*pte))
 				continue;
 
@@ -529,7 +528,7 @@ int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident)
 		return -ENOMEM;
 	}
 
-	pte = pagetable_lookup(mm->pgd, addr);
+	pte = pgtable_lookup(mm->pgd, addr);
 	*resident = pte && pte_is_user_page(*pte);
 	mm_unlock(mm);
 	return 0;
@@ -1153,7 +1152,7 @@ int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags)
 		if (!vma->vm_file || !vma->vm_shared)
 			continue;
 
-		pte = pagetable_lookup(mm->pgd, va);
+		pte = pgtable_lookup(mm->pgd, va);
 		if (pte && pte_is_user_page(*pte))
 			vma_mark_shared_page_dirty(vma, va);
 
@@ -1196,7 +1195,7 @@ int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
 		return -EINVAL;
 
 	mm_lock(mm);
-	pte = pagetable_lookup(mm->pgd, va);
+	pte = pgtable_lookup(mm->pgd, va);
 	if (pte && pte_is_user_page(*pte)) {
 		mm_unlock(mm);
 		return -EEXIST;
@@ -1396,7 +1395,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 	vma_update_flags_range(mm, addr, end, new_vm_flags);
 
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
-		pte_t *pte = pagetable_lookup(mm->pgd, va);
+		pte_t *pte = pgtable_lookup(mm->pgd, va);
 
 		if (!pte || !pte_is_user_page(*pte))
 			continue;

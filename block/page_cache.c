@@ -8,23 +8,23 @@
 #include <kernel/list.h>
 #include <kernel/slab.h>
 
-constexpr uint32_t PGCACHE_HASH_BITS = 7;
-constexpr uint32_t PGCACHE_NR_PAGES = 512U;
+#define PGCACHE_HASH_BITS	7
+#define PGCACHE_NR_PAGES	512U
 
 HASH_TABLE_DECLARE_STATIC(pgcache_hashtable, PGCACHE_HASH_BITS);
 LIST_HEAD_STATIC(pgcache_lru);
 LIST_HEAD(pgcache_dirty_list);
 LIST_HEAD(pgcache_associations);
-DEFINE_SPINLOCK(pgcache_lock);
+DEFINE_SPINLOCK(pgcache_lock, LOCK_RANK_PAGE_CACHE);
 static uint32_t page_cache_pages;
 static bool page_cache_ready;
 
-static uint32_t page_cache_hash(dev_t dev, uint64_t block)
+static uint32_t pgcache_hash(dev_t dev, uint64_t block)
 {
 	return (uint32_t)(dev ^ block ^ (block >> PGCACHE_HASH_BITS));
 }
 
-void page_cache_init(void)
+void pgcache_init(void)
 {
 	if (page_cache_ready)
 		return;
@@ -32,28 +32,28 @@ void page_cache_init(void)
 	INIT_LIST_HEAD(&pgcache_lru);
 	INIT_LIST_HEAD(&pgcache_dirty_list);
 	INIT_LIST_HEAD(&pgcache_associations);
-	page_cache_wb_init();
+	pgcache_wb_init();
 	page_cache_ready = true;
 }
 
-struct page_cache *page_cache_find(dev_t dev, uint64_t block)
+struct pgcache *pgcache_find(dev_t dev, uint64_t block)
 {
 	struct list_head *pos;
-	uint32_t hash = page_cache_hash(dev, block);
+	uint32_t hash = pgcache_hash(dev, block);
 
 	hash_table_for_each_possible (pos, &pgcache_hashtable, hash) {
-		struct page_cache *page =
-			list_entry(pos, struct page_cache, hash_node);
+		struct pgcache *page =
+			list_entry(pos, struct pgcache, hash_node);
 		if (page->dev == dev && page->block == block)
 			return page;
 	}
 	return NULL;
 }
 
-struct page_cache *page_cache_get_data(void *data)
+struct pgcache *pgcache_get_data(void *data)
 {
 	struct list_head *pos;
-	struct page_cache *page = NULL;
+	struct pgcache *page = NULL;
 	irq_flags_t flags;
 
 	if (!data)
@@ -63,8 +63,8 @@ struct page_cache *page_cache_get_data(void *data)
 	     bucket < HASH_TABLE_SIZE(pgcache_hashtable.bits) && !page;
 	     bucket++) {
 		list_for_each (pos, &pgcache_hashtable.buckets[bucket]) {
-			struct page_cache *candidate =
-				list_entry(pos, struct page_cache, hash_node);
+			struct pgcache *candidate =
+				list_entry(pos, struct pgcache, hash_node);
 
 			if (candidate->data != data)
 				continue;
@@ -78,18 +78,18 @@ struct page_cache *page_cache_get_data(void *data)
 	return page;
 }
 
-struct page_cache *page_cache_find_mapping(struct page_mapping *mapping,
-					   uint64_t index)
+struct pgcache *pgcache_find_mapping(struct page_mapping *mapping,
+					uint64_t index)
 {
 	struct list_head *pos;
-	struct page_cache *page = NULL;
+	struct pgcache *page = NULL;
 	irq_flags_t flags;
 	if (!mapping)
 		return NULL;
 	spin_lock_irqsave(&pgcache_lock, &flags);
 	list_for_each (pos, &pgcache_associations) {
-		struct page_cache_assoc *assoc =
-			list_entry(pos, struct page_cache_assoc, mapping_node);
+		struct pgcache_assoc *assoc =
+			list_entry(pos, struct pgcache_assoc, mapping_node);
 		if (assoc->mapping == mapping && assoc->index == index) {
 			page = assoc->page;
 			page->refcount++;
@@ -101,24 +101,24 @@ struct page_cache *page_cache_find_mapping(struct page_mapping *mapping,
 	return page;
 }
 
-static void page_cache_free_page(struct page_cache *page,
-				 struct list_head *removed)
+static void pgcache_free_page(struct pgcache *page,
+			      struct list_head *removed)
 {
 	if (!page)
 		return;
-	page_cache_assoc_free_list(removed);
+	pgcache_assoc_free_list(removed);
 	if (page->data)
 		free_page(page->data, 0);
 	kfree(page);
 }
 
-static void page_cache_detach_page_locked(struct page_cache *page,
-					  struct list_head *removed)
+static void pgcache_detach_page_locked(struct pgcache *page,
+				       struct list_head *removed)
 {
 	if (!page || page->dropped)
 		return;
-	page_cache_clear_dirty_locked(page);
-	page_cache_assoc_remove_page_locked(page, removed);
+	pgcache_clear_dirty_locked(page);
+	pgcache_assoc_remove_page_locked(page, removed);
 	if (!list_empty(&page->hash_node))
 		list_del_init(&page->hash_node);
 	if (!list_empty(&page->lru_node))
@@ -128,24 +128,24 @@ static void page_cache_detach_page_locked(struct page_cache *page,
 		page_cache_pages--;
 }
 
-static struct page_cache *page_cache_evict_one_locked(struct list_head *removed)
+static struct pgcache *pgcache_evict_one_locked(struct list_head *removed)
 {
 	struct list_head *pos, *next;
 
 	list_for_each_safe (pos, next, &pgcache_lru) {
-		struct page_cache *page =
-			list_entry(pos, struct page_cache, lru_node);
+		struct pgcache *page =
+			list_entry(pos, struct pgcache, lru_node);
 		if (page->refcount || page->dirty || page->writeback)
 			continue;
-		page_cache_detach_page_locked(page, removed);
+		pgcache_detach_page_locked(page, removed);
 		return page;
 	}
 	return NULL;
 }
 
-static struct page_cache *page_cache_alloc(dev_t dev, uint64_t block)
+static struct pgcache *pgcache_alloc(dev_t dev, uint64_t block)
 {
-	struct page_cache *page;
+	struct pgcache *page;
 
 	page = kmalloc(sizeof(*page), ALLOC_NOWAIT);
 	if (!page)
@@ -165,13 +165,13 @@ static struct page_cache *page_cache_alloc(dev_t dev, uint64_t block)
 	return page;
 }
 
-static int page_cache_read_physical(struct page_cache *page)
+static int pgcache_read_physical(struct pgcache *page)
 {
-	struct block_device *bdev;
+	struct blkdev *bdev;
 	int ret;
 	if (!page)
 		return -EINVAL;
-	bdev = lookup_block_device(page->dev);
+	bdev = lookup_blkdev(page->dev);
 	if (!bdev || !bdev->bd_ops || !bdev->bd_ops->read_sectors)
 		return -ENXIO;
 	ret = bdev->bd_ops->read_sectors(
@@ -181,23 +181,23 @@ static int page_cache_read_physical(struct page_cache *page)
 	return ret;
 }
 
-struct page_cache *page_cache_get(dev_t dev, uint64_t block, uint32_t flags,
-				  int *error)
+struct pgcache *pgcache_get(dev_t dev, uint64_t block, uint32_t flags,
+			       int *error)
 {
-	struct page_cache *page;
+	struct pgcache *page;
 	irq_flags_t irq_flags;
 	int ret = 0;
 
 	if (error)
 		*error = 0;
-	page_cache_init();
+	pgcache_init();
 retry: {
 	LIST_HEAD(removed);
-	struct page_cache *victim = NULL;
+	struct pgcache *victim = NULL;
 	bool no_room = false;
 
 	spin_lock_irqsave(&pgcache_lock, &irq_flags);
-	page = page_cache_find(dev, block);
+	page = pgcache_find(dev, block);
 	if (!page && !(flags & PAGE_CACHE_CREATE)) {
 		spin_unlock_irqrestore(&pgcache_lock, irq_flags);
 		if (error)
@@ -211,21 +211,21 @@ retry: {
 		goto read_page;
 	}
 	if (page_cache_pages >= PGCACHE_NR_PAGES) {
-		victim = page_cache_evict_one_locked(&removed);
+		victim = pgcache_evict_one_locked(&removed);
 		if (!victim)
 			no_room = true;
 	}
 	spin_unlock_irqrestore(&pgcache_lock, irq_flags);
 
 	if (victim)
-		page_cache_free_page(victim, &removed);
+		pgcache_free_page(victim, &removed);
 	else
-		page_cache_assoc_free_list(&removed);
+		pgcache_assoc_free_list(&removed);
 	if (no_room) {
-		page = page_cache_dirty_any();
+		page = pgcache_dirty_any();
 		if (page) {
-			ret = page_cache_sync_page(page);
-			page_cache_put_page(page);
+			ret = pgcache_sync_page(page);
+			pgcache_put_page(page);
 			if (ret == 0)
 				goto retry;
 			if (error)
@@ -237,7 +237,7 @@ retry: {
 		return NULL;
 	}
 
-	page = page_cache_alloc(dev, block);
+	page = pgcache_alloc(dev, block);
 	if (!page) {
 		if (error)
 			*error = -ENOMEM;
@@ -245,29 +245,29 @@ retry: {
 	}
 	spin_lock_irqsave(&pgcache_lock, &irq_flags);
 	{
-		struct page_cache *existing = page_cache_find(dev, block);
+		struct pgcache *existing = pgcache_find(dev, block);
 
 		if (existing) {
 			existing->refcount++;
 			list_move_tail(&existing->lru_node, &pgcache_lru);
 			spin_unlock_irqrestore(&pgcache_lock, irq_flags);
-			page_cache_free_page(page, NULL);
+			pgcache_free_page(page, NULL);
 			page = existing;
 			goto read_page;
 		}
 	}
 	page->refcount = 1;
-	hash_table_add(&pgcache_hashtable, page_cache_hash(dev, block),
+	hash_table_add(&pgcache_hashtable, pgcache_hash(dev, block),
 		       &page->hash_node);
 	list_add_tail(&page->lru_node, &pgcache_lru);
 	page_cache_pages++;
 	spin_unlock_irqrestore(&pgcache_lock, irq_flags);
 
 read_page:
-	if ((flags & PAGE_CACHE_READ) && !page_cache_is_uptodate(page)) {
-		ret = page_cache_read_physical(page);
+	if ((flags & PAGE_CACHE_READ) && !pgcache_is_uptodate(page)) {
+		ret = pgcache_read_physical(page);
 		if (ret < 0) {
-			page_cache_put_page(page);
+			pgcache_put_page(page);
 			if (error)
 				*error = ret;
 			return NULL;
@@ -277,13 +277,13 @@ read_page:
 }
 }
 
-struct page_cache *page_cache_get_mapping(struct page_mapping *mapping,
-					  uint64_t index, uint32_t flags,
-					  int *error)
+struct pgcache *pgcache_get_mapping(struct page_mapping *mapping,
+				       uint64_t index, uint32_t flags,
+				       int *error)
 {
 	uint64_t block;
-	struct page_cache *page;
-	struct page_cache *associated;
+	struct pgcache *page;
+	struct pgcache *associated;
 	int ret;
 	if (error)
 		*error = 0;
@@ -292,14 +292,13 @@ struct page_cache *page_cache_get_mapping(struct page_mapping *mapping,
 			*error = -EINVAL;
 		return NULL;
 	}
-	associated = page_cache_find_mapping(mapping, index);
+	associated = pgcache_find_mapping(mapping, index);
 	if (associated) {
 		page = associated;
-		if ((flags & PAGE_CACHE_READ) &&
-		    !page_cache_is_uptodate(page)) {
-			ret = page_cache_read_physical(page);
+		if ((flags & PAGE_CACHE_READ) && !pgcache_is_uptodate(page)) {
+			ret = pgcache_read_physical(page);
 			if (ret < 0) {
-				page_cache_put_page(page);
+				pgcache_put_page(page);
 				if (error)
 					*error = ret;
 				return NULL;
@@ -314,12 +313,12 @@ struct page_cache *page_cache_get_mapping(struct page_mapping *mapping,
 			*error = ret;
 		return NULL;
 	}
-	page = page_cache_get(
+	page = pgcache_get(
 		mapping->dev, block,
 		flags | ((flags & PAGE_CACHE_READ) ? PAGE_CACHE_CREATE : 0),
 		&ret);
 	if (page && page_cache_assoc_add(mapping, index, page) < 0) {
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 		page = NULL;
 		if (error)
 			*error = -ENOMEM;
@@ -329,13 +328,13 @@ struct page_cache *page_cache_get_mapping(struct page_mapping *mapping,
 	return page;
 }
 
-struct page_cache *page_cache_get_block(dev_t dev, uint64_t block)
+struct pgcache *pgcache_get_block(dev_t dev, uint64_t block)
 {
-	return page_cache_get(dev, block, PAGE_CACHE_READ | PAGE_CACHE_CREATE,
-			      NULL);
+	return pgcache_get(dev, block, PAGE_CACHE_READ | PAGE_CACHE_CREATE,
+			   NULL);
 }
 
-void page_cache_put_page(struct page_cache *page)
+void pgcache_put_page(struct pgcache *page)
 {
 	LIST_HEAD(removed);
 	irq_flags_t flags;
@@ -347,19 +346,19 @@ void page_cache_put_page(struct page_cache *page)
 	BUG_ON(page->refcount == 0);
 	page->refcount--;
 	if (page->refcount == 0 && page->dropped) {
-		page_cache_detach_page_locked(page, &removed);
+		pgcache_detach_page_locked(page, &removed);
 		release = true;
 	}
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	if (release)
-		page_cache_free_page(page, &removed);
+		pgcache_free_page(page, &removed);
 }
 
-uint8_t *page_cache_data(struct page_cache *page)
+uint8_t *page_cache_data(struct pgcache *page)
 {
 	return page ? page->data : NULL;
 }
-bool page_cache_is_uptodate(const struct page_cache *page)
+bool pgcache_is_uptodate(const struct pgcache *page)
 {
 	irq_flags_t flags;
 	bool uptodate;
@@ -372,7 +371,7 @@ bool page_cache_is_uptodate(const struct page_cache *page)
 	return uptodate;
 }
 
-void page_cache_set_uptodate(struct page_cache *page, bool uptodate)
+void pgcache_set_uptodate(struct pgcache *page, bool uptodate)
 {
 	irq_flags_t flags;
 
@@ -383,7 +382,7 @@ void page_cache_set_uptodate(struct page_cache *page, bool uptodate)
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 }
 
-bool page_cache_is_dirty(const struct page_cache *page)
+bool pgcache_is_dirty(const struct pgcache *page)
 {
 	irq_flags_t flags;
 	bool dirty;
@@ -396,7 +395,7 @@ bool page_cache_is_dirty(const struct page_cache *page)
 	return dirty;
 }
 
-void page_cache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
+void pgcache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
 {
 	struct list_head *pos, *next;
 	LIST_HEAD(removed);
@@ -411,9 +410,9 @@ void page_cache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
 
 	spin_lock_irqsave(&pgcache_lock, &flags);
 	list_for_each_safe (pos, next, &pgcache_associations) {
-		struct page_cache_assoc *assoc =
-			list_entry(pos, struct page_cache_assoc, mapping_node);
-		struct page_cache *page = assoc->page;
+		struct pgcache_assoc *assoc =
+			list_entry(pos, struct pgcache_assoc, mapping_node);
+		struct pgcache *page = assoc->page;
 
 		if (assoc->mapping != mapping)
 			continue;
@@ -431,28 +430,28 @@ void page_cache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
 		}
 		list_del_init(&assoc->mapping_node);
 		list_add_tail(&assoc->page_node, &removed);
-		if (!page_cache_assoc_has_page_locked(page)) {
-			page_cache_clear_dirty_locked(page);
+		if (!pgcache_assoc_has_page_locked(page)) {
+			pgcache_clear_dirty_locked(page);
 			page->uptodate = false;
 		}
 	}
 	spin_unlock_irqrestore(&pgcache_lock, flags);
-	page_cache_assoc_free_list(&removed);
+	pgcache_assoc_free_list(&removed);
 }
 
-void page_cache_invalidate_mapping(struct page_mapping *mapping)
+void pgcache_invalidate_mapping(struct page_mapping *mapping)
 {
-	page_cache_assoc_remove_mapping(mapping);
+	pgcache_assoc_remove_mapping(mapping);
 }
 
-void page_cache_truncate_inode(struct inode *inode, uint64_t size)
-{
-	if (inode)
-		page_cache_truncate_mapping(&inode->i_pages, size);
-}
-
-void page_cache_invalidate_inode(struct inode *inode)
+void pgcache_truncate_inode(struct inode *inode, uint64_t size)
 {
 	if (inode)
-		page_cache_invalidate_mapping(&inode->i_pages);
+		pgcache_truncate_mapping(&inode->i_pages, size);
+}
+
+void pgcache_invalidate_inode(struct inode *inode)
+{
+	if (inode)
+		pgcache_invalidate_mapping(&inode->i_pages);
 }

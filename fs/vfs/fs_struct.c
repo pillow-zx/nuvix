@@ -4,8 +4,8 @@
 
 #include <kernel/errno.h>
 #include <kernel/fs_struct.h>
+#include <kernel/proc.h>
 #include <kernel/slab.h>
-#include <kernel/task.h>
 #include <kernel/vfs.h>
 
 static void fs_set_initial_root(struct fs_struct *fs)
@@ -185,49 +185,54 @@ void fs_set_root_if_empty(struct fs_struct *fs, struct dentry *root)
 	path_put(&path);
 }
 
-int init_fs(struct task_struct *task)
-{
-	if (!task)
-		return -EINVAL;
-
-	task_set_fs(task, fs_alloc());
-	return task_fs(task) ? 0 : -ENOMEM;
-}
-
-int copy_fs(struct task_struct *child, bool share)
+int init_fs(struct proc_struct *proc)
 {
 	struct fs_struct *fs;
+	struct fs_struct *old;
 
-	if (!child)
+	if (!proc)
+		return -EINVAL;
+
+	fs = fs_alloc();
+	if (!fs)
+		return -ENOMEM;
+	old = proc_replace_fs(proc, fs);
+	fs_put(old);
+	return 0;
+}
+
+int copy_fs(const struct proc_struct *source, struct proc_struct *dest,
+		   bool share)
+{
+	struct fs_struct *fs;
+	struct fs_struct *old;
+
+	if (!dest)
 		return -EINVAL;
 
 	if (share) {
-		fs = task_fs(current_task());
+		fs = source ? source->fs : NULL;
 		if (!fs)
-			return init_fs(child);
+			return init_fs(dest);
 		fs_get(fs);
 	} else {
-		fs = fs_dup(task_fs(current_task()));
+		fs = fs_dup(source ? source->fs : NULL);
 		if (!fs)
 			return -ENOMEM;
 	}
 
-	exit_fs(child);
-	task_set_fs(child, fs);
+	old = proc_replace_fs(dest, fs);
+	fs_put(old);
 	return 0;
 }
 
-void exit_fs(struct task_struct *task)
+void exit_fs(struct proc_struct *proc)
 {
 	struct fs_struct *fs;
 
-	if (!task)
+	if (!proc)
 		return;
 
-	fs = task_fs(task);
-	if (!fs)
-		return;
-
+	fs = proc_replace_fs(proc, NULL);
 	fs_put(fs);
-	task_set_fs(task, NULL);
 }

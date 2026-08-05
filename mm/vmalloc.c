@@ -32,7 +32,7 @@ static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 	pte_t *root = kernel_pt();
 
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = pagetable_lookup(root, va);
+		pte_t *pte = pgtable_lookup(root, va);
 		paddr_t pa;
 
 		if (!pte || !pte_is_present(*pte))

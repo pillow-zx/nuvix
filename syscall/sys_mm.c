@@ -14,7 +14,8 @@ ssize_t sys_brk(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
 
-	return (ssize_t)mm_brk(task_mm(current_task()), addr);
+	return (ssize_t)mm_brk(current_task()->proc ? current_task()->proc->mm : NULL,
+			       addr);
 }
 
 /*
@@ -39,7 +40,8 @@ ssize_t sys_mmap(struct trap_frame *tf)
 	int fd = (int)syscall_arg(tf, 4);
 	uint64_t offset = (uint64_t)syscall_arg(tf, 5);
 
-	return mm_mmap_file(task_mm(current_task()), addr, length, prot, flags,
+	return mm_mmap_file(current_task()->proc ? current_task()->proc->mm : NULL,
+			    addr, length, prot, flags,
 			    fd, offset);
 }
 
@@ -48,7 +50,8 @@ ssize_t sys_munmap(struct trap_frame *tf)
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
 	size_t length = (size_t)syscall_arg(tf, 1);
 
-	return mm_munmap(task_mm(current_task()), addr, length);
+	return mm_munmap(current_task()->proc ? current_task()->proc->mm : NULL,
+			 addr, length);
 }
 
 /*
@@ -64,7 +67,8 @@ ssize_t sys_mprotect(struct trap_frame *tf)
 	size_t length = (size_t)syscall_arg(tf, 1);
 	int prot = (int)syscall_arg(tf, 2);
 
-	return mm_mprotect(task_mm(current_task()), addr, length, prot);
+	return mm_mprotect(current_task()->proc ? current_task()->proc->mm : NULL,
+			   addr, length, prot);
 }
 
 /*
@@ -82,7 +86,8 @@ ssize_t sys_mremap(struct trap_frame *tf)
 	int flags = (int)syscall_arg(tf, 3);
 	uintptr_t new_addr = (uintptr_t)syscall_arg(tf, 4);
 
-	return mm_mremap(task_mm(current_task()), old_addr, old_size, new_size,
+	return mm_mremap(current_task()->proc ? current_task()->proc->mm : NULL,
+			 old_addr, old_size, new_size,
 			 flags, new_addr);
 }
 
@@ -101,7 +106,8 @@ ssize_t sys_msync(struct trap_frame *tf)
 	size_t length = (size_t)syscall_arg(tf, 1);
 	int flags = (int)syscall_arg(tf, 2);
 
-	return mm_msync(task_mm(current_task()), addr, length, flags);
+	return mm_msync(current_task()->proc ? current_task()->proc->mm : NULL,
+			addr, length, flags);
 }
 
 /*
@@ -115,7 +121,7 @@ ssize_t sys_mlock(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
 	size_t len = (size_t)syscall_arg(tf, 1);
-	struct mm_struct *mm = task_mm(current_task());
+	struct mm_struct *mm = current_task()->proc ? current_task()->proc->mm : NULL;
 
 	if (!mm)
 		return -EINVAL;
@@ -134,7 +140,7 @@ ssize_t sys_munlock(struct trap_frame *tf)
 {
 	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
 	size_t len = (size_t)syscall_arg(tf, 1);
-	struct mm_struct *mm = task_mm(current_task());
+	struct mm_struct *mm = current_task()->proc ? current_task()->proc->mm : NULL;
 
 	if (!mm)
 		return -EINVAL;
@@ -169,7 +175,8 @@ ssize_t sys_madvise(struct trap_frame *tf)
 		return -EINVAL;
 	}
 
-	return mm_madvise(task_mm(current_task()), addr, len, advice);
+	return mm_madvise(current_task()->proc ? current_task()->proc->mm : NULL,
+			 addr, len, advice);
 }
 
 /*
@@ -209,7 +216,7 @@ ssize_t sys_mincore(struct trap_frame *tf)
 
 	npages = len / PAGE_SIZE;
 
-	mm = task_mm(current_task());
+	mm = current_task()->proc ? current_task()->proc->mm : NULL;
 	if (!mm)
 		return -EINVAL;
 

@@ -7,15 +7,15 @@
 
 #define EXT2_DIR_REC_LEN(name_len) (((name_len) + 8 + 3) & ~3u)
 
-static int ext2_sync_dir_page(struct page_cache *page)
+static int ext2_sync_dir_page(struct pgcache *page)
 {
-	return page_cache_sync_page(page) < 0 ? -EIO : 0;
+	return pgcache_sync_page(page) < 0 ? -EIO : 0;
 }
 
-static struct page_cache *
+static struct pgcache *
 ext2_read_inode_page(struct inode *inode, uint32_t lblock)
 {
-	return inode ? page_cache_get_mapping(&inode->i_pages, lblock,
+	return inode ? pgcache_get_mapping(&inode->i_pages, lblock,
 					      PAGE_CACHE_READ, NULL)
 		     : NULL;
 }
@@ -59,19 +59,19 @@ static void ext2_dirent_init(struct ext2_dir_entry_2 *de, uint32_t ino,
 	memcpy(de->name, name, namelen);
 }
 
-static struct page_cache *ext2_new_inode_page(struct inode *inode,
+static struct pgcache *ext2_new_inode_page(struct inode *inode,
 					      uint32_t lblock)
 {
-	struct page_cache *page;
+	struct pgcache *page;
 
-	page = page_cache_get_mapping(&inode->i_pages, lblock,
+	page = pgcache_get_mapping(&inode->i_pages, lblock,
 				      PAGE_CACHE_CREATE, NULL);
 	if (!page)
 		return NULL;
 
-	if (!page_cache_is_uptodate(page)) {
+	if (!pgcache_is_uptodate(page)) {
 		memset(page_cache_data(page), 0, BLOCK_SIZE);
-		page_cache_set_uptodate(page, true);
+		pgcache_set_uptodate(page, true);
 	}
 
 	return page;
@@ -80,13 +80,13 @@ static struct page_cache *ext2_new_inode_page(struct inode *inode,
 static struct ext2_dir_entry_2 *ext2_find_entry(struct inode *dir,
 						const char *name,
 						size_t namelen,
-						struct page_cache **res_page)
+						struct pgcache **res_page)
 {
 	uint32_t blocks =
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		struct page_cache *page;
+		struct pgcache *page;
 		uint8_t *data;
 		uint32_t offset = 0;
 
@@ -110,7 +110,7 @@ static struct ext2_dir_entry_2 *ext2_find_entry(struct inode *dir,
 			}
 			offset += de->rec_len;
 		}
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 
 	return NULL;
@@ -119,7 +119,7 @@ static struct ext2_dir_entry_2 *ext2_find_entry(struct inode *dir,
 static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 			  uint32_t ino, uint8_t type)
 {
-	struct page_cache *found_page = NULL;
+	struct pgcache *found_page = NULL;
 	uint16_t need = EXT2_DIR_REC_LEN(namelen);
 	uint32_t blocks =
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
@@ -127,12 +127,12 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	int ret;
 
 	if (ext2_find_entry(dir, name, namelen, &found_page)) {
-		page_cache_put_page(found_page);
+		pgcache_put_page(found_page);
 		return -EEXIST;
 	}
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		struct page_cache *page;
+		struct pgcache *page;
 		uint8_t *data;
 		uint32_t offset = 0;
 
@@ -157,12 +157,12 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 				ext2_dirent_init(de, ino, de->rec_len, name,
 						 namelen, type);
 
-				page_cache_mark_dirty(page);
+				pgcache_mark_dirty(page);
 				if (ext2_sync_dir_page(page) < 0) {
-					page_cache_put_page(page);
+					pgcache_put_page(page);
 					return -EIO;
 				}
-				page_cache_put_page(page);
+				pgcache_put_page(page);
 				return 0;
 			}
 
@@ -178,18 +178,18 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 								    used);
 				ext2_dirent_init(new_de, ino, spare, name,
 						 namelen, type);
-				page_cache_mark_dirty(page);
+				pgcache_mark_dirty(page);
 				if (ext2_sync_dir_page(page) < 0) {
-					page_cache_put_page(page);
+					pgcache_put_page(page);
 					return -EIO;
 				}
-				page_cache_put_page(page);
+				pgcache_put_page(page);
 				return 0;
 			}
 
 			offset += de->rec_len;
 		}
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 
 	ret = ext2_bmap(dir, blocks, true, &new_block);
@@ -198,7 +198,7 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	if (!new_block)
 		return -ENOSPC;
 
-	struct page_cache *page = ext2_new_inode_page(dir, blocks);
+	struct pgcache *page = ext2_new_inode_page(dir, blocks);
 	if (!page)
 		return -EIO;
 
@@ -206,12 +206,12 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	memset(data, 0, BLOCK_SIZE);
 	struct ext2_dir_entry_2 *de = (struct ext2_dir_entry_2 *)data;
 	ext2_dirent_init(de, ino, BLOCK_SIZE, name, namelen, type);
-	page_cache_mark_dirty(page);
+	pgcache_mark_dirty(page);
 	if (ext2_sync_dir_page(page) < 0) {
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 		return -EIO;
 	}
-	page_cache_put_page(page);
+	pgcache_put_page(page);
 
 	dir->i_size += BLOCK_SIZE;
 	return ext2_write_inode(dir);
@@ -223,7 +223,7 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		struct page_cache *page;
+		struct pgcache *page;
 		struct ext2_dir_entry_2 *prev = NULL;
 		uint8_t *data;
 		uint32_t offset = 0;
@@ -247,18 +247,18 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 					prev->rec_len += de->rec_len;
 				else
 					de->inode = 0;
-				page_cache_mark_dirty(page);
+				pgcache_mark_dirty(page);
 				if (ext2_sync_dir_page(page) < 0) {
-					page_cache_put_page(page);
+					pgcache_put_page(page);
 					return -EIO;
 				}
-				page_cache_put_page(page);
+				pgcache_put_page(page);
 				return 0;
 			}
 			prev = de;
 			offset += de->rec_len;
 		}
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 
 	return -ENOENT;
@@ -267,7 +267,7 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 static int ext2_replace_entry(struct inode *dir, struct dentry *dentry,
 			      uint32_t ino, uint8_t type)
 {
-	struct page_cache *page = NULL;
+	struct pgcache *page = NULL;
 	struct ext2_dir_entry_2 *de;
 
 	de = ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page);
@@ -276,12 +276,12 @@ static int ext2_replace_entry(struct inode *dir, struct dentry *dentry,
 
 	de->inode = ino;
 	de->file_type = type;
-	page_cache_mark_dirty(page);
+	pgcache_mark_dirty(page);
 	if (ext2_sync_dir_page(page) < 0) {
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 		return -EIO;
 	}
-	page_cache_put_page(page);
+	pgcache_put_page(page);
 	return 0;
 }
 
@@ -296,7 +296,7 @@ static void ext2_rollback_new_inode(struct inode *inode)
 
 static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 {
-	struct page_cache *page = NULL;
+	struct pgcache *page = NULL;
 	struct ext2_dir_entry_2 *de;
 	struct inode *inode;
 
@@ -310,7 +310,7 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 		return NULL;
 
 	inode = iget(dir->i_sb, de->inode);
-	page_cache_put_page(page);
+	pgcache_put_page(page);
 	if (!inode)
 		return NULL;
 
@@ -321,7 +321,7 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 
 static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 {
-	struct page_cache *page = NULL;
+	struct pgcache *page = NULL;
 	uint32_t ino;
 	uint32_t type = mode & EXT2_S_IFMT;
 	uint32_t inode_mode;
@@ -330,7 +330,7 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	int ret;
 
 	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 		return -EEXIST;
 	}
 
@@ -377,7 +377,7 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 static int ext2_symlink(struct inode *dir, struct dentry *dentry,
 			const char *target)
 {
-	struct page_cache *page = NULL;
+	struct pgcache *page = NULL;
 	size_t len = strlen(target);
 	uint32_t ino;
 	struct inode *inode;
@@ -389,7 +389,7 @@ static int ext2_symlink(struct inode *dir, struct dentry *dentry,
 	if (len > BLOCK_SIZE)
 		return -ENAMETOOLONG;
 	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 		return -EEXIST;
 	}
 
@@ -416,7 +416,7 @@ static int ext2_symlink(struct inode *dir, struct dentry *dentry,
 		memcpy(ei->raw_inode.i_block, target, len);
 	} else {
 		uint32_t block;
-		struct page_cache *target_page;
+		struct pgcache *target_page;
 
 		ret = ext2_bmap(inode, 0, true, &block);
 		if (ret < 0) {
@@ -434,13 +434,13 @@ static int ext2_symlink(struct inode *dir, struct dentry *dentry,
 		}
 		memset(page_cache_data(target_page), 0, BLOCK_SIZE);
 		memcpy(page_cache_data(target_page), target, len);
-		page_cache_mark_dirty(target_page);
+		pgcache_mark_dirty(target_page);
 		if (ext2_sync_dir_page(target_page) < 0) {
-			page_cache_put_page(target_page);
+			pgcache_put_page(target_page);
 			ext2_rollback_new_inode(inode);
 			return -EIO;
 		}
-		page_cache_put_page(target_page);
+		pgcache_put_page(target_page);
 	}
 	ret = ext2_write_inode(inode);
 	if (ret < 0) {
@@ -519,7 +519,7 @@ static int ext2_link(struct dentry *old_dentry, struct inode *dir,
 static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 {
 	uint32_t block;
-	struct page_cache *page;
+	struct pgcache *page;
 	struct ext2_dir_entry_2 *de;
 	uint8_t *data;
 	int ret;
@@ -545,26 +545,26 @@ static int ext2_make_empty_dir(struct inode *inode, struct inode *parent)
 			 BLOCK_SIZE - EXT2_DIR_REC_LEN(1), "..", 2,
 			 EXT2_FT_DIR);
 
-	page_cache_mark_dirty(page);
+	pgcache_mark_dirty(page);
 	if (ext2_sync_dir_page(page) < 0) {
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 		return -EIO;
 	}
-	page_cache_put_page(page);
+	pgcache_put_page(page);
 	inode->i_size = BLOCK_SIZE;
 	return ext2_write_inode(inode);
 }
 
 static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 {
-	struct page_cache *page = NULL;
+	struct pgcache *page = NULL;
 	uint32_t ino;
 	struct inode *inode;
 	struct ext2_inode_info *ei;
 	int ret;
 
 	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 		return -EEXIST;
 	}
 
@@ -619,7 +619,7 @@ static bool ext2_dir_is_empty(struct inode *inode)
 		(uint32_t)((inode->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		struct page_cache *page;
+		struct pgcache *page;
 		uint8_t *data;
 		uint32_t offset = 0;
 
@@ -642,12 +642,12 @@ static bool ext2_dir_is_empty(struct inode *inode)
 			      (de->name_len == 2 && de->name[0] == '.' &&
 			       de->name[1] == '.');
 			if (de->inode && !dot) {
-				page_cache_put_page(page);
+				pgcache_put_page(page);
 				return false;
 			}
 			offset += de->rec_len;
 		}
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 
 	return true;
@@ -711,7 +711,7 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 			(uint32_t)((uint64_t)file->f_pos / BLOCK_SIZE);
 		uint32_t offset =
 			(uint32_t)((uint64_t)file->f_pos % BLOCK_SIZE);
-		struct page_cache *page;
+		struct pgcache *page;
 		struct ext2_dir_entry_2 *de;
 		uint8_t *data;
 
@@ -728,7 +728,7 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 		de = (struct ext2_dir_entry_2 *)(data + offset);
 		if (offset + 8 > BLOCK_SIZE || de->rec_len < 8 ||
 		    offset + de->rec_len > BLOCK_SIZE) {
-			page_cache_put_page(page);
+			pgcache_put_page(page);
 			return -EIO;
 		}
 
@@ -738,13 +738,13 @@ static int ext2_readdir(struct file *file, void *ctx, filldir_t filldir)
 					  de->inode, de->file_type, next_pos);
 
 			if (ret < 0) {
-				page_cache_put_page(page);
+				pgcache_put_page(page);
 				return ret;
 			}
 		}
 
 		file->f_pos = next_pos;
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 
 	return 0;
@@ -756,7 +756,7 @@ static int ext2_set_dotdot(struct inode *dir, uint32_t new_parent_ino)
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
-		struct page_cache *page;
+		struct pgcache *page;
 		uint8_t *data;
 		uint32_t offset = 0;
 
@@ -777,17 +777,17 @@ static int ext2_set_dotdot(struct inode *dir, uint32_t new_parent_ino)
 			if (de->name_len == 2 && de->name[0] == '.' &&
 			    de->name[1] == '.') {
 				de->inode = new_parent_ino;
-				page_cache_mark_dirty(page);
+				pgcache_mark_dirty(page);
 				if (ext2_sync_dir_page(page) < 0) {
-					page_cache_put_page(page);
+					pgcache_put_page(page);
 					return -EIO;
 				}
-				page_cache_put_page(page);
+				pgcache_put_page(page);
 				return 0;
 			}
 			offset += de->rec_len;
 		}
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 	return -ENOENT;
 }

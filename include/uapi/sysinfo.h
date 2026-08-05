@@ -43,4 +43,7 @@ struct sysinfo {
 	char _f[0];
 };
 
+_Static_assert(sizeof(struct sysinfo) == 112,
+	       "Linux riscv64 sysinfo size mismatch");
+
 #endif

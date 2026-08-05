@@ -12,11 +12,7 @@
 
 typedef void *(*page_alloc_fn)(void);
 static page_alloc_fn pt_alloc;
-static uintptr_t ksatp_val;
-
-#ifdef KERNEL_SELFTEST
-static int32_t pt_alloc_fail_after = -1;
-#endif
+static uintptr_t kpgroot;
 
 static char *early_alloc_ptr;
 
@@ -45,27 +41,8 @@ static void *pt_alloc_page(void)
 {
 	BUG_ON(!pt_alloc);
 
-#ifdef KERNEL_SELFTEST
-	if (pt_alloc_fail_after == 0)
-		return NULL;
-	if (pt_alloc_fail_after > 0)
-		pt_alloc_fail_after--;
-#endif
-
 	return pt_alloc();
 }
-
-#ifdef KERNEL_SELFTEST
-void pagetable_test_fail_alloc_after(uint32_t successful_allocs)
-{
-	pt_alloc_fail_after = (int32_t)successful_allocs;
-}
-
-void pagetable_test_clear_alloc_failure(void)
-{
-	pt_alloc_fail_after = -1;
-}
-#endif
 
 void pagetable_use_buddy(void)
 {
@@ -122,7 +99,7 @@ static int pt_walk_create(pte_t *root, vaddr_t va, pte_t **out)
 	return 0;
 }
 
-pte_t *pagetable_lookup(pte_t *root, vaddr_t va)
+pte_t *pgtable_lookup(pte_t *root, vaddr_t va)
 {
 	int idx2 = (va >> 30) & 0x1FF;
 	pte_t *l2e = &root[idx2];
@@ -163,9 +140,9 @@ int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
 	return 0;
 }
 
-uintptr_t kernel_satp(void)
+uintptr_t kenrel_pgroot(void)
 {
-	return ksatp_val;
+	return kpgroot;
 }
 
 pte_t *current_pt(void)
@@ -178,27 +155,10 @@ pte_t *current_pt(void)
 
 pte_t *kernel_pt(void)
 {
-	uintptr_t satp_val = kernel_satp();
+	uintptr_t satp_val = kenrel_pgroot();
 	uintptr_t root_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
 
 	return (pte_t *)__va(root_pa);
-}
-
-pte_t *pagetable_lookup_current(uintptr_t va)
-{
-	return pagetable_lookup(current_pt(), va);
-}
-
-void pagetable_write_current(uintptr_t va, uintptr_t pa, pte_t perm)
-{
-	pte_t *pte = pagetable_lookup_current(va);
-
-	if (!pte || !(*pte & PTE_V))
-		panic("pt_write_current: no mapping for va=%p",
-		      (void *)va);
-
-	*pte = PA_TO_PTE(pa) | perm;
-	tlb_flush_page(va);
 }
 
 void pagetable_init(void)
@@ -231,10 +191,9 @@ void pagetable_init(void)
 
 	paddr_t root_pa = __pa((uintptr_t)root);
 	uintptr_t satp_val = SATP_MODE_SV39 | (root_pa >> PAGE_SHIFT);
-	ksatp_val = satp_val;
+	kpgroot = satp_val;
 
-	csr_write(satp, satp_val);
-	tlb_flush_all();
+	activate_pgroot(satp_val);
 
 	pr_info("page_table: switched to kernel page table (root=%p, "
 		"early_alloc=%dKB)\n",

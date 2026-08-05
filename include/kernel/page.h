@@ -16,19 +16,19 @@
  * @def PG_RESERVED
  * @brief Physical page is reserved and unavailable to general allocators.
  */
-constexpr uint32_t PG_RESERVED = 0;
+#define PG_RESERVED 0
 
 /**
  * @def PG_SLAB
  * @brief Physical page is owned by the slab allocator.
  */
-constexpr uint32_t PG_SLAB = 1;
+#define PG_SLAB 1
 
 /**
  * @def PG_BUDDY
  * @brief Physical page is currently managed by the buddy allocator.
  */
-constexpr uint32_t PG_BUDDY = 2;
+#define PG_BUDDY 2
 
 /**
  * @struct page
@@ -60,7 +60,8 @@ static inline void page_set_flag(struct page *page, uint32_t flag)
 }
 
 __nonnull(1)
-static inline void page_clear_flag(struct page *page, uint32_t flag)
+static inline void page_clear_flag(struct page *page,
+						uint32_t flag)
 {
 	clr_bit(page->flags, flag);
 }

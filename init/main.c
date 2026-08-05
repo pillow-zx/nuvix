@@ -19,7 +19,6 @@
 #include <kernel/trap.h>
 #include <kernel/processor.h>
 #include <kernel/pgtable.h>
-#include <kernel/reboot.h>
 #include <kernel/exit.h>
 #include <kernel/irq.h>
 #include <kernel/user_map_arch.h>
@@ -35,41 +34,11 @@ static const char logo[] =
 	"|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  $$$$$$/\n"
 	" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/\n";
 
-#if defined(KERNEL_SELFTEST) || defined(KERNEL_PANIC_TEST)
-#include <kernel/test.h>
-#endif
-
-#ifdef KERNEL_SELFTEST
-static void kernel_selftest_thread(void *arg)
-{
-	struct ktest_summary test_summary;
-	int ret;
-
-	(void)arg;
-
-	ret = kernel_test_run(&test_summary);
-	pr_info("[KTEST] done modules=%u failed_modules=%u cases=%u "
-		"failed_cases=%u\n",
-		test_summary.modules, test_summary.failed_modules,
-		test_summary.cases, test_summary.failed_cases);
-	if (ret < 0)
-		pr_err("[KTEST] result failed\n");
-	else
-		pr_info("[KTEST] result passed\n");
-	ret = kernel_reboot(KERNEL_REBOOT_POWER_OFF);
-	BUG_ON(ret < 0);
-}
-#endif
-
 void kernel_main(void)
 {
-#ifdef KERNEL_SELFTEST
-	struct task_struct *selftest;
-#else
 	struct task_struct *init;
 	struct task_struct *writeback;
 	int ret;
-#endif
 
 	console_init_sbi();
 
@@ -98,11 +67,8 @@ void kernel_main(void)
 	task_init();
 	pr_info("task: init successfully\n");
 
-#ifdef KERNEL_PANIC_TEST
-	kernel_panic_test_run();
-#endif
-
 	timer_init();
+	clockevent_init();
 	pr_info("timer: init successfully\n");
 
 	sched_init();
@@ -114,10 +80,6 @@ void kernel_main(void)
 	vfs_init();
 	pr_info("vfs: init successfully\n");
 
-#ifdef KERNEL_SELFTEST
-	/* KTEST exercises kernel mechanisms with in-memory fixtures. */
-	pr_info("storage: skipped for kernel self-test\n");
-#else
 	ret = filesystems_init();
 	if (ret < 0)
 		panic("filesystems: init failed (%d)", ret);
@@ -127,28 +89,24 @@ void kernel_main(void)
 	ret = vfs_mount_root(ROOT_DEV);
 	if (ret < 0)
 		panic("VFS: root mount failed (%d)", ret);
-#endif
 
-#ifdef KERNEL_SELFTEST
-	selftest = kernel_thread(kernel_selftest_thread, NULL);
-	BUG_ON(!selftest);
-#else
 	init = kernel_thread(init_process, NULL);
 	BUG_ON(!init);
 	set_init_task(init);
+	if (task_reaper_start() < 0)
+		panic("task: reaper init failed");
 
 	ret = tty_console_start();
 	if (ret < 0)
 		panic("console: input thread init failed (%d)", ret);
 
-	writeback = kernel_thread(page_cache_wb_thread, NULL);
+	writeback = kernel_thread(pgcache_wb_thread, NULL);
 	BUG_ON(!writeback);
-#endif
 
 	while (true) {
 		local_irq_enable();
-		reap_exited_threads();
 		schedule();
+		local_irq_enable();
 		wait_for_interrupt();
 	}
 }

@@ -5,10 +5,18 @@
 #include <kernel/types.h>
 #include <asm/csr.h>
 
+struct cpu;
+
 __always_inline
 static inline void wait_for_interrupt(void)
 {
 	wfi();
+}
+
+__always_inline
+static inline void arch_sched_remote_wake(struct cpu *cpu)
+{
+	(void)cpu;
 }
 
 __always_inline __must_check

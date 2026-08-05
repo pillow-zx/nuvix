@@ -15,11 +15,8 @@
 #include <kernel/exit.h>
 #include <kernel/irq.h>
 #include <kernel/signal.h>
+#include <kernel/wait.h>
 #include <kernel/user_return.h>
-
-#ifdef KERNEL_SELFTEST
-static trap_test_hook_t trap_test_hook;
-#endif
 
 static const char *trap_origin(const struct trap_frame *tf)
 {
@@ -95,45 +92,33 @@ struct trap_exception trap_classify_exception(const struct trap_frame *tf)
 	return exception;
 }
 
-#ifdef KERNEL_SELFTEST
-void trap_set_hook(trap_test_hook_t hook)
-{
-	trap_test_hook = hook;
-}
-#endif
-
 static void handle_timer_irq(void)
 {
-	uint64_t now = timer_now();
-
-	jiffies++;
-	timer_set(now + CLOCKS_PER_TICK);
-	timer_run_expired(now);
-
-	sched_tick();
+	clockevent_handle_irq(timer_now());
 }
 
 static void trap_user_return(struct trap_frame *tf)
 {
 	user_return_work(tf);
-	if (current_task() && task_need_resched(current_task()))
-		schedule();
+	if (current_task() && task_need_resched(current_task())) {
+		if (irqs_disabled())
+			schedule_irqoff();
+		else
+			schedule();
+	}
+	BUG_ON(!irqs_disabled());
 }
 
 void trap_handler(struct trap_frame *tf)
 {
+	struct task_struct *task = current_task();
 	uint64_t scause = trap_frame_cause(tf);
 	bool is_interrupt = (scause & SCAUSE_IRQ_FLAG) != 0;
 	uint64_t code = scause & ~SCAUSE_IRQ_FLAG;
 	bool user = trap_frame_from_user(tf);
 
-	if (current_task())
-		task_set_trap_frame(current_task(), tf);
-
-#ifdef KERNEL_SELFTEST
-	if (trap_test_hook && trap_test_hook(tf))
-		return;
-#endif
+	if (task)
+		task->arch.tf = tf;
 
 	if (is_interrupt) {
 		irq_enter();
@@ -175,20 +160,21 @@ void trap_handler(struct trap_frame *tf)
 					(size_t)scause,
 					(void *)trap_user_pc(tf),
 					(void *)trap_fault_addr(tf),
-					task_pid(current_task()));
+					task->proc ? task->proc->pid->nr : 0);
 			if (force_signal_info(exception.info.si_signo,
-					      &exception.info,
-					      current_task()) < 0)
+					      &exception.info, task) < 0)
 				do_exit_signal(exception.info.si_signo);
 			trap_user_return(tf);
 			return;
 		case TRAP_EXCEPTION_KERNEL_FATAL:
 			panic("unhandled exception: origin=%s scause=0x%lx "
-			      "code=%lu "
-			      "sepc=%p stval=%p",
+			      "code=%lu sepc=%p stval=%p ra=%p sp=%p "
+			      "a0=%p a1=%p a2=%p",
 			      trap_origin(tf), (size_t)scause, (size_t)code,
 			      (void *)trap_user_pc(tf),
-			      (void *)trap_fault_addr(tf));
+			      (void *)trap_fault_addr(tf), (void *)tf->ra,
+			      (void *)tf->sp, (void *)tf->a0, (void *)tf->a1,
+			      (void *)tf->a2);
 		}
 	}
 }

@@ -19,13 +19,13 @@
 
 #include "tty_internal.h"
 
-constexpr size_t CONSOLE_INPUT_SIZE = 256;
-constexpr size_t CONSOLE_ECHO_SIZE = CONSOLE_INPUT_SIZE * 3;
+#define CONSOLE_INPUT_SIZE	256
+#define CONSOLE_ECHO_SIZE	(CONSOLE_INPUT_SIZE * 3)
 
-constexpr int32_t TTY_INPUT_CONTINUE = 0;
-constexpr int32_t TTY_INPUT_READY = 1;
-constexpr int32_t TTY_INPUT_EOF = 2;
-constexpr int32_t TTY_INPUT_SIGNAL = 3;
+#define TTY_INPUT_CONTINUE	0
+#define TTY_INPUT_READY		1
+#define TTY_INPUT_EOF		2
+#define TTY_INPUT_SIGNAL	3
 
 typedef void (*console_emit_fn)(char ch, void *ctx);
 
@@ -54,7 +54,7 @@ struct console_read_wait {
 static ssize_t console_read(struct file *file, char *buf, size_t count);
 static ssize_t console_write(struct file *file, const char *buf, size_t count);
 static int console_poll(struct file *file, uint32_t events,
-			struct wait_session *context);
+			struct task_wait *wait);
 static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 static void console_input_thread(void *arg);
 
@@ -104,6 +104,9 @@ void tty_console_init(void)
 {
 	int ret;
 
+	/* Ranks with the TTY: console lock regions may prepare on the
+	 * readable wait channel (rank 30) while holding this lock. */
+	spin_lock_init(&console_input.lock, LOCK_RANK_TTY);
 	wait_channel_init(&console_input.readable);
 	tty_console_endpoint_init();
 	ret = vfs_register_chrdev(MKDEV(5, 1), &console_fops);
@@ -341,24 +344,6 @@ static ssize_t console_copy_pending_locked(char *buf, size_t count)
 	return (ssize_t)n;
 }
 
-static int console_read_probe(struct wait_session *session, void *arg)
-{
-	struct console_read_wait *wait = arg;
-	irq_flags_t flags;
-	int ret;
-
-	spin_lock_irqsave(&console_input.lock, &flags);
-	if (console_input_readable_locked(wait->count))
-		ret = 1;
-	else {
-		ret = wait_session_watch(session, &console_input.readable);
-		if (ret == 0)
-			ret = console_input_readable_locked(wait->count);
-	}
-	spin_unlock_irqrestore(&console_input.lock, flags);
-	return ret;
-}
-
 static bool console_input_accept(char raw)
 {
 	char echo[CONSOLE_ECHO_SIZE];
@@ -465,13 +450,7 @@ static void console_input_thread(void *arg)
 static ssize_t console_read(struct file *file, char *buf, size_t count)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
-	struct console_read_wait wait = {.count = count};
-	struct wait_request source = {
-		.kind = WAIT_KIND_GENERIC,
-		.check = console_read_probe,
-		.arg = &wait,
-		.channel_limit = 1,
-	};
+	struct task_wait *wait = &current_task()->wait;
 	irq_flags_t flags;
 
 	(void)file;
@@ -480,8 +459,26 @@ static ssize_t console_read(struct file *file, char *buf, size_t count)
 
 	for (;;) {
 		wait_outcome_t outcome;
-		int ret = wait_for_interruptible(&source, &deadline, &outcome);
+		bool ready;
+		int ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 
+		if (ret < 0)
+			return ret;
+		spin_lock_irqsave(&console_input.lock, &flags);
+		ready = console_input_readable_locked(count);
+		if (!ready)
+			ret = wait_prepare(wait, &console_input.readable, true);
+		spin_unlock_irqrestore(&console_input.lock, flags);
+		if (ret < 0) {
+			wait_finish(wait);
+			return ret;
+		}
+		if (ready) {
+			wait_finish(wait);
+			continue;
+		}
+		ret = wait_block(wait, &outcome);
+		wait_finish(wait);
 		if (ret < 0)
 			return ret;
 		spin_lock_irqsave(&console_input.lock, &flags);
@@ -524,65 +521,8 @@ static ssize_t console_write(struct file *file, const char *buf, size_t count)
 	return (ssize_t)count;
 }
 
-#ifdef KERNEL_SELFTEST
-ssize_t tty_console_write_for_test(const struct termios *termios,
-				   const char *input, size_t input_len,
-				   char *out, size_t out_size);
-ssize_t tty_console_read_stream_for_test(const struct termios *termios,
-					 const char *input, size_t input_len,
-					 char *out, size_t out_size, char *echo,
-					 size_t echo_size, int *signal);
-
-ssize_t tty_console_write_for_test(const struct termios *termios,
-				   const char *input, size_t input_len,
-				   char *out, size_t out_size)
-{
-	struct console_emit_buffer emit = {
-		.data = out,
-		.cap = out_size,
-	};
-
-	console_write_translated(termios, input, input_len, console_buffer_emit,
-				 &emit);
-	return (ssize_t)emit.len;
-}
-
-ssize_t tty_console_read_stream_for_test(const struct termios *termios,
-					 const char *input, size_t input_len,
-					 char *out, size_t out_size, char *echo,
-					 size_t echo_size, int *signal)
-{
-	struct console_emit_buffer echo_buf = {
-		.data = echo,
-		.cap = echo_size,
-	};
-	size_t out_len = 0;
-
-	*signal = 0;
-	for (size_t i = 0; i < input_len; i++) {
-		int event;
-
-		if (termios->c_lflag & ICANON)
-			event = console_canonical_accept(
-				termios, input[i], out, &out_len, out_size,
-				console_buffer_emit, &echo_buf, signal);
-		else
-			event = console_raw_accept(
-				termios, input[i], out, &out_len, out_size,
-				console_buffer_emit, &echo_buf, signal);
-
-		if (event == TTY_INPUT_SIGNAL)
-			return -EINTR;
-		if (event == TTY_INPUT_EOF || event == TTY_INPUT_READY)
-			return (ssize_t)out_len;
-	}
-
-	return (ssize_t)out_len;
-}
-#endif
-
 static int console_poll(struct file *file, uint32_t events,
-			struct wait_session *context)
+			struct task_wait *wait)
 {
 	irq_flags_t flags;
 	uint32_t mask = 0;
@@ -590,9 +530,8 @@ static int console_poll(struct file *file, uint32_t events,
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
 		spin_lock_irqsave(&console_input.lock, &flags);
-		if (context) {
-			ret = wait_session_watch(context,
-						 &console_input.readable);
+		if (wait) {
+			ret = wait_prepare(wait, &console_input.readable, false);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&console_input.lock,
 						       flags);

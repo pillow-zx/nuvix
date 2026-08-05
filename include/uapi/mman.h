@@ -12,8 +12,14 @@
 #define PROT_WRITE 0x2
 /** @def PROT_EXEC Mapping permits instruction fetch. */
 #define PROT_EXEC 0x4
+/** @def PROT_SEM Mapping may be used for atomic operations. */
+#define PROT_SEM 0x8
 /** @def PROT_NONE Mapping has no user access permissions. */
 #define PROT_NONE 0x0
+/** @def PROT_GROWSDOWN Extend mprotect toward lower addresses. */
+#define PROT_GROWSDOWN 0x01000000
+/** @def PROT_GROWSUP Extend mprotect toward higher addresses. */
+#define PROT_GROWSUP 0x02000000
 
 /** @def MAP_SHARED File mapping is shared with other mappings. */
 #define MAP_SHARED 0x01
@@ -49,6 +55,8 @@
 #define MAP_SYNC 0x080000
 /** @def MAP_FIXED_NOREPLACE Fixed mmap that must not replace an old mapping. */
 #define MAP_FIXED_NOREPLACE 0x100000
+/** @def MAP_UNINITIALIZED Anonymous mapping may be uninitialized. */
+#define MAP_UNINITIALIZED 0x4000000
 
 /** @def MREMAP_MAYMOVE mremap may move the mapping. */
 #define MREMAP_MAYMOVE 1
@@ -64,6 +72,16 @@
 /** @def MS_SYNC Request synchronous file mapping writeback. */
 #define MS_SYNC 4
 
+/** @def MLOCK_ONFAULT Lock pages only when they are faulted in. */
+#define MLOCK_ONFAULT 0x01
+
+/** @def MCL_CURRENT Lock all current mappings. */
+#define MCL_CURRENT 1
+/** @def MCL_FUTURE Lock all future mappings. */
+#define MCL_FUTURE 2
+/** @def MCL_ONFAULT Lock pages when they are faulted in. */
+#define MCL_ONFAULT 4
+
 /** @def MADV_NORMAL Default access-pattern advice. */
 #define MADV_NORMAL 0
 /** @def MADV_RANDOM Random access-pattern advice. */
@@ -78,5 +96,28 @@
 #define MADV_FREE 8
 /** @def MADV_REMOVE Remove backing store for a range. */
 #define MADV_REMOVE 9
+#define MADV_DONTFORK 10
+#define MADV_DOFORK 11
+#define MADV_MERGEABLE 12
+#define MADV_UNMERGEABLE 13
+#define MADV_HUGEPAGE 14
+#define MADV_NOHUGEPAGE 15
+#define MADV_DONTDUMP 16
+#define MADV_DODUMP 17
+#define MADV_WIPEONFORK 18
+#define MADV_KEEPONFORK 19
+#define MADV_COLD 20
+#define MADV_PAGEOUT 21
+#define MADV_POPULATE_READ 22
+#define MADV_POPULATE_WRITE 23
+#define MADV_DONTNEED_LOCKED 24
+#define MADV_COLLAPSE 25
+#define MADV_HWPOISON 100
+#define MADV_SOFT_OFFLINE 101
+
+#define MAP_FILE 0
+#define PKEY_DISABLE_ACCESS 0x1
+#define PKEY_DISABLE_WRITE 0x2
+#define PKEY_ACCESS_MASK (PKEY_DISABLE_ACCESS | PKEY_DISABLE_WRITE)
 
 #endif

@@ -9,6 +9,7 @@
 #include <kernel/fs_struct.h>
 #include <kernel/mm.h>
 #include <kernel/pid.h>
+#include <kernel/proc.h>
 #include <kernel/resource.h>
 #include <kernel/random.h>
 #include <kernel/syscall.h>
@@ -127,7 +128,7 @@ ssize_t sys_uname(struct trap_frame *tf)
 ssize_t sys_set_tid_addr(struct trap_frame *tf)
 {
 	task_set_clear_child_tid(current_task(), (int *)syscall_arg(tf, 0));
-	return (ssize_t)task_pid(current_task());
+	return current_task()->tid ? (ssize_t)current_task()->tid->nr : 0;
 }
 
 /*
@@ -144,8 +145,7 @@ ssize_t sys_setuid(struct trap_frame *tf)
 	if (task_uid(current_task()) != 0 && task_uid(current_task()) != uid)
 		return -EPERM;
 
-	task_set_uid(current_task(), uid);
-	return 0;
+	return task_set_uid(current_task(), uid);
 }
 
 /*
@@ -162,63 +162,73 @@ ssize_t sys_setgid(struct trap_frame *tf)
 	if (task_gid(current_task()) != 0 && task_gid(current_task()) != gid)
 		return -EPERM;
 
-	task_set_gid(current_task(), gid);
-	return 0;
+	return task_set_gid(current_task(), gid);
 }
 
 /*
- * SYSCALL_SUPPORT(C): getgroups
- * Current: reports a fixed single supplementary group id 0.
- * Unsupported errno: negative size returns -EINVAL; invalid output pointer
- * returns -EFAULT.
- * Future: add real supplementary-group storage with the credential model.
+ * SYSCALL_SUPPORT(B): getgroups
+ * Current: returns the per-task supplementary-group list (ngroups capped at
+ * NGROUPS_MAX); size 0 queries the count without copying; a too-small buffer
+ * returns -EINVAL; invalid user pointers return -EFAULT.
+ * Unsupported errno: none beyond the Linux contract.
+ * Future: keep the ABI when a capability subsystem replaces the euid-0 gate.
  */
 ssize_t sys_getgroups(struct trap_frame *tf)
 {
 	int size = (int)syscall_arg(tf, 0);
-	uint32_t *groups = (uint32_t *)syscall_arg(tf, 1);
-	uint32_t group = 0;
+	gid_t *groups = (gid_t *)syscall_arg(tf, 1);
+	struct cred *cred = current_task()->cred;
+	uint32_t ngroups = cred ? cred->ngroups : 0;
 
 	if (size < 0)
 		return -EINVAL;
-
 	if (size == 0)
-		return 1;
-	if (!groups || copy_to_user(groups, &group, sizeof(group)))
+		return (ssize_t)ngroups;
+	if (size < (int)ngroups)
+		return -EINVAL;
+	if (ngroups > 0 && (!groups ||
+			    copy_to_user(groups, cred->groups,
+					 ngroups * sizeof(gid_t))))
 		return -EFAULT;
 
-	return 1;
+	return (ssize_t)ngroups;
 }
 
 /*
- * SYSCALL_SUPPORT(C): setgroups
- * Current: accepts size 0 or a single group id 0 without storing state.
- * Unsupported errno: negative size returns -EINVAL; any other group set
- * returns -EPERM.
- * Future: add real supplementary-group storage with the credential model.
+ * SYSCALL_SUPPORT(B): setgroups
+ * Current: euid 0 may set up to NGROUPS_MAX supplementary groups; size 0
+ * clears the list; non-root callers get -EPERM; oversized sizes return
+ * -EINVAL; invalid user pointers return -EFAULT.
+ * Unsupported errno: none beyond the Linux contract.
+ * Future: replace the euid-0 gate with CAP_SETGID when capabilities land.
  */
 ssize_t sys_setgroups(struct trap_frame *tf)
 {
 	int size = (int)syscall_arg(tf, 0);
-	uint32_t *groups = (uint32_t *)syscall_arg(tf, 1);
-	uint32_t group;
+	gid_t *groups = (gid_t *)syscall_arg(tf, 1);
+	gid_t kgroups[NGROUPS_MAX];
 
 	if (size < 0)
 		return -EINVAL;
-	if (size == 0)
-		return 0;
-	if (size == 1 && groups &&
-	    copy_from_user(&group, groups, sizeof(group)) == 0 && group == 0)
-		return 0;
+	if (size > NGROUPS_MAX)
+		return -EINVAL;
+	if (task_euid(current_task()) != 0)
+		return -EPERM;
+	if (size > 0) {
+		if (!groups ||
+		    copy_from_user(kgroups, groups, size * sizeof(gid_t)))
+			return -EFAULT;
+	}
 
-	return -EPERM;
+	return task_set_groups(current_task(), kgroups, (uint32_t)size);
 }
 
 ssize_t sys_umask(struct trap_frame *tf)
 {
 	uint32_t mask = (uint32_t)syscall_arg(tf, 0) & 0777;
 
-	return fs_set_umask(task_fs(current_task()), mask);
+	return fs_set_umask(
+		current_task()->proc ? current_task()->proc->fs : NULL, mask);
 }
 
 /*
@@ -237,7 +247,7 @@ ssize_t sys_sysinfo(struct trap_frame *tf)
 		return -EFAULT;
 
 	memset(&info, 0, sizeof(info));
-	info.uptime = (int64_t)(jiffies / HZ);
+	info.uptime = (int64_t)(timer_now() / MTIME_FREQ);
 	info.totalram = DRAM_SIZE;
 	info.freeram = buddy_free_pages() * PAGE_SIZE;
 	info.procs = pid_count_tasks();
@@ -262,10 +272,9 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 	const struct rlimit64 *unew =
 		(const struct rlimit64 *)syscall_arg(tf, 2);
 	struct rlimit64 *uold = (struct rlimit64 *)syscall_arg(tf, 3);
-	struct task_struct *task;
-	struct signal_struct *signal;
+	struct proc_struct *proc;
 	struct rlimit64 new_limit;
-	bool put_task = false;
+	bool put_proc = false;
 	ssize_t ret = 0;
 
 	if (resource < 0 || resource >= RLIM_NLIMITS)
@@ -274,21 +283,27 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 		return -ESRCH;
 
 	if (pid == 0) {
-		task = current_task();
+		proc = current_task()->proc;
 	} else {
-		task = task_find_group_leader(pid);
-		put_task = true;
-		if (!task)
+		struct task_struct *leader;
+
+		proc = pid_lookup_proc((pid_t)pid);
+		put_proc = true;
+		if (!proc)
 			return -ESRCH;
-		if (!current_task() ||
-		    task_tgid(task) != task_tgid(current_task())) {
+		leader = proc_leader_get(proc);
+		if (!leader) {
+			ret = -ESRCH;
+			goto out;
+		}
+		task_put(leader);
+		if (!current_task() || current_task()->proc != proc) {
 			ret = -EPERM;
 			goto out;
 		}
 	}
 
-	signal = task_signal_state(task);
-	if (!signal) {
+	if (!proc) {
 		ret = -ESRCH;
 		goto out;
 	}
@@ -304,24 +319,24 @@ ssize_t sys_prlimit64(struct trap_frame *tf)
 		}
 	}
 
-	mutex_lock(&signal->lock);
+	spin_lock(&proc->lock);
 	if (uold) {
-		struct rlimit64 old = signal->rlimits[resource];
+		struct rlimit64 old = proc->rlimits[resource];
 
-		mutex_unlock(&signal->lock);
+		spin_unlock(&proc->lock);
 		if (copy_to_user(uold, &old, sizeof(old)) != 0) {
 			ret = -EFAULT;
 			goto out;
 		}
-		mutex_lock(&signal->lock);
+		spin_lock(&proc->lock);
 	}
 	if (unew)
-		signal->rlimits[resource] = new_limit;
-	mutex_unlock(&signal->lock);
+		proc->rlimits[resource] = new_limit;
+	spin_unlock(&proc->lock);
 
 out:
-	if (put_task)
-		task_put(task);
+	if (put_proc)
+		proc_put(proc);
 	return ret;
 }
 
@@ -335,6 +350,8 @@ ssize_t sys_getrusage(struct trap_frame *tf)
 {
 	int who = (int)syscall_arg(tf, 0);
 	struct rusage *uusage = (struct rusage *)syscall_arg(tf, 1);
+	struct proc_cputime_snapshot snapshot;
+	struct task_cputime time;
 	struct rusage usage;
 
 	if (who != RUSAGE_SELF && who != RUSAGE_CHILDREN)
@@ -342,10 +359,16 @@ ssize_t sys_getrusage(struct trap_frame *tf)
 	if (!uusage)
 		return -EFAULT;
 
-	if (who == RUSAGE_SELF)
-		task_rusage_self(current_task(), &usage);
-	else
-		task_rusage_children(current_task(), &usage);
+	if (who == RUSAGE_SELF) {
+		time = (struct task_cputime){
+			.utime_ticks = task_user_ticks(current_task()),
+			.stime_ticks = task_system_ticks(current_task()),
+		};
+	} else {
+		proc_cputime_snapshot(current_task()->proc, &snapshot);
+		time = snapshot.children;
+	}
+	cputime_rusage(&time, &usage);
 	if (copy_to_user(uusage, &usage, sizeof(usage)) != 0)
 		return -EFAULT;
 

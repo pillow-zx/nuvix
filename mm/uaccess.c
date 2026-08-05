@@ -28,6 +28,7 @@ bool access_ok(const void *addr, size_t size)
 
 int user_range_probe(const void *addr, size_t size, bool write)
 {
+	struct task_struct *task = current_task();
 	struct mm_struct *mm;
 	int access;
 
@@ -35,7 +36,7 @@ int user_range_probe(const void *addr, size_t size, bool write)
 		return 0;
 	if (!access_ok(addr, size))
 		return -EFAULT;
-	mm = task_mm(current_task());
+	mm = task->proc ? task->proc->mm : NULL;
 	if (!mm)
 		return -EFAULT;
 
@@ -87,7 +88,7 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 
 		if (!access_ok((const void *)addr, 1))
 			return -EFAULT;
-		mm = task_mm(current_task());
+		mm = current_task()->proc ? current_task()->proc->mm : NULL;
 		if (!mm)
 			return -EFAULT;
 		with_guard(mm_guard, mm)

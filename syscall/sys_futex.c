@@ -5,6 +5,7 @@
 #include <kernel/errno.h>
 #include <kernel/futex.h>
 #include <kernel/mm.h>
+#include <kernel/pid.h>
 #include <kernel/syscall.h>
 #include <kernel/task.h>
 #include <kernel/time.h>
@@ -144,7 +145,7 @@ ssize_t sys_get_robust_list(struct trap_frame *tf)
 	if (pid == 0) {
 		task = current_task();
 	} else {
-		task = task_find_thread((pid_t)pid);
+		task = pid_lookup_task((pid_t)pid);
 		put_task = true;
 	}
 	if (!task)

@@ -62,24 +62,6 @@ struct file_system_type *get_next_filesystem_type(struct file_system_type *prev)
 	return NULL;
 }
 
-#ifdef KERNEL_SELFTEST
-int unregister_filesystem(struct file_system_type *fs_type)
-{
-	if (!fs_type)
-		return -EINVAL;
-
-	for (uint32_t i = 0; i < NR_FILESYSTEMS; i++) {
-		if (fs_types[i] != fs_type)
-			continue;
-		fs_types[i] = NULL;
-		fs_type->next = NULL;
-		return 0;
-	}
-
-	return -ENOENT;
-}
-#endif
-
 struct super_block *super_alloc(struct file_system_type *fs_type, dev_t dev)
 {
 	struct super_block *sb = kmalloc(sizeof(*sb), ALLOC_NOWAIT);

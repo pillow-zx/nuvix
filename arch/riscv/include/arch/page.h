@@ -14,31 +14,31 @@
  * @def DRAM_BASE
  * @brief Physical base address of QEMU virt DRAM.
  */
-constexpr paddr_t DRAM_BASE = 0x80000000;
+#define DRAM_BASE 0x80000000
 
 /**
  * @def DRAM_SIZE
  * @brief Configured DRAM size in bytes.
  */
-constexpr uint64_t DRAM_SIZE = (uint64_t)CONFIG_DRAM_SIZE_MB << 20;
+#define DRAM_SIZE ((uint64_t)CONFIG_DRAM_SIZE_MB << 20)
 
 /**
  * @def TASK_SIZE
  * @brief Highest user virtual address plus one for the current Sv39 policy.
  */
-constexpr vaddr_t TASK_SIZE = 0x80000000UL;
+#define TASK_SIZE 0x80000000UL
 
 /**
  * @def USER_STACK_TOP
  * @brief Exclusive top of the initial user stack region.
  */
-constexpr vaddr_t USER_STACK_TOP = TASK_SIZE;
+#define USER_STACK_TOP TASK_SIZE
 
 /**
  * @def USER_STACK_BASE
  * @brief Size of the fixed initial user stack mapping.
  */
-constexpr size_t USER_STACK_SIZE = 64 * 1024;
+#define USER_STACK_SIZE (64 * 1024)
 
 static_assert(USER_STACK_SIZE % PAGE_SIZE == 0,
 	      "user stack size must be page aligned");
@@ -47,19 +47,19 @@ static_assert(USER_STACK_SIZE % PAGE_SIZE == 0,
  * @def USER_STACK_BASE
  * @brief Base of the fixed initial user stack mapping.
  */
-constexpr vaddr_t USER_STACK_BASE = USER_STACK_TOP - USER_STACK_SIZE;
+#define USER_STACK_BASE (USER_STACK_TOP - USER_STACK_SIZE)
 
 /**
  * @def USER_STACK_GUARD_BASE
  * @brief Base of the guard page below the initial user stack.
  */
-constexpr vaddr_t USER_STACK_GUARD_BASE = USER_STACK_BASE - PAGE_SIZE;
+#define USER_STACK_GUARD_BASE (USER_STACK_BASE - PAGE_SIZE)
 
 /**
  * @def KERNEL_VBASE
  * @brief High-half virtual base of the kernel direct map.
  */
-constexpr vaddr_t KERNEL_VBASE = 0xFFFFFFC000000000;
+#define KERNEL_VBASE 0xFFFFFFC000000000
 
 /**
  * @def __pa

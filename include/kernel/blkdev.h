@@ -15,27 +15,27 @@
  * @def SECTOR_SIZE
  * @brief Block-device ABI sector size in bytes.
  */
-constexpr uint32_t SECTOR_SIZE = 512u;
+#define SECTOR_SIZE 512u
 
 /**
  * @def SECTOR_SHIFT
  * @brief log2(SECTOR_SIZE), used for byte/sector conversion.
  */
-constexpr uint32_t SECTOR_SHIFT = 9;
+#define SECTOR_SHIFT 9
 
 /**
  * @def BLOCK_SIZE
  * @brief Kernel page-cache block size in bytes.
  */
-constexpr uint32_t BLOCK_SIZE = 4096u;
+#define BLOCK_SIZE 4096u
 
 /**
  * @def BLOCK_SECTORS
  * @brief Number of 512-byte sectors contained in one 4 KiB cache block.
  */
-constexpr uint32_t BLOCK_SECTORS = BLOCK_SIZE / SECTOR_SIZE;
+#define BLOCK_SECTORS (BLOCK_SIZE / SECTOR_SIZE)
 
-struct block_device;
+struct blkdev;
 
 /**
  * @struct block_device_operations
@@ -45,10 +45,10 @@ struct block_device;
  * - @c read_sectors: Read @p nsec sectors starting at @p sector into @p buf.
  * - @c write_sectors: Write @p nsec sectors starting at @p sector from @p buf.
  */
-struct block_device_operations {
-	int (*read_sectors)(struct block_device *bdev, void *buf,
-			    uint64_t sector, uint32_t nsec);
-	int (*write_sectors)(struct block_device *bdev, const void *buf,
+struct blkdev_ops {
+	int (*read_sectors)(struct blkdev *bdev, void *buf, uint64_t sector,
+			    uint32_t nsec);
+	int (*write_sectors)(struct blkdev *bdev, const void *buf,
 			     uint64_t sector, uint32_t nsec);
 };
 
@@ -63,10 +63,10 @@ struct block_device_operations {
  * - @c bd_private: Driver-private state.
  * - @c bd_pages: Raw 4 KiB page-cache mapping.
  */
-struct block_device {
+struct blkdev {
 	dev_t bd_dev;
 	uint64_t bd_sectors;
-	const struct block_device_operations *bd_ops;
+	const struct blkdev_ops *bd_ops;
 	void *bd_private;
 	struct page_mapping bd_pages;
 };
@@ -76,7 +76,7 @@ struct block_device {
  * @param bdev Initialized block device.
  * @return 0 on success, or a negative errno.
  */
-int register_block_device(struct block_device *bdev);
+int register_blkdev(struct blkdev *bdev);
 
 /**
  * @brief Lookup a registered block device.
@@ -84,7 +84,7 @@ int register_block_device(struct block_device *bdev);
  * @return Matching block device, or NULL.
  */
 __must_check
-struct block_device *lookup_block_device(dev_t dev);
+struct blkdev *lookup_blkdev(dev_t dev);
 
 /**
  * @brief Return the raw page-cache mapping for a block device.
@@ -92,6 +92,6 @@ struct block_device *lookup_block_device(dev_t dev);
  * @return Page mapping, or NULL when @p dev is unknown.
  */
 __must_check
-struct page_mapping *block_device_pages(dev_t dev);
+struct page_mapping *blkdev_pages(dev_t dev);
 
 #endif

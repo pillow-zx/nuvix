@@ -1,103 +1,450 @@
+/* sched/sched.c - generic scheduler mechanism */
+
+#include <kernel/errno.h>
 #include <kernel/printk.h>
 #include <kernel/rseq.h>
+#include <kernel/sched.h>
+#include <kernel/task.h>
+#include <kernel/trap.h>
 
 #include "internal.h"
 
-void schedule(void)
+static struct runqueue runqueues[NR_CPUS];
+struct retired_queue {
+	spinlock_t lock;
+	struct list_head tasks;
+};
+
+static struct retired_queue retired_queues[NR_CPUS];
+static const struct sched_ops *policy = &rr_ops;
+
+static void sched_switch_current(void)
 {
+	bool restore_irqoff = irqs_disabled();
+
+	/*
+	 * schedule() requires IRQs enabled, but callers retain their entry
+	 * state.
+	 */
+	if (restore_irqoff)
+		local_irq_enable();
+	schedule();
+	if (restore_irqoff)
+		local_irq_disable();
+}
+
+void task_switch(struct task_struct *prev, struct task_struct *next)
+{
+	BUG_ON(!irqs_disabled());
 	BUG_ON(in_irq());
-	BUG_ON(!current_task());
-	BUG_ON(spinlock_held());
 	BUG_ON(!preemptible());
+	BUG_ON(spinlock_held());
 
-	struct task_struct *prev;
-	struct task_struct *next;
-
-	prev = current_task();
-	task_set_need_resched(prev, 0);
-
-	if (mlfq_empty()) {
-		if (prev == &idle_task || prev->lifecycle.state == TASK_RUNNING)
-			return;
-
-		rseq_sched_switch(prev);
-		task_switch_address_space(prev, &idle_task);
-		set_current_task(&idle_task);
-		task_switch(prev, &idle_task);
-		return;
-	}
-
-	next = mlfq_pick_next();
-
-	if (next == prev)
-		return;
-
-	if (prev != &idle_task && prev->lifecycle.state == TASK_RUNNING &&
-	    list_empty(&prev->sched.run_list))
-		mlfq_enqueue(prev);
-
-	rseq_sched_switch(prev);
 	set_current_task(next);
-	task_switch_address_space(prev, next);
+	arch_task_switch(prev, next);
+}
+
+static void sched_handoff(struct task_struct *prev, struct task_struct *next)
+{
+	rseq_sched_switch(prev);
 	task_switch(prev, next);
 }
 
-void sched_init(void)
+static struct runqueue *sched_rq_for_cpu(struct cpu *cpu)
 {
-	mlfq_init();
-	pr_info("sched: MLFQ initialized (%d levels)\n", SCHED_MLFQ_LEVELS);
+	return cpu ? &runqueues[cpu->id] : NULL;
+}
+
+static struct runqueue *sched_rq_for_task(struct task_struct *task)
+{
+	struct cpu *cpu = task && task->cpu ? task->cpu : current_cpu();
+
+	return sched_rq_for_cpu(cpu);
+}
+
+static uint64_t sched_online_mask(void)
+{
+	uint64_t mask = 0;
+
+	for (uint32_t id = 0; id < nr_cpu_ids; id++)
+		if (cpu_is_online(id))
+			mask |= 1ULL << id;
+	return mask;
+}
+
+static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
+				 enum sched_enqueue_reason reason)
+{
+	BUG_ON(!rq || !task || task->on_rq);
+	/* Affinity invariant: a task may only sit on a runqueue whose CPU is
+	 * in its allowed mask. CPU assignment is scheduler-owner state. */
+	BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
+	task->cpu = cpu_by_id((uint32_t)(rq - runqueues));
+	policy->enqueue(rq, task, reason);
+	task->on_rq = true;
+	rq->nr_running++;
+}
+
+static void sched_dequeue_locked(struct runqueue *rq, struct task_struct *task)
+{
+	BUG_ON(!rq || !task || !task->on_rq);
+	policy->dequeue(rq, task);
+	task->on_rq = false;
+	BUG_ON(rq->nr_running == 0);
+	rq->nr_running--;
+}
+
+static struct task_struct *sched_pick_locked(struct runqueue *rq)
+{
+	struct task_struct *next = policy->pick_next(rq);
+
+	if (!next)
+		return rq->idle;
+	sched_dequeue_locked(rq, next);
+	return next;
+}
+
+static void sched_switch_locked(struct runqueue *rq, struct task_struct *prev,
+				struct task_struct *next)
+{
+	if (prev && prev != rq->idle)
+		prev->on_cpu = false;
+	if (next) {
+		next->cpu = cpu_by_id((uint32_t)(rq - runqueues));
+		next->on_cpu = true;
+		next->run_state = TASK_RUNNING;
+	}
+	rq->current = next;
 }
 
 void sched_task_init(struct task_struct *task)
 {
-	mlfq_task_init(task);
+	INIT_LIST_HEAD(&task->sched.run_node);
+	atomic_set(&task->sched.need_resched, 0);
 }
 
-void sched_enqueue(struct task_struct *task)
+void sched_init(void)
 {
-	mlfq_enqueue(task);
+	policy->init();
+	for (uint32_t id = 0; id < NR_CPUS; id++) {
+		struct runqueue *rq = &runqueues[id];
+
+		spin_lock_init(&rq->lock, LOCK_RANK_RUNQUEUE);
+		rq->cpu_id = id;
+		INIT_LIST_HEAD(&rq->runnable);
+		rq->nr_running = 0;
+		rq->idle = cpu_by_id(id)->idle_task;
+		rq->current = cpu_by_id(id)->current_task;
+		spin_lock_init(&retired_queues[id].lock, LOCK_RANK_RETIRED);
+		INIT_LIST_HEAD(&retired_queues[id].tasks);
+	}
+	pr_info("sched: FIFO RR initialized\n");
+}
+
+void sched_enqueue_new(struct task_struct *task)
+{
+	struct runqueue *rq;
+	irq_flags_t flags;
+
+	if (!task || task->lifecycle != TASK_LIVE || task->on_rq ||
+	    task->on_cpu || task_is_exiting(task))
+		return;
+	rq = sched_rq_for_task(task);
+	if (!(task->allowed_cpus & (1ULL << rq->cpu_id)))
+		return;
+	spin_lock_irqsave(&rq->lock, &flags);
+	task->run_state = TASK_RUNNABLE;
+	sched_enqueue_locked(rq, task, SCHED_ENQUEUE_NEW);
+	spin_unlock_irqrestore(&rq->lock, flags);
 }
 
 void sched_dequeue(struct task_struct *task)
 {
-	mlfq_dequeue(task);
+	struct runqueue *rq;
+	irq_flags_t flags;
+
+	if (!task || !task->on_rq)
+		return;
+	rq = sched_rq_for_task(task);
+	spin_lock_irqsave(&rq->lock, &flags);
+	if (task->on_rq)
+		sched_dequeue_locked(rq, task);
+	spin_unlock_irqrestore(&rq->lock, flags);
 }
 
-void sched_wakeup(struct task_struct *task)
+int sched_block_current(struct task_wait *wait)
 {
-	mlfq_wakeup(task);
+	struct task_struct *task = current_task();
+	struct runqueue *rq;
+	irq_flags_t wait_flags;
+	irq_flags_t rq_flags;
+	bool block = false;
+
+	if (!wait || !task || wait != &task->wait || task == &idle_task)
+		return -EINVAL;
+	rq = sched_rq_for_cpu(current_cpu());
+	spin_lock_irqsave(&wait->lock, &wait_flags);
+	if (wait->status == WAIT_ACTIVE && wait->reason == TASK_WAKE_NONE &&
+	    task->lifecycle == TASK_LIVE && task->run_state == TASK_RUNNING) {
+		spin_lock_irqsave(&rq->lock, &rq_flags);
+		task->run_state = TASK_BLOCKED;
+		block = true;
+		spin_unlock_irqrestore(&rq->lock, rq_flags);
+	}
+	spin_unlock_irqrestore(&wait->lock, wait_flags);
+	if (block)
+		sched_switch_current();
+	return block ? 1 : 0;
 }
 
-void sched_wake_task(struct task_struct *task)
+bool sched_wake(struct task_struct *task, uint64_t generation)
 {
-	task_set_state(task, TASK_RUNNING);
-	if (task != current_task())
-		sched_wakeup(task);
+	struct runqueue *rq;
+	irq_flags_t wait_flags;
+	irq_flags_t rq_flags;
+	bool woke = false;
+
+	if (!task || task == &idle_task)
+		return false;
+	rq = sched_rq_for_task(task);
+	/* The affinity check guards the enqueue target, not the waker's CPU:
+	 * on SMP a remote wake would otherwise pass a local-only check. */
+	if (!(task->allowed_cpus & (1ULL << rq->cpu_id)))
+		return false;
+	spin_lock_irqsave(&task->wait.lock, &wait_flags);
+	if (task->wait.status == WAIT_ACTIVE &&
+	    task->wait.generation == generation &&
+	    task->lifecycle == TASK_LIVE && task->run_state == TASK_BLOCKED) {
+		spin_lock_irqsave(&rq->lock, &rq_flags);
+		task->run_state = TASK_RUNNABLE;
+		if (!task->on_rq)
+			sched_enqueue_locked(rq, task, SCHED_ENQUEUE_WAKE);
+		woke = true;
+		spin_unlock_irqrestore(&rq->lock, rq_flags);
+	}
+	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
+	if (woke && task->cpu != current_cpu())
+		arch_sched_remote_wake(task->cpu);
+	return woke;
+}
+
+int sched_set_affinity(struct task_struct *task, uint64_t mask)
+{
+	uint64_t online = sched_online_mask();
+	struct runqueue *rq;
+	irq_flags_t flags;
+	int ret = 0;
+
+	if (!task || !mask || !(mask & online))
+		return -EINVAL;
+	/* The on_rq/on_cpu check must race with no enqueue: hold the task's
+	 * runqueue lock around re-check and store (no migration on SMP
+	 * until a migration path exists, so the owning rq is fixed). */
+	rq = sched_rq_for_task(task);
+	spin_lock_irqsave(&rq->lock, &flags);
+	if (task->on_rq || task->on_cpu)
+		ret = -EBUSY;
+	else
+		task->allowed_cpus = mask & online;
+	spin_unlock_irqrestore(&rq->lock, flags);
+	return ret;
+}
+
+uint64_t sched_get_affinity(const struct task_struct *task)
+{
+	return task ? task->allowed_cpus & sched_online_mask() : 0;
+}
+
+bool sched_wake_external(struct task_struct *task)
+{
+	struct runqueue *rq;
+	irq_flags_t flags;
+	bool woke = false;
+
+	if (!task || task == &idle_task || task->lifecycle != TASK_LIVE)
+		return false;
+	rq = sched_rq_for_task(task);
+	spin_lock_irqsave(&rq->lock, &flags);
+	if (!task->on_rq && !task->on_cpu) {
+		task->run_state = TASK_RUNNABLE;
+		sched_enqueue_locked(rq, task, SCHED_ENQUEUE_WAKE);
+		woke = true;
+	}
+	spin_unlock_irqrestore(&rq->lock, flags);
+	return woke;
+}
+
+bool sched_retired_pop(struct task_struct **task)
+{
+	if (!task)
+		return false;
+	*task = NULL;
+	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
+		struct retired_queue *queue = &retired_queues[id];
+		irq_flags_t flags;
+
+		spin_lock_irqsave(&queue->lock, &flags);
+		if (!list_empty(&queue->tasks)) {
+			*task = list_first_entry(&queue->tasks,
+						 struct task_struct,
+						 retired_node);
+			list_del_init(&(*task)->retired_node);
+			spin_unlock_irqrestore(&queue->lock, flags);
+			return true;
+		}
+		spin_unlock_irqrestore(&queue->lock, flags);
+	}
+	return false;
+}
+
+bool sched_stop(struct task_struct *task)
+{
+	struct runqueue *rq;
+	irq_flags_t flags;
+	bool stopped = false;
+
+	if (!task || task == &idle_task || task->lifecycle != TASK_LIVE)
+		return false;
+	rq = sched_rq_for_task(task);
+	spin_lock_irqsave(&rq->lock, &flags);
+	if (task->run_state != TASK_STOPPED) {
+		if (task->on_rq)
+			sched_dequeue_locked(rq, task);
+		task->run_state = TASK_STOPPED;
+		stopped = true;
+	}
+	spin_unlock_irqrestore(&rq->lock, flags);
+	return stopped;
+}
+
+bool sched_resume(struct task_struct *task)
+{
+	struct runqueue *rq;
+	irq_flags_t flags;
+	bool resumed = false;
+
+	if (!task || task == &idle_task || task->lifecycle != TASK_LIVE)
+		return false;
+	rq = sched_rq_for_task(task);
+	spin_lock_irqsave(&rq->lock, &flags);
+	if (task->run_state == TASK_STOPPED) {
+		task->run_state = TASK_RUNNABLE;
+		if (!task->on_rq)
+			sched_enqueue_locked(rq, task, SCHED_ENQUEUE_WAKE);
+		resumed = true;
+	}
+	spin_unlock_irqrestore(&rq->lock, flags);
+	return resumed;
 }
 
 bool sched_has_runnable(void)
 {
-	return !mlfq_empty();
+	struct runqueue *rq = sched_rq_for_cpu(current_cpu());
+	return rq->nr_running != 0;
 }
 
-static void sched_account_tick(void)
+void schedule(void)
 {
-	struct task_struct *task = current_task();
+	struct runqueue *rq;
+	struct task_struct *prev;
+	struct task_struct *next;
+	irq_flags_t flags;
 
-	if (!task || task == &idle_task)
+	BUG_ON(in_irq());
+	BUG_ON(!current_task());
+	BUG_ON(!preemptible());
+	BUG_ON(spinlock_held());
+	BUG_ON(irqs_disabled());
+
+	rq = sched_rq_for_cpu(current_cpu());
+	prev = current_task();
+	flags = local_irq_save();
+	spin_lock(&rq->lock);
+	task_set_need_resched(prev, 0);
+	if (prev != rq->idle && prev->lifecycle == TASK_LIVE &&
+	    prev->run_state == TASK_RUNNING && !prev->on_rq)
+		sched_enqueue_locked(rq, prev, SCHED_ENQUEUE_PREEMPT);
+	next = sched_pick_locked(rq);
+	if (!next)
+		next = rq->idle;
+	sched_switch_locked(rq, prev, next);
+	spin_unlock(&rq->lock);
+	if (next == prev) {
+		local_irq_restore(flags);
 		return;
-
-	if (task_trap_frome_user(task))
-		task->cputime.utime_ticks++;
-	else
-		task->cputime.stime_ticks++;
+	}
+	sched_handoff(prev, next);
+	local_irq_restore(flags);
 }
 
-void sched_tick(void)
+void schedule_irqoff(void)
 {
-	sched_account_tick();
-	if (mlfq_tick())
-		sched_request();
+	BUG_ON(!irqs_disabled());
+	BUG_ON(in_irq());
+	BUG_ON(!current_task());
+	BUG_ON(!preemptible());
+	BUG_ON(spinlock_held());
+
+	/* The trap-return path owns IRQ restoration after this handoff. */
+	{
+		struct runqueue *rq = sched_rq_for_cpu(current_cpu());
+		struct task_struct *prev = current_task();
+		struct task_struct *next;
+		irq_flags_t flags;
+
+		flags = local_irq_save();
+		spin_lock(&rq->lock);
+		task_set_need_resched(prev, 0);
+		if (prev != rq->idle && prev->lifecycle == TASK_LIVE &&
+		    prev->run_state == TASK_RUNNING && !prev->on_rq)
+			sched_enqueue_locked(rq, prev, SCHED_ENQUEUE_PREEMPT);
+		next = sched_pick_locked(rq);
+		if (!next)
+			next = rq->idle;
+		sched_switch_locked(rq, prev, next);
+		spin_unlock(&rq->lock);
+		if (next == prev) {
+			local_irq_restore(flags);
+			return;
+		}
+		sched_handoff(prev, next);
+		local_irq_restore(flags);
+	}
+}
+
+__noreturn
+void sched_exit_current(void)
+{
+	struct runqueue *rq;
+	struct retired_queue *retired;
+	struct task_struct *prev;
+	struct task_struct *next;
+	irq_flags_t flags;
+	irq_flags_t retired_flags;
+
+	BUG_ON(!current_task() || current_task() == &idle_task);
+	BUG_ON(current_task()->lifecycle != TASK_DEAD);
+
+	local_irq_disable();
+	rq = sched_rq_for_cpu(current_cpu());
+	retired = &retired_queues[current_cpu()->id];
+	prev = current_task();
+	spin_lock_irqsave(&rq->lock, &flags);
+	BUG_ON(rq->current != prev || prev->on_rq || prev->on_cpu == false);
+	prev->run_state = TASK_STOPPED;
+	prev->on_cpu = false;
+	spin_lock_irqsave(&retired->lock, &retired_flags);
+	list_add_tail(&prev->retired_node, &retired->tasks);
+	spin_unlock_irqrestore(&retired->lock, retired_flags);
+	next = sched_pick_locked(rq);
+	if (!next)
+		next = rq->idle;
+	sched_switch_locked(rq, prev, next);
+	spin_unlock_irqrestore(&rq->lock, flags);
+	BUG_ON(next == prev);
+	sched_handoff(prev, next);
+	panic("sched: exited task resumed");
+	unreachable();
 }
 
 void sched_request(void)
@@ -108,80 +455,32 @@ void sched_request(void)
 		task_set_need_resched(task, 1);
 }
 
+void sched_tick(void)
+{
+	struct task_struct *task = current_task();
+	struct runqueue *rq = sched_rq_for_cpu(current_cpu());
+	irq_flags_t flags;
+	bool expire;
+
+	if (!task || task == &idle_task)
+		return;
+	if (task_trap_frome_user(task))
+		task->cputime.utime_ticks++;
+	else
+		task->cputime.stime_ticks++;
+	spin_lock_irqsave(&rq->lock, &flags);
+	expire = policy->tick(rq, task);
+	spin_unlock_irqrestore(&rq->lock, flags);
+	if (expire)
+		sched_request();
+}
+
 void sched_yield(void)
 {
 	struct task_struct *task = current_task();
 
 	if (!task || task == &idle_task)
 		return;
-
 	sched_request();
-	schedule();
+	sched_switch_current();
 }
-
-#ifdef KERNEL_SELFTEST
-bool sched_test_runqueue_empty(void)
-{
-	return mlfq_empty();
-}
-
-uint32_t sched_test_runnable_count(void)
-{
-	return mlfq_count();
-}
-
-struct task_struct *sched_test_peek_next(void)
-{
-	return mlfq_peek_next();
-}
-
-void sched_test_force_boost(void)
-{
-	mlfq_boost();
-}
-
-uint8_t sched_test_level_slice(uint8_t level)
-{
-	return mlfq_level_slice(level);
-}
-
-uint8_t sched_test_level(const struct task_struct *task)
-{
-	return task ? task->sched.sched_level : 0;
-}
-
-uint8_t sched_test_time_slice(const struct task_struct *task)
-{
-	return task ? task->sched.time_slice : 0;
-}
-
-uint8_t sched_test_ticks(const struct task_struct *task)
-{
-	return task ? task->sched.sched_ticks : 0;
-}
-
-uint8_t sched_test_need_resched(const struct task_struct *task)
-{
-	return task ? task->sched.need_resched : 0;
-}
-
-void sched_test_set_level(struct task_struct *task, uint8_t level)
-{
-	if (!task)
-		return;
-
-	BUG_ON(level >= SCHED_MLFQ_LEVELS);
-	task->sched.sched_level = level;
-	task->sched.time_slice = mlfq_level_slice(level);
-}
-
-void sched_test_set_budget(struct task_struct *task, uint8_t slice,
-			   uint8_t ticks)
-{
-	if (!task)
-		return;
-
-	task->sched.time_slice = slice;
-	task->sched.sched_ticks = ticks;
-}
-#endif

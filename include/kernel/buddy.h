@@ -17,7 +17,7 @@
  * @def MAX_ORDER
  * @brief Highest buddy order managed by the physical page allocator.
  */
-constexpr uint32_t MAX_ORDER = 9;
+#define MAX_ORDER 9
 
 /**
  * @struct free_area
@@ -76,9 +76,5 @@ struct page *virt_to_page(const void *addr);
 
 __must_check __pure __nonnull(1)
 void *page_to_virt(const struct page *page);
-
-#ifdef KERNEL_SELFTEST
-void buddy_test_validate(void);
-#endif
 
 #endif

@@ -10,11 +10,9 @@
 #include <kernel/tools.h>
 #include <kernel/page.h>
 
-constexpr uint32_t VBLK_QSIZE = 8;
-
-constexpr uint32_t VBLK_MAX_SECTORS = 256u;
-
-constexpr uint32_t VBLK_POLL_SPIN_LIMIT = 100000000u;
+#define VBLK_QSIZE	     8
+#define VBLK_MAX_SECTORS     256u
+#define VBLK_POLL_SPIN_LIMIT 100000000u
 
 struct vblk_avail {
 	uint16_t flags;
@@ -56,17 +54,17 @@ static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
 static struct virtio_blk_req vblk_req;
 static struct virtio_blk_dev vblk_dev;
 
-static int virtio_blk_read_sectors(struct block_device *bdev, void *buf,
+static int virtio_blk_read_sectors(struct blkdev *bdev, void *buf,
 				   uint64_t sector, uint32_t nsec);
-static int virtio_blk_write_sectors(struct block_device *bdev, const void *buf,
+static int virtio_blk_write_sectors(struct blkdev *bdev, const void *buf,
 				    uint64_t sector, uint32_t nsec);
 
-static const struct block_device_operations vblk_ops = {
+static const struct blkdev_ops vblk_ops = {
 	.read_sectors = virtio_blk_read_sectors,
 	.write_sectors = virtio_blk_write_sectors,
 };
 
-static struct block_device vblk_bdev = {
+static struct blkdev vblk_bdev = {
 	.bd_dev = MKDEV(VIRTIO_BLK_MAJOR, 0),
 	.bd_ops = &vblk_ops,
 	.bd_private = &vblk_dev,
@@ -167,8 +165,8 @@ static int vblk_submit_and_wait(vaddr_t base, uint16_t expected)
 	return 0;
 }
 
-static int virtio_blk_rw(struct block_device *bdev, bool write,
-			 uintptr_t buf_addr, uint64_t sector, uint32_t nsec)
+static int virtio_blk_rw(struct blkdev *bdev, bool write, uintptr_t buf_addr,
+			 uint64_t sector, uint32_t nsec)
 {
 	struct virtio_blk_dev *vd = bdev->bd_private;
 	uint16_t expected;
@@ -183,13 +181,13 @@ static int virtio_blk_rw(struct block_device *bdev, bool write,
 	return vblk_submit_and_wait(vd->mmio_base, expected);
 }
 
-static int virtio_blk_read_sectors(struct block_device *bdev, void *buf,
+static int virtio_blk_read_sectors(struct blkdev *bdev, void *buf,
 				   uint64_t sector, uint32_t nsec)
 {
 	return virtio_blk_rw(bdev, false, (uintptr_t)buf, sector, nsec);
 }
 
-static int virtio_blk_write_sectors(struct block_device *bdev, const void *buf,
+static int virtio_blk_write_sectors(struct blkdev *bdev, const void *buf,
 				    uint64_t sector, uint32_t nsec)
 {
 	return virtio_blk_rw(bdev, true, (uintptr_t)buf, sector, nsec);
@@ -234,7 +232,7 @@ void virtio_blk_init(void)
 
 	vblk_bdev.bd_sectors = vblk_dev.capacity;
 
-	register_block_device(&vblk_bdev);
+	register_blkdev(&vblk_bdev);
 
 	pr_info("virtio_blk: init ok, capacity=%llu sectors (%llu MB)\n",
 		(unsigned long long)vblk_dev.capacity,

@@ -73,6 +73,7 @@
 		       if (is_constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
 		       ((_x & (_a - 1)) == 0);)
 
+__always_inline __must_check
 static inline int32_t ffz(uint64_t x)
 {
 	if (~x == 0)
@@ -80,6 +81,7 @@ static inline int32_t ffz(uint64_t x)
 	return ctzll(~x);
 }
 
+__always_inline __must_check
 static inline int32_t fls(uint64_t x)
 {
 	if (!x)

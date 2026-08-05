@@ -9,65 +9,14 @@
 #include <asm/trap.h>
 #include <asm/trap_frame.h>
 
-#ifdef KERNEL_SELFTEST
-/**
- * @typedef trap_test_hook_t
- * @brief Optional kernel-test hook invoked from the trap path.
- * @param tf Trap frame being handled.
- * @return True when the hook consumed the trap.
- */
-typedef bool (*trap_test_hook_t)(struct trap_frame *tf);
-#endif
-
-/** @def ARCH_TRAP_REG_SEPC
- * @brief Test index for the saved sepc field in struct trap_frame.
- */
-#define ARCH_TRAP_REG_SEPC    0
-#define ARCH_TRAP_REG_RA      1
-#define ARCH_TRAP_REG_SP      2
-#define ARCH_TRAP_REG_GP      3
-#define ARCH_TRAP_REG_TP      4
-#define ARCH_TRAP_REG_T0      5
-#define ARCH_TRAP_REG_T1      6
-#define ARCH_TRAP_REG_T2      7
-#define ARCH_TRAP_REG_S0      8
-#define ARCH_TRAP_REG_S1      9
-#define ARCH_TRAP_REG_A0      10
-#define ARCH_TRAP_REG_A1      11
-#define ARCH_TRAP_REG_A2      12
-#define ARCH_TRAP_REG_A3      13
-#define ARCH_TRAP_REG_A4      14
-#define ARCH_TRAP_REG_A5      15
-#define ARCH_TRAP_REG_A6      16
-#define ARCH_TRAP_REG_A7      17
-#define ARCH_TRAP_REG_S2      18
-#define ARCH_TRAP_REG_S3      19
-#define ARCH_TRAP_REG_S4      20
-#define ARCH_TRAP_REG_S5      21
-#define ARCH_TRAP_REG_S6      22
-#define ARCH_TRAP_REG_S7      23
-#define ARCH_TRAP_REG_S8      24
-#define ARCH_TRAP_REG_S9      25
-#define ARCH_TRAP_REG_S10     26
-#define ARCH_TRAP_REG_S11     27
-#define ARCH_TRAP_REG_T3      28
-#define ARCH_TRAP_REG_T4      29
-#define ARCH_TRAP_REG_T5      30
-#define ARCH_TRAP_REG_T6      31
-#define ARCH_TRAP_REG_SCAUSE  32
-#define ARCH_TRAP_REG_STVAL   33
-#define ARCH_TRAP_REG_SSTATUS 34
-
 void trap_init(void);
 void trap_handler(struct trap_frame *tf);
-#ifdef KERNEL_SELFTEST
-void trap_set_hook(trap_test_hook_t hook);
-#endif
 void __trapret(void);
 
 __noreturn
 void trapret_to_user(struct trap_frame *tf) ;
-void switch_to(struct context *prev, struct context *next);
+void switch_to(struct context *prev, struct context *next,
+	       uintptr_t next_satp);
 
 /**
  * @brief Read the Linux riscv64 syscall number from a trap frame.
@@ -311,7 +260,7 @@ static inline void trap_set_kernel_return(struct trap_frame *tf, uintptr_t pc)
  * @param arg0 First argument passed in a0.
  */
 __always_inline __nonnull(1)
-static inline void trap_set_kernel_thread_frame(struct trap_frame *tf, uintptr_t pc, uintptr_t arg0)
+static inline void trap_set_kthread_frame(struct trap_frame *tf, uintptr_t pc, uintptr_t arg0)
 {
 	memset(tf, 0, sizeof(*tf));
 	tf->sepc = pc;
@@ -395,28 +344,5 @@ static inline void trap_setup_user_return(struct trap_frame *tf, uintptr_t pc, u
 	tf->sp = sp;
 	tf->sstatus = SSTATUS_SPIE;
 }
-
-#ifdef KERNEL_SELFTEST
-__must_check __const
-static inline size_t trap_frame_size(void)
-{
-	return sizeof(struct trap_frame);
-}
-
-__must_check __const
-static inline size_t trap_context_size(void)
-{
-	return sizeof(struct context);
-}
-
-__must_check __pure __nonnull(1)
-static inline uintptr_t
-	trap_test_reg(const struct trap_frame *tf, uint32_t reg)
-{
-	const size_t *regs = (const size_t *)tf;
-
-	return regs[reg];
-}
-#endif
 
 #endif

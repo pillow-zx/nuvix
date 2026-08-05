@@ -268,7 +268,7 @@ int vfs_inode_permission(struct inode *inode, uint32_t mask)
 
 	if (task_uid(current_task()) == vfs_inode_uid(inode))
 		perm = (vfs_inode_mode(inode) >> 6) & 7;
-	else if (task_gid(current_task()) == vfs_inode_gid(inode))
+	else if (task_in_group(current_task(), vfs_inode_gid(inode)))
 		perm = (vfs_inode_mode(inode) >> 3) & 7;
 	else
 		perm = inode->i_mode & 7;

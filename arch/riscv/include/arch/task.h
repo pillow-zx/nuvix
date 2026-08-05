@@ -13,14 +13,16 @@
 #include <asm/context.h>
 #include <asm/trap_frame.h>
 
+struct task_struct;
+
 /** @def ARCH_KSTACK_ORDER
  * @brief Buddy allocation order for one kernel stack.
  */
-constexpr uint32_t ARCH_KSTACK_ORDER = 2;
+#define ARCH_KSTACK_ORDER 2
 /** @def ARCH_KSTACK_SIZE
  * @brief Kernel stack size in bytes for each task.
  */
-constexpr size_t ARCH_KSTACK_SIZE = PAGE_SIZE << ARCH_KSTACK_ORDER;
+#define ARCH_KSTACK_SIZE (PAGE_SIZE << ARCH_KSTACK_ORDER)
 
 /**
  * @struct task_state
@@ -36,8 +38,12 @@ struct task_state {
 	struct context ctx;
 	struct trap_frame *tf;
 	void *kstack;
-	uint64_t satp;
+	uint64_t pgroot;
 };
+
+/** Architecture handoff for two scheduler-selected tasks. */
+__nonnull(1, 2)
+void arch_task_switch(struct task_struct *prev, struct task_struct *next);
 
 static_assert(ARCH_KSTACK_SIZE == TASK_KSTACK_SIZE,
 	      "entry.S __trapret kstack arithmetic is out of sync");

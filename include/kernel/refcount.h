@@ -4,7 +4,7 @@
 #include <kernel/atomic.h>
 #include <kernel/printk.h>
 
-constexpr int32_t REFCOUNT_MAX = INT32_MAX;
+#define REFCOUNT_MAX INT32_MAX
 
 typedef struct {
 	atomic_t refs;

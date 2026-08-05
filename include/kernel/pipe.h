@@ -11,16 +11,11 @@
 struct file;
 
 /* Linux/POSIX atomic-write bound for one pipe write request. */
-constexpr size_t PIPE_BUF = PAGE_SIZE;
+#define PIPE_BUF PAGE_SIZE
 
 int do_pipe2(int fds[2], int flags);
 bool pipe_file(struct file *file);
 ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 			    loff_t *out_offset, size_t len);
-
-#ifdef KERNEL_SELFTEST
-void pipe_test_set_file_alloc_fail_at(int fail_at);
-uint32_t pipe_test_live_buffers(void);
-#endif
 
 #endif

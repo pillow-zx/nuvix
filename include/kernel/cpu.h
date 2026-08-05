@@ -12,13 +12,13 @@
 #include <arch/cpu.h>
 #include <arch/irq.h>
 
-constexpr uint32_t NR_CPUS = CONFIG_QEMU_CPUS;
+#define NR_CPUS CONFIG_QEMU_CPUS
 
-constexpr uint32_t CPU_OFFLINE = 0u;
-constexpr uint32_t CPU_BOOTING = 1u;
-constexpr uint32_t CPU_ONLINE = 2u;
-constexpr uint32_t CPU_PARKED = 3u;
-constexpr uint32_t CPU_LOCK_MAX = 16u;
+#define CPU_OFFLINE  0u
+#define CPU_BOOTING  1u
+#define CPU_ONLINE   2u
+#define CPU_PARKED   3u
+#define CPU_LOCK_MAX 16u
 
 struct task_struct;
 struct spinlock;
@@ -30,11 +30,12 @@ struct cpu {
 	uint32_t flags;
 	struct task_struct *idle_task;
 	struct task_struct *current_task;
-	volatile int preempt_count;
-	volatile uint32_t irq_nesting;
+	int preempt_count;
+	uint32_t irq_nesting;
 	uint32_t lock_depth;
-	irq_flags_t lock_irq_flags;
-	IFDEF(CONFIG_DEBUG_CONTEXT, struct spinlock *locks[CPU_LOCK_MAX];)
+	IFDEF(CONFIG_DEBUG_CONTEXT, struct spinlock *locks[CPU_LOCK_MAX];
+	      irq_flags_t lock_flags[CPU_LOCK_MAX];
+	      bool lock_irqsave[CPU_LOCK_MAX];)
 };
 
 static_assert(offsetof(struct cpu, current_task) == CPU_CURRENT_TASK,
@@ -49,9 +50,9 @@ extern uint32_t nr_cpu_ids;
 void cpu_boot_init(struct task_struct *idle);
 
 __always_inline __must_check __pure __returns_nonnull
-static inline  struct cpu *current_cpu(void)
+static inline struct cpu *current_cpu(void)
 {
-	return &cpu_table[0];
+	return arch_current_cpu(cpu_table);
 }
 __always_inline __must_check __pure
 static inline struct cpu *cpu_by_id(uint32_t id)

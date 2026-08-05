@@ -3,19 +3,31 @@
 
 #include <kernel/sched.h>
 
-constexpr uint8_t SCHED_MLFQ_LEVELS = 4;
+enum sched_enqueue_reason {
+	SCHED_ENQUEUE_NEW,
+	SCHED_ENQUEUE_WAKE,
+	SCHED_ENQUEUE_PREEMPT,
+	SCHED_ENQUEUE_YIELD,
+};
 
-void mlfq_init(void);
-void mlfq_task_init(struct task_struct *task);
-void mlfq_enqueue(struct task_struct *task);
-void mlfq_dequeue(struct task_struct *task);
-void mlfq_wakeup(struct task_struct *task);
-bool mlfq_tick(void);
-void mlfq_boost(void);
-bool mlfq_empty(void);
-uint32_t mlfq_count(void);
-struct task_struct *mlfq_pick_next(void);
-struct task_struct *mlfq_peek_next(void);
-uint8_t mlfq_level_slice(uint8_t level);
+struct runqueue {
+	spinlock_t lock;
+	uint32_t cpu_id;
+	struct task_struct *current;
+	struct task_struct *idle;
+	struct list_head runnable;
+	uint32_t nr_running;
+};
+
+struct sched_ops {
+	void (*init)(void);
+	void (*enqueue)(struct runqueue *rq, struct task_struct *task,
+			enum sched_enqueue_reason reason);
+	void (*dequeue)(struct runqueue *rq, struct task_struct *task);
+	struct task_struct *(*pick_next)(struct runqueue *rq);
+	bool (*tick)(struct runqueue *rq, struct task_struct *task);
+};
+
+extern const struct sched_ops rr_ops;
 
 #endif

@@ -11,6 +11,8 @@
 #include <kernel/mutex.h>
 #include <kernel/types.h>
 
+struct proc_struct;
+
 /**
  * @struct fs_struct
  * @brief cwd/root/umask state shared by tasks using CLONE_FS.
@@ -82,11 +84,12 @@ uint32_t fs_set_umask(struct fs_struct *fs, uint32_t mask);
 void fs_set_root_if_empty(struct fs_struct *fs, struct dentry *root);
 
 __must_check
-int init_fs(struct task_struct *task);
+int init_fs(struct proc_struct *proc);
 
 __must_check
-int copy_fs(struct task_struct *child, bool share);
+int copy_fs(const struct proc_struct *source, struct proc_struct *dest,
+		   bool share);
 
-void exit_fs(struct task_struct *task);
+void exit_fs(struct proc_struct *proc);
 
 #endif

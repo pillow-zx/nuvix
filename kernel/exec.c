@@ -8,9 +8,11 @@
 #include <kernel/exec.h>
 #include <kernel/fdtable.h>
 #include <kernel/fork.h>
+#include <kernel/futex.h>
 #include <kernel/fs.h>
 #include <kernel/mm.h>
 #include <kernel/printk.h>
+#include <kernel/proc.h>
 #include <kernel/random.h>
 #include <kernel/rseq.h>
 #include <kernel/signal.h>
@@ -25,8 +27,6 @@
 #include <kernel/page.h>
 #include <kernel/pgtable.h>
 #include <kernel/trap.h>
-
-#include "task_internal.h"
 
 struct exec_image {
 	struct file *file;
@@ -170,9 +170,9 @@ static int setup_user_stack(struct mm_struct *mm,
 		{AT_PAGESZ, PAGE_SIZE},
 		{AT_ENTRY, ehdr->e_entry},
 		{AT_UID, task_uid(current_task())},
-		{AT_EUID, task_uid(current_task())},
+		{AT_EUID, task_euid(current_task())},
 		{AT_GID, task_gid(current_task())},
-		{AT_EGID, task_gid(current_task())},
+		{AT_EGID, task_egid(current_task())},
 		{AT_SECURE, 0},
 		{AT_RANDOM, 0},
 		{AT_EXECFN, 0},
@@ -624,21 +624,24 @@ static void flush_old_exec(struct mm_struct *oldmm)
 	if (!oldmm)
 		return;
 
-	pgtable_activate_kernel();
+	activate_pgroot(kenrel_pgroot());
 	mm_put(oldmm);
 }
 
 static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 			    vaddr_t entry, vaddr_t sp)
 {
-	struct mm_struct *oldmm = task_mm(current_task());
-	uintptr_t satp_val = mm_user_satp(mm);
+	struct task_struct *task = current_task();
+	struct proc_struct *proc = task->proc;
+	struct mm_struct *oldmm;
+	uintptr_t pgroot = mm_pgroot(mm);
 
-	task_set_mm(current_task(), mm);
-	task_set_satp(current_task(), satp_val);
-	task_set_trap_frame(current_task(), tf);
+	oldmm = proc_replace_mm(proc, mm);
+	task->arch.pgroot = pgroot;
+	task->arch.tf = tf;
 
 	flush_old_exec(oldmm);
+	activate_pgroot(task->arch.pgroot);
 
 	memset(tf, 0, sizeof(*tf));
 	trap_setup_user_return(tf, entry, sp);
@@ -671,15 +674,18 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 		  struct trap_frame *tf)
 {
 	struct exec_image image;
+	struct task_struct *task = current_task();
+	struct proc_struct *proc = task ? task->proc : NULL;
 	struct mm_struct *mm;
-	struct signal_struct *signal;
+	struct files_struct *prepared_files = NULL;
+	struct sighand_struct *prepared_sighand = NULL;
 	vaddr_t entry;
 	vaddr_t sp;
+	const struct wait_deadline deadline = wait_deadline_none();
+	bool exec_started = false;
 	int ret;
 
-	if (!path || !args || !tf)
-		return -EINVAL;
-	if (task_group_has_other_threads(current_task()))
+	if (!path || !args || !tf || !task || !proc)
 		return -EINVAL;
 
 	ret = open_exec_image(path, &image);
@@ -691,25 +697,76 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	if (ret < 0)
 		return ret;
 
-	ret = files_unshare_for_exec(current_task());
+	ret = proc_exec_begin(proc, task);
 	if (ret < 0) {
 		mm_put(mm);
 		return ret;
 	}
+	exec_started = true;
+
+	ret = files_prepare_exec(proc, &prepared_files);
+	if (ret < 0)
+		goto abort_exec;
+	ret = signals_prepare_exec(task, &prepared_sighand);
+	if (ret < 0)
+		goto abort_exec;
+	ret = proc_exec_request_siblings(proc, task);
+	if (ret < 0)
+		goto abort_exec;
+
+	for (;;) {
+		struct task_wait *wait = &task->wait;
+		wait_outcome_t outcome;
+
+		ret = wait_start(wait, 0, &deadline);
+		if (ret < 0)
+			goto abort_exec;
+		ret = proc_exec_wait(proc, wait);
+		if (ret < 0) {
+			wait_finish(wait);
+			goto abort_exec;
+		}
+		if (ret > 0) {
+			wait_finish(wait);
+			break;
+		}
+		ret = wait_block(wait, &outcome);
+		wait_finish(wait);
+		if (ret < 0)
+			goto abort_exec;
+		BUG_ON(outcome != WAIT_OUTCOME_EVENT);
+	}
+
+	/* After this point every operation is a non-failing commit operation. */
+	BUG_ON(proc_exec_adopt_pid(proc, task) < 0);
+	files_close_on_exec(prepared_files);
+	files_commit_exec(proc, prepared_files);
+	prepared_files = NULL;
+	signals_commit_exec(task, prepared_sighand);
+	prepared_sighand = NULL;
 
 	install_exec_mm(mm, tf, entry, sp);
-	task_mark_user_process(current_task());
-	files_close_on_exec(task_files_safe(current_task()));
-	signal_clear_frames(current_task());	signals_execve(current_task());
-	restart_clear(current_task());
-	rseq_execve(current_task());
+	proc_mark_user_process(proc);
+	signal_clear_frames(task);
+	signal_reset_altstack(task);
+	restart_clear(task);
+	rseq_execve(task);
+	/* Thread-local registrations point into the old address space: drop
+	 * them with the old mm instead of writing into released memory on a
+	 * later exit.  No wake is published for exec. */
+	task_set_robust_list(task, NULL, 0);
+	task_set_clear_child_tid(task, NULL);
 
-	signal = task_signal_state(current_task());
-
-	if (signal)
-		posix_timer_table_clear(&signal->posix_timers);
-
-	kernel_clone_complete_vfork(current_task());
+	kernel_clone_complete_vfork(task);
+	proc_exec_end(proc, task);
 
 	return 0;
+
+abort_exec:
+	signals_abort_exec(prepared_sighand);
+	files_abort_exec(prepared_files);
+	if (exec_started)
+		proc_exec_end(proc, task);
+	mm_put(mm);
+	return ret;
 }

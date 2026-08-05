@@ -1,58 +1,38 @@
 /**
  * @file timer.h
- * @brief 时钟 tick、mtime 和睡眠接口。
+ * @brief Architecture clocksource and clockevent interfaces.
  */
 
 #ifndef _CUTEOS_KERNEL_TIMER_H
 #define _CUTEOS_KERNEL_TIMER_H
 
 #include <kernel/types.h>
-#include <kernel/list.h>
 
-/**
- * @def HZ
- * @brief Scheduler/accounting ticks per second.
- */
-constexpr uint64_t HZ = 100ULL;
+/** Scheduler/accounting ticks per second. */
+#define HZ              100ULL
 
-/**
- * @def MTIME_FREQ
- * @brief QEMU virt mtime frequency in ticks per second.
- */
-constexpr uint64_t MTIME_FREQ = 10000000ULL;
+/** QEMU virt mtime frequency in ticks per second. */
+#define MTIME_FREQ      10000000ULL
 
-/**
- * @def CLOCKS_PER_TICK
- * @brief Number of mtime ticks in one scheduler tick.
- */
-constexpr uint64_t CLOCKS_PER_TICK = MTIME_FREQ / HZ;
+/** Number of mtime ticks in one scheduler tick. */
+#define CLOCKS_PER_TICK MTIME_FREQ / HZ
 
-/**
- * @brief Global scheduler tick count.
- */
-extern volatile uint64_t jiffies;
-
-/**
- * @brief Read the architecture mtime counter.
- * @return Current mtime ticks.
- */
+/** Read the architecture monotonic clocksource. */
 uint64_t timer_now(void);
 
-/**
- * @brief Program the next architecture timer interrupt.
- * @param value Absolute mtime tick value.
- */
+/** Program the next architecture clockevent deadline. */
 void timer_set(uint64_t value);
 
-/**
- * @brief Run expired kernel timers.
- * @param now Current mtime tick value.
- */
-void timer_run_expired(uint64_t now);
-
-/**
- * @brief Initialize architecture timer hardware.
- */
+/** Initialize the architecture clockevent. */
 void timer_init(void);
+
+/** Initialize generic per-CPU scheduler-tick clockevent state. */
+void clockevent_init(void);
+
+/** Handle one architecture clockevent at the supplied monotonic time. */
+void clockevent_handle_irq(uint64_t now);
+
+/** Move the current CPU clockevent earlier for a newly armed deadline. */
+void clockevent_deadline_changed(uint64_t expires);
 
 #endif

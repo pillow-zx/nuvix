@@ -4,15 +4,16 @@
 #include <kernel/task.h>
 #include <kernel/types.h>
 
-constexpr uint32_t STACKTRACE_MAX_DEPTH = 16;
+#define STACKTRACE_MAX_DEPTH 16
 
 extern char boot_stack[];
 extern char boot_stack_top[];
 
 static void current_stack_bounds(uintptr_t *low, uintptr_t *high)
 {
-	if (task_kernel_stack_safe(current_task())) {
-		*low = (uintptr_t)task_kernel_stack(current_task());
+	struct task_struct *task = current_task();
+	if (task->arch.kstack) {
+		*low = (uintptr_t)task->arch.kstack;
 		*high = *low + KSTACK_SIZE;
 		return;
 	}

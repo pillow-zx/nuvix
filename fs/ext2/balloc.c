@@ -29,7 +29,7 @@ static int ext2_sync_super(struct super_block *sb)
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t super_block = ext2_super_blocknr(BLOCK_SIZE);
 	uint32_t super_off = ext2_super_offset(BLOCK_SIZE);
-	struct page_cache *page = page_cache_get_block(sb->s_dev, super_block);
+	struct pgcache *page = pgcache_get_block(sb->s_dev, super_block);
 	int ret;
 
 	if (!page)
@@ -37,8 +37,8 @@ static int ext2_sync_super(struct super_block *sb)
 
 	memcpy(page_cache_data(page) + super_off, &sbi->s_es,
 	       sizeof(sbi->s_es));
-	ret = page_cache_sync_page(page);
-	page_cache_put_page(page);
+	ret = pgcache_sync_page(page);
+	pgcache_put_page(page);
 	return ret;
 }
 
@@ -50,7 +50,7 @@ static int ext2_sync_group_desc(struct super_block *sb, uint32_t group)
 			 group / desc_per_block;
 	uint32_t offset =
 		(group % desc_per_block) * sizeof(struct ext2_group_desc);
-	struct page_cache *page = page_cache_get_block(sb->s_dev, block);
+	struct pgcache *page = pgcache_get_block(sb->s_dev, block);
 	int ret;
 
 	if (!page)
@@ -58,8 +58,8 @@ static int ext2_sync_group_desc(struct super_block *sb, uint32_t group)
 
 	memcpy(page_cache_data(page) + offset, &sbi->s_group_desc[group],
 	       sizeof(struct ext2_group_desc));
-	ret = page_cache_sync_page(page);
-	page_cache_put_page(page);
+	ret = pgcache_sync_page(page);
+	pgcache_put_page(page);
 	return ret;
 }
 
@@ -75,16 +75,16 @@ static uint32_t ext2_group_blocks(struct ext2_sb_info *sbi, uint32_t group)
 
 static void ext2_zero_block(struct super_block *sb, uint32_t block)
 {
-	struct page_cache *page = page_cache_get_block(sb->s_dev, block);
+	struct pgcache *page = pgcache_get_block(sb->s_dev, block);
 	int sync_ret;
 
 	if (!page)
 		return;
 
 	memset(page_cache_data(page), 0, BLOCK_SIZE);
-	sync_ret = page_cache_sync_page(page);
+	sync_ret = pgcache_sync_page(page);
 	(void)sync_ret;
-	page_cache_put_page(page);
+	pgcache_put_page(page);
 }
 
 uint32_t ext2_alloc_block(struct inode *inode)
@@ -100,14 +100,14 @@ uint32_t ext2_alloc_block(struct inode *inode)
 	for (uint32_t pass = 0; pass < sbi->s_groups_count; pass++) {
 		uint32_t group = (preferred + pass) % sbi->s_groups_count;
 		struct ext2_group_desc *gd = &sbi->s_group_desc[group];
-		struct page_cache *page;
+		struct pgcache *page;
 		uint32_t group_blocks;
 		uint8_t *data;
 
 		if (!gd->bg_free_blocks_count)
 			continue;
 
-		page = page_cache_get_block(sb->s_dev, gd->bg_block_bitmap);
+		page = pgcache_get_block(sb->s_dev, gd->bg_block_bitmap);
 		if (!page)
 			return 0;
 		data = page_cache_data(page);
@@ -122,9 +122,9 @@ uint32_t ext2_alloc_block(struct inode *inode)
 			int sync_ret;
 
 			bitmap_set_bit(data, bit);
-			sync_ret = page_cache_sync_page(page);
+			sync_ret = pgcache_sync_page(page);
 			(void)sync_ret;
-			page_cache_put_page(page);
+			pgcache_put_page(page);
 
 			gd->bg_free_blocks_count--;
 			sbi->s_es.s_free_blocks_count--;
@@ -134,7 +134,7 @@ uint32_t ext2_alloc_block(struct inode *inode)
 			return block;
 		}
 
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 
 	return 0;
@@ -145,7 +145,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t group;
 	uint32_t bit;
-	struct page_cache *page;
+	struct pgcache *page;
 	uint8_t *data;
 	int sync_ret;
 
@@ -158,7 +158,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	if (group >= sbi->s_groups_count)
 		return;
 
-	page = page_cache_get_block(sb->s_dev,
+	page = pgcache_get_block(sb->s_dev,
 				    sbi->s_group_desc[group].bg_block_bitmap);
 	if (!page)
 		return;
@@ -166,7 +166,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 
 	if (bitmap_test_bit(data, bit)) {
 		bitmap_clear_bit(data, bit);
-		sync_ret = page_cache_sync_page(page);
+		sync_ret = pgcache_sync_page(page);
 		(void)sync_ret;
 		sbi->s_group_desc[group].bg_free_blocks_count++;
 		sbi->s_es.s_free_blocks_count++;
@@ -174,7 +174,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 		ext2_sync_super(sb);
 	}
 
-	page_cache_put_page(page);
+	pgcache_put_page(page);
 }
 
 uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
@@ -183,13 +183,13 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 
 	for (uint32_t group = 0; group < sbi->s_groups_count; group++) {
 		struct ext2_group_desc *gd = &sbi->s_group_desc[group];
-		struct page_cache *page;
+		struct pgcache *page;
 		uint8_t *data;
 
 		if (!gd->bg_free_inodes_count)
 			continue;
 
-		page = page_cache_get_block(sb->s_dev, gd->bg_inode_bitmap);
+		page = pgcache_get_block(sb->s_dev, gd->bg_inode_bitmap);
 		if (!page)
 			return 0;
 		data = page_cache_data(page);
@@ -203,9 +203,9 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 			int sync_ret;
 
 			bitmap_set_bit(data, bit);
-			sync_ret = page_cache_sync_page(page);
+			sync_ret = pgcache_sync_page(page);
 			(void)sync_ret;
-			page_cache_put_page(page);
+			pgcache_put_page(page);
 
 			gd->bg_free_inodes_count--;
 			if ((mode & EXT2_S_IFMT) == EXT2_S_IFDIR)
@@ -216,7 +216,7 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 			return ino;
 		}
 
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 	}
 
 	return 0;
@@ -227,7 +227,7 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t group;
 	uint32_t bit;
-	struct page_cache *page;
+	struct pgcache *page;
 	uint8_t *data;
 	int sync_ret;
 
@@ -239,7 +239,7 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	if (group >= sbi->s_groups_count)
 		return;
 
-	page = page_cache_get_block(sb->s_dev,
+	page = pgcache_get_block(sb->s_dev,
 				    sbi->s_group_desc[group].bg_inode_bitmap);
 	if (!page)
 		return;
@@ -247,7 +247,7 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 
 	if (bitmap_test_bit(data, bit)) {
 		bitmap_clear_bit(data, bit);
-		sync_ret = page_cache_sync_page(page);
+		sync_ret = pgcache_sync_page(page);
 		(void)sync_ret;
 		sbi->s_group_desc[group].bg_free_inodes_count++;
 		sbi->s_es.s_free_inodes_count++;
@@ -255,5 +255,5 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 		ext2_sync_super(sb);
 	}
 
-	page_cache_put_page(page);
+	pgcache_put_page(page);
 }

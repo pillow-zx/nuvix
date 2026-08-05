@@ -20,7 +20,7 @@
 static ssize_t null_read(struct file *file, char *buf, size_t count);
 static ssize_t null_write(struct file *file, const char *buf, size_t count);
 static int null_poll(struct file *file, uint32_t events,
-		     struct wait_session *context);
+		     struct task_wait *wait);
 
 #define VFS_CHRDEV_MAX 8
 
@@ -78,7 +78,7 @@ int vfs_sync_file(struct file *file)
 	if (!file || !file->f_inode)
 		return -EINVAL;
 
-	ret = page_cache_sync_inode(file->f_inode);
+	ret = pgcache_sync_inode(file->f_inode);
 	if (ret < 0)
 		return ret;
 
@@ -92,7 +92,7 @@ int vfs_datasync_file(struct file *file)
 	if (!file || !file->f_inode)
 		return -EINVAL;
 
-	ret = page_cache_sync_inode(file->f_inode);
+	ret = pgcache_sync_inode(file->f_inode);
 	if (ret < 0)
 		return ret;
 
@@ -141,14 +141,14 @@ int vfs_statfs(struct super_block *sb, struct statfs64 *buf)
 }
 
 int vfs_poll(struct file *file, uint32_t events,
-	     struct wait_session *context)
+	     struct task_wait *wait)
 {
 	uint32_t mask = 0;
 
 	if (!file)
 		return POLLNVAL;
 	if (file->f_op && file->f_op->poll)
-		return file->f_op->poll(file, events, context);
+		return file->f_op->poll(file, events, wait);
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;
@@ -391,11 +391,11 @@ static ssize_t null_write(struct file *file, const char *buf, size_t count)
 }
 
 static int null_poll(struct file *file, uint32_t events,
-		     struct wait_session *context)
+		     struct task_wait *wait)
 {
 	uint32_t mask = 0;
 
-	(void)context;
+	(void)wait;
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ))
 		mask |= POLLIN;

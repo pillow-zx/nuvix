@@ -3,11 +3,11 @@
 #include <kernel/blkdev.h>
 #include <kernel/errno.h>
 
-constexpr size_t NR_BLOCK_DEVICES = 32;
+#define NR_BLOCK_DEVICES 32
 
-static struct block_device *dev_table[NR_BLOCK_DEVICES];
+static struct blkdev *dev_table[NR_BLOCK_DEVICES];
 
-static int block_mapping_resolve(struct page_mapping *mapping, uint64_t index,
+static int blk_mapping_resolve(struct page_mapping *mapping, uint64_t index,
 				 bool create, uint64_t *block)
 {
 	(void)create;
@@ -19,11 +19,11 @@ static int block_mapping_resolve(struct page_mapping *mapping, uint64_t index,
 	return 0;
 }
 
-static const struct page_mapping_ops block_mapping_ops = {
-	.resolve = block_mapping_resolve,
+static const struct page_mapping_ops blk_mapping_ops = {
+	.resolve = blk_mapping_resolve,
 };
 
-int register_block_device(struct block_device *bdev)
+int register_blkdev(struct blkdev *bdev)
 {
 	uint32_t major;
 	if (!bdev)
@@ -32,12 +32,12 @@ int register_block_device(struct block_device *bdev)
 	if (major >= NR_BLOCK_DEVICES)
 		return -EINVAL;
 	page_mapping_init(&bdev->bd_pages, bdev, bdev->bd_dev,
-			  &block_mapping_ops);
+			  &blk_mapping_ops);
 	dev_table[major] = bdev;
 	return 0;
 }
 
-struct block_device *lookup_block_device(dev_t dev)
+struct blkdev *lookup_blkdev(dev_t dev)
 {
 	uint32_t major = MAJOR(dev);
 	if (major >= NR_BLOCK_DEVICES)
@@ -45,12 +45,12 @@ struct block_device *lookup_block_device(dev_t dev)
 	return dev_table[major];
 }
 
-struct page_mapping *block_device_pages(dev_t dev)
+struct page_mapping *blkdev_pages(dev_t dev)
 {
-	struct block_device *bdev = lookup_block_device(dev);
+	struct blkdev *bdev = lookup_blkdev(dev);
 	if (!bdev)
 		return NULL;
 	if (!bdev->bd_pages.ops)
-		page_mapping_init(&bdev->bd_pages, bdev, dev, &block_mapping_ops);
+		page_mapping_init(&bdev->bd_pages, bdev, dev, &blk_mapping_ops);
 	return &bdev->bd_pages;
 }

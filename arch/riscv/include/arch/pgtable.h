@@ -11,6 +11,9 @@ typedef pte_t pgprot_t;
 
 void pagetable_use_buddy(void);
 
+/** Activate a page table and invalidate stale local translations. */
+void activate_pgroot(uintptr_t satp);
+
 __must_check
 pte_t *current_pt(void);
 
@@ -18,15 +21,10 @@ __must_check
 pte_t *kernel_pt(void);
 
 __must_check
-uintptr_t kernel_satp(void);
-
-__must_check
-pte_t *pagetable_lookup_current(uintptr_t va);
+uintptr_t kenrel_pgroot(void);
 
 __must_check __nonnull(1)
-pte_t *pagetable_lookup(pte_t *root, uintptr_t va);
-
-void pagetable_write_current(uintptr_t va, uintptr_t pa, pte_t perm);
+pte_t *pgtable_lookup(pte_t *root, uintptr_t va);
 
 __must_check __nonnull(1)
 int map_page(pte_t *root, uintptr_t va, uintptr_t pa, uint64_t perm);
@@ -117,17 +115,15 @@ static inline void pte_clear_present(pte_t *pte)
 }
 
 __must_check __pure
-static inline  uintptr_t
-pgtable_make_user_token(const pte_t *pgd)
+static inline  uintptr_t pgtable_make_token(const pte_t *pgd)
 {
 	return SATP_MODE_SV39 | (__pa((uintptr_t)pgd) >> PAGE_SHIFT);
 }
 
 __always_inline
-static inline void pgtable_activate_kernel(void)
+static inline void pgtable_activate_kpgtable(void)
 {
-	csr_write(satp, kernel_satp());
-	tlb_flush_all();
+	activate_pgroot(kenrel_pgroot());
 }
 
 __always_inline
@@ -141,19 +137,5 @@ static inline void flush_tlb_page(uintptr_t va)
 {
 	tlb_flush_page(va);
 }
-
-#ifdef KERNEL_SELFTEST
-__must_check __nonnull(1)
-static inline pte_t *pagetable_walk(
-	pte_t *root, uintptr_t va, bool alloc)
-{
-	if (alloc)
-		return NULL;
-	return pagetable_lookup(root, va);
-}
-
-void pagetable_test_fail_alloc_after(uint32_t successful_allocs);
-void pagetable_test_clear_alloc_failure(void);
-#endif
 
 #endif

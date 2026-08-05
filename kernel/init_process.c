@@ -10,12 +10,16 @@
 void init_process(void *arg)
 {
 	(void)arg;
-	pr_info("init running (PID %d)\n", task_pid(current_task()));
+	if (task_create_initial_proc(current_task()) < 0)
+		panic("init: failed to create process object");
+	pr_info("init running (PID %d)\n", current_task()->proc->pid->nr);
 
 	exec_user_path("/sbin/init");
 }
 
 bool init_process_is_task(const struct task_struct *task)
 {
-	return task && init_task && task_tgid(task) == task_tgid(init_task);
+	return task && init_task && task->proc && init_task->proc &&
+		task->proc->pid && init_task->proc->pid &&
+		task->proc->pid->nr == init_task->proc->pid->nr;
 }

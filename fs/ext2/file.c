@@ -57,7 +57,7 @@ ssize_t ext2_read_file(struct inode *inode, char *buf, size_t count, loff_t pos)
 		count = readable_size - (uint64_t)pos;
 
 	while (done < count) {
-		struct page_cache *page;
+		struct pgcache *page;
 		uint64_t file_pos = (uint64_t)pos + done;
 		uint32_t lblock = (uint32_t)(file_pos / BLOCK_SIZE);
 		uint32_t offset = (uint32_t)(file_pos % BLOCK_SIZE);
@@ -67,7 +67,7 @@ ssize_t ext2_read_file(struct inode *inode, char *buf, size_t count, loff_t pos)
 			chunk = count - done;
 
 		int error;
-		page = page_cache_get_mapping(&inode->i_pages, lblock,
+		page = pgcache_get_mapping(&inode->i_pages, lblock,
 					      PAGE_CACHE_READ, &error);
 		if (!page && error == -ENODATA) {
 			memset(buf + done, 0, chunk);
@@ -78,7 +78,7 @@ ssize_t ext2_read_file(struct inode *inode, char *buf, size_t count, loff_t pos)
 			return done ? (ssize_t)done : -EIO;
 
 		memcpy(buf + done, page_cache_data(page) + offset, chunk);
-		page_cache_put_page(page);
+		pgcache_put_page(page);
 		done += chunk;
 	}
 
@@ -104,7 +104,7 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		count = (size_t)writable;
 
 	while (done < count) {
-		struct page_cache *page;
+		struct pgcache *page;
 		uint64_t file_pos = (uint64_t)pos + done;
 		uint32_t lblock = (uint32_t)(file_pos / BLOCK_SIZE);
 		uint32_t offset = (uint32_t)(file_pos % BLOCK_SIZE);
@@ -113,7 +113,7 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		if (chunk > count - done)
 			chunk = count - done;
 
-		page = page_cache_get_mapping(
+		page = pgcache_get_mapping(
 			&inode->i_pages, lblock,
 			(offset == 0 && chunk == BLOCK_SIZE)
 				? PAGE_CACHE_CREATE
@@ -124,8 +124,8 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		}
 
 		memcpy(page_cache_data(page) + offset, buf + done, chunk);
-		page_cache_mark_dirty(page);
-		page_cache_put_page(page);
+		pgcache_mark_dirty(page);
+		pgcache_put_page(page);
 		done += chunk;
 	}
 

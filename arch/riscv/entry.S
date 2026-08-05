@@ -4,6 +4,8 @@
 
 #include <asm/asm_offsets.h>
 
+#define SSTATUS_SIE  (1UL << 1)
+
 	.section .text.entry
 	.globl __alltraps
 	.globl __trapret
@@ -19,6 +21,8 @@ __alltraps:
 	csrw    sscratch, zero
 	addi    sp, sp, -TRAP_FRAME_ALLOC_SIZE
 
+	/* Preserve the interrupted t1 before using it as entry scratch. */
+	sd      t1, TF_T1(sp)
 	addi    t1, sp, TRAP_FRAME_ALLOC_SIZE
 	sd      t1, TF_SP(sp)
 
@@ -26,7 +30,6 @@ __alltraps:
 	sd      gp,  TF_GP(sp)
 	sd      tp,  TF_TP(sp)
 	sd      t0,  TF_T0(sp)
-	sd      t1,  TF_T1(sp)
 	sd      t2,  TF_T2(sp)
 	sd      s0,  TF_S0(sp)
 	sd      s1,  TF_S1(sp)
@@ -123,6 +126,8 @@ __alltraps:
 
 	.align 4
 __trapret:
+	/* Keep sepc stable from the first write through the final sret. */
+	csrci   sstatus, SSTATUS_SIE
 	ld      t0, TF_SEPC(sp)
 	csrw    sepc, t0
 	ld      t0, TF_SCAUSE(sp)
@@ -135,7 +140,6 @@ __trapret:
 	ld      ra,  TF_RA(sp)
 	ld      gp,  TF_GP(sp)
 	ld      tp,  TF_TP(sp)
-	ld      t1,  TF_T1(sp)
 	ld      t2,  TF_T2(sp)
 	ld      s0,  TF_S0(sp)
 	ld      s1,  TF_S1(sp)
@@ -178,26 +182,18 @@ __trapret:
 	la      t0, cpu_table
 	ld      t0, CPU_CURRENT_TASK(t0)
 	ld      t0, TASK_KSTACK(t0)
-	addi    t0, t0, 2047
-	addi    t0, t0, 2047
-	addi    t0, t0, 2047
-	addi    t0, t0, 2047
-	addi    t0, t0, 4
+	li      t1, TASK_KSTACK_SIZE
+	add     t0, t0, t1
 	csrw    sscratch, t0
 
-	la      t0, cpu_table
-	ld      t0, CPU_CURRENT_TASK(t0)
-	ld      t0, TASK_SATP(t0)
-	beqz    t0, .Lret_user_noswitch
-	csrw    satp, t0
-	sfence.vma zero, zero
-.Lret_user_noswitch:
+	ld      t1, TF_T1(sp)
 	ld      t0, TF_T0(sp)
 	ld      sp, TF_SP(sp)
 	sret
 
 .Lret_supervisor:
 	csrw    sscratch, zero
+	ld      t1, TF_T1(sp)
 	ld      t0, TF_T0(sp)
 	addi    sp, sp, TRAP_FRAME_ALLOC_SIZE
 	sret

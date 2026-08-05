@@ -1,8 +1,0 @@
-#ifndef _CUTEOS_KERNEL_TEST_WAIT_H
-#define _CUTEOS_KERNEL_TEST_WAIT_H
-
-#ifdef KERNEL_SELFTEST
-
-#endif
-
-#endif

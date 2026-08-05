@@ -74,7 +74,8 @@ MCONF          := $(KCONFIG_DIR)/build/mconf
 KCONFIG_SRCS   := $(KCONFIG) arch/riscv/Kconfig fs/Kconfig kernel/Kconfig
 KCONFIG_SILENT := -s
 
-KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format defconfig
+KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format defconfig \
+	test-cputime
 ifneq ($(strip $(MAKECMDGOALS)),)
 ifneq ($(filter-out $(KCONFIG_SKIP_GOALS),$(MAKECMDGOALS)),)
 KCONFIG_NEED_CONFIG := 1

@@ -34,7 +34,8 @@ static uint32_t apply_umask(uint32_t mode)
 	if (!current_task())
 		return mode;
 
-	return mode & ~fs_get_umask(task_fs(current_task()));
+	return mode & ~fs_get_umask(current_task()->proc ?
+						 current_task()->proc->fs : NULL);
 }
 
 static uint8_t vfs_type_to_dirent(uint8_t type)
@@ -342,7 +343,8 @@ ssize_t sys_getcwd(struct trap_frame *tf)
 	if (!path)
 		return -ENOMEM;
 
-	ret = fs_get_cwd_path(task_fs(current_task()), &cwd);
+	ret = fs_get_cwd_path(current_task()->proc ? current_task()->proc->fs : NULL,
+					&cwd);
 	if (ret < 0)
 		return ret;
 	ret = vfs_getcwd_path(&cwd, path, VFS_PATH_MAX);

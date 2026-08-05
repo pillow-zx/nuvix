@@ -10,10 +10,12 @@
 #include <kernel/slab.h>
 #include <kernel/signal.h>
 #include <kernel/spinlock.h>
+#include <kernel/task.h>
 #include <kernel/wait.h>
 #include <kernel/page.h>
+#include <kernel/printk.h>
 
-constexpr uint32_t PIPE_SIZE = PAGE_SIZE;
+#define PIPE_SIZE PAGE_SIZE
 
 struct pipe_buffer {
 	spinlock_t lock;
@@ -36,7 +38,7 @@ struct pipe_write_wait {
 static ssize_t pipe_read(struct file *file, char *buf, size_t count);
 static ssize_t pipe_write(struct file *file, const char *buf, size_t count);
 static int pipe_poll(struct file *file, uint32_t events,
-		     struct wait_session *context);
+		     struct task_wait *wait);
 static int pipe_release(struct file *file);
 
 static const struct file_operations pipe_read_fops = {
@@ -57,33 +59,9 @@ bool pipe_file(struct file *file)
 			file->f_op == &pipe_write_fops);
 }
 
-#ifdef KERNEL_SELFTEST
-static int pipe_test_file_alloc_fail_at;
-static int pipe_test_file_alloc_calls;
-static uint32_t pipe_test_live_buffer_count;
-
-void pipe_test_set_file_alloc_fail_at(int fail_at)
-{
-	pipe_test_file_alloc_fail_at = fail_at;
-	pipe_test_file_alloc_calls = 0;
-}
-
-uint32_t pipe_test_live_buffers(void)
-{
-	return pipe_test_live_buffer_count;
-}
-#endif
-
 static struct file *pipe_file_alloc(const struct file_operations *f_op,
 				    uint32_t mode, void *private_data)
 {
-#ifdef KERNEL_SELFTEST
-	pipe_test_file_alloc_calls++;
-	if (pipe_test_file_alloc_fail_at > 0 &&
-	    pipe_test_file_alloc_calls == pipe_test_file_alloc_fail_at)
-		return NULL;
-#endif
-
 	return file_alloc(f_op, mode, private_data);
 }
 
@@ -106,74 +84,46 @@ static size_t pipe_linear_head_space(struct pipe_buffer *pipe)
 	return until_end;
 }
 
-static int pipe_read_probe(struct wait_session *context, void *arg)
+static int pipe_wait(struct pipe_buffer *pipe, bool writing,
+			 size_t min_space)
 {
-	struct pipe_buffer *pipe = arg;
-	irq_flags_t flags;
-	int ret;
+	const struct wait_deadline deadline = wait_deadline_none();
+	struct task_wait *wait = &current_task()->wait;
 
-	spin_lock_irqsave(&pipe->lock, &flags);
-	if (pipe->used > 0 || pipe->writers == 0) {
+	for (;;) {
+		wait_outcome_t outcome;
+		irq_flags_t flags;
+		int ret;
+		bool ready;
+
+		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+		if (ret < 0)
+			return ret;
+		spin_lock_irqsave(&pipe->lock, &flags);
+		ready = writing ? PIPE_SIZE - pipe->used >= min_space ||
+					pipe->readers == 0
+				: pipe->used > 0 || pipe->writers == 0;
+		if (!ready)
+			ret = wait_prepare(wait,
+					writing ? &pipe->writers_wq : &pipe->readers_wq,
+					true);
 		spin_unlock_irqrestore(&pipe->lock, flags);
-		return 1;
+		if (ret < 0) {
+			wait_finish(wait);
+			return ret;
+		}
+		if (ready) {
+			wait_finish(wait);
+			return 0;
+		}
+		ret = wait_block(wait, &outcome);
+		wait_finish(wait);
+		if (ret < 0)
+			return ret;
+		if (outcome == WAIT_OUTCOME_SIGNAL)
+			return -EINTR;
+		BUG_ON(outcome == WAIT_OUTCOME_TIMEOUT);
 	}
-
-	ret = wait_session_watch(context, &pipe->readers_wq);
-	if (ret < 0) {
-		spin_unlock_irqrestore(&pipe->lock, flags);
-		return ret;
-	}
-
-	ret = pipe->used > 0 || pipe->writers == 0;
-	spin_unlock_irqrestore(&pipe->lock, flags);
-	return ret;
-}
-
-static int pipe_write_probe(struct wait_session *context, void *arg)
-{
-	struct pipe_write_wait *wait = arg;
-	struct pipe_buffer *pipe = wait->pipe;
-	irq_flags_t flags;
-	int ret;
-
-	spin_lock_irqsave(&pipe->lock, &flags);
-	if (PIPE_SIZE - pipe->used >= wait->min_space || pipe->readers == 0) {
-		spin_unlock_irqrestore(&pipe->lock, flags);
-		return 1;
-	}
-
-	ret = wait_session_watch(context, &pipe->writers_wq);
-	if (ret < 0) {
-		spin_unlock_irqrestore(&pipe->lock, flags);
-		return ret;
-	}
-
-	ret = PIPE_SIZE - pipe->used >= wait->min_space || pipe->readers == 0;
-	spin_unlock_irqrestore(&pipe->lock, flags);
-	return ret;
-}
-
-static int pipe_wait(void *arg, wait_check_fn probe)
-{
-	const struct wait_deadline deadline = {
-		.active = false,
-	};
-	struct wait_request source = {
-		.kind = WAIT_KIND_PIPE,
-		.check = probe,
-		.arg = arg,
-		.channel_limit = 1,
-	};
-	wait_outcome_t outcome;
-	int ret;
-
-	ret = wait_for_interruptible(&source, &deadline, &outcome);
-	if (ret < 0)
-		return ret;
-	if (outcome == WAIT_OUTCOME_SIGNAL)
-		return -EINTR;
-	BUG_ON(outcome != WAIT_OUTCOME_EVENT);
-	return 0;
 }
 
 static void pipe_commit_read_locked(struct pipe_buffer *pipe, size_t count)
@@ -193,6 +143,11 @@ static void pipe_commit_write_locked(struct pipe_buffer *pipe, const char *buf,
 
 		if (chunk > linear)
 			chunk = linear;
+		if (!virt_to_page(pipe->data))
+			pr_err("pipe: invalid data pipe=%p data=%p head=%zu used=%zu "
+			       "buf=%p count=%zu pid=%u\n",
+			       pipe, pipe->data, pipe->head, pipe->used, buf, count,
+			       current_task()->tid ? current_task()->tid->nr : 0);
 		memcpy(pipe->data + pipe->head, buf + done, chunk);
 		pipe->head = (pipe->head + chunk) % PIPE_SIZE;
 		pipe->used += chunk;
@@ -208,7 +163,7 @@ static struct pipe_buffer *pipe_buffer_alloc(void)
 		return NULL;
 
 	memset(pipe, 0, sizeof(*pipe));
-	pipe->lock = (spinlock_t)SPINLOCK_INIT;
+	spin_lock_init(&pipe->lock, LOCK_RANK_WAIT_CHANNEL);
 	pipe->data = get_free_page(0, ALLOC_NOWAIT);
 	if (!pipe->data) {
 		kfree(pipe);
@@ -217,10 +172,6 @@ static struct pipe_buffer *pipe_buffer_alloc(void)
 
 	wait_channel_init(&pipe->readers_wq);
 	wait_channel_init(&pipe->writers_wq);
-
-#ifdef KERNEL_SELFTEST
-	pipe_test_live_buffer_count++;
-#endif
 
 	return pipe;
 }
@@ -233,9 +184,6 @@ static void pipe_buffer_free(struct pipe_buffer *pipe)
 	if (pipe->data)
 		free_page(pipe->data, 0);
 	kfree(pipe);
-#ifdef KERNEL_SELFTEST
-	pipe_test_live_buffer_count--;
-#endif
 }
 
 static ssize_t pipe_read(struct file *file, char *buf, size_t count)
@@ -263,7 +211,7 @@ static ssize_t pipe_read(struct file *file, char *buf, size_t count)
 			}
 			spin_unlock_irqrestore(&pipe->lock, flags);
 
-			int ret = pipe_wait(pipe, pipe_read_probe);
+			int ret = pipe_wait(pipe, false, 0);
 			if (ret < 0)
 				return done ? (ssize_t)done : ret;
 			continue;
@@ -320,7 +268,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 			}
 			spin_unlock_irqrestore(&pipe->lock, flags);
 
-			int ret = pipe_wait(&wait, pipe_write_probe);
+			int ret = pipe_wait(pipe, true, wait.min_space);
 			if (ret < 0)
 				return done ? (ssize_t)done : ret;
 			continue;
@@ -345,7 +293,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 }
 
 static int pipe_poll(struct file *file, uint32_t events,
-		     struct wait_session *context)
+			     struct task_wait *wait)
 {
 	struct pipe_buffer *pipe = file->private_data;
 	uint32_t mask = 0;
@@ -356,8 +304,8 @@ static int pipe_poll(struct file *file, uint32_t events,
 		return POLLERR;
 	spin_lock_irqsave(&pipe->lock, &flags);
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
-		if (context) {
-			ret = wait_session_watch(context, &pipe->readers_wq);
+		if (wait) {
+			ret = wait_prepare(wait, &pipe->readers_wq, false);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&pipe->lock, flags);
 				return ret;
@@ -369,8 +317,8 @@ static int pipe_poll(struct file *file, uint32_t events,
 			mask |= POLLHUP;
 	}
 	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE)) {
-		if (context) {
-			ret = wait_session_watch(context, &pipe->writers_wq);
+		if (wait) {
+			ret = wait_prepare(wait, &pipe->writers_wq, false);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&pipe->lock, flags);
 				return ret;
@@ -451,7 +399,7 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 			}
 			spin_unlock_irqrestore(&pipe->lock, flags);
 
-			ret = pipe_wait(pipe, pipe_read_probe);
+			ret = pipe_wait(pipe, false, 0);
 			if (ret < 0)
 				return done ? (ssize_t)done : ret;
 			continue;

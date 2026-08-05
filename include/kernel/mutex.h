@@ -15,16 +15,21 @@ typedef struct {
 	struct wait_channel wait;
 } mutex_t;
 
-#define MUTEX_INIT(name)                                                       \
+#define MUTEX_INIT(name, ...)                                                  \
 	{                                                                      \
-		.lock = SPINLOCK_INIT,                                         \
+		.lock = SPINLOCK_INIT(__VA_ARGS__),                            \
 		.owner = NULL,                                                 \
 		.wait = WAIT_CHANNEL_INIT((name).wait),                        \
 	}
-#define DEFINE_MUTEX(name) mutex_t name = MUTEX_INIT(name)
+#define DEFINE_MUTEX(name, ...)                                                \
+	mutex_t name = MUTEX_INIT(name, __VA_ARGS__);
 
-__nonnull(1) __access_no_size(write_only, 1)
-void mutex_init(mutex_t *mutex);
+#define mutex_init(mutex, ...)                                                 \
+	do {                                                                   \
+		spin_lock_init(&(mutex)->lock, __VA_ARGS__);                   \
+		(mutex)->owner = NULL;                                         \
+		wait_channel_init(&(mutex)->wait);                             \
+	} while (0)
 
 __nonnull(1) __access_no_size(read_write, 1)
 void mutex_lock(mutex_t *mutex);
