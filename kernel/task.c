@@ -382,6 +382,8 @@ struct task_struct *task_alloc(void)
 	INIT_LIST_HEAD(&task->links.thread_group);
 	INIT_LIST_HEAD(&task->links.thread_node);
 	INIT_LIST_HEAD(&task->sched.run_list);
+	spin_lock_init(&task->wait_lock);
+	task->active_wait = NULL;
 	wait_channel_init(&task->links.wait_child_queue);
 
 	memset(kstack, 0, KSTACK_SIZE);
@@ -511,6 +513,8 @@ void task_init(void)
 	INIT_LIST_HEAD(&idle_task.links.thread_group);
 	INIT_LIST_HEAD(&idle_task.links.thread_node);
 	INIT_LIST_HEAD(&idle_task.sched.run_list);
+	spin_lock_init(&idle_task.wait_lock);
+	idle_task.active_wait = NULL;
 	wait_channel_init(&idle_task.links.wait_child_queue);
 	BUG_ON(task_init_resources(&idle_task) < 0);
 	task_publish(&idle_task);

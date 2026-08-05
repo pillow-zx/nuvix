@@ -147,7 +147,7 @@
 #endif
 
 #if __has_c_attribute(gnu::section)
-#define __section(section) [[gnu::section(section)]]
+#define __section(_section) [[gnu::section(_section)]]
 #elif defined(__GNUC__) || defined(__clang__)
 #if __has_attribute(section)
 #define __section(section) __attribute__((__section__(section)))

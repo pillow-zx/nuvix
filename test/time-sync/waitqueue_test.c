@@ -25,6 +25,8 @@ struct wait_cancel_test {
 	volatile bool started;
 	volatile bool resumed;
 	int cancel_count;
+	int wait_ret;
+	wait_outcome_t outcome;
 };
 
 static int wait_cancel_probe(struct wait_session *session, void *arg)
@@ -53,11 +55,11 @@ static void wait_cancel_target(void *arg)
 		.arg = test,
 		.channel_limit = 1,
 	};
-	wait_outcome_t outcome;
 	int ret;
 
-	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, &deadline, &outcome);
-	(void)ret;
+	ret = wait_for(&source, WAIT_FLAG_INTERRUPTIBLE, &deadline,
+			       &test->outcome);
+	test->wait_ret = ret;
 	test->resumed = true;
 	do_exit(1);
 }
@@ -333,12 +335,15 @@ int test_wait_cancel_callback(void)
 
 		wait_cancel_task(target);
 		TEST_ASSERT_EQ(test.cancel_count, 1);
+		TEST_ASSERT_EQ(test.wait_ret, -ECANCELED);
+		TEST_ASSERT_EQ(test.outcome, (wait_outcome_t)0);
 		TEST_ASSERT(list_empty(&test.channel.waiters));
-		TEST_ASSERT(!test.resumed);
+		TEST_ASSERT(test.resumed);
+		TEST_ASSERT(!target->active_wait);
 		wait_cancel_task(target);
 		TEST_ASSERT_EQ(test.cancel_count, 1);
 
-		task_set_state(target, TASK_ZOMBIE);
+		TEST_ASSERT_EQ(task_state(target), (uint32_t)TASK_ZOMBIE);
 		release_task(target);
 		target = NULL;
 	}
@@ -348,7 +353,8 @@ fail:
 	TEST_FAIL("wait cancellation: adapter cleanup", "see above");
 	if (target) {
 		wait_cancel_task(target);
-		task_set_state(target, TASK_ZOMBIE);
+		if (task_state(target) != TASK_ZOMBIE)
+			task_set_state(target, TASK_ZOMBIE);
 		release_task(target);
 	}
 	return __test_ret;

@@ -6,6 +6,7 @@
 #include <kernel/bitops.h>
 #include <kernel/list.h>
 #include <kernel/signal.h>
+#include <kernel/sched.h>
 #include <kernel/slab.h>
 #include <kernel/spinlock.h>
 #include <kernel/task.h>
@@ -13,6 +14,7 @@
 #include <kernel/timer.h>
 #include <kernel/types.h>
 #include <kernel/wait.h>
+#include <kernel/processor.h>
 
 constexpr uint64_t USEC_PER_SEC = 1000000ULL;
 constexpr int64_t NSEC_PER_SEC = 1000000000LL;
@@ -33,6 +35,33 @@ static struct {
 	.lock = SPINLOCK_INIT,
 	.entries = LIST_HEAD_INIT(ktimer_queue.entries),
 };
+
+struct ktimer_cancel_waiter {
+	struct list_head node;
+	struct task_struct *task;
+	bool queued;
+	bool ref;
+};
+
+static void ktimer_wake_waiters(struct list_head *waiters)
+{
+	for (;;) {
+		struct ktimer_cancel_waiter *waiter;
+		struct task_struct *task;
+
+		if (list_empty(waiters))
+			return;
+		waiter = list_first_entry(waiters,
+					  struct ktimer_cancel_waiter, node);
+		BUG_ON(!task_try_get(waiter->task));
+		list_del_init(&waiter->node);
+		waiter->queued = false;
+		task = waiter->task;
+
+		sched_wake_task(task);
+		task_put(task);
+	}
+}
 
 static uint64_t nsec_from_mtime_remainder(uint64_t ticks)
 {
@@ -176,6 +205,8 @@ static void itimer_real_fire(struct ktimer *timer, void *arg)
 	struct itimer_state *state =
 		container_of(timer, struct itimer_state, timer);
 	struct task_struct *target;
+	bool ref;
+	bool state_ref = false;
 	irq_flags_t flags;
 	bool active;
 
@@ -183,15 +214,22 @@ static void itimer_real_fire(struct ktimer *timer, void *arg)
 
 	spin_lock_irqsave(&state->lock, &flags);
 	target = state->target;
+	ref = target && task_try_get(target);
 	active = ktimer_active(timer);
 	if (!active) {
 		state->value = (struct itimerval){0};
 		state->target = NULL;
+		state_ref = state->target_ref;
+		state->target_ref = false;
 	}
 	spin_unlock_irqrestore(&state->lock, flags);
 
-	if (target)
+	if (state_ref)
+		task_put(target);
+	if (ref) {
 		(void)send_signal(SIGALRM, target);
+		task_put(target);
+	}
 }
 
 static void itimer_snapshot_locked(struct itimer_state *state,
@@ -217,6 +255,7 @@ static void posix_timer_fire(struct ktimer *timer, void *arg)
 		container_of(timer, struct posix_timer, timer);
 	struct posix_timer_table *table;
 	struct task_struct *target = NULL;
+	bool ref = false;
 	irq_flags_t flags;
 	int notify = SIGEV_NONE;
 	int signo = 0;
@@ -233,6 +272,7 @@ static void posix_timer_fire(struct ktimer *timer, void *arg)
 	if (posix_timer->allocated) {
 		target = posix_timer->target;
 		notify = posix_timer->notify;
+		ref = target && notify == SIGEV_SIGNAL ? task_try_get(target) : false;
 		signo = posix_timer->signo;
 		info.si_signo = signo;
 		info.si_code = SI_TIMER;
@@ -247,8 +287,10 @@ static void posix_timer_fire(struct ktimer *timer, void *arg)
 	}
 	spin_unlock_irqrestore(&table->lock, flags);
 
-	if (notify == SIGEV_SIGNAL && target)
+	if (notify == SIGEV_SIGNAL && ref) {
 		(void)send_signal_info(signo, &info, target);
+		task_put(target);
+	}
 }
 
 static int posix_timer_event_init(struct posix_timer *timer,
@@ -294,6 +336,25 @@ posix_timer_lookup_locked(struct posix_timer_table *table, timer_t id)
 	return table->timers[id];
 }
 
+static void posix_timer_get(struct posix_timer *timer)
+{
+	BUG_ON(!timer);
+	BUG_ON(!refcount_inc_not_zero(&timer->refs));
+}
+
+static void posix_timer_put(struct posix_timer *timer)
+{
+	if (!timer)
+		return;
+	if (!refcount_dec_and_test(&timer->refs))
+		return;
+
+	BUG_ON(timer->allocated);
+	BUG_ON(timer->signal);
+	BUG_ON(timer->target_ref);
+	kfree(timer);
+}
+
 static void posix_timer_snapshot_locked(struct posix_timer *timer,
 					struct itimerspec *value, uint64_t now)
 {
@@ -308,9 +369,6 @@ static void posix_timer_snapshot_locked(struct posix_timer *timer,
 static void posix_timer_detach_locked(struct posix_timer_table *table,
 				      struct posix_timer *timer)
 {
-	bool cancelled = ktimer_cancel(&timer->timer);
-
-	(void)cancelled;
 	timer->allocated = false;
 	timer->signal = NULL;
 	table->timers[timer->id] = NULL;
@@ -454,11 +512,14 @@ int mtime_deadline_from_ms(long timeout_ms, struct wait_deadline *deadline)
 void ktimer_init(struct ktimer *timer, ktimer_fn_t function, void *arg)
 {
 	INIT_LIST_HEAD(&timer->node);
+	INIT_LIST_HEAD(&timer->cancel_waiters);
 	timer->function = function;
 	timer->arg = arg;
 	timer->expires = 0;
 	timer->interval = 0;
 	timer->active = false;
+	timer->callback_running = false;
+	timer->callback_task = NULL;
 }
 
 int ktimer_arm(struct ktimer *timer, uint64_t expires, uint64_t interval)
@@ -491,6 +552,65 @@ bool ktimer_cancel(struct ktimer *timer)
 	return active;
 }
 
+int ktimer_cancel_sync(struct ktimer *timer)
+{
+	struct ktimer_cancel_waiter waiter;
+	bool irq_enabled;
+
+	if (!in_task_context() || !preemptible() || spinlock_held())
+		return -EINVAL;
+
+	INIT_LIST_HEAD(&waiter.node);
+	waiter.task = current_task();
+	waiter.queued = false;
+	waiter.ref = false;
+	irq_enabled = !irqs_disabled();
+	for (;;) {
+		irq_flags_t flags;
+		bool callback_running;
+		bool callback_self;
+
+		spin_lock_irqsave(&ktimer_queue.lock, &flags);
+		if (timer->active) {
+			list_del_init(&timer->node);
+			timer->active = false;
+		}
+		callback_running = timer->callback_running;
+		callback_self = callback_running &&
+				timer->callback_task == current_task();
+		if (callback_running && !callback_self && !waiter.queued) {
+			BUG_ON(!task_try_get(waiter.task));
+			waiter.ref = true;
+			waiter.queued = true;
+			list_add_tail(&waiter.node, &timer->cancel_waiters);
+		}
+		if (!callback_running && waiter.queued) {
+			list_del_init(&waiter.node);
+			waiter.queued = false;
+		}
+		spin_unlock_irqrestore(&ktimer_queue.lock, flags);
+
+		if (!callback_running) {
+			if (waiter.ref) {
+				task_put(waiter.task);
+				waiter.ref = false;
+			}
+			return 0;
+		}
+		if (callback_self)
+			return -EDEADLK;
+
+		if (!irq_enabled)
+			local_irq_enable();
+		if (sched_has_runnable())
+			schedule();
+		else
+			wait_for_interrupt();
+		if (!irq_enabled)
+			local_irq_disable();
+	}
+}
+
 void ktimer_run_expired(uint64_t now)
 {
 	irq_flags_t flags;
@@ -499,6 +619,7 @@ void ktimer_run_expired(uint64_t now)
 		struct ktimer *timer;
 		ktimer_fn_t function;
 		void *arg;
+		LIST_HEAD(waiters);
 
 		spin_lock_irqsave(&ktimer_queue.lock, &flags);
 		timer = ktimer_detach_first_expired_locked(now);
@@ -516,37 +637,66 @@ void ktimer_run_expired(uint64_t now)
 			timer->active = true;
 			ktimer_insert_locked(timer);
 		}
+		timer->callback_running = true;
+		timer->callback_task = current_task();
 
 		spin_unlock_irqrestore(&ktimer_queue.lock, flags);
 		if (function)
 			function(timer, arg);
+
+		spin_lock_irqsave(&ktimer_queue.lock, &flags);
+		timer->callback_running = false;
+		timer->callback_task = NULL;
+		/* Detached waiters may release the timer after they are woken. */
+		while (!list_empty(&timer->cancel_waiters))
+			list_move_tail(timer->cancel_waiters.next, &waiters);
+		spin_unlock_irqrestore(&ktimer_queue.lock, flags);
+		ktimer_wake_waiters(&waiters);
 	}
 }
 
 void itimer_state_init(struct itimer_state *state)
 {
+	mutex_init(&state->operation_lock);
 	spin_lock_init(&state->lock);
 	state->value = (struct itimerval){0};
 	ktimer_init(&state->timer, itimer_real_fire, NULL);
 	state->target = NULL;
+	state->target_ref = false;
 }
 
 void itimer_state_destroy(struct itimer_state *state)
 {
-	bool cancelled = ktimer_cancel(&state->timer);
+	struct task_struct *target;
+	irq_flags_t flags;
+	bool target_ref;
+	int ret;
 
-	(void)cancelled;
+	mutex_lock(&state->operation_lock);
+	spin_lock_irqsave(&state->lock, &flags);
+	target = state->target;
+	target_ref = state->target_ref;
 	state->value = (struct itimerval){0};
 	state->target = NULL;
+	state->target_ref = false;
+	spin_unlock_irqrestore(&state->lock, flags);
+
+	ret = ktimer_cancel_sync(&state->timer);
+	BUG_ON(ret < 0);
+	if (target_ref)
+		task_put(target);
+	mutex_unlock(&state->operation_lock);
 }
 
 int itimer_get_value(struct itimer_state *state, struct itimerval *value)
 {
 	irq_flags_t flags;
 
+	mutex_lock(&state->operation_lock);
 	spin_lock_irqsave(&state->lock, &flags);
 	itimer_snapshot_locked(state, value, timer_now());
 	spin_unlock_irqrestore(&state->lock, flags);
+	mutex_unlock(&state->operation_lock);
 	return 0;
 }
 
@@ -558,7 +708,10 @@ int itimer_set_real(struct itimer_state *state, struct task_struct *target,
 	uint64_t interval_delta;
 	irq_flags_t flags;
 	uint64_t now;
-	bool cancelled;
+	struct task_struct *old_target;
+	struct task_struct *new_target = NULL;
+	bool old_target_ref;
+	bool new_target_ref = false;
 	int ret;
 
 	ret = timeval_to_mtime_delta(&new_value->it_value, &value_delta);
@@ -567,26 +720,57 @@ int itimer_set_real(struct itimer_state *state, struct task_struct *target,
 	ret = timeval_to_mtime_delta(&new_value->it_interval, &interval_delta);
 	if (ret < 0)
 		return ret;
+	if (!itimerval_value_is_zero(new_value)) {
+		if (!task_try_get(target))
+			return -ESRCH;
+		new_target = target;
+		new_target_ref = true;
+	}
 
+	mutex_lock(&state->operation_lock);
 	spin_lock_irqsave(&state->lock, &flags);
 	now = timer_now();
 	if (old_value)
 		itimer_snapshot_locked(state, old_value, now);
-	cancelled = ktimer_cancel(&state->timer);
+	old_target = state->target;
+	old_target_ref = state->target_ref;
+	state->value = (struct itimerval){0};
+	state->target = NULL;
+	state->target_ref = false;
+	spin_unlock_irqrestore(&state->lock, flags);
 
-	(void)cancelled;
-	if (itimerval_value_is_zero(new_value)) {
-		state->value = (struct itimerval){0};
-		state->target = NULL;
-		spin_unlock_irqrestore(&state->lock, flags);
-		return 0;
-	}
+	ret = ktimer_cancel_sync(&state->timer);
+	BUG_ON(ret < 0);
+	if (old_target_ref)
+		task_put(old_target);
 
+	if (itimerval_value_is_zero(new_value))
+		goto out;
+
+	spin_lock_irqsave(&state->lock, &flags);
 	state->value = *new_value;
-	state->target = target;
+	state->target = new_target;
+	state->target_ref = new_target_ref;
+	now = timer_now();
 	ret = ktimer_arm(&state->timer, mtime_deadline_after(now, value_delta),
 			 interval_delta);
 	spin_unlock_irqrestore(&state->lock, flags);
+	if (ret < 0) {
+		spin_lock_irqsave(&state->lock, &flags);
+		state->value = (struct itimerval){0};
+		state->target = NULL;
+		state->target_ref = false;
+		spin_unlock_irqrestore(&state->lock, flags);
+		if (new_target_ref) {
+			task_put(new_target);
+			new_target_ref = false;
+		}
+	}
+
+out:
+	mutex_unlock(&state->operation_lock);
+	if (itimerval_value_is_zero(new_value) && new_target_ref)
+		task_put(new_target);
 	return ret;
 }
 
@@ -612,6 +796,7 @@ void posix_timer_table_clear(struct posix_timer_table *table)
 		struct posix_timer *timer = table->timers[id];
 
 		if (timer) {
+			posix_timer_get(timer);
 			posix_timer_detach_locked(table, timer);
 			timers[id] = timer;
 		}
@@ -619,21 +804,25 @@ void posix_timer_table_clear(struct posix_timer_table *table)
 	table->allocated = 0;
 	spin_unlock_irqrestore(&table->lock, flags);
 
-	for (timer_t id = 0; id < POSIX_TIMER_COUNT; id++)
-		kfree(timers[id]);
+	for (timer_t id = 0; id < POSIX_TIMER_COUNT; id++) {
+		struct posix_timer *timer = timers[id];
+		int ret;
+
+		if (!timer)
+			continue;
+		ret = ktimer_cancel_sync(&timer->timer);
+		BUG_ON(ret < 0);
+		if (timer->target_ref)
+			task_put(timer->target);
+		timer->target_ref = false;
+		posix_timer_put(timer);
+		posix_timer_put(timer);
+	}
 }
 
 void posix_timer_table_destroy(struct posix_timer_table *table)
 {
 	posix_timer_table_clear(table);
-}
-
-static void posix_timer_free(struct posix_timer *timer)
-{
-	if (!timer)
-		return;
-
-	kfree(timer);
 }
 
 int posix_timer_create(struct signal_struct *signal, clockid_t clock_id,
@@ -655,19 +844,25 @@ int posix_timer_create(struct signal_struct *signal, clockid_t clock_id,
 	ret = posix_timer_event_init(&scratch, event);
 	if (ret < 0)
 		return ret;
+	if (!task_try_get(target))
+		return -ESRCH;
 
 	timer = kmalloc(sizeof(*timer), ALLOC_NOWAIT);
-	if (!timer)
+	if (!timer) {
+		task_put(target);
 		return -ENOMEM;
+	}
 
 	posix_timer_slot_reset(timer, -1);
+	refcount_set(&timer->refs, 1);
 	table = &signal->posix_timers;
 
 	spin_lock_irqsave(&table->lock, &flags);
 	id = ffz(table->allocated);
 	if (!posix_timer_id_valid(id)) {
 		spin_unlock_irqrestore(&table->lock, flags);
-		kfree(timer);
+		task_put(target);
+		posix_timer_put(timer);
 		return -EAGAIN;
 	}
 
@@ -683,6 +878,7 @@ int posix_timer_create(struct signal_struct *signal, clockid_t clock_id,
 	timer->notify = scratch.notify;
 	timer->signo = scratch.signo;
 	timer->allocated = true;
+	timer->target_ref = true;
 	*timerid = id;
 	spin_unlock_irqrestore(&table->lock, flags);
 	return 0;
@@ -720,7 +916,6 @@ int posix_timer_settime(struct signal_struct *signal, timer_t id, int flags,
 	irq_flags_t irq_flags;
 	uint64_t expires;
 	uint64_t now;
-	bool cancelled;
 	int ret;
 
 	if (flags & ~TIMER_ABSTIME)
@@ -743,29 +938,40 @@ int posix_timer_settime(struct signal_struct *signal, timer_t id, int flags,
 		spin_unlock_irqrestore(&table->lock, irq_flags);
 		return -EINVAL;
 	}
+	posix_timer_get(timer);
 
 	now = timer_now();
 	if (old_value)
 		posix_timer_snapshot_locked(timer, old_value, now);
+	spin_unlock_irqrestore(&table->lock, irq_flags);
 
-	cancelled = ktimer_cancel(&timer->timer);
-	(void)cancelled;
+	ret = ktimer_cancel_sync(&timer->timer);
+	BUG_ON(ret < 0);
+
+	spin_lock_irqsave(&table->lock, &irq_flags);
+	if (posix_timer_lookup_locked(table, id) != timer) {
+		spin_unlock_irqrestore(&table->lock, irq_flags);
+		posix_timer_put(timer);
+		return -EINVAL;
+	}
 	if (itimerspec_value_is_zero(new_value)) {
 		timer->value = (struct itimerspec){0};
 		timer->overrun = 0;
 		spin_unlock_irqrestore(&table->lock, irq_flags);
+		posix_timer_put(timer);
 		return 0;
 	}
 
+	now = timer_now();
 	timer->value = *new_value;
 	timer->overrun = 0;
 	if (flags & TIMER_ABSTIME)
 		expires = value_delta;
 	else
 		expires = mtime_deadline_after(now, value_delta);
-
 	ret = ktimer_arm(&timer->timer, expires, interval_delta);
 	spin_unlock_irqrestore(&table->lock, irq_flags);
+	posix_timer_put(timer);
 	return ret;
 }
 
@@ -801,9 +1007,16 @@ int posix_timer_delete(struct signal_struct *signal, timer_t id)
 		return -EINVAL;
 	}
 
+	posix_timer_get(timer);
 	posix_timer_detach_locked(table, timer);
 	spin_unlock_irqrestore(&table->lock, flags);
 
-	posix_timer_free(timer);
+	BUG_ON(ktimer_cancel_sync(&timer->timer) < 0);
+	if (timer->target_ref) {
+		task_put(timer->target);
+		timer->target_ref = false;
+	}
+	posix_timer_put(timer);
+	posix_timer_put(timer);
 	return 0;
 }

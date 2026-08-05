@@ -1,3 +1,4 @@
+#include <kernel/errno.h>
 #include <kernel/test.h>
 #include <kernel/time.h>
 #include <kernel/timer.h>
@@ -10,6 +11,45 @@ static void ktimer_test_callback(struct ktimer *timer, void *arg)
 
 	(void)timer;
 	(*count)++;
+}
+
+static void ktimer_self_cancel_callback(struct ktimer *timer, void *arg)
+{
+	int *ret = arg;
+
+	*ret = ktimer_cancel_sync(timer);
+}
+
+int test_ktimer_cancel_sync(void)
+{
+	struct ktimer timer;
+	int self_cancel_ret = 0;
+
+	TEST_BEGIN("ktimer: synchronous cancel contract");
+	{
+		ktimer_init(&timer, ktimer_test_callback, NULL);
+		TEST_ASSERT_EQ(ktimer_arm(&timer, 100, 0), 0);
+		local_irq_disable();
+		TEST_ASSERT_EQ(ktimer_cancel_sync(&timer), 0);
+		TEST_ASSERT(irqs_disabled());
+		local_irq_enable();
+
+		ktimer_init(&timer, ktimer_self_cancel_callback, &self_cancel_ret);
+		TEST_ASSERT_EQ(ktimer_arm(&timer, 100, 0), 0);
+		ktimer_run_expired(100);
+		TEST_ASSERT_EQ(self_cancel_ret, -EDEADLK);
+		TEST_ASSERT(!ktimer_active(&timer));
+	}
+	TEST_END("ktimer: synchronous cancel contract");
+	return __test_ret;
+fail:
+	if (ktimer_active(&timer)) {
+		bool cancelled = ktimer_cancel(&timer);
+
+		(void)cancelled;
+	}
+	TEST_FAIL("ktimer: synchronous cancel contract", "see above");
+	return __test_ret;
 }
 
 int test_ktimer_arm_cancel_remaining(void)

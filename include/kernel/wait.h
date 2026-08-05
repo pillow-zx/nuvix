@@ -12,19 +12,26 @@
 #include <kernel/spinlock.h>
 #include <kernel/types.h>
 
-constexpr uint32_t WAIT_OUTCOME_EVENT = 1u;
-constexpr uint32_t WAIT_OUTCOME_SIGNAL = 2u;
+constexpr uint32_t WAIT_OUTCOME_EVENT   = 1u;
+constexpr uint32_t WAIT_OUTCOME_SIGNAL  = 2u;
 constexpr uint32_t WAIT_OUTCOME_TIMEOUT = 3u;
 
 constexpr uint32_t WAIT_FLAG_INTERRUPTIBLE = 0x01u;
-constexpr uint32_t WAIT_FLAG_KILLABLE = 0x02u;
-constexpr uint32_t WAIT_FLAG_MASK =
+constexpr uint32_t WAIT_FLAG_KILLABLE      = 0x02u;
+constexpr uint32_t WAIT_FLAG_MASK          =
 	WAIT_FLAG_INTERRUPTIBLE | WAIT_FLAG_KILLABLE;
 
 constexpr uint32_t WAIT_SESSION_MAX_CHANNELS = 64u;
 
 typedef uint32_t wait_outcome_t;
 typedef uint32_t wait_flags_t;
+
+enum wait_session_state {
+	WAIT_ACTIVE,
+	WAIT_CANCEL,
+	WAIT_COMPLETING,
+	WAIT_DONE,
+};
 
 enum wait_kind {
 	WAIT_KIND_GENERIC = 0,
@@ -150,7 +157,9 @@ int wait_session_watch(struct wait_session *session, struct wait_channel *channe
  * `WAIT_FLAG_KILLABLE` reports only a pending `SIGKILL`. Wakeups that do not
  * make any outcome true are retried internally. On every return the current
  * task is running and all channel watches and timeout state are cleaned. A
- * negative return is an operation error and leaves outcome set to zero.
+ * negative return is an operation error and leaves outcome set to zero;
+ * `-ECANCELED` specifically means that an owner requested cancellation while
+ * the session was active.
  * Production callers should use the fixed-policy wrappers below; direct use
  * is reserved for the wait implementation and white-box tests.
  * Calling this function when wait_context_can_sleep() is false is a kernel
@@ -211,6 +220,13 @@ int wait_event_uninterruptible(const struct wait_request *request);
 __must_check __access_no_size(read_only, 1)
 int wait_sleep_until(const struct wait_deadline *deadline);
 
+/**
+ * @brief Request and synchronously complete cancellation of a task's wait.
+ *
+ * The caller must be able to schedule. The function only marks a foreign
+ * session cancelled and wakes its waiter; the waiter owns registration and
+ * callback cleanup. Return means the session reached WAIT_DONE.
+ */
 void wait_cancel_task(struct task_struct *task);
 
 __nonnull(1) __access_no_size(write_only, 1)

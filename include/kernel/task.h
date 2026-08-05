@@ -364,6 +364,7 @@ struct task_cputime {
  * - @c sched: Scheduler queueing and tick state.
  * - @c cputime: CPU time charged to this task.
  * - @c child_cputime: Reaped child CPU time totals.
+ * - @c wait_lock: Serializes publication and removal of active wait sessions.
  * - @c active_wait: Opaque wait session cancelled during exit.
  */
 struct task_struct {
@@ -379,6 +380,7 @@ struct task_struct {
 	struct task_sched_entity sched;
 	struct task_cputime cputime;
 	struct task_cputime child_cputime;
+	spinlock_t wait_lock;
 	struct wait_session *active_wait;
 };
 

@@ -71,6 +71,7 @@ int test_wait_for_validation(void);
 int test_ktimer_arm_cancel_remaining(void);
 int test_ktimer_timer_run_expired_callback(void);
 int test_ktimer_interval_rearms_after_expiry(void);
+int test_ktimer_cancel_sync(void);
 
 int test_atomic_basic(void);
 int test_spinlock_irqsave(void);

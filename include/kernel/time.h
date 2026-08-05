@@ -8,6 +8,8 @@
 
 #include <kernel/compiler.h>
 #include <kernel/list.h>
+#include <kernel/mutex.h>
+#include <kernel/refcount.h>
 #include <kernel/spinlock.h>
 #include <kernel/types.h>
 #include <uapi/signal.h>
@@ -35,6 +37,9 @@ typedef void (*ktimer_fn_t)(struct ktimer *timer, void *arg);
  * - @c expires: Absolute mtime tick when the timer fires.
  * - @c interval: Repeat interval in mtime ticks, or 0.
  * - @c active: True while linked into timer state.
+ * - @c callback_running: Callback is executing outside the timer queue lock.
+ * - @c callback_task: Task context that invoked the callback, when known.
+ * - @c cancel_waiters: Tasks waiting for callback completion.
  */
 struct ktimer {
 	struct list_head node;
@@ -43,6 +48,9 @@ struct ktimer {
 	uint64_t expires;
 	uint64_t interval;
 	bool active;
+	bool callback_running;
+	struct task_struct *callback_task;
+	struct list_head cancel_waiters;
 };
 
 /**
@@ -56,16 +64,21 @@ constexpr uint32_t ITIMER_COUNT = 3;
  * @brief Per-thread-group state for setitimer/getitimer.
  *
  * @par Fields
+ * - @c operation_lock: Serializes operations that may synchronously cancel the
+ *   backing timer.
  * - @c lock: Protects value and timer state.
  * - @c value: Current Linux itimerval.
  * - @c timer: Backing kernel timer.
  * - @c target: Task receiving SIGALRM-style delivery.
+ * - @c target_ref: Target reference held while the target is installed.
  */
 struct itimer_state {
+	mutex_t operation_lock;
 	spinlock_t lock;
 	struct itimerval value;
 	struct ktimer timer;
 	struct task_struct *target;
+	bool target_ref;
 };
 
 /**
@@ -80,6 +93,7 @@ constexpr int32_t POSIX_TIMER_COUNT = 32;
  *
  * @par Fields
  * - @c timer: Backing kernel timer.
+ * - @c refs: Table ownership and in-flight operation references.
  * - @c signal: Owning thread-group signal state.
  * - @c target: Target task for notification delivery.
  * - @c value: Current Linux timer value.
@@ -90,9 +104,11 @@ constexpr int32_t POSIX_TIMER_COUNT = 32;
  * - @c notify: SIGEV_* notification mode.
  * - @c overrun: Overrun count reported by timer_getoverrun.
  * - @c allocated: Slot is owned by userspace.
+ * - @c target_ref: Target reference held while the slot is allocated.
  */
 struct posix_timer {
 	struct ktimer timer;
+	refcount_t refs;
 	struct signal_struct *signal;
 	struct task_struct *target;
 	struct itimerspec value;
@@ -103,6 +119,7 @@ struct posix_timer {
 	int notify;
 	int overrun;
 	bool allocated;
+	bool target_ref;
 };
 
 /**
@@ -255,6 +272,20 @@ int ktimer_arm(struct ktimer *timer, uint64_t expires, uint64_t interval);
  */
 __must_check __nonnull(1) __access_no_size(read_write, 1)
 bool ktimer_cancel(struct ktimer *timer);
+
+/**
+ * @brief Cancel a kernel timer and wait for an in-flight callback to finish.
+ *
+ * This task-context operation may be called with local IRQs enabled or
+ * disabled, but not from hard IRQ context, while holding a spinlock, or with
+ * preemption disabled. It preserves the caller's IRQ state. A callback cannot
+ * synchronously cancel itself.
+ *
+ * @return 0 on success, or a negative errno for an invalid context or
+ *         callback self-cancellation.
+ */
+__must_check __nonnull(1) __access_no_size(read_write, 1)
+int ktimer_cancel_sync(struct ktimer *timer);
 
 void ktimer_run_expired(uint64_t now);
 

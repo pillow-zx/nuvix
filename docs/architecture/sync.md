@@ -3,8 +3,9 @@
 本文是阶段 1 的同步资料，按 `PLAN.md` §8.1 固化共享对象的第一版契约。
 它区分当前单 hart、不可抢占基线与后续目标：A/B 实现 CPU-local context
 查询、preempt 计数保护和 held-spinlock 诊断，C 收敛 scheduler 的上下文
-入口与 deferred reschedule 契约；allocator mode 和 page-cache 锁外清理也在本阶段
-收敛。stable wait session、timer cancel-sync 和完整 page-cache busy 协议仍待后续阶段。
+入口与 deferred reschedule 契约；allocator mode、stable wait session、timer
+cancel-sync 和 page-cache 锁外清理也已在本阶段收敛。完整 page-cache busy 协议
+以及 EXITING/reaper 仍属于后续阶段。
 
 ## CPU-local context
 
@@ -70,14 +71,13 @@ reclaim 和 writeback。锁内只可更新由该锁线性化的状态，或取�
 | page table page | MM/page-table module | PTE mutation 与 generation；未来按 mm/CPU 建立 shootdown 顺序 | 当前 arch helper 运行于单 hart；不能把本地 IRQ-off当成 SMP 排他 | 建表可能分配；不得在未知锁内 reclaim 或做阻塞 I/O | 所有目标 CPU 确认 shootdown 后才能回收 | shootdown completion 唤醒等待者，访问者需重新获取有效映射 | OOM/映射失败必须撤销已发布的中间页表和引用 |
 | inode / dentry / file | VFS module | cache/object lock 与 fdtable、mount、page-cache 的顺序需固定；不绕过 VFS | 当前主要 task context；不能把持锁与 IRQ-off混用成通用 owner | lookup/open/read/write 的分配、阻塞 I/O 在允许的锁外路径执行 | active operation、cache ref、open-file ref 分开；摘 cache 前无 active operation | poll/readiness 在 source state 发布后锁外通知 | 失败保持 ref/offset/namespace 不变，按负 errno 返回并完成 rollback |
 | page cache page | page-cache module | `page_cache_lock` 保护 identity/LRU/dirty 元数据；锁内禁止 allocator/free/I/O | 当前单 hart；未来 busy/writeback 必须定义 preempt/IRQ handoff | read-in、writeback、reclaim 在锁外；ALLOC_NOWAIT 与 ALLOC_SLEEPABLE 语义不能混用 | page ref、busy、mapping active ref、writeback 分开；非 busy 且无 writeback 才 eviction | busy/writeback 完成后锁外唤醒，访问者重新检查 page state | read/writeback/invalidate 失败保留可重试 error，不能重复发布或提前 eviction |
-| timer | timer module | timer queue lock 保护 queued/running/cancelled 状态；callback 不在 queue lock 内执行 | IRQ callback 不得睡眠、分配或获取未知锁；task callback 另行标注 | arm/cancel 的分配与 wait 规则由 timer API 声明；callback I/O 必须移出锁 | `cancel-sync` 返回后不能仍访问 timer/session/task；普通 ref 不替代同步取消 | expiry 只通知条件变化；waiter/task 必须持引用再 wake | arm/cancel/expiry 错误保持队列和 callback 状态一致，可安全重试 |
+| timer | timer module | timer queue lock 保护 queued/running/cancelled 状态；callback 不在 queue lock 内执行 | IRQ callback 不得睡眠、分配或获取未知锁；task callback 另行标注 | `ktimer_cancel_sync()` 只能在可调度 task context 使用，并保留进入时 IRQ 状态；callback I/O 必须移出锁 | callback-running 状态与 wait/session/task 引用分开；cancel-sync 返回后不能仍访问 timer/session/task | expiry 只通知条件变化；waiter/task 必须持引用再 wake | 普通 `ktimer_cancel()` 只撤销 queued timer；同步取消另报非法上下文和 self-cancel |
 | block request | block adapter；设备完成前 request context owner 明确 | request state/queue lock 与 page-cache/writeback 顺序固定；不暴露 virtio descriptor | 当前同步轮询；未来 IRQ completion 需定义 preempt/IRQ handoff | descriptor/buffer 提交后不能复用；阻塞 I/O、分配和错误回滚在锁外 | completed/cancelled 且 device 不再访问 descriptor/buffer 后才能释放 | completion 先发布 request result，再锁外唤醒 page/waiter | timeout、device error、cancel 必须只有一个 completion，保留可观察错误 |
 
 ### 当前缺口
 
-- wait session、timer cancel-sync、exit/reaper 和 kernel stack 释放仍属于 F/G；
-  当前 `wait_for()` 仍使用调用栈 session，但每个已注册 wait entry 已持有
-  task lifecycle reference。
+- stable wait session、wait registration 的 session/task 引用和 timer cancel-sync 已在
+  F 阶段完成；exit 仍没有 G 阶段的 EXITING/reaper 重构和 kernel stack 最终释放协议。
 - allocator 已接受 `ALLOC_NOWAIT` / `ALLOC_SLEEPABLE` mode，所有现有生产调用点
   当前明确使用 `ALLOC_NOWAIT`；需要 reclaim 或等待的例外尚未实现。
 - page-cache miss、association、eviction、truncate 和 invalidate 的分配/free
@@ -93,12 +93,22 @@ reclaim 和 writeback。锁内只可更新由该锁线性化的状态，或取�
 held spinlock。IRQ-off task 可以进入，但真正 WFI 前必须打开 IRQ，返回时恢复
 原状态；不能仅以 `irqs_disabled()` 判断 handoff 合法。source lock 内完成
 check + latch + watch，source lock 释放后才 wake。唤醒不表示条件成立，waiter
-必须重新检查条件。每个成功注册的 wait entry 持有一个 task lifecycle reference；
-它可能先被 wake 摘链，但只在 wait cleanup 时释放。当前 wait core 已提供
-task-exit cancellation callback，futex adapter 使用它在 channel registration
-清理后从 futex bucket 摘除 waiter 并释放 owner reference；这只闭合了 futex
-特定的退出路径。stable session、timer cancel-sync 和通用 task exit
-cancellation 仍属于 F/G。
+必须重新检查条件。
+
+wait core 使用 heap 上的 stable active session。session 状态沿
+`WAIT_ACTIVE -> WAIT_COMPLETING -> WAIT_DONE` 正常完成，或沿
+`WAIT_ACTIVE -> WAIT_CANCEL -> WAIT_COMPLETING -> WAIT_DONE` 取消完成。
+session lock 保护状态、registration ref 和 active-operation 计数；`task->wait_lock`
+保护 `active_wait` 的发布与摘除。每个成功注册的 wait entry 在发布到 channel 前先
+建立 session reference，随后同时持有 task lifecycle reference；deadline timer 持有
+session reference，timer callback 访问 session 内部的 stable timer，而不是调用者栈
+对象。
+
+task-exit cancellation 由 exit 调用 `wait_cancel_task()`：调用者只能请求 foreign
+waiter 取消、唤醒它并等待 `WAIT_DONE`；实际 registration、timer 和 adapter cleanup
+仍由 waiter 的 `wait_for()` 完成。取消返回 `-ECANCELED`，并清零 outcome。futex
+adapter 仍在自身 callback 中从 bucket 摘除 waiter 并释放 owner reference；G 阶段的
+EXITING/reaper 和 kernel stack 最终释放不在本阶段实现。
 
 ### Allocator
 
@@ -147,7 +157,9 @@ wait context 错误由独立 `make kpanic CASE=...` QEMU harness 触发，不并
 
 已验证：普通 kernel build、debug-off kernel build、kernel self-test，以及
 `wait-held-lock`、`wait-preempt-disabled`、`wait-hard-irq` 和 allocator context
-panic cases。allocator query/mode 传播放在 `memory/alloc` ktest 中覆盖；page-cache
-现有 allocation/free/writeback/invalidate 回归仍通过。阶段 1 整体仍未完成；
-secondary hart、内核抢占、stable wait session、task reaper、page-cache busy/in-flight
-和 block 异步 lifetime、完整 lockdep 以及 F/G/I-2 仍按 `TODO.md` 保持未完成。
+panic cases。allocator query/mode 传播放在 `memory/alloc` ktest 中覆盖；wait session
+正常返回、signal、timeout、重复 wake、取消和 adapter cleanup，以及 ktimer queued
+cancel、interval rearm、cancel-sync IRQ 状态和 callback self-cancel 在 ktest 中覆盖。
+page-cache 现有 allocation/free/writeback/invalidate 回归仍通过。secondary hart、
+内核抢占、task reaper、page-cache busy/in-flight、block 异步 lifetime、完整 lockdep
+以及 G 阶段的 EXITING 仍按 `TODO.md` 保持未完成。

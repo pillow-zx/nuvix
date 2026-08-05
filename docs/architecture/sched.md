@@ -57,11 +57,12 @@ struct task_sched_entity {
 其中：
 
 - `run_list` 是 MLFQ 队列节点。
-- 等待注册不在调度实体中：`task_struct` 只暂存 opaque 活动等待指针供 exit
-  撤销（见等待队列一节）。wait core 撤销 active wait 时先清理 channel
-  registration，再调用 request 的 adapter cancellation callback；futex callback
-  在自身 bucket lock 下摘除 waiter 并释放 owner reference。callback 不在
-  channel lock 内执行，也不把 `wait_for()` 的栈上 session 延长为稳定对象。
+- 等待注册不在调度实体中：`task_struct` 只通过 `wait_lock` 暂存 stable
+  `active_wait` 指针供 exit 请求取消（见等待队列一节）。wait core 撤销 active
+  wait 时先清理 channel registration，再调用 request 的 adapter cancellation
+  callback；futex callback 在自身 bucket lock 下摘除 waiter 并释放 owner reference。
+  callback 不在 channel lock 内执行，session 的 heap lifetime 由 owner、registration、
+  timer 和 active-operation references 共同维持。
 - `need_resched` 由 `sched_request()` 设置，用户 trap 返回点或显式调度点消费。
 - `sched_level` 是 MLFQ 层级，0 最高。
 - `time_slice` 是当前层剩余预算。
@@ -237,6 +238,7 @@ struct wait_channel {
 struct wait_request {
     enum wait_kind kind;
     wait_check_fn check;
+    wait_cancel_fn cancel;
     void *arg;
     uint32_t channel_limit;
 };
@@ -260,12 +262,14 @@ lock 下检查/领取并登记，锁顺序为 source lock 后 wait-channel lock�
 5. 无 outcome 时调度或执行 WFI；无 event 的 wake 作为 spurious wake 内部重试。
 6. 所有返回路径恢复 `TASK_RUNNING`，取消 timeout，并清理全部登记。
 
-活动等待上下文仍由 `wait_for()` 的调用栈拥有，但 current task 暂存一个
-opaque 指针，使 task exit 能在释放 sibling 内核栈前调用 `wait_cancel_task()`，
-同步撤销 wait-queue registrations 和栈上 deadline timer。每个成功登记的
-wait entry 持有 task lifecycle reference；wake 只摘除 entry，不转移或释放该
-reference，cleanup 在 channel lock 外统一 `task_put()`。stable session 和
-timer cancel-sync 仍是后续阶段。
+活动等待由 heap 上的 stable session 表示；current task 在 `wait_lock` 下暂存一个
+opaque 指针，使 task exit 能在释放 sibling 内核栈前调用 `wait_cancel_task()`。
+session 通过 `WAIT_ACTIVE`、`WAIT_CANCEL`、`WAIT_COMPLETING` 和
+`WAIT_DONE` 收敛正常返回、取消、signal 与 timeout。每个成功登记的 wait entry
+在链接到 channel 前先建立 session reference，随后再持有 task lifecycle reference；
+wake 只摘除 entry，不转移或释放 entry owner reference，cleanup 在 channel lock 外
+完成。deadline timer 的 callback 访问 stable session；`ktimer_cancel_sync()` 返回后，
+timer、session 和 task 均不再被该 callback 访问。
 
 wait module interface 包括：
 
@@ -333,9 +337,12 @@ mutex 内部有：
 - 调度策略不拥有 task 生命周期资源释放，exit 路径只通过状态和队列与调度器协作；
   idle loop 在安全上下文中执行 sibling thread reaping。
 - 运行中 task 不应同时留在 runqueue。
-- channel watch 属于一次 `wait_for()` invocation，不是 task 长期状态；
-  task 仅暂存用于 exit cancellation 的 opaque 活动上下文。
+- channel watch 属于一次 `wait_for()` invocation，不是 task 长期状态；stable
+  session 只在该 invocation 期间存在，task 仅暂存用于 exit cancellation 的 opaque
+  活动上下文。
 - source、probe context、所有登记 wait channel 及其 owner 必须存活到等待返回。
+- foreign `wait_cancel_task()` 只请求取消、唤醒 waiter 并等待 `WAIT_DONE`；waiter
+  返回 `-ECANCELED` 时清零 outcome，adapter cleanup 仍由 wait core 的 waiter 路径完成。
 - tick 只通过 `sched_request()` 设置重调度标志；不要在任意内核上下文引入异步抢占。
 - `schedule()` 是唯一立即调度入口，允许 IRQ enabled 或 IRQ disabled 的 task
   context，并保持进入时的硬件 IRQ 状态。

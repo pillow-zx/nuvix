@@ -99,6 +99,7 @@ static void finish_task_exit(struct task_struct *task, int status)
 		return;
 
 	detach_task_queues(task);
+	/* Resource teardown follows the waiter's synchronous cancellation. */
 	wait_cancel_task(task);
 	restart_clear(task);
 

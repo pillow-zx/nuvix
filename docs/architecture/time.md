@@ -34,3 +34,43 @@ cuteOS 尚未实现 `clock_settime` 后重排已注册 wall-clock absolute deadl
 timer 重排契约后启用。
 
 `hwclock` 与 `rtcwake` 继续禁用，直到存在 RTC 设备及匹配 ioctl。
+
+## Kernel timer lifetime
+
+`arch/riscv/timer.c` 只负责 `time` CSR、`stimecmp` 和架构到通用 timer 的
+适配；queued timer、callback 状态和 interval 重排由 `kernel/time.c` 拥有。
+ktimer queue 持有 `active` 状态，callback 从 queue 摘下后在 queue lock 外执行，
+并由 `callback_running` 标记 callback completion。周期 timer 在 callback 前先
+重新插入，因此 callback 可以安全地观察或取消自己的下一次 queued delivery。
+
+```c
+void ktimer_init(struct ktimer *timer, ktimer_fn_t function, void *arg);
+int ktimer_arm(struct ktimer *timer, uint64_t expires, uint64_t interval);
+bool ktimer_cancel(struct ktimer *timer);
+int ktimer_cancel_sync(struct ktimer *timer);
+```
+
+`ktimer_cancel()` 是非阻塞的 queued cancel；它不等待已经开始的 callback。
+`ktimer_cancel_sync()` 还等待 callback completion，成功返回后 owner 可以释放
+callback 使用的 session、task 或参数。等待 callback 的 task 会在 timer 的
+completion waiter list 中登记一个 task reference；callback 清除
+`callback_running` 后摘除并唤醒这些 waiter，再由 waiter 释放自己的 reference。
+它要求 non-idle task context、无 hard IRQ、无 held spinlock 且 `preempt_count == 0`；
+允许 IRQ-off task handoff，并恢复调用者进入时的 IRQ 状态。callback self-cancel 返回
+`-EDEADLK`，非法上下文返回 `-EINVAL`。callback 本身不能睡眠、分配或执行同步取消。
+
+wait deadline 使用 heap 上 stable wait session 内嵌的 wait timer。session 在
+`ktimer_cancel_sync()` 完成前保持 timer/session/task 所需引用，因此 wait cleanup
+不会与 timeout callback 并发访问已释放的调用者栈对象。
+
+## Task-targeted timers
+
+`ITIMER_REAL` 和 POSIX timer 在安装目标 task 时持有 task lifecycle reference；
+callback 投递信号时再取得临时 reference，完成后释放。POSIX timer table 的 slot
+ownership 与 set/delete/clear 的 in-flight operation reference 分开；lookup 后释放
+table lock 的操作必须持有 operation reference，slot detach 后禁止新的 lookup，直到
+cancel-sync 完成才允许释放 timer storage。timer delete、exec 清理和 signal state
+销毁先摘除用户可见 slot，再执行 cancel-sync，最后释放目标 reference 和两类 timer
+reference。`ITIMER_REAL` 的 get/set/destroy 通过独立 operation lock 串行化，set
+在取消旧 delivery 后重新采样 mtime，避免同步 callback cleanup 期间经过的时间被
+从新相对期限中遗漏。

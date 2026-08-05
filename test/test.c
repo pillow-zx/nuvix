@@ -167,6 +167,7 @@ static const struct ktest_case ktimer_cases[] = {
 	KTEST_CASE(test_ktimer_arm_cancel_remaining),
 	KTEST_CASE(test_ktimer_timer_run_expired_callback),
 	KTEST_CASE(test_ktimer_interval_rearms_after_expiry),
+	KTEST_CASE(test_ktimer_cancel_sync),
 };
 
 static const struct ktest_case waitqueue_cases[] = {

@@ -19,6 +19,7 @@ flowchart TB
     Rseq["rseq<br/>registered area / signature"]
     Sched["sched<br/>run_list / MLFQ state"]
     Time["cputime<br/>utime / stime"]
+    Wait["wait_lock / active_wait<br/>active wait cancellation"]
 
     Task --> Arch
     Task --> IDs
@@ -30,6 +31,7 @@ flowchart TB
     Task --> Rseq
     Task --> Sched
     Task --> Time
+    Task --> Wait
 ```
 
 ```c
@@ -46,6 +48,7 @@ struct task_struct {
     struct task_cputime cputime;
     struct task_cputime child_cputime;
     struct restart_context restart;
+    spinlock_t wait_lock;
     struct wait_session *active_wait;
 };
 ```
@@ -60,8 +63,9 @@ struct task_struct {
 - `resources`：`mm/files/fs/sighand/signal/uid/gid`。
 - `sigctx`：每线程信号状态、altstack、clear_child_tid、robust futex。
 - `rseq`：restartable sequence 注册状态。
-- `sched`：runqueue 节点、MLFQ 状态；等待注册由 wait module 持有，task 只暂存
-  opaque `active_wait` 指针供 exit 撤销。
+- `sched`：runqueue 节点、MLFQ 状态。
+- `wait_lock/active_wait`：task-owned wait publication；wait module 将稳定
+  session 指针发布到这里，exit 通过它请求取消，不能直接管理 session 内部资源。
 - `cputime`：用户态/内核态 tick。
 
 字段访问规则：
@@ -95,9 +99,11 @@ struct task_struct {
 | `TASK_STOPPED` | 被停止信号暂停 |
 
 `TASK_ANY_SLEEP` 是全部睡眠状态的组合。等待队列和 mutex 通过这些状态与调度器交互。
-task 退出时，exit 路径先取消 active wait；wait core 撤销 channel registration，
-futex adapter 随后从 futex bucket 摘除对应 waiter，因此正常返回和 task-exit
-cancellation 都不会留下旧 task、owner ref 或旧 mm key。
+task 退出时，exit 路径通过 `wait_cancel_task()` 请求 foreign active wait 取消，并在
+session 到达 `WAIT_DONE` 后才继续资源清理。wait core 撤销 channel registration，
+deadline timer 通过 cancel-sync 完成 callback 收敛，futex adapter 随后从 futex bucket
+摘除对应 waiter；取消返回 `-ECANCELED`，因此正常返回和 task-exit cancellation 都
+不会留下旧 task、owner ref 或旧 mm key。
 
 ## CPU-local current
 
@@ -306,17 +312,19 @@ stateDiagram-v2
 2. 如果是 leader，先结束其他线程。
 3. 执行 robust futex exit walk。
 4. 处理 `clear_child_tid` 并 futex wake。
-5. 关闭 fd、释放 fs；若退出进程是 controlling-TTY session leader，先通知 TTY
+5. 在关闭资源前同步请求并完成 active wait cancellation；waiter 自己执行 registration、
+   timer 和 adapter cleanup。
+6. 关闭 fd、释放 fs；若退出进程是 controlling-TTY session leader，先通知 TTY
    module 解除整个 session 并向旧 foreground pgrp 发送 `SIGHUP`/`SIGCONT`。
-6. 释放信号状态和 mm，并切回 kernel page table；若任务是 vfork child，完成 vfork
+7. 释放信号状态和 mm，并切回 kernel page table；若任务是 vfork child，完成 vfork
    wait。
-7. task 模块将 leader 的子进程 reparent 给 `init_task` 或 idle，设置
+8. task 模块将 leader 的子进程 reparent 给 `init_task` 或 idle，设置
    `TASK_ZOMBIE`，并向该 child 的 event FIFO 发布 exit edge。
-8. task 模块为 parent 持有一个覆盖锁外 wait-channel wake 和 `SIGCHLD` 投递的
+9. task 模块为 parent 持有一个覆盖锁外 wait-channel wake 和 `SIGCHLD` 投递的
    lifecycle reference，然后释放 child-relation source lock；两项操作完成后
    统一释放该 reference。reparent 使用稳定的 `init_task` 或 idle 目标，并在
    解锁后唤醒对应 wait channel。
-9. 调用 `schedule()`，由统一入口保留当前 IRQ 状态；该函数不再返回。
+10. 调用 `schedule()`，由统一入口保留当前 IRQ 状态；该函数不再返回。
 
 `do_exit_group(code)` 以线程组为单位终止。
 
@@ -579,10 +587,14 @@ exec 清除 rseq。`CLONE_VM` 清除 child rseq；fork-like clone 继承。
 void ktimer_init(struct ktimer *timer, ktimer_fn_t function, void *arg);
 int ktimer_arm(struct ktimer *timer, uint64_t expires, uint64_t interval);
 bool ktimer_cancel(struct ktimer *timer);
+int ktimer_cancel_sync(struct ktimer *timer);
 void ktimer_run_expired(uint64_t now);
 ```
 
 ktimer queue 按 `expires` 排序。timer interrupt 中调用 `ktimer_run_expired(now)`，周期 timer 会重新插入。
+`ktimer_cancel()` 只撤销 queued timer；`ktimer_cancel_sync()` 还等待已经开始的
+callback 完成，且只能在可调度 task context 调用。它允许 IRQ-off task handoff 并恢复
+进入时的 IRQ 状态，但拒绝 hard IRQ、持锁、禁抢占和 callback self-cancel。
 
 signal_struct 内包含：
 
