@@ -62,16 +62,6 @@ static struct runqueue *sched_rq_for_task(struct task_struct *task)
 	return sched_rq_for_cpu(cpu);
 }
 
-static uint64_t sched_online_mask(void)
-{
-	uint64_t mask = 0;
-
-	for (uint32_t id = 0; id < nr_cpu_ids; id++)
-		if (cpu_is_online(id))
-			mask |= 1ULL << id;
-	return mask;
-}
-
 static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
 				 enum sched_enqueue_reason reason)
 {
@@ -230,7 +220,7 @@ bool sched_wake(struct task_struct *task, uint64_t generation)
 
 int sched_set_affinity(struct task_struct *task, uint64_t mask)
 {
-	uint64_t online = sched_online_mask();
+	uint64_t online = cpu_schedulable_mask();
 	struct runqueue *rq;
 	irq_flags_t flags;
 	int ret = 0;
@@ -252,7 +242,7 @@ int sched_set_affinity(struct task_struct *task, uint64_t mask)
 
 uint64_t sched_get_affinity(const struct task_struct *task)
 {
-	return task ? task->allowed_cpus & sched_online_mask() : 0;
+	return task ? task->allowed_cpus & cpu_schedulable_mask() : 0;
 }
 
 bool sched_wake_external(struct task_struct *task)

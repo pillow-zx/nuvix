@@ -9,6 +9,7 @@
 #include <kernel/compiler.h>
 #include <kernel/tools.h>
 #include <kernel/printk.h>
+#include <kernel/atomic.h>
 #include <arch/cpu.h>
 #include <arch/irq.h>
 
@@ -23,10 +24,20 @@
 struct task_struct;
 struct spinlock;
 
+/*
+ * One enumerated CPU slot: a logical ID plus the platform hart it runs on.
+ * The generic CPU module never infers logical ID == hartid; only the platform
+ * topology input may state that equality.
+ */
+struct cpu_topology_entry {
+	uint32_t logical_id;
+	uint32_t hartid;
+};
+
 struct cpu {
 	uint32_t id;
 	uint32_t hartid;
-	uint32_t state;
+	atomic_t state;
 	uint32_t flags;
 	struct task_struct *idle_task;
 	struct task_struct *current_task;
@@ -47,7 +58,48 @@ static_assert(
 extern struct cpu cpu_table[NR_CPUS];
 extern uint32_t nr_cpu_ids;
 
-void cpu_boot_init(struct task_struct *idle);
+/*
+ * One-shot topology publication. Validates the entry count against NR_CPUS and
+ * the entries themselves (unique logical IDs, unique hart IDs) before filling
+ * cpu_table; nr_cpu_ids becomes immutable once it returns.
+ */
+int cpu_topology_init(const struct cpu_topology_entry *entries, uint32_t count);
+
+/*
+ * Install per-CPU idle/current pointers and CPU-local counters. The topology
+ * must already be initialized; each slot's state is managed through
+ * cpu_state_store_release()/cpu_state_load_acquire() and the online mask.
+ */
+void cpu_boot_init(struct task_struct *idle_tasks);
+
+/*
+ * CPU state publication/observation. State transitions are release stores;
+ * observation is acquire. Callers never read struct cpu.state directly.
+ */
+__always_inline __nonnull(1)
+static inline void cpu_state_store_release(struct cpu *cpu, uint32_t state)
+{
+	atomic_set_release(&cpu->state, (int)state);
+}
+
+__always_inline __must_check __pure __nonnull(1)
+static inline uint32_t cpu_state_load_acquire(const struct cpu *cpu)
+{
+	return (uint32_t)atomic_read_acquire(&cpu->state);
+}
+
+/*
+ * Online versus schedulable: the online mask records CPUs whose local state
+ * exists; the schedulable mask records CPUs available to ordinary tasks.
+ * Publication of both is release; observation is acquire.
+ */
+__must_check __pure
+uint64_t cpu_online_mask(void);
+__must_check __pure
+uint64_t cpu_schedulable_mask(void);
+
+void cpu_set_online(uint32_t id);
+void cpu_set_schedulable(uint32_t id);
 
 __always_inline __must_check __pure __returns_nonnull
 static inline struct cpu *current_cpu(void)
@@ -57,15 +109,19 @@ static inline struct cpu *current_cpu(void)
 __always_inline __must_check __pure
 static inline struct cpu *cpu_by_id(uint32_t id)
 {
-	return id < NR_CPUS ? &cpu_table[id] : NULL;
+	return id < nr_cpu_ids ? &cpu_table[id] : NULL;
 }
 
 __always_inline __must_check __pure
 static inline bool cpu_is_online(uint32_t id)
 {
-	struct cpu *cpu = cpu_by_id(id);
+	return id < nr_cpu_ids && (cpu_online_mask() & (1ULL << id));
+}
 
-	return cpu && cpu->state == CPU_ONLINE;
+__always_inline __must_check __pure
+static inline bool cpu_is_schedulable(uint32_t id)
+{
+	return id < nr_cpu_ids && (cpu_schedulable_mask() & (1ULL << id));
 }
 
 __always_inline __must_check __pure __nonnull(1)
