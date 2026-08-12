@@ -24,10 +24,14 @@ uint64_t timer_now(void);
 void timer_set(uint64_t value);
 
 /** Initialize the architecture clockevent. */
-void timer_init(void);
+/* CPU-local Sstc programming; never resets another hart's timer. */
+void timer_cpu_init(void);
 
 /** Initialize generic per-CPU scheduler-tick clockevent state. */
+/* Global: reset every CPU's clockevent slot exactly once. */
 void clockevent_init(void);
+/* CPU-local: activate only the current CPU's clockevent slot. */
+void clockevent_cpu_init(void);
 
 /** Handle one architecture clockevent at the supplied monotonic time. */
 void clockevent_handle_irq(uint64_t now);

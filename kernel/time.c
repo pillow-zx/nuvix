@@ -35,8 +35,6 @@ static struct clockevent_cpu clockevents[NR_CPUS];
 
 void clockevent_init(void)
 {
-	uint64_t now = timer_now();
-
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
 		struct clockevent_cpu *event = &clockevents[id];
 
@@ -47,12 +45,17 @@ void clockevent_init(void)
 		event->programmed = UINT64_MAX;
 		event->initialized = false;
 	}
-	clockevents[current_cpu()->id].next_tick =
-		mtime_deadline_after(now, CLOCKS_PER_TICK);
-	clockevents[current_cpu()->id].programmed =
-		clockevents[current_cpu()->id].next_tick;
-	clockevents[current_cpu()->id].initialized = true;
-	timer_set(clockevents[current_cpu()->id].programmed);
+}
+
+void clockevent_cpu_init(void)
+{
+	struct clockevent_cpu *event = &clockevents[current_cpu()->id];
+	uint64_t now = timer_now();
+
+	event->next_tick = mtime_deadline_after(now, CLOCKS_PER_TICK);
+	event->programmed = event->next_tick;
+	event->initialized = true;
+	timer_set(event->programmed);
 }
 
 void clockevent_deadline_changed(uint64_t expires)

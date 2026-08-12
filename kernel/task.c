@@ -581,9 +581,6 @@ void cpu_boot_init(struct task_struct *idles)
 #endif
 	}
 	cpu_table[0].current_task = idles;
-	cpu_state_store_release(&cpu_table[0], CPU_ONLINE);
-	cpu_set_online(0);
-	cpu_set_schedulable(0);
 }
 
 void task_init(void)

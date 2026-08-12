@@ -9,7 +9,8 @@
 #include <asm/trap.h>
 #include <asm/trap_frame.h>
 
-void trap_init(void);
+/* Programs hart-local CSRs (stvec, sscratch, sie); CPU-local only. */
+void trap_cpu_init(void);
 void trap_handler(struct trap_frame *tf);
 void __trapret(void);
 

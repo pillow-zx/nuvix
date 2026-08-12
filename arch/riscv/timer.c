@@ -15,7 +15,7 @@ void timer_set(uint64_t value)
 	csr_write(stimecmp, value);
 }
 
-void timer_init(void)
+void timer_cpu_init(void)
 {
 	timer_set(timer_now() + CLOCKS_PER_TICK);
 }

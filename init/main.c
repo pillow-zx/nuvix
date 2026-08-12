@@ -69,18 +69,29 @@ void kernel_main(uint64_t boot_hartid)
 	 * replaces this singleton with platform enumeration. */
 	BUG_ON(cpu_topology_init(&boot_topology, 1) < 0);
 
-	trap_init();
-	pr_info("trap: init successfully\n");
-
+	/* Global initialization: every static queue and slot is reset once. */
 	task_init();
 	pr_info("task: init successfully\n");
 
-	timer_init();
+	sched_init();
+	pr_info("sched: init successfully\n");
+
 	clockevent_init();
 	pr_info("timer: init successfully\n");
 
-	sched_init();
-	pr_info("sched: init successfully\n");
+	/* CPU 0-local initialization: touches only this hart's CSRs and slot.
+	 * The Sstc timer is programmed only after task_init, so a timer IRQ
+	 * can never fire with no current task installed. */
+	trap_cpu_init();
+	pr_info("trap: init successfully\n");
+
+	timer_cpu_init();
+	clockevent_cpu_init();
+
+	/* Publish CPU 0 only after its idle/current and local state exist. */
+	cpu_state_store_release(&cpu_table[0], CPU_ONLINE);
+	cpu_set_online(0);
+	cpu_set_schedulable(0);
 
 	syscall_init();
 	pr_info("syscall: init successfully\n");
