@@ -230,6 +230,7 @@ static enum ut_runner_status ut_run_one(const struct ut_case *test_case,
 	struct ut_case_result result;
 	char *fixture;
 	int result_pipe[2];
+	int sync_pipe[2];
 	pid_t child;
 	int wait_status = 0;
 	bool timed_out = false;
@@ -248,10 +249,20 @@ static enum ut_runner_status ut_run_one(const struct ut_case *test_case,
 		free(fixture);
 		return UT_RUNNER_FAIL;
 	}
+	if (pipe2(sync_pipe, O_CLOEXEC) < 0) {
+		(void)snprintf(reason, UT_REASON_SIZE, "sync pipe: errno=%d", errno);
+		(void)close(result_pipe[0]);
+		(void)close(result_pipe[1]);
+		(void)ut_cleanup_fixture(fixture);
+		free(fixture);
+		return UT_RUNNER_FAIL;
+	}
 	if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
 		(void)snprintf(reason, UT_REASON_SIZE, "clock_gettime: errno=%d", errno);
 		(void)close(result_pipe[0]);
 		(void)close(result_pipe[1]);
+		(void)close(sync_pipe[0]);
+		(void)close(sync_pipe[1]);
 		(void)ut_cleanup_fixture(fixture);
 		free(fixture);
 		return UT_RUNNER_FAIL;
@@ -261,13 +272,30 @@ static enum ut_runner_status ut_run_one(const struct ut_case *test_case,
 		(void)snprintf(reason, UT_REASON_SIZE, "fork: errno=%d", errno);
 		(void)close(result_pipe[0]);
 		(void)close(result_pipe[1]);
+		(void)close(sync_pipe[0]);
+		(void)close(sync_pipe[1]);
 		(void)ut_cleanup_fixture(fixture);
 		free(fixture);
 		return UT_RUNNER_FAIL;
 	}
 	if (child == 0) {
 		(void)close(result_pipe[0]);
-		if (setpgid(0, 0) < 0 || chdir(fixture) < 0)
+		(void)close(sync_pipe[1]);
+		if (setpgid(0, 0) < 0)
+			_exit(126);
+		/* Hold the child until the runner has checked its process group:
+		 * the isolation check must never race a fast-exiting case. */
+		{
+			char sync_byte;
+			ssize_t sync_count;
+
+			do {
+				sync_count = read(sync_pipe[0], &sync_byte, 1);
+			} while (sync_count < 0 && errno == EINTR);
+			(void)sync_count;
+		}
+		(void)close(sync_pipe[0]);
+		if (chdir(fixture) < 0)
 			_exit(126);
 		ut_run_case(test_case, fixture, &result);
 		if (ut_write_result(result_pipe[1], &result) < 0)
@@ -277,7 +305,11 @@ static enum ut_runner_status ut_run_one(const struct ut_case *test_case,
 	}
 
 	(void)close(result_pipe[1]);
+	(void)close(sync_pipe[0]);
 	isolated_group = ut_isolated_case_group(child);
+	/* Release the child either way: on the failure path it is still
+	 * blocked in the sync read and SIGKILL will take it. */
+	(void)close(sync_pipe[1]);
 	if (!isolated_group) {
 		ut_kill_case_group(child, false);
 		while (waitpid(child, &wait_status, 0) < 0 && errno == EINTR)
