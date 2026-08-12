@@ -142,6 +142,7 @@ struct task_struct {
 	enum task_exit_request exit_request;
 	enum task_run_state run_state;
 	uint32_t flags;
+#define TASK_FLAG_IDLE (1u << 0)
 	struct cpu *cpu;
 	bool on_rq;
 	bool on_cpu;
@@ -162,8 +163,16 @@ struct task_struct {
 	bool published;
 };
 
-extern struct task_struct idle_task;
 extern struct task_struct *init_task;
+
+/* Idle tasks are static per-CPU storage: they carry no PID, credentials,
+ * reference count, or reaper lifecycle. task_is_idle() is the only generic
+ * identity test; it is null-safe. */
+__always_inline __must_check __pure
+static inline bool task_is_idle(const struct task_struct *task)
+{
+	return task && (task->flags & TASK_FLAG_IDLE);
+}
 
 #include <arch/task_access.h>
 

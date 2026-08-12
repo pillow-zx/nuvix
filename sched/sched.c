@@ -170,7 +170,7 @@ int sched_block_current(struct task_wait *wait)
 	irq_flags_t rq_flags;
 	bool block = false;
 
-	if (!wait || !task || wait != &task->wait || task == &idle_task)
+	if (!wait || !task || wait != &task->wait || task_is_idle(task))
 		return -EINVAL;
 	rq = sched_rq_for_cpu(current_cpu());
 	spin_lock_irqsave(&wait->lock, &wait_flags);
@@ -194,7 +194,7 @@ bool sched_wake(struct task_struct *task, uint64_t generation)
 	irq_flags_t rq_flags;
 	bool woke = false;
 
-	if (!task || task == &idle_task)
+	if (!task || task_is_idle(task))
 		return false;
 	rq = sched_rq_for_task(task);
 	/* The affinity check guards the enqueue target, not the waker's CPU:
@@ -251,7 +251,7 @@ bool sched_wake_external(struct task_struct *task)
 	irq_flags_t flags;
 	bool woke = false;
 
-	if (!task || task == &idle_task || task->lifecycle != TASK_LIVE)
+	if (!task || task_is_idle(task) || task->lifecycle != TASK_LIVE)
 		return false;
 	rq = sched_rq_for_task(task);
 	spin_lock_irqsave(&rq->lock, &flags);
@@ -293,7 +293,7 @@ bool sched_stop(struct task_struct *task)
 	irq_flags_t flags;
 	bool stopped = false;
 
-	if (!task || task == &idle_task || task->lifecycle != TASK_LIVE)
+	if (!task || task_is_idle(task) || task->lifecycle != TASK_LIVE)
 		return false;
 	rq = sched_rq_for_task(task);
 	spin_lock_irqsave(&rq->lock, &flags);
@@ -313,7 +313,7 @@ bool sched_resume(struct task_struct *task)
 	irq_flags_t flags;
 	bool resumed = false;
 
-	if (!task || task == &idle_task || task->lifecycle != TASK_LIVE)
+	if (!task || task_is_idle(task) || task->lifecycle != TASK_LIVE)
 		return false;
 	rq = sched_rq_for_task(task);
 	spin_lock_irqsave(&rq->lock, &flags);
@@ -412,7 +412,7 @@ void sched_exit_current(void)
 	irq_flags_t flags;
 	irq_flags_t retired_flags;
 
-	BUG_ON(!current_task() || current_task() == &idle_task);
+	BUG_ON(!current_task() || task_is_idle(current_task()));
 	BUG_ON(current_task()->lifecycle != TASK_DEAD);
 
 	local_irq_disable();
@@ -441,7 +441,7 @@ void sched_request(void)
 {
 	struct task_struct *task = current_task();
 
-	if (task && task != &idle_task)
+	if (task && !task_is_idle(task))
 		task_set_need_resched(task, 1);
 }
 
@@ -452,7 +452,7 @@ void sched_tick(void)
 	irq_flags_t flags;
 	bool expire;
 
-	if (!task || task == &idle_task)
+	if (!task || task_is_idle(task))
 		return;
 	if (task_trap_frome_user(task))
 		task->cputime.utime_ticks++;
@@ -469,7 +469,7 @@ void sched_yield(void)
 {
 	struct task_struct *task = current_task();
 
-	if (!task || task == &idle_task)
+	if (!task || task_is_idle(task))
 		return;
 	sched_request();
 	sched_switch_current();

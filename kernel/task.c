@@ -16,7 +16,8 @@
 #include <kernel/task.h>
 #include <kernel/vfs.h>
 
-struct task_struct idle_task;
+struct task_struct idle_tasks[NR_CPUS];
+uint8_t idle_stacks[NR_CPUS][KSTACK_SIZE] __aligned(PAGE_SIZE);
 struct cpu cpu_table[NR_CPUS];
 uint32_t nr_cpu_ids;
 struct task_struct *init_task;
@@ -329,7 +330,7 @@ bool task_begin_exit(struct task_struct *task)
 	bool begun = false;
 	irq_flags_t flags;
 
-	if (!task || task == &idle_task)
+	if (!task || task_is_idle(task))
 		return false;
 	spin_lock_irqsave(&task->wait.lock, &flags);
 	if (task->lifecycle == TASK_LIVE) {
@@ -352,7 +353,7 @@ bool task_request_exec_exit(struct task_struct *task)
 	bool requested = false;
 	irq_flags_t flags;
 
-	if (!task || task == &idle_task || task == current_task())
+	if (!task || task_is_idle(task) || task == current_task())
 		return false;
 
 	spin_lock_irqsave(&task->wait.lock, &flags);
@@ -374,7 +375,7 @@ bool task_request_group_exit(struct task_struct *task)
 	irq_flags_t flags;
 	bool live;
 
-	if (!task || task == &idle_task || task == current_task())
+	if (!task || task_is_idle(task) || task == current_task())
 		return false;
 	spin_lock_irqsave(&task->wait.lock, &flags);
 	live = task->lifecycle == TASK_LIVE;
@@ -412,7 +413,7 @@ void task_mark_dead(struct task_struct *task)
 
 bool task_reap_ready(const struct task_struct *task)
 {
-	return task && task != &idle_task && task != current_task() &&
+	return task && !task_is_idle(task) && task != current_task() &&
 	       task->lifecycle == TASK_DEAD && !task->on_rq &&
 	       !task_active_on_cpu(task) && task->wait.status == WAIT_IDLE &&
 	       list_empty(&task->wait.registrations) &&
@@ -424,7 +425,7 @@ static void task_destroy(struct task_struct *task)
 {
 	void *kstack;
 
-	BUG_ON(!task || task == &idle_task);
+	BUG_ON(!task || task_is_idle(task));
 	BUG_ON(task == current_task());
 	BUG_ON(task->published);
 	BUG_ON(task->lifecycle != TASK_DEAD);
@@ -488,7 +489,7 @@ void task_unpublish(struct task_struct *task)
 
 void task_reap_unpublish(struct task_struct *task)
 {
-	if (!task || task == &idle_task)
+	if (!task || task_is_idle(task))
 		return;
 	BUG_ON(task == current_task());
 	BUG_ON(task->lifecycle != TASK_DEAD);
@@ -498,7 +499,7 @@ void task_reap_unpublish(struct task_struct *task)
 bool task_try_get(struct task_struct *task)
 {
 	return task &&
-	       (task == &idle_task || refcount_inc_not_zero(&task->refs));
+	       (task_is_idle(task) || refcount_inc_not_zero(&task->refs));
 }
 
 bool task_try_get_live(struct task_struct *task)
@@ -506,8 +507,11 @@ bool task_try_get_live(struct task_struct *task)
 	irq_flags_t flags;
 	bool live;
 
-	if (!task_try_get(task) || task == &idle_task)
-		return task == &idle_task;
+	/* Idle tasks have no refcount and are always live. */
+	if (task_is_idle(task))
+		return true;
+	if (!task_try_get(task))
+		return false;
 	/* Lifecycle transitions (task_begin_exit, task_mark_dead) happen
 	 * under task->wait.lock; read it under the same lock. Lock order:
 	 * pid_lock (20) then wait.lock (40), ascending. */
@@ -521,7 +525,7 @@ bool task_try_get_live(struct task_struct *task)
 
 void task_put(struct task_struct *task)
 {
-	if (!task || task == &idle_task)
+	if (!task || task_is_idle(task))
 		return;
 	if (refcount_dec_and_test(&task->refs))
 		task_destroy(task);
@@ -556,14 +560,14 @@ int cpu_topology_init(const struct cpu_topology_entry *entries, uint32_t count)
 	return 0;
 }
 
-void cpu_boot_init(struct task_struct *idle_tasks)
+void cpu_boot_init(struct task_struct *idles)
 {
-	BUG_ON(!idle_tasks);
+	BUG_ON(!idles);
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
 		struct cpu *cpu = &cpu_table[id];
 
 		cpu->flags = 0;
-		cpu->idle_task = &idle_tasks[id];
+		cpu->idle_task = &idles[id];
 		cpu->current_task = NULL;
 		cpu->preempt_count = 0;
 		cpu->irq_nesting = 0;
@@ -576,7 +580,7 @@ void cpu_boot_init(struct task_struct *idle_tasks)
 		}
 #endif
 	}
-	cpu_table[0].current_task = idle_tasks;
+	cpu_table[0].current_task = idles;
 	cpu_state_store_release(&cpu_table[0], CPU_ONLINE);
 	cpu_set_online(0);
 	cpu_set_schedulable(0);
@@ -591,16 +595,19 @@ void task_init(void)
 	};
 
 	BUG_ON(cpu_topology_init(boot_topology, 1) < 0);
-	memset(&idle_task, 0, sizeof(idle_task));
-	task_init_common(&idle_task);
-	refcount_set(&idle_task.refs, 1);
-	idle_task.lifecycle = TASK_LIVE;
-	idle_task.run_state = TASK_RUNNING;
-	idle_task.cred = cred_alloc_root();
-	BUG_ON(!idle_task.cred);
-	sched_task_init(&idle_task);
-	cpu_boot_init(&idle_task);
-	set_current_task(&idle_task);
+	for (uint32_t id = 0; id < NR_CPUS; id++) {
+		struct task_struct *idle = idle_tasks + id;
+
+		task_init_common(idle);
+		idle->flags |= TASK_FLAG_IDLE;
+		idle->lifecycle = TASK_LIVE;
+		idle->run_state = TASK_RUNNING;
+		/* The boot context runs on the physical idle stack; keep bounds
+		 * and runtime stack in the same address space. */
+		idle->arch.kstack = (void *)__pa(idle_stacks[id]);
+	}
+	cpu_boot_init(idle_tasks);
+	set_current_task(idle_tasks);
 	pid_init();
 	wait_init();
 	pr_info("task: idle task created\n");

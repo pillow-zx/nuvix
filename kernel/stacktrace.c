@@ -6,20 +6,19 @@
 
 #define STACKTRACE_MAX_DEPTH 16
 
-extern char boot_stack[];
-extern char boot_stack_top[];
-
 static void current_stack_bounds(uintptr_t *low, uintptr_t *high)
 {
 	struct task_struct *task = current_task();
-	if (task->arch.kstack) {
-		*low = (uintptr_t)task->arch.kstack;
-		*high = *low + KSTACK_SIZE;
+
+	if (!task)
+		task = cpu_idle_task(current_cpu());
+	if (!task || !task->arch.kstack) {
+		*low = 0;
+		*high = 0;
 		return;
 	}
-
-	*high = (uintptr_t)boot_stack_top;
-	*low = (uintptr_t)boot_stack;
+	*low = (uintptr_t)task->arch.kstack;
+	*high = *low + KSTACK_SIZE;
 }
 
 static bool frame_pointer_valid(uintptr_t fp, uintptr_t low, uintptr_t high)

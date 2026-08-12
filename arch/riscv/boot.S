@@ -11,8 +11,6 @@
 #define PTE_MEGA_DRAM_FLAGS  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G)
 #define PTE_MEGA_MMIO_FLAGS  (PTE_V | PTE_R | PTE_W | PTE_G)
 
-#define BOOT_STACK_SIZE 1024 * 16
-
         .section .text.entry
         .globl _start
 _start:
@@ -25,7 +23,7 @@ _start:
         la      gp, __global_pointer$
         .option pop
 
-        lla     sp, boot_stack_top
+        lla     sp, idle_stacks + 16 * 1024
 
 
         lla     t0, __bss_start
@@ -74,8 +72,3 @@ _start:
         .align  12
 tmp_root:
         .space  4096
-        .globl  boot_stack
-boot_stack:
-        .space  BOOT_STACK_SIZE
-        .globl  boot_stack_top
-boot_stack_top:

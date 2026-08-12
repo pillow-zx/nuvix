@@ -254,7 +254,7 @@ void release_task(struct task_struct *task)
 
 	if (!task)
 		return;
-	BUG_ON(task == &idle_task);
+	BUG_ON(task_is_idle(task));
 	BUG_ON(!task_reap_ready(task));
 	BUG_ON(!list_empty(&task->retired_node));
 	proc = task->reap_proc;
