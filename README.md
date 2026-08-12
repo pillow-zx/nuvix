@@ -129,7 +129,6 @@ rootfs 和 virtio-blk 启动。module interface 的 host 单元测试计划在�
 ## 代码与文档导航
 
 - [SYSCALL.md](SYSCALL.md)：syscall 成熟度、语义边界、已知缺口和优先级。
-- [AGENTS.md](AGENTS.md)：贡献、ABI、构建、测试和自动化修改规则。
 - `include/kernel/`：通用内核接口、对象契约和跨子系统类型。
 - `include/uapi/`：用户可见的 syscall、结构、常量和 ABI 定义。
 - `scripts/filelist.mk`：内核源文件对象清单；新增源文件必须同步更新。
