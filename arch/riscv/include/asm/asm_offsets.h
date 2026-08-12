@@ -82,5 +82,6 @@
 /* ---- struct cpu offsets ---- */
 #define CPU_CURRENT_TASK  24
 #define CPU_PREEMPT_COUNT 32
+#define CPU_ENTRY_SCRATCH 48
 
 #endif

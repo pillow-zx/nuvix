@@ -58,10 +58,21 @@ _start:
         sfence.vma
 
 
-        lla     t0, kernel_main
+        /* Jump to the high-half continuation, then re-establish gp and tp
+         * there: after the jump the PC is high, so lla/la yield high-half
+         * addresses. tp must be CPU 0's slot before any C runs. */
+        lla     t0, 1f
         li      t1, 0xFFFFFFC000000000
         add     t0, t0, t1
         jr      t0
+1:
+        .option push
+        .option norelax
+        la      gp, __global_pointer$
+        .option pop
+        lla     t0, cpu_table
+        mv      tp, t0
+        tail    kernel_main
 
 .park:
         wfi

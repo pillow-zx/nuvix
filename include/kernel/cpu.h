@@ -44,6 +44,9 @@ struct cpu {
 	int preempt_count;
 	uint32_t irq_nesting;
 	uint32_t lock_depth;
+	/* U->S trap entry parks user t0 and t1 here before switching to the
+	 * kernel stack; must stay before the config-dependent lock array. */
+	uintptr_t entry_scratch[2];
 	IFDEF(CONFIG_DEBUG_CONTEXT, struct spinlock *locks[CPU_LOCK_MAX];
 	      irq_flags_t lock_flags[CPU_LOCK_MAX];
 	      bool lock_irqsave[CPU_LOCK_MAX];)
@@ -54,6 +57,8 @@ static_assert(offsetof(struct cpu, current_task) == CPU_CURRENT_TASK,
 static_assert(
 	offsetof(struct cpu, preempt_count) == CPU_PREEMPT_COUNT,
 	"CPU_PREEMPT_COUNT offset in entry.S out of sync with struct cpu");
+static_assert(offsetof(struct cpu, entry_scratch) == CPU_ENTRY_SCRATCH,
+	      "CPU_ENTRY_SCRATCH offset in entry.S out of sync with struct cpu");
 
 extern struct cpu cpu_table[NR_CPUS];
 extern uint32_t nr_cpu_ids;
@@ -104,7 +109,7 @@ void cpu_set_schedulable(uint32_t id);
 __always_inline __must_check __pure __returns_nonnull
 static inline struct cpu *current_cpu(void)
 {
-	return arch_current_cpu(cpu_table);
+	return arch_current_cpu();
 }
 __always_inline __must_check __pure
 static inline struct cpu *cpu_by_id(uint32_t id)

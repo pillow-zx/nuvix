@@ -13,16 +13,18 @@
 	.align 4
 
 __alltraps:
-	csrrw   t0, sscratch, t0
-	bnez    t0, .Lfrom_user
+	csrrw   tp, sscratch, tp
+	bnez    tp, .Lfrom_user
 
-
-	csrr    t0, sscratch
-	csrw    sscratch, zero
+	/* Trap from S-mode: sscratch carried the interrupted kernel tp (the CPU
+	 * pointer); the interrupted t0 is still in t0. */
 	addi    sp, sp, -TRAP_FRAME_ALLOC_SIZE
 
 	/* Preserve the interrupted t1 before using it as entry scratch. */
 	sd      t1, TF_T1(sp)
+	csrr    t1, sscratch
+	csrw    sscratch, zero
+	mv      tp, t1
 	addi    t1, sp, TRAP_FRAME_ALLOC_SIZE
 	sd      t1, TF_SP(sp)
 
@@ -68,6 +70,16 @@ __alltraps:
 	j       .Lcall_handler
 
 .Lfrom_user:
+	/* tp = CPU pointer, sscratch = user TLS. Park user t0 and t1 in the
+	 * CPU's entry scratch before the kernel-stack chain clobbers them. */
+	sd      t0, CPU_ENTRY_SCRATCH(tp)
+	sd      t1, CPU_ENTRY_SCRATCH + 8(tp)
+
+	ld      t0, CPU_CURRENT_TASK(tp)
+	ld      t0, TASK_KSTACK(t0)
+	li      t1, TASK_KSTACK_SIZE
+	add     t0, t0, t1
+
 	sd      sp, -8(t0)
 
 	mv      sp, t0
@@ -77,14 +89,16 @@ __alltraps:
 	sd      t0, TF_SP(sp)
 
 	csrr    t0, sscratch
-	sd      t0, TF_T0(sp)
-
+	sd      t0, TF_TP(sp)
 	csrw    sscratch, zero
+
+	ld      t0, CPU_ENTRY_SCRATCH(tp)
+	sd      t0, TF_T0(sp)
+	ld      t1, CPU_ENTRY_SCRATCH + 8(tp)
+	sd      t1, TF_T1(sp)
 
 	sd      ra,  TF_RA(sp)
 	sd      gp,  TF_GP(sp)
-	sd      tp,  TF_TP(sp)
-	sd      t1,  TF_T1(sp)
 	sd      t2,  TF_T2(sp)
 	sd      s0,  TF_S0(sp)
 	sd      s1,  TF_S1(sp)
@@ -137,9 +151,10 @@ __trapret:
 	ld      t0, TF_SSTATUS(sp)
 	csrw    sstatus, t0
 
+	/* tp is not restored here: both trap-entry paths leave it as the CPU
+	 * pointer, and .Lret_user needs it for the sscratch handoff. */
 	ld      ra,  TF_RA(sp)
 	ld      gp,  TF_GP(sp)
-	ld      tp,  TF_TP(sp)
 	ld      t2,  TF_T2(sp)
 	ld      s0,  TF_S0(sp)
 	ld      s1,  TF_S1(sp)
@@ -172,26 +187,25 @@ __trapret:
 
 .Lret_user:
 	/*
-	 * sscratch = 当前进程内核栈顶。
+	 * U-mode contract: sscratch = CPU pointer, tp = user TLS.
 	 *
-	 * U→S 入口会把 user_sp 写入 -8(sscratch)，即栈顶下方的
-	 * scratch slot。这样不写出栈顶，也不会让下一次 trap_frame
-	 * 的 frame base 漂移。不要从当前 trap_frame 的地址推导栈顶：
-	 * exec_user_path() 首次进入用户态时使用的是普通内核栈局部 frame。
+	 * The U→S entry swaps them back: tp becomes the CPU pointer and
+	 * sscratch briefly carries the user TLS, which lands in TF_TP. The CPU
+	 * pointer itself is always recovered from the tp register; it is never
+	 * derived from cpu_table[0].
 	 */
-	la      t0, cpu_table
-	ld      t0, CPU_CURRENT_TASK(t0)
-	ld      t0, TASK_KSTACK(t0)
-	li      t1, TASK_KSTACK_SIZE
-	add     t0, t0, t1
-	csrw    sscratch, t0
+	csrw    sscratch, tp
 
+	ld      tp, TF_TP(sp)
 	ld      t1, TF_T1(sp)
 	ld      t0, TF_T0(sp)
 	ld      sp, TF_SP(sp)
 	sret
 
 .Lret_supervisor:
+	/* tp stays the CPU pointer: the kernel path restored it at entry, C
+	 * never touches it, and frames built for first kernel-thread entry have
+	 * TF_TP == 0. Never load tp from a kernel frame. */
 	csrw    sscratch, zero
 	ld      t1, TF_T1(sp)
 	ld      t0, TF_T0(sp)

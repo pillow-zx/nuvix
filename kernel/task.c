@@ -588,13 +588,6 @@ void cpu_boot_init(struct task_struct *idles)
 
 void task_init(void)
 {
-	/* One-entry boot topology for the incoming hart. Plan 002 replaces this
-	 * singleton with platform data; kernel_main then supplies the hart ID. */
-	static const struct cpu_topology_entry boot_topology[] = {
-		{ .logical_id = 0, .hartid = 0 },
-	};
-
-	BUG_ON(cpu_topology_init(boot_topology, 1) < 0);
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
 		struct task_struct *idle = idle_tasks + id;
 

@@ -34,10 +34,14 @@ static const char logo[] =
 	"|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  $$$$$$/\n"
 	" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/\n";
 
-void kernel_main(void)
+void kernel_main(uint64_t boot_hartid)
 {
 	struct task_struct *init;
 	struct task_struct *writeback;
+	struct cpu_topology_entry boot_topology = {
+		.logical_id = 0,
+		.hartid = (uint32_t)boot_hartid,
+	};
 	int ret;
 
 	console_init_sbi();
@@ -60,6 +64,10 @@ void kernel_main(void)
 				USER_STACK_BASE) < 0);
 	signal_user_map_init();
 	pr_info("mm: init successfully\n");
+
+	/* One-entry boot topology from OpenSBI's incoming hart; plan 002
+	 * replaces this singleton with platform enumeration. */
+	BUG_ON(cpu_topology_init(&boot_topology, 1) < 0);
 
 	trap_init();
 	pr_info("trap: init successfully\n");

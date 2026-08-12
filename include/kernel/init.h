@@ -5,7 +5,7 @@
 
 struct task_struct;
 
-void kernel_main(void);
+void kernel_main(uint64_t boot_hartid);
 void init_process(void *arg);
 bool init_process_is_task(const struct task_struct *task);
 
