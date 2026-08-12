@@ -58,6 +58,8 @@ enum task_exit_request {
 #define TASK_ANY_SLEEP                                                         \
 	(TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE | TASK_KILLABLE)
 
+#define TASK_FLAG_IDLE (1u << 0)
+
 #define KSTACK_ORDER ARCH_KSTACK_ORDER
 #define KSTACK_SIZE  ARCH_KSTACK_SIZE
 
@@ -142,7 +144,6 @@ struct task_struct {
 	enum task_exit_request exit_request;
 	enum task_run_state run_state;
 	uint32_t flags;
-#define TASK_FLAG_IDLE (1u << 0)
 	struct cpu *cpu;
 	bool on_rq;
 	bool on_cpu;

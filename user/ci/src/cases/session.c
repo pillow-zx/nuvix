@@ -695,3 +695,62 @@ UT_CASE(session_tiotty_release_no_double_hangup, 5000)
 	close(p_ready[0]);
 	close(p_ready[1]);
 }
+
+/*
+ * Zombie identity ABI: an exited process awaiting wait4 must stay queryable
+ * through getpgid/getsid with the group identity it died with, and must
+ * become ESRCH once the parent reaps it.
+ */
+static volatile sig_atomic_t session_zombie_sigchld;
+
+static void session_zombie_sigchld_handler(int signal)
+{
+	(void)signal;
+	session_zombie_sigchld = 1;
+}
+
+UT_CASE(session_zombie_getpgid_identity, 5000)
+{
+	struct sigaction action = {0};
+	struct sigaction old_action;
+	sigset_t blocked;
+	sigset_t previous;
+	pid_t child;
+	pid_t pgid;
+	pid_t sid;
+	int status;
+
+	action.sa_handler = session_zombie_sigchld_handler;
+	sigemptyset(&action.sa_mask);
+	UT_ASSERT_EQ(sigaction(SIGCHLD, &action, &old_action), 0);
+	sigemptyset(&blocked);
+	sigaddset(&blocked, SIGCHLD);
+	UT_ASSERT_EQ(sigprocmask(SIG_BLOCK, &blocked, &previous), 0);
+
+	child = UT_FORK();
+	if (child == 0) {
+		(void)setpgid(0, 0);
+		_exit(0);
+	}
+
+	session_zombie_sigchld = 0;
+	while (!session_zombie_sigchld)
+		sigsuspend(&previous);
+
+	/* Child is a zombie: unreaped but still addressable, and its group
+	 * identity must survive the leader's detach. */
+	pgid = getpgid(child);
+	UT_ASSERT_NE(pgid, -1);
+	UT_ASSERT_EQ(pgid, child);
+	sid = getsid(child);
+	UT_ASSERT_NE(sid, -1);
+	UT_ASSERT_EQ(sid, getsid(0));
+
+	UT_ASSERT_EQ(waitpid(child, &status, 0), child);
+	UT_ASSERT(WIFEXITED(status));
+	UT_ASSERT_ERRNO(getpgid(child), ESRCH);
+	UT_ASSERT_ERRNO(getsid(child), ESRCH);
+
+	UT_ASSERT_EQ(sigprocmask(SIG_UNBLOCK, &blocked, NULL), 0);
+	UT_ASSERT_EQ(sigaction(SIGCHLD, &old_action, NULL), 0);
+}

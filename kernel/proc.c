@@ -1129,6 +1129,17 @@ void proc_prepare_exit(struct proc_struct *proc, int status, uid_t uid,
 	BUG_ON(proc->lifecycle != PROC_EXITING);
 	proc->exit_status = status;
 	proc->exit_uid = uid;
+	/* Snapshot the group identity while the proc is still attached to its
+	 * pgrp: a zombie must answer getpgid/getsid until wait4 reaps it, even
+	 * though its leader is gone and the pgrp unlink is imminent. */
+	if (proc->pgrp && proc->pgrp->pgid && proc->pgrp->session &&
+	    proc->pgrp->session->sid) {
+		proc->exit_pgid = proc->pgrp->pgid->nr;
+		proc->exit_sid = proc->pgrp->session->sid->nr;
+	} else {
+		proc->exit_pgid = 0;
+		proc->exit_sid = 0;
+	}
 	proc->exit_pending = true;
 	proc->exit_auto_reap = auto_reap;
 	proc->exit_sigchld_notify = notify_sigchld;
@@ -1576,6 +1587,22 @@ int proc_snapshot_topology(const struct proc_struct *proc, pid_t *pgid,
 	*sid = proc->pgrp->session->sid->nr;
 	spin_unlock((spinlock_t *)&proc_topology_lock);
 	return 0;
+}
+
+bool proc_exit_identity(const struct proc_struct *proc, pid_t *pgid, pid_t *sid)
+{
+	bool have = false;
+
+	if (!proc || !pgid || !sid)
+		return false;
+	spin_lock(&proc_topology_lock);
+	if (proc->exit_pgid > 0) {
+		*pgid = proc->exit_pgid;
+		*sid = proc->exit_sid;
+		have = true;
+	}
+	spin_unlock(&proc_topology_lock);
+	return have;
 }
 
 struct pgrp_struct *proc_lookup_pgrp(pid_t pgid)

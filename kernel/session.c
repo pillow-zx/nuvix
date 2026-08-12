@@ -202,8 +202,16 @@ static int session_process_get_identity(pid_t pid, bool sid)
 	if (put_proc) {
 		leader = proc_leader_get(proc);
 		if (!leader) {
+			/* Exited process awaiting wait4: identity was snapshotted
+			 * at exit and must stay queryable until the proc is
+			 * reaped and unpublished. */
+			bool have_exit_identity =
+				proc_exit_identity(proc, &pgid, &session_id);
+
 			proc_put(proc);
-			return -ESRCH;
+			if (!have_exit_identity)
+				return -ESRCH;
+			return sid ? session_id : pgid;
 		}
 	}
 	mutex_lock(&session_lock);

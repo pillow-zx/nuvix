@@ -157,6 +157,8 @@ struct proc_struct {
 	bool group_exit_requested;
 	int exit_status;
 	uid_t exit_uid;
+	pid_t exit_pgid;
+	pid_t exit_sid;
 	bool exit_pending;
 	bool exit_auto_reap;
 	bool exit_sigchld_notify;
@@ -405,6 +407,10 @@ int proc_create_session(struct proc_struct *proc, pid_t *sid,
 bool proc_session_is_empty(const struct session_struct *session, const struct proc_struct *exclude);
 
 int proc_snapshot_topology(const struct proc_struct *proc, pid_t *pgid, pid_t *sid);
+
+/* Fill the identity recorded when an exited process awaits wait4; false when
+ * the proc has no exit snapshot (still live or already reaped). */
+bool proc_exit_identity(const struct proc_struct *proc, pid_t *pgid, pid_t *sid);
 
 __must_check
 bool proc_pgrp_has_member(pid_t pgid, pid_t sid, const struct task_struct *ignored);
