@@ -25,6 +25,7 @@ KERNEL_OBJS = \
 	kernel/printk.o         \
 	kernel/ksyms.o          \
 	kernel/smp.o            \
+	kernel/ipi.o            \
 	kernel/stacktrace.o     \
 	kernel/mutex.o          \
 	kernel/task.o           \
