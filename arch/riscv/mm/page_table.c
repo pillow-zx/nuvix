@@ -20,7 +20,7 @@ static uintptr_t kpgroot;
  * Secondary harts acquire-load it from their physical trampoline before
  * switching page tables; immutable after publication.
  */
-static atomic_isize_t pgtable_boot_token;
+atomic_isize_t pgtable_boot_token;
 
 static char *early_alloc_ptr;
 

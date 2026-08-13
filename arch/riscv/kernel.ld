@@ -19,6 +19,8 @@ SECTIONS
     .text : AT(ADDR(.text) - KERNEL_VBASE) {
         *(.text.entry)
         . = ALIGN(4096);
+        KEEP(*(.text.secondary))
+        . = ALIGN(4096);
         *(.text .text.*)
         . = ALIGN(4096);
     } :text
