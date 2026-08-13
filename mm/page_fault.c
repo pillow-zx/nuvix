@@ -150,6 +150,27 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			return 0;
 		}
 
+		if (access == USER_FAULT_READ) {
+			pgprot_t ro = pgprot_make_readonly(pte_flags);
+			int ret = map_page(
+				mm->pgd, page_addr,
+				__pa((uintptr_t)page_cache_data(file_page)),
+				ro);
+
+			if (ret < 0) {
+				pgcache_put_page(file_page);
+				return ret;
+			}
+			pte_t *pte = pgtable_lookup(mm->pgd, page_addr);
+
+			BUG_ON(!pte);
+			*pte = pte_make(
+				__pa((uintptr_t)page_cache_data(file_page)), ro);
+			flush_tlb_page(page_addr);
+			/* The PTE owns the cache reference until unmap. */
+			return 0;
+		}
+
 		void *page = get_free_page(0, ALLOC_NOWAIT);
 		if (!page) {
 			pgcache_put_page(file_page);
