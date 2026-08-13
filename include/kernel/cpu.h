@@ -52,6 +52,10 @@ struct cpu {
 	      bool lock_irqsave[CPU_LOCK_MAX];)
 };
 
+static_assert(offsetof(struct cpu, state) == CPU_STATE,
+	      "CPU_STATE offset in entry.S out of sync with struct cpu");
+static_assert(sizeof(struct cpu) == CPU_SIZE,
+	      "CPU_SIZE in asm_offsets.h out of sync with struct cpu");
 static_assert(offsetof(struct cpu, current_task) == CPU_CURRENT_TASK,
 	      "CPU_CURRENT_TASK offset in entry.S out of sync with struct cpu");
 static_assert(

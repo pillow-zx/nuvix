@@ -148,6 +148,15 @@ secondary_entry:
         add     t0, t0, t1
         li      t1, SMP_BOOT_ERR_NO_SATP
         sw      t1, 0(t0)
+        /* Publish CPU_PARKED (release, same value as include/kernel/cpu.h)
+         * so CPU 0 fails fast instead of waiting out the deadline. */
+        lla     t0, cpu_table
+        li      t1, CPU_SIZE
+        mul     t1, a1, t1
+        add     t0, t0, t1
+        li      t1, 3 /* CPU_PARKED */
+        fence   w, w
+        sw      t1, CPU_STATE(t0)
 .Lsec_park:
         wfi
         j       .Lsec_park

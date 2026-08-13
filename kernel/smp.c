@@ -102,6 +102,11 @@ void smp_boot_cpus(void)
 			boot_id = id;
 	BUG_ON(cpu_table[boot_id].hartid != platform_boot_hartid());
 
+	/* Publish the boot CPU online/schedulable: its idle/current and local
+	 * state were prepared before smp_boot_cpus() was called. */
+	cpu_state_store_release(&cpu_table[boot_id], CPU_ONLINE);
+	cpu_set_online(boot_id);
+	cpu_set_schedulable(boot_id);
 	pr_info("cpu: logical=%u hart=%u online\n", cpu_table[boot_id].id,
 		cpu_table[boot_id].hartid);
 

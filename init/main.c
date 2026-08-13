@@ -86,13 +86,10 @@ void kernel_main(uint64_t boot_hartid)
 	timer_cpu_init();
 	clockevent_cpu_init();
 
-	/* Publish CPU 0 only after its idle/current and local state exist. */
-	cpu_state_store_release(&cpu_table[0], CPU_ONLINE);
-	cpu_set_online(0);
-	cpu_set_schedulable(0);
-
 	/* Boot every configured secondary into its isolated idle loop
-	 * before any syscall/VFS/device/thread initialization. */
+	 * before any syscall/VFS/device/thread initialization. The boot
+	 * CPU's online/schedulable publication happens inside smp_boot_cpus()
+	 * after it locates the boot logical ID in the topology. */
 	smp_boot_cpus();
 
 	syscall_init();
