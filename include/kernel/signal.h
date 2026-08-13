@@ -1,6 +1,21 @@
 #ifndef _CUTEOS_KERNEL_SIGNAL_H
 #define _CUTEOS_KERNEL_SIGNAL_H
 
+#include <kernel/types.h>
+
+struct trap_frame;
+struct task_struct;
+
+/* Syscall-restart context: task-owned signal state (DESIGN.md). The
+ * dispatcher saves through restart_save(); the signal module owns the
+ * restartable policy and the signal-delivery decision. */
+void restart_save(struct task_struct *task, const struct trap_frame *tf,
+		  size_t nr);
+void restart_finish(struct task_struct *task, ssize_t ret);
+void restart_clear(struct task_struct *task);
+bool restart_for_signal(struct task_struct *task, struct trap_frame *tf,
+			bool sa_restart);
+
 /**
  * @file signal.h
  * @brief 内核信号状态、投递、用户返回与 sigaltstack 接口。
