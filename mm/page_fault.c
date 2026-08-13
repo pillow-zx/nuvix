@@ -48,6 +48,9 @@ static bool pte_allows_fault(int access, pte_t pte)
 	}
 }
 
+static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
+			  pte_t *existing, const struct vm_area_struct *vma);
+
 static void signal_or_panic_segv(struct trap_frame *tf, int code)
 {
 	if (trap_frame_from_user(tf)) {
@@ -86,6 +89,19 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		if (pte_allows_fault(access, *existing)) {
 			flush_tlb_page(page_addr);
 			return 0;
+		}
+
+		if (access == USER_FAULT_WRITE && (vma->vm_flags & VM_WRITE) &&
+		    pte_allows_user_read(*existing)) {
+			int cow_ret = cow_split_page(mm, page_addr, existing,
+						     vma);
+
+			if (cow_ret == 0) {
+				flush_tlb_page(page_addr);
+				return 0;
+			}
+			if (cow_ret == -ENOMEM)
+				return cow_ret;
 		}
 
 		if (fault_pte)
@@ -208,6 +224,65 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		return ret;
 	}
 	flush_tlb_page(page_addr);
+	return 0;
+}
+
+/* Write fault on a present read-only PTE of a writable vma: split the
+ * page. Returns 0 on success (PTE rewritten), -ENOMEM, or -EFAULT when
+ * the split is not possible. Caller holds mm->mmap_lock. */
+static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
+			  pte_t *existing, const struct vm_area_struct *vma)
+{
+	paddr_t pa = pte_phys_addr(*existing);
+	pgprot_t writable_prot = pte_leaf_prot(*existing) | PTE_W;
+	void *new_page;
+	int ret;
+
+	if (vma->vm_file && !vma->vm_shared) {
+		struct pgcache *cache_page = pgcache_get_data(__va(pa));
+
+		if (cache_page) {
+			/* Clean cache page: MAP_PRIVATE must never make it
+			 * writable. Always copy. */
+			new_page = get_free_page(0, ALLOC_NOWAIT);
+			if (!new_page) {
+				pgcache_put_page(cache_page);
+				return -ENOMEM;
+			}
+			memcpy(new_page, page_cache_data(cache_page),
+			       PAGE_SIZE);
+			/* Drop the lookup ref and the PTE's cache ref. */
+			pgcache_put_page(cache_page);
+			pgcache_put_page(cache_page);
+			goto map_copy;
+		}
+		/* mm-owned copy: fall through to the anon rules. */
+	}
+
+	{
+		struct page *page = virt_to_page(__va(pa));
+
+		BUG_ON(!page);
+		if (refcount_read(&page->refcount) == 1) {
+			/* Last mapping: flip it writable. */
+			*existing = pte_make(pa, writable_prot);
+			return 0;
+		}
+		new_page = get_free_page(0, ALLOC_NOWAIT);
+		if (!new_page)
+			return -ENOMEM;
+		memcpy(new_page, __va(pa), PAGE_SIZE);
+		refcount_dec_and_test(&page->refcount);
+	}
+
+map_copy:
+	ret = map_page(mm->pgd, page_addr, __pa((uintptr_t)new_page),
+		       writable_prot);
+	if (ret < 0) {
+		free_page(new_page, 0);
+		return ret;
+	}
+	*existing = pte_make(__pa((uintptr_t)new_page), writable_prot);
 	return 0;
 }
 
