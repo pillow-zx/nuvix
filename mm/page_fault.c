@@ -235,11 +235,13 @@ static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
 {
 	paddr_t pa = pte_phys_addr(*existing);
 	pgprot_t writable_prot = pte_leaf_prot(*existing) | PTE_W;
+	struct pgcache *cache_page = NULL;
+	struct page *page = NULL;
 	void *new_page;
 	int ret;
 
 	if (vma->vm_file && !vma->vm_shared) {
-		struct pgcache *cache_page = pgcache_get_data(__va(pa));
+		cache_page = pgcache_get_data(__va(pa));
 
 		if (cache_page) {
 			/* Clean cache page: MAP_PRIVATE must never make it
@@ -251,38 +253,43 @@ static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
 			}
 			memcpy(new_page, page_cache_data(cache_page),
 			       PAGE_SIZE);
-			/* Drop the lookup ref and the PTE's cache ref. */
-			pgcache_put_page(cache_page);
-			pgcache_put_page(cache_page);
 			goto map_copy;
 		}
 		/* mm-owned copy: fall through to the anon rules. */
 	}
 
-	{
-		struct page *page = virt_to_page(__va(pa));
-
-		BUG_ON(!page);
-		if (refcount_read(&page->refcount) == 1) {
-			/* Last mapping: flip it writable. */
-			*existing = pte_make(pa, writable_prot);
-			return 0;
-		}
-		new_page = get_free_page(0, ALLOC_NOWAIT);
-		if (!new_page)
-			return -ENOMEM;
-		memcpy(new_page, __va(pa), PAGE_SIZE);
-		refcount_dec_and_test(&page->refcount);
+	page = virt_to_page(__va(pa));
+	BUG_ON(!page);
+	if (refcount_read(&page->refcount) == 1) {
+		/* Last mapping: flip it writable. */
+		*existing = pte_make(pa, writable_prot);
+		return 0;
 	}
+	new_page = get_free_page(0, ALLOC_NOWAIT);
+	if (!new_page)
+		return -ENOMEM;
+	memcpy(new_page, __va(pa), PAGE_SIZE);
 
 map_copy:
 	ret = map_page(mm->pgd, page_addr, __pa((uintptr_t)new_page),
 		       writable_prot);
 	if (ret < 0) {
+		/* The old page's references are untouched, so the PTE is
+		 * still covered; drop only the transient lookup ref. */
+		if (cache_page)
+			pgcache_put_page(cache_page);
 		free_page(new_page, 0);
 		return ret;
 	}
 	*existing = pte_make(__pa((uintptr_t)new_page), writable_prot);
+	/* The new PTE is installed; release the old page's references.
+	 * The sibling mapping keeps the refcount above zero. */
+	if (cache_page) {
+		pgcache_put_page(cache_page);
+		pgcache_put_page(cache_page);
+	} else {
+		refcount_dec_and_test(&page->refcount);
+	}
 	return 0;
 }
 
