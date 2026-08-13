@@ -1,9 +1,5 @@
 menu "Platform"
 
-config ARCH_RISCV
-	bool
-	default y
-
 config PLATFORM_QEMU_VIRT
 	bool
 	default y
@@ -21,7 +17,7 @@ config DRAM_SIZE_MB
 config QEMU_CPUS
 	int "QEMU CPU count"
 	range 1 8
-	default 1
+	default 8
 	help
 	  Number of QEMU virt harts to boot. Controls both QEMU -smp and the
 	  exact number of required kernel CPUs: every configured hart must
