@@ -21,9 +21,9 @@ CFLAGS += -I include
 CFLAGS += -I arch/riscv/include
 ASFLAGS += -I include
 ASFLAGS += -I arch/riscv/include
-CFLAGS += -include include/generated/autoconf.h
+CFLAGS += -include $(AUTOCONF_H)
 CFLAGS += -include include/kernel/compiler.h
-ASFLAGS += -include include/generated/autoconf.h
+ASFLAGS += -include $(AUTOCONF_H)
 
 CFLAGS += -ffreestanding -fno-common -nostdlib -nostdinc
 CFLAGS += $(COMMON_NO_STACK_PROTECTOR_CFLAGS)
