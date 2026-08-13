@@ -40,25 +40,6 @@ utest: check-gcc-version check-qemu-version $(KERNEL) $(UTEST_IMG)
 		"$(QEMU)" "$(KERNEL)" "$(UTEST_IMG)" \
 		"$(CONFIG_DRAM_SIZE_MB)" "$(CPUS)"
 
-# Isolated two-CPU regression: its own config tree, generated headers,
-# objects, and image under build/smp; leaves the active .config untouched.
-SMP_OUTROOT := build/smp
-SMP_CONFIG  := DEFCONFIG=configs/cuteos_smp_defconfig \
-		DOT_CONFIG=$(SMP_OUTROOT)/.config \
-		AUTO_CONF=$(SMP_OUTROOT)/include/config/auto.conf \
-		AUTO_CONF_CMD=$(SMP_OUTROOT)/include/config/auto.conf.cmd \
-		AUTOCONF_H=$(SMP_OUTROOT)/include/generated/autoconf.h
-
-utest-smp: check-gcc-version check-qemu-version
-	$(Q)mkdir -p $(SMP_OUTROOT)/include/config $(SMP_OUTROOT)/include/generated
-	$(Q)$(MAKE) $(SMP_CONFIG) OUTROOT=$(SMP_OUTROOT) defconfig
-	$(Q)$(MAKE) -j $(SMP_CONFIG) OUTROOT=$(SMP_OUTROOT) $(KERNEL_NAME)
-	$(Q)$(MAKE) $(SMP_CONFIG) OUTROOT=$(SMP_OUTROOT) utest-build
-	$(Q)scripts/tools/run-smp-tests.sh \
-		"$(QEMU)" "$(SMP_OUTROOT)/kernel/cuteos" \
-		"$(SMP_OUTROOT)/utest/cuteos.img" \
-		"$(CONFIG_DRAM_SIZE_MB)" "2"
-
 print-gdbport:
 	@echo $(GDBPORT)
 
@@ -97,11 +78,12 @@ help:
 	@printf 'CuteOS build usage:\n'
 	@printf '  make                         Build kernel ELF using .config\n'
 	@printf '  make defconfig               Reset .config from configs/cuteos_defconfig\n'
+	@printf '  make DEFCONFIG=xxx defconfig Load configs/xxx as .config\n'
+	@printf '  make savedefconfig           Save current .config back to the active defconfig\n'
 	@printf '  make menuconfig              Configure build options\n'
 	@printf '  make qemu                    Build image and boot QEMU\n'
 	@printf '  make utest-build             Build user-space test ELFs and rootfs image\n'
-	@printf '  make utest                   Boot the user-space regression suite\n'
-	@printf '  make utest-smp               Two-CPU regression in an isolated build/smp tree\n'
+	@printf '  make utest                   Boot the multi-core and user-space regression suite\n'
 	@printf '  make qemu-gdb                Boot QEMU paused with GDB stub\n'
 	@printf '  make .gdbinit                Generate GDB startup file\n'
 	@printf '  make user                    Build user-space ELFs only\n'
@@ -131,6 +113,6 @@ clean: clean-user clean-kernel
 
 FORCE:
 
-.PHONY: help qemu qemu-gdb utest utest-smp check-qemu-version print-gdbport \
+.PHONY: help qemu qemu-gdb utest check-qemu-version print-gdbport \
 	print-toolprefix
 .PHONY: tags gtags clean FORCE
