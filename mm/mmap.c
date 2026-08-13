@@ -1485,11 +1485,12 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 			uintptr_t pa = pte_phys_addr(*pte);
 			pgprot_t pte_flags = new_pte_flags;
 
-			if ((new_vm_flags & VM_WRITE) && vma && vma->vm_file &&
-			    !vma->vm_shared) {
-				struct pgcache *cache_page =
-					pgcache_get_data(__va(pa));
+			if ((new_vm_flags & VM_WRITE) && vma && !vma->vm_shared) {
+				struct pgcache *cache_page = NULL;
+				struct page *page;
 
+				if (vma->vm_file)
+					cache_page = pgcache_get_data(__va(pa));
 				if (cache_page) {
 					/* MAP_PRIVATE must never make a
 					 * page-cache-backed page writable;
@@ -1497,6 +1498,15 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 					pte_flags = pgprot_make_readonly(
 						pte_leaf_prot(*pte));
 					pgcache_put_page(cache_page);
+				} else {
+					/* A fork-shared mm-owned page must
+					 * not become writable in one mm only;
+					 * the next write fault splits it. */
+					page = virt_to_page(__va(pa));
+					if (page &&
+					    refcount_read(&page->refcount) > 1)
+						pte_flags = pgprot_make_readonly(
+							pte_leaf_prot(*pte));
 				}
 			}
 			*pte = pte_make(pa, pte_flags);
