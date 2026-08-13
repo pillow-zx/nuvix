@@ -10,6 +10,7 @@
 #include <kernel/list.h>
 #include <kernel/bitops.h>
 #include <kernel/compiler.h>
+#include <kernel/refcount.h>
 #include <arch/page.h>
 
 /**
@@ -43,7 +44,7 @@
 struct page {
 	uint32_t flags;
 	uint32_t order;
-	uint32_t refcount;
+	refcount_t refcount;
 	struct list_head lru;
 };
 
