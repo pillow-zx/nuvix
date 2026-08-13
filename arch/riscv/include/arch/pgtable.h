@@ -23,6 +23,16 @@ pte_t *kernel_pt(void);
 __must_check
 uintptr_t kenrel_pgroot(void);
 
+/*
+ * Kernel Sv39 satp token for secondary entry: acquire-load the
+ * release-published token, or validate Sv39 mode and a nonzero PPN.
+ */
+__must_check
+uintptr_t pgtable_boot_token_acquire(void);
+
+__must_check
+bool pgtable_boot_token_valid(void);
+
 __must_check __nonnull(1)
 pte_t *pgtable_lookup(pte_t *root, uintptr_t va);
 

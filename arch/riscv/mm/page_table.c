@@ -6,6 +6,7 @@
 #include <kernel/buddy.h>
 #include <kernel/errno.h>
 #include <kernel/tools.h>
+#include <kernel/atomic.h>
 #include <arch/page.h>
 #include <arch/pgtable.h>
 #include <asm/csr.h>
@@ -13,6 +14,13 @@
 typedef void *(*page_alloc_fn)(void);
 static page_alloc_fn pt_alloc;
 static uintptr_t kpgroot;
+
+/*
+ * Kernel Sv39 satp token published once at the end of pagetable_init().
+ * Secondary harts acquire-load it from their physical trampoline before
+ * switching page tables; immutable after publication.
+ */
+static atomic_isize_t pgtable_boot_token;
 
 static char *early_alloc_ptr;
 
@@ -145,6 +153,19 @@ uintptr_t kenrel_pgroot(void)
 	return kpgroot;
 }
 
+uintptr_t pgtable_boot_token_acquire(void)
+{
+	return (uintptr_t)atomic_isize_read_acquire(&pgtable_boot_token);
+}
+
+bool pgtable_boot_token_valid(void)
+{
+	uintptr_t token = pgtable_boot_token_acquire();
+
+	return (token & SATP_MODE_SV39) == SATP_MODE_SV39 &&
+	       (token & SATP_PPN_MASK) != 0;
+}
+
 pte_t *current_pt(void)
 {
 	uintptr_t satp_val = csr_read(satp);
@@ -194,6 +215,9 @@ void pagetable_init(void)
 	kpgroot = satp_val;
 
 	activate_pgroot(satp_val);
+	/* Release-publish after every page-table write is ordered before it:
+	 * a secondary observing the token may switch page tables immediately. */
+	atomic_isize_set_release(&pgtable_boot_token, (isize)satp_val);
 
 	pr_info("page_table: switched to kernel page table (root=%p, "
 		"early_alloc=%dKB)\n",
