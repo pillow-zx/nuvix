@@ -100,11 +100,12 @@ static inline uint32_t cpu_state_load_acquire(const struct cpu *cpu)
 /*
  * Online versus schedulable: the online mask records CPUs whose local state
  * exists; the schedulable mask records CPUs available to ordinary tasks.
- * Publication of both is release; observation is acquire.
+ * Publication of both is release; observation is acquire. Neither is
+ * __pure: the acquire reads must not be CSE'd across boot-gate iterations.
  */
-__must_check __pure
+__must_check
 uint64_t cpu_online_mask(void);
-__must_check __pure
+__must_check
 uint64_t cpu_schedulable_mask(void);
 
 void cpu_set_online(uint32_t id);
