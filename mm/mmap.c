@@ -1481,8 +1481,25 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 		if (prot == PROT_NONE) {
 			pte_clear_present(pte);
 		} else {
+			struct vm_area_struct *vma = find_vma(mm, va);
 			uintptr_t pa = pte_phys_addr(*pte);
-			*pte = pte_make(pa, new_pte_flags);
+			pgprot_t pte_flags = new_pte_flags;
+
+			if ((new_vm_flags & VM_WRITE) && vma && vma->vm_file &&
+			    !vma->vm_shared) {
+				struct pgcache *cache_page =
+					pgcache_get_data(__va(pa));
+
+				if (cache_page) {
+					/* MAP_PRIVATE must never make a
+					 * page-cache-backed page writable;
+					 * the next write fault COWs it. */
+					pte_flags = pgprot_make_readonly(
+						pte_leaf_prot(*pte));
+					pgcache_put_page(cache_page);
+				}
+			}
+			*pte = pte_make(pa, pte_flags);
 		}
 	}
 
