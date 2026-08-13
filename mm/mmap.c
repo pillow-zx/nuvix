@@ -213,14 +213,29 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 		if (!pte || !pte_is_user_page(*pte))
 			continue;
 
+		paddr_t pa = pte_phys_addr(*pte);
+
 		if (vma && vma->vm_file && vma->vm_shared) {
-			paddr_t pa = pte_phys_addr(*pte);
-
 			release_shared_pte_page(pa, vma->vm_flags & VM_WRITE);
-		} else {
-			paddr_t pa = pte_phys_addr(*pte);
+		} else if (vma && vma->vm_file && !vma->vm_shared) {
+			struct pgcache *cache_page = pgcache_get_data(__va(pa));
 
-			if (mm_owns_page_frame(pa))
+			if (cache_page) {
+				/* PTE held one cache ref; drop lookup + PTE
+				 * refs, mirroring release_shared_pte_page. */
+				pgcache_put_page(cache_page);
+				pgcache_put_page(cache_page);
+			} else {
+				struct page *page = virt_to_page(__va(pa));
+
+				if (page &&
+				    refcount_dec_and_test(&page->refcount))
+					free_page(__va(pa), 0);
+			}
+		} else {
+			struct page *page = virt_to_page(__va(pa));
+
+			if (page && refcount_dec_and_test(&page->refcount))
 				free_page(__va(pa), 0);
 		}
 
