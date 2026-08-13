@@ -60,6 +60,16 @@ static void io_write_pipe_records(int fd, char value, int vector)
 	_exit(0);
 }
 
+static ssize_t io_read_retry(int fd, void *buf, size_t len)
+{
+	ssize_t ret;
+
+	do {
+		ret = read(fd, buf, len);
+	} while (ret == -1 && errno == EINTR);
+	return ret;
+}
+
 UT_CASE(io_pipe_vector_and_offset, 1500)
 {
 	char first[4] = {};
@@ -168,14 +178,15 @@ UT_CASE(io_pipe_buf_atomicity, 5000)
 	UT_ASSERT_EQ(close(data_pipe[1]), 0);
 	UT_ASSERT_EQ(close(ready_pipe[1]), 0);
 	UT_ASSERT_EQ(close(start_pipe[0]), 0);
-	UT_ASSERT_EQ(read(ready_pipe[0], &byte, 1), 1);
-	UT_ASSERT_EQ(read(ready_pipe[0], &byte, 1), 1);
+	UT_ASSERT_EQ(io_read_retry(ready_pipe[0], &byte, 1), 1);
+	UT_ASSERT_EQ(io_read_retry(ready_pipe[0], &byte, 1), 1);
 	UT_ASSERT_EQ(close(start_pipe[1]), 0);
 	for (int i = 0; i < 2 * IO_PIPE_RECORDS; i++) {
 		int record_a = 1;
 		int record_b = 1;
 
-		UT_ASSERT_EQ(read(data_pipe[0], output, sizeof(output)),
+		UT_ASSERT_EQ(io_read_retry(data_pipe[0], output,
+					   sizeof(output)),
 			     (ssize_t)sizeof(output));
 		for (size_t j = 0; j < sizeof(output); j++) {
 			if (output[j] != 'A')
