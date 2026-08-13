@@ -294,7 +294,10 @@ void wait_finish(struct task_wait *wait)
 	for (;;) {
 		struct wait_entry *entry;
 		struct wait_channel *channel;
-		irq_flags_t channel_flags;
+		/* GCC cannot prove the paired `if (channel)` branches agree, so
+		 * it flags channel_flags as possibly uninitialized; the value is
+		 * only consumed when the lock was actually taken. */
+		irq_flags_t channel_flags = 0;
 		irq_flags_t wait_flags;
 
 		spin_lock_irqsave(&wait->lock, &wait_flags);
