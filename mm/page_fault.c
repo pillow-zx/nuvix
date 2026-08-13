@@ -256,6 +256,13 @@ void do_page_fault(struct trap_frame *tf)
 	bool from_user_mode = trap_frame_from_user(tf);
 	struct mm_struct *mm = current_task()->proc ? current_task()->proc->mm : NULL;
 	int access = (int)trap_fault_access(tf);
+
+	/* The trap-access and user-fault enums are compared after a naked
+	 * cast below; their values must agree by construction, not luck. */
+	static_assert(TRAP_ACCESS_READ == USER_FAULT_READ &&
+		      TRAP_ACCESS_WRITE == USER_FAULT_WRITE &&
+		      TRAP_ACCESS_EXEC == USER_FAULT_EXEC,
+		      "trap_access_type and USER_FAULT_* must agree");
 	pte_t fault_pte = 0;
 	int ret;
 
