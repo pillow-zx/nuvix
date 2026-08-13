@@ -62,9 +62,10 @@ QUIET_ANALYZE = @echo '  ANALYZE $<'
 endif
 
 KCONFIG       := Kconfig
-# Config/output paths are overridable so an isolated tree (make utest-smp)
-# can build a second configuration without touching the active .config.
-DEFCONFIG     ?= configs/cuteos_defconfig
+# Config/output paths are overridable so an isolated tree can build a second
+# configuration without touching the active .config.
+# DEFCONFIG is a bare filename, resolved only under configs/.
+DEFCONFIG     ?= cuteos_defconfig
 DOT_CONFIG    ?= .config
 AUTO_CONF     ?= include/config/auto.conf
 AUTO_CONF_CMD ?= include/config/auto.conf.cmd
@@ -76,8 +77,8 @@ MCONF          := $(KCONFIG_DIR)/build/mconf
 KCONFIG_SRCS   := $(KCONFIG) arch/riscv/Kconfig fs/Kconfig kernel/Kconfig
 KCONFIG_SILENT := -s
 
-KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format defconfig \
-	test-cputime
+KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format \
+	defconfig savedefconfig test-cputime
 ifneq ($(strip $(MAKECMDGOALS)),)
 ifneq ($(filter-out $(KCONFIG_SKIP_GOALS),$(MAKECMDGOALS)),)
 KCONFIG_NEED_CONFIG := 1
@@ -101,9 +102,9 @@ KCONFIG_ENV := KCONFIG_CONFIG=$(DOT_CONFIG) \
 	KCONFIG_AUTOCONFIG=$(AUTO_CONF) \
 	KCONFIG_AUTOHEADER=$(AUTOCONF_H)
 
-$(DOT_CONFIG): $(CONF) $(DEFCONFIG) $(KCONFIG_SRCS)
+$(DOT_CONFIG): $(CONF) configs/$(DEFCONFIG) $(KCONFIG_SRCS)
 	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) \
-		--defconfig=$(DEFCONFIG) $(KCONFIG)
+		--defconfig=configs/$(DEFCONFIG) $(KCONFIG)
 
 $(AUTO_CONF) $(AUTOCONF_H): $(DOT_CONFIG) $(CONF) $(KCONFIG_SRCS)
 	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
@@ -115,10 +116,16 @@ endif
 
 syncconfig: $(AUTO_CONF)
 
-defconfig: $(CONF) $(DEFCONFIG) $(KCONFIG_SRCS)
-	$(Q)cp $(DEFCONFIG) $(DOT_CONFIG)
+# configs/$(DEFCONFIG) is a plain file prerequisite (never rebuilt), so a
+# defconfig edit triggers .config regeneration through the normal chain.
+defconfig: $(CONF) $(KCONFIG_SRCS)
+	$(Q)cp configs/$(DEFCONFIG) $(DOT_CONFIG)
 	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --olddefconfig $(KCONFIG)
 	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
+
+savedefconfig: $(CONF) $(DOT_CONFIG)
+	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) \
+		--savedefconfig=configs/$(DEFCONFIG) $(KCONFIG)
 
 menuconfig: $(MCONF) $(CONF) $(DOT_CONFIG)
 	$(Q)$(MCONF) $(KCONFIG)
@@ -141,4 +148,4 @@ include scripts/kernel.mk
 include scripts/userspace.mk
 include scripts/workflows.mk
 
-.PHONY: syncconfig defconfig menuconfig check-gcc-version
+.PHONY: syncconfig defconfig savedefconfig menuconfig check-gcc-version
