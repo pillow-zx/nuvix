@@ -18,6 +18,7 @@
 #define SBI_FID_BASE_PROBE_EXT	3
 #define SBI_FID_HSM_HART_START	0
 #define SBI_FID_HSM_HART_GET_STATUS 2
+#define SBI_FID_IPI_SEND	0
 
 /* SBI v0.2+ HSM hart states (hart_get_status value field). */
 #define SBI_HSM_STARTED	      0
@@ -39,6 +40,7 @@ struct sbi_ret sbi_probe_extension(uint64_t extension_id);
 struct sbi_ret sbi_hsm_hart_start(uint64_t hartid, uint64_t start_addr,
 				  uint64_t opaque);
 struct sbi_ret sbi_hsm_hart_get_status(uint64_t hartid);
+struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base);
 
 /* Symbolic name for an HSM state value, or NULL when unknown. */
 const char *sbi_hsm_status_name(uint64_t value);

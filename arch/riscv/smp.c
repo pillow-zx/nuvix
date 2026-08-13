@@ -9,6 +9,7 @@
 #include <arch/sbi.h>
 #include <arch/smp.h>
 #include <arch/page.h>
+#include <asm/csr.h>
 #include <kernel/cpu.h>
 #include <kernel/printk.h>
 #include <kernel/smp.h>
@@ -81,4 +82,18 @@ struct smp_hart_status smp_arch_hart_status(uint32_t hartid)
 const char *smp_arch_hart_status_name(uint64_t value)
 {
 	return sbi_hsm_status_name(value);
+}
+
+int smp_arch_ipi_notify(uint32_t hartid)
+{
+	struct sbi_ret ret = sbi_ipi_send(1, hartid);
+
+	return (int)ret.error;
+}
+
+void smp_arch_ipi_ack(void)
+{
+	/* QEMU virt asserts sip.SSIP by writing 1 (not W1C), so the
+	 * acknowledgement writes it to zero. */
+	csr_clear(sip, SIP_SSIP);
 }

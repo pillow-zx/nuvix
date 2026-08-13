@@ -31,6 +31,14 @@
  */
 #define SSTATUS_SUM  BIT(18)
 
+/** @def SIE_SSIE
+ * @brief Supervisor software interrupt-enable bit in sie.
+ */
+#define SIE_SSIE BIT(1)
+/** @def SIP_SSIP
+ * @brief Supervisor software interrupt pending bit in sip (write 1 to clear).
+ */
+#define SIP_SSIP BIT(1)
 /** @def SIE_STIE
  * @brief Supervisor timer interrupt-enable bit in sie.
  */

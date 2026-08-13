@@ -28,4 +28,12 @@ const char *smp_arch_hart_status_name(uint64_t value);
 /* Physical entry address of the secondary trampoline. */
 uintptr_t smp_arch_secondary_entry_pa(void);
 
+/* Deliver one supervisor software interrupt to a hart via SBI IPI.
+ * Returns the SBI error, or 0 on success. */
+int smp_arch_ipi_notify(uint32_t hartid);
+
+/* Acknowledge the current hart's software interrupt: clear the CLINT
+ * msip level that drives SSIP, then sip.SSIP. */
+void smp_arch_ipi_ack(void);
+
 #endif

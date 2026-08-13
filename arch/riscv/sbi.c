@@ -67,6 +67,12 @@ struct sbi_ret sbi_hsm_hart_get_status(uint64_t hartid)
 			 0, 0);
 }
 
+struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base)
+{
+	return sbi_ecall(SBI_EID_IPI, SBI_FID_IPI_SEND, hart_mask,
+			 hart_mask_base, 0, 0, 0);
+}
+
 const char *sbi_hsm_status_name(uint64_t value)
 {
 	switch (value) {
