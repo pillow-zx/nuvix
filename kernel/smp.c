@@ -1,8 +1,8 @@
 /*
  * kernel/smp.c - generic CPU bring-up and secondary idle
  *
- * CPU 0 coordinates topology publication, HSM start, and the acquire wait
- * for each secondary's self-published ONLINE state. Secondary harts run
+ * Logical CPU 0 coordinates topology publication, HSM start, and the acquire
+ * wait for each secondary's self-published ONLINE state. Secondary harts run
  * only their local idle loop: no scheduler, no allocator, no I/O.
  */
 
@@ -20,8 +20,8 @@
 #include <arch/trap.h>
 
 /* Boot-error slot per CPU. Written by the pre-satp trampoline (plain store)
- * and by smp_secondary_main() before a PARKED release store; CPU 0 reads it
- * only for failure diagnostics. */
+ * and by smp_secondary_main() before a PARKED release store; logical CPU 0
+ * reads it only for failure diagnostics. */
 uint32_t smp_boot_errors[NR_CPUS];
 
 __noreturn
@@ -48,7 +48,8 @@ static void smp_boot_fail(uint32_t id, const char *reason,
 	unreachable();
 }
 
-static __noreturn void smp_gate_fail(uint64_t secondary_mask,
+__noreturn
+static void smp_gate_fail(uint64_t secondary_mask,
 				     uint64_t timer_seen, uint64_t ipi_observed,
 				     const char *what)
 {
@@ -149,14 +150,12 @@ static void smp_wait_online(uint32_t id)
 
 int smp_prepare(uint32_t boot_hartid)
 {
-	const struct cpu_topology_entry *entries;
+	struct cpu_topology_entry entries[NR_CPUS];
 	uint32_t count;
 	int ret;
 
-	entries = platform_cpu_entries(&count);
-	if (!entries || !count || count > NR_CPUS)
-		return -EINVAL;
-	if (boot_hartid != platform_boot_hartid())
+	ret = platform_cpu_entries(boot_hartid, entries, &count);
+	if (ret < 0 || !count || count > NR_CPUS)
 		return -EINVAL;
 	ret = cpu_topology_init(entries, count);
 	if (ret < 0)
@@ -177,12 +176,8 @@ void smp_boot_cpus(void)
 	 * secondary can switch to it. */
 	BUG_ON(!pgtable_boot_token_valid());
 
-	/* Find the boot CPU in the topology; never assume logical 0. */
+	/* platform_cpu_entries() normalizes the SBI boot hart to logical CPU 0. */
 	boot_id = 0;
-	for (id = 0; id < nr_cpu_ids; id++)
-		if (cpu_table[id].hartid == platform_boot_hartid())
-			boot_id = id;
-	BUG_ON(cpu_table[boot_id].hartid != platform_boot_hartid());
 
 	/* Publish the boot CPU online/schedulable: its idle/current and local
 	 * state were prepared before smp_boot_cpus() was called. */

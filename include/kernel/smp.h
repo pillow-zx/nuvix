@@ -25,16 +25,17 @@
 struct cpu_topology_entry;
 
 /*
- * Platform CPU-data module: the sole owner of the hart enumeration. Returns
- * the first CONFIG_QEMU_CPUS entries of the QEMU virt table.
+ * Platform CPU-data module: the sole owner of hart enumeration. It maps the
+ * SBI boot hart to logical CPU 0 and fills the caller-provided entries.
  */
-const struct cpu_topology_entry *platform_cpu_entries(uint32_t *count);
-uint32_t platform_boot_hartid(void);
+int platform_cpu_entries(uint32_t boot_hartid,
+			 struct cpu_topology_entry *entries, uint32_t *count);
 
 /*
  * Generic bring-up. smp_prepare() validates the boot hart and topology;
  * smp_boot_cpus() starts secondaries and waits for ONLINE, panicking on any
- * mismatch or timeout. Both run on CPU 0 only.
+ * mismatch or timeout. Both run on logical CPU 0, which is the SBI boot
+ * hart for this boot.
  */
 int smp_prepare(uint32_t boot_hartid);
 void smp_boot_cpus(void);

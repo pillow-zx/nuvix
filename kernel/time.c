@@ -111,7 +111,7 @@ void clockevent_handle_irq(uint64_t now)
 
 	/* Boot-health: publish the first handled local scheduler tick after
 	 * reprogramming the next timer, proving this CPU's Sstc path works
-	 * end to end. CPU 0 reads this only through cpu_timer_seen(). */
+	 * end to end. Logical CPU 0 reads this only through cpu_timer_seen(). */
 	if (tick)
 		atomic_isize_set_release(&clockevent_timer_seen[current_cpu()->id],
 					 1);

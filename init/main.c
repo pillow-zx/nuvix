@@ -76,7 +76,8 @@ void kernel_main(uint64_t boot_hartid)
 	clockevent_init();
 	pr_info("timer: init successfully\n");
 
-	/* CPU 0-local initialization: touches only this hart's CSRs and slot.
+	/* Logical CPU 0-local initialization: touches only this hart's CSRs and
+	 * slot.
 	 * The Sstc timer is programmed only after task_init, so a timer IRQ
 	 * can never fire with no current task installed. */
 	trap_cpu_init();
@@ -88,8 +89,7 @@ void kernel_main(uint64_t boot_hartid)
 
 	/* Boot every configured secondary into its isolated idle loop
 	 * before any syscall/VFS/device/thread initialization. The boot
-	 * CPU's online/schedulable publication happens inside smp_boot_cpus()
-	 * after it locates the boot logical ID in the topology. */
+	 * CPU's online/schedulable publication happens inside smp_boot_cpus(). */
 	smp_boot_cpus();
 
 	syscall_init();

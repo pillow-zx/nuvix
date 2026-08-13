@@ -51,7 +51,7 @@ void smp_arch_prepare(void)
 		uint32_t hartid = cpu_table[id].hartid;
 		const char *name;
 
-		if (hartid == platform_boot_hartid())
+		if (id == 0)
 			continue;
 
 		ret = sbi_hsm_hart_get_status(hartid);

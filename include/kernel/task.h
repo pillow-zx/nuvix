@@ -130,7 +130,8 @@ struct task_sched_entity {
  *
  * The architecture state remains first because `entry.S` consumes fixed
  * offsets generated for this prefix.  Scheduler-owned fields are present
- * from the first build even though only CPU 0 is online today.
+ * from the first build even though ordinary tasks currently run only on
+ * logical CPU 0.
  */
 struct task_struct {
 	struct task_state arch;
