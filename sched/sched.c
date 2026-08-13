@@ -72,7 +72,9 @@ static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
 	/* Affinity invariant: a task may only sit on a runqueue whose CPU is
 	 * in its allowed mask. CPU assignment is scheduler-owner state. */
 	BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
-	task->cpu = cpu_by_id((uint32_t)(rq - runqueues));
+	/* Direct slot indexing: runqueues are indexed 0..NR_CPUS-1 and the
+	 * slot always exists; cpu_by_id() would truncate at nr_cpu_ids. */
+	task->cpu = &cpu_table[(uint32_t)(rq - runqueues)];
 	policy->enqueue(rq, task, reason);
 	task->on_rq = true;
 	rq->nr_running++;
@@ -103,7 +105,7 @@ static void sched_switch_locked(struct runqueue *rq, struct task_struct *prev,
 	if (prev && prev != rq->idle)
 		prev->on_cpu = false;
 	if (next) {
-		next->cpu = cpu_by_id((uint32_t)(rq - runqueues));
+		next->cpu = &cpu_table[(uint32_t)(rq - runqueues)];
 		next->on_cpu = true;
 		next->run_state = TASK_RUNNING;
 	}
