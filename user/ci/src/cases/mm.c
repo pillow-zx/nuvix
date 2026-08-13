@@ -208,6 +208,34 @@ UT_CASE(cow_write_readonly_never_segfaults, 5000)
 	UT_ASSERT_EQ(munmap(mapping, page_size), 0);
 }
 
+UT_CASE(cow_fork_mprotect_isolation, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	uint32_t *page;
+	pid_t child;
+
+	UT_ASSERT(page_size > 0);
+	page = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(page != MAP_FAILED);
+	page[0] = 0x1111;
+	child = UT_FORK();
+	if (child == 0) {
+		/* mprotect(RW) on a fork-shared page must not grant a
+		 * writable view of the shared physical page. */
+		if (mprotect(page, page_size, PROT_READ | PROT_WRITE) != 0)
+			_exit(90);
+		page[0] = 0x2222;
+		if (page[0] != 0x2222)
+			_exit(91);
+		_exit(0);
+	}
+	UT_EXPECT_EXIT(child, 0);
+	/* The parent's page must be untouched by the child's write. */
+	UT_EXPECT_EQ(page[0], 0x1111);
+	UT_ASSERT_EQ(munmap(page, page_size), 0);
+}
+
 UT_CASE(cow_fork_stress, 10000)
 {
 	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
