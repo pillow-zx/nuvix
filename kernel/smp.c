@@ -9,12 +9,14 @@
 #include <kernel/smp.h>
 #include <kernel/cpu.h>
 #include <kernel/errno.h>
+#include <kernel/ipi.h>
 #include <kernel/pgtable.h>
 #include <kernel/processor.h>
 #include <kernel/printk.h>
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/irq.h>
+#include <asm/csr.h>
 #include <arch/trap.h>
 
 /* Boot-error slot per CPU. Written by the pre-satp trampoline (plain store)
@@ -44,6 +46,86 @@ static void smp_boot_fail(uint32_t id, const char *reason,
 	       status.error, status.value, name ? name : "unknown");
 	panic("smp: cpu %u (hart %u) boot failed\n", id, cpu->hartid);
 	unreachable();
+}
+
+static __noreturn void smp_gate_fail(uint64_t secondary_mask,
+				     uint64_t timer_seen, uint64_t ipi_observed,
+				     const char *what)
+{
+	pr_err("smp: boot gate failed: %s\n"
+	       "smp:   secondary expected=0x%llx online=0x%llx "
+	       "schedulable=0x%llx\n"
+	       "smp:   timer_seen=0x%llx ipi_seen=0x%llx\n",
+	       what, secondary_mask, cpu_online_mask(),
+	       cpu_schedulable_mask(), timer_seen, ipi_observed);
+	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
+		struct cpu *cpu = &cpu_table[id];
+
+		pr_err("smp:   cpu %u: hart=%u state=%u boot_error=%u "
+		       "timer_seen=%d ipi_seen=%d pending=0x%x\n",
+		       id, cpu->hartid, cpu_state_load_acquire(cpu),
+		       smp_boot_errors[id], cpu_timer_seen(id), ipi_seen(id),
+		       ipi_pending_reasons(id));
+	}
+	panic("smp: boot gate failed: %s\n", what);
+	unreachable();
+}
+
+static void smp_boot_gate(uint32_t boot_id)
+{
+	uint64_t secondary_mask = 0;
+	uint64_t timer_seen = 0;
+	uint64_t ipi_observed = 0;
+	uint64_t deadline;
+	uint32_t id;
+
+	for (id = 0; id < nr_cpu_ids; id++)
+		if (id != boot_id)
+			secondary_mask |= (1ULL << id);
+	BUG_ON((cpu_online_mask() & ~(1ULL << boot_id)) != secondary_mask);
+	BUG_ON(cpu_schedulable_mask() != (1ULL << boot_id));
+
+	if (nr_cpu_ids == 1)
+		return; /* UP: validate state only; no SMP sentinel. */
+
+	/* Every secondary must prove one local timer tick within one
+	 * second; the observation is published after reprogramming. */
+	deadline = timer_now() + MTIME_FREQ;
+	while (timer_seen != secondary_mask) {
+		timer_seen = 0;
+		for (id = 0; id < nr_cpu_ids; id++)
+			if (id != boot_id && cpu_timer_seen(id))
+				timer_seen |= (1ULL << id);
+		if ((int64_t)(deadline - timer_now()) < 0)
+			smp_gate_fail(secondary_mask, timer_seen,
+				      ipi_observed, "timer-seen");
+	}
+
+	/* One reschedule IPI per secondary; SBI failure is fatal. */
+	for (id = 0; id < nr_cpu_ids; id++) {
+		if (id == boot_id)
+			continue;
+		if (ipi_send(id, IPI_RESCHEDULE) != 0)
+			smp_gate_fail(secondary_mask, timer_seen,
+				      ipi_observed, "ipi-send");
+	}
+
+	/* Every secondary must acknowledge one delivery within one second. */
+	deadline = timer_now() + MTIME_FREQ;
+	while (ipi_observed != secondary_mask) {
+		ipi_observed = 0;
+		for (id = 0; id < nr_cpu_ids; id++)
+			if (id != boot_id && ipi_seen(id))
+				ipi_observed |= (1ULL << id);
+		if ((int64_t)(deadline - timer_now()) < 0)
+			smp_gate_fail(secondary_mask, timer_seen,
+				      ipi_observed, "ipi-seen");
+	}
+
+	pr_info("[SMP] ready cpus=%u online=0x%llx schedulable=0x%llx "
+		"timer_seen=0x%llx ipi_seen=0x%llx\n",
+		nr_cpu_ids, cpu_online_mask(), cpu_schedulable_mask(),
+		timer_seen, ipi_observed);
 }
 
 static void smp_wait_online(uint32_t id)
@@ -126,11 +208,10 @@ void smp_boot_cpus(void)
 		smp_wait_online(id);
 	}
 
-	/* Every configured CPU online and only the boot CPU schedulable,
-	 * before any syscall/VFS/device/thread initialization proceeds. */
-	for (id = 0; id < nr_cpu_ids; id++)
-		BUG_ON(!cpu_is_online(id));
-	BUG_ON(cpu_schedulable_mask() != (1ULL << boot_id));
+	/* Mandatory boot gate: timer and IPI proof from every secondary,
+	 * plus online/schedulable assertions, before any syscall/VFS/device
+	 * or thread initialization proceeds. */
+	smp_boot_gate(boot_id);
 }
 
 __noreturn
