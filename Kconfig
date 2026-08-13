@@ -4,8 +4,16 @@ menu "General setup"
 
 comment "cuteOS uses a single .config in the repository root."
 
+config ARCH_RISCV
+	bool
+	default y
+
 endmenu
 
 source "kernel/Kconfig"
+
+if ARCH_RISCV
 source "arch/riscv/Kconfig"
+endif
+
 source "fs/Kconfig"

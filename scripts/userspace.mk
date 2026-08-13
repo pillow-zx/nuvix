@@ -2,8 +2,14 @@
 
 USER_CC = $(TOOLPREFIX)gcc
 USER_READELF = $(TOOLPREFIX)readelf
-USER_ARCH_FLAGS = -march=rv64imac_zicsr_zifencei -mabi=lp64 -mcmodel=medany
 USER_ELF_CHECK = scripts/tools/check-user-elf.sh
+
+# User-space flags are independent of the kernel CFLAGS/ASFLAGS; the two
+# sides share only the TOOLPREFIX toolchain. UCFLAGS is the user-space
+# common base; each build (musl, busybox, utest) layers its own flags on
+# top with +=.
+UCFLAGS = -march=rv64imac_zicsr_zifencei -mabi=lp64 -mcmodel=medany
+UCFLAGS += -fno-pie -fno-stack-protector
 
 USER_OUTROOT = $(OUTROOT)/user
 USER_OUT = $(USER_OUTROOT)
@@ -24,8 +30,8 @@ COMPILER_RT_SRC = user/runtime/compiler_rt.zig
 COMPILER_RT_OUT = $(USER_OUTROOT)/runtime
 COMPILER_RT_A = $(COMPILER_RT_OUT)/libcompiler_rt.a
 
-MUSL_CFLAGS = $(USER_ARCH_FLAGS) -Os -fno-pie -fno-stack-protector
-MUSL_LDFLAGS = $(USER_ARCH_FLAGS) -no-pie -Wl,-z,max-page-size=4096
+MUSL_CFLAGS = $(UCFLAGS) -Os
+MUSL_LDFLAGS = $(UCFLAGS) -no-pie -Wl,-z,max-page-size=4096
 
 $(MUSL_CONFIG): $(MUSL_SRC)/configure $(MUSL_SRC)/VERSION
 	$(QUIET_MUSL)
@@ -84,7 +90,7 @@ BUSYBOX_ELF = $(BUSYBOX_BUILD)/busybox
 BUSYBOX_INSTALL_STAMP = $(BUSYBOX_OUT)/.installed
 
 BUSYBOX_CC = $(USER_CC) -specs=$(abspath $(MUSL_SPECS)) \
-	$(USER_ARCH_FLAGS) -fno-pie -no-pie -fno-stack-protector -std=gnu11
+	$(UCFLAGS) -std=gnu11
 
 BUSYBOX_MAKE = $(MAKE) -s -C $(BUSYBOX_SRC) \
 	O=$(abspath $(BUSYBOX_BUILD)) \
@@ -133,9 +139,9 @@ UTEST_ELFS = $(UTEST_RUNNER) $(UTEST_PROBE_ARGV_ENV) $(UTEST_PROBE_BSS) \
 UTEST_CASE_SRCS := $(sort $(shell find $(UTEST_SRC)/src/cases -type f -name '*.c'))
 UTEST_RUNNER_SRCS = $(UTEST_SRC)/src/utest.c $(UTEST_SRC)/src/runner.c \
 	$(UTEST_CASE_SRCS)
-UTEST_CFLAGS = $(USER_ARCH_FLAGS) -O2 -fno-pie -fno-stack-protector \
-	-std=gnu23 -D_GNU_SOURCE -I$(abspath $(UTEST_SRC)/include)
-UTEST_LDFLAGS = $(USER_ARCH_FLAGS) -static -no-pie \
+UTEST_CFLAGS = $(UCFLAGS) -O2 -std=gnu23 -D_GNU_SOURCE \
+	-I$(abspath $(UTEST_SRC)/include)
+UTEST_LDFLAGS = $(UCFLAGS) -static -no-pie \
 	-L$(abspath $(COMPILER_RT_OUT)) -Wl,--start-group -lcompiler_rt -lc \
 	-Wl,--end-group
 UTEST_CC = $(USER_CC) -specs=$(abspath $(MUSL_SPECS))
@@ -209,9 +215,7 @@ $(UTEST_ROOTFS_STAMP): $(UTEST_ROOTFS_DEPS) $(AUTO_CONF)
 	$(Q)cp $(UTEST_ELFS) $(UTEST_ROOTFS)/usr/lib/cuteos-tests/
 	$(Q)touch $@
 
-$(USER_ELFS): check-gcc-version
-
-busybox-menuconfig: 
+busybox-menuconfig:
 	$(Q)$(BUSYBOX_MENUCONFIG)
 
 user: check-gcc-version $(USER_ELFS)

@@ -1,69 +1,58 @@
 # Kernel build: compiler policy, linking, and analysis.
+#
+# Flags are split into three layers: COMMON_FLAGS carries the arch, include,
+# and config-header base shared by C and S compiles; CFLAGS adds C-only
+# policy; ASFLAGS adds the S-only parts. Both compile rules pull in the
+# common base with `+= $(COMMON_FLAGS)`.
 
-KERNEL_ARCH_FLAGS = -march=rv64gc -mabi=lp64 -mcmodel=medany
+# Kconfig string options arrive quoted ("-O2"); strip for direct use.
+remove_quote = $(patsubst "%",%,$(1))
 
-COMMON_SECTION_CFLAGS = -ffunction-sections -fdata-sections
-COMMON_NO_STACK_PROTECTOR_CFLAGS = -fno-stack-protector
-COMMON_NO_PIE_CFLAGS = -fno-pie -no-pie
-COMMON_DEBUG_INFO_CFLAGS = -g3 -ggdb -gdwarf-4
-COMMON_DEBUG_INFO_ASFLAGS = -g
-COMMON_LTO_CFLAGS = -flto=auto
-COMMON_UBSAN_TRAP_CFLAGS = -fsanitize-trap=undefined
+# -mno-relax: the kernel links at a fixed KERNEL_VBASE and early boot code
+# runs with PC below the mapping; linker relaxation rewriting auipc+addi
+# pairs would break address assumptions. Linux riscv does the same.
+ARCH_FLAGS = -march=rv64gc -mabi=lp64 -mno-relax
 
-CFLAGS = $(KERNEL_ARCH_FLAGS)
-ASFLAGS = -march=rv64gc -mabi=lp64
+COMMON_FLAGS = $(ARCH_FLAGS)
+COMMON_FLAGS += -I include
+COMMON_FLAGS += -I arch/riscv/include
+COMMON_FLAGS += -include $(AUTOCONF_H)
 
-CFLAGS += -Wall -Werror
+CFLAGS = -mcmodel=medany
+CFLAGS += -Wall -Werror -Wformat
 CFLAGS += -Wno-unknown-attributes
 CFLAGS += -Wno-main
 CFLAGS += -std=gnu17
-CFLAGS += -I include
-CFLAGS += -I arch/riscv/include
-ASFLAGS += -I include
-ASFLAGS += -I arch/riscv/include
-CFLAGS += -include $(AUTOCONF_H)
 CFLAGS += -include include/kernel/compiler.h
-ASFLAGS += -include $(AUTOCONF_H)
-
 CFLAGS += -ffreestanding -fno-common -nostdlib -nostdinc
-CFLAGS += $(COMMON_NO_STACK_PROTECTOR_CFLAGS)
-CFLAGS += $(COMMON_NO_PIE_CFLAGS)
-CFLAGS += -Wno-maybe-uninitialized
+CFLAGS += -fno-stack-protector
+CFLAGS += -fno-delete-null-pointer-checks
+CFLAGS += -fno-strict-aliasing
+CFLAGS += -fno-pic -fno-pie -no-pie
+CFLAGS += -MD
+CFLAGS += $(COMMON_FLAGS)
 
-LDFLAGS = -z max-page-size=4096
+ASFLAGS = -MD
+ASFLAGS += $(COMMON_FLAGS)
 
-KERNEL_LD = $(LD)
-KERNEL_LINKER_SCRIPT = arch/riscv/kernel.ld
-KERNEL_LD_SCRIPT = -T $(KERNEL_LINKER_SCRIPT)
-KERNEL_LDFLAGS = $(LDFLAGS)
-KERNEL_LINK_WITH_CC = 0
-KERNEL_GC_SECTIONS = 0
+LDFLAGS = -z max-page-size=4096 --no-relax
 
-ifeq ($(CONFIG_CC_OPTIMIZE_O0),y)
-CFLAGS += -O0
-else ifeq ($(CONFIG_CC_OPTIMIZE_O1),y)
-CFLAGS += -O1
-else ifeq ($(CONFIG_CC_OPTIMIZE_OG),y)
-CFLAGS += -Og
-else ifeq ($(CONFIG_CC_OPTIMIZE_O2),y)
-CFLAGS += -O2
-else ifeq ($(CONFIG_CC_OPTIMIZE_O3),y)
-CFLAGS += -O3
-else ifeq ($(CONFIG_CC_OPTIMIZE_OZ),y)
-CFLAGS += -Oz
-else ifeq ($(CONFIG_CC_OPTIMIZE_OS),y)
-CFLAGS += -Os
-endif
+LINKER_SCRIPT = arch/riscv/kernel.ld
+LD_SCRIPT = -T $(LINKER_SCRIPT)
+LINK_WITH_CC = 0
+
+# CONFIG_CC_OPT is a derived string from the optimization choice in
+# kernel/Kconfig; the make side consumes it directly.
+CFLAGS += $(call remove_quote,$(CONFIG_CC_OPT))
 
 ifeq ($(CONFIG_GC_SECTIONS),y)
-CFLAGS += $(COMMON_SECTION_CFLAGS)
+CFLAGS += -ffunction-sections -fdata-sections
 LDFLAGS += --gc-sections
-KERNEL_GC_SECTIONS = 1
 endif
 
 ifeq ($(CONFIG_DEBUG_INFO),y)
-CFLAGS += $(COMMON_DEBUG_INFO_CFLAGS)
-ASFLAGS += $(COMMON_DEBUG_INFO_ASFLAGS)
+CFLAGS += -g3 -ggdb -gdwarf-4
+ASFLAGS += -g
 endif
 
 ifeq ($(CONFIG_FRAME_POINTER),y)
@@ -71,37 +60,34 @@ CFLAGS += -fno-omit-frame-pointer
 endif
 
 ifeq ($(CONFIG_LTO),y)
-ifneq ($(COMMON_LTO_CFLAGS),)
-CFLAGS += $(COMMON_LTO_CFLAGS)
-KERNEL_LD = $(CC)
-KERNEL_LINK_WITH_CC = 1
-KERNEL_LD_SCRIPT = -Wl,-T,$(KERNEL_LINKER_SCRIPT)
-KERNEL_LDFLAGS = $(KERNEL_ARCH_FLAGS)
-KERNEL_LDFLAGS += -nostdlib -nostartfiles -fno-pie -no-pie
-KERNEL_LDFLAGS += $(COMMON_LTO_CFLAGS)
-KERNEL_LDFLAGS += -Wl,-z,max-page-size=4096
-ifeq ($(KERNEL_GC_SECTIONS),1)
-KERNEL_LDFLAGS += -Wl,--gc-sections
+CFLAGS += -flto=auto
+LD = $(CC)
+LINK_WITH_CC = 1
+LD_SCRIPT = -Wl,-T,$(LINKER_SCRIPT)
+LDFLAGS = $(ARCH_FLAGS)
+LDFLAGS += -nostdlib -nostartfiles -fno-pie -no-pie
+LDFLAGS += -flto=auto
+LDFLAGS += -Wl,-z,max-page-size=4096
+LDFLAGS += -Wl,--no-relax
+ifeq ($(CONFIG_GC_SECTIONS),y)
+LDFLAGS += -Wl,--gc-sections
 endif
-KERNEL_LDFLAGS += -Wl,--build-id=none
-endif
+LDFLAGS += -Wl,--build-id=none
 endif
 
 SANITIZE_CFLAGS =
 
 ifeq ($(CONFIG_UBSAN),y)
 SANITIZE_CFLAGS += -fsanitize=undefined
-SANITIZE_CFLAGS += $(COMMON_UBSAN_TRAP_CFLAGS)
+SANITIZE_CFLAGS += -fsanitize-trap=undefined
 SANITIZE_CFLAGS += -fno-sanitize-recover=all
 endif
 
 CFLAGS += $(SANITIZE_CFLAGS)
 
-ifeq ($(KERNEL_LINK_WITH_CC),1)
-KERNEL_LDFLAGS += $(SANITIZE_CFLAGS)
+ifeq ($(LINK_WITH_CC),1)
+LDFLAGS += $(SANITIZE_CFLAGS)
 endif
-
-CFLAGS += -MD
 
 include scripts/filelist.mk
 
@@ -133,24 +119,27 @@ KSYMS_OBJ =
 OBJS = $(OBJS_NOKSYMS)
 endif
 
+# check-gcc-version is phony, so it must not be a prerequisite of $(KERNEL)
+# (the link would rerun on every make). It stays on all, which is itself
+# phony and reruns the cheap version check every invocation.
 all: check-gcc-version $(KERNEL)
 
 $(KERNEL_NAME): $(KERNEL)
 
-$(KERNEL): check-gcc-version $(OBJS) $(KERNEL_LINKER_SCRIPT)
+$(KERNEL): $(OBJS) $(LINKER_SCRIPT)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_LD)
-	$(Q)$(KERNEL_LD) $(KERNEL_LDFLAGS) $(KERNEL_LD_SCRIPT) -o $@ $(OBJS)
+	$(Q)$(LD) $(LDFLAGS) $(LD_SCRIPT) -o $@ $(OBJS)
 	$(QUIET_OBJDUMP_S)
 	$(Q)$(OBJDUMP) -S $@ > $@.asm
 	$(QUIET_OBJDUMP_T)
 	$(Q)$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
 
 ifeq ($(CONFIG_KSYMS),y)
-$(KERNEL_STAGE1): $(OBJS_NOKSYMS) $(KERNEL_LINKER_SCRIPT)
+$(KERNEL_STAGE1): $(OBJS_NOKSYMS) $(LINKER_SCRIPT)
 	$(Q)mkdir -p $(dir $@)
 	$(QUIET_LD_STAGE1)
-	$(Q)$(KERNEL_LD) $(KERNEL_LDFLAGS) $(KERNEL_LD_SCRIPT) -o $@ $(OBJS_NOKSYMS)
+	$(Q)$(LD) $(LDFLAGS) $(LD_SCRIPT) -o $@ $(OBJS_NOKSYMS)
 	$(QUIET_OBJDUMP_T)
 	$(Q)$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
 
