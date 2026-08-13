@@ -52,7 +52,10 @@ static void sched_handoff(struct task_struct *prev, struct task_struct *next)
 
 static struct runqueue *sched_rq_for_cpu(struct cpu *cpu)
 {
-	return cpu ? &runqueues[cpu->id] : NULL;
+	/* The CPU pointer is the current hart's tp or a task's assigned CPU;
+	 * both must always be valid. */
+	BUG_ON(!cpu);
+	return &runqueues[cpu->id];
 }
 
 static struct runqueue *sched_rq_for_task(struct task_struct *task)
@@ -123,8 +126,10 @@ void sched_init(void)
 		rq->cpu_id = id;
 		INIT_LIST_HEAD(&rq->runnable);
 		rq->nr_running = 0;
-		rq->idle = cpu_by_id(id)->idle_task;
-		rq->current = cpu_by_id(id)->current_task;
+		/* Direct slot indexing like cpu_boot_init(): every enumerated slot
+		 * is prepared. Offline CPUs keep a NULL current until brought up. */
+		rq->idle = cpu_table[id].idle_task;
+		rq->current = cpu_table[id].current_task;
 		spin_lock_init(&retired_queues[id].lock, LOCK_RANK_RETIRED);
 		INIT_LIST_HEAD(&retired_queues[id].tasks);
 	}
