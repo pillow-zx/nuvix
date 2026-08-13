@@ -40,7 +40,7 @@ I/O 和 ABI 契约应当闭合，并不意味着当前项目承诺完整 Linux �
 
 | 领域 | 当前状态 | 长期目标 |
 | --- | --- | --- |
-| CPU | 只启动 hart 0，从核启动阶段 park | SMP 多核、per-CPU 状态、IPI 和远程唤醒 |
+| CPU | 全部配置 hart 经 SBI HSM 启动到各自 idle 循环，per-CPU trap/Sstc/IPI 状态独立；仅 CPU 0 可调度普通任务 | SMP 多核、远程唤醒、迁移、负载均衡和 offline |
 | 调度 | per-CPU FIFO RR（固定时间片），用户返回点可按 timer 请求切换 | 通用调度机制加可替换策略，支持迁移和负载管理 |
 | 内核抢占 | 未实现；内核路径不可抢占 | 完整的 preempt/IRQ/sleep 契约和内核抢占 |
 | 内存 | Sv39、固定 VMA 数组、延迟缺页、复制式 fork | 共享 mm 并发、uaccess、COW、TLB shootdown 和可扩展 MM 机制 |
@@ -112,12 +112,18 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验
 | `make qemu` | 构建镜像并启动 QEMU |
 | `make utest-build` | 构建用户态测试 ELF 和专用 rootfs 镜像 |
 | `make utest` | 从测试 rootfs 启动用户态回归套件，验证真实存储栈 |
+| `make utest-smp` | 双核回归：在隔离的 `build/smp` 树中构建并验证 SMP 启动门禁与完整用户套件 |
 | `make qemu-gdb` | 启动带 GDB stub 的暂停 QEMU |
 | `make analyze` | 运行 GCC analyzer 和额外诊断 |
 | `make clean` | 删除构建产物 |
 
-当前默认配置使用一个 QEMU CPU。SMP 目标完成前，不要仅通过增加 QEMU CPU 数量
-就把当前内核当成多核安全实现。
+当前默认配置使用一个 QEMU CPU；`CONFIG_QEMU_CPUS=N` 同时决定 QEMU `-smp` 和
+内核要求的 CPU 数。多核里程碑（plan 001-003 完成）下：每个配置 hart 必须经
+SBI HSM 启动到隔离 idle 循环，先证明本地 timer tick 与一次 IPI 投递（boot
+门禁）才继续初始化，失败即 panic；副核只执行 idle/timer/IPI，普通任务、
+VFS、分配器仍只在 CPU 0。`make utest-smp` 在隔离构建树中验证该门禁。普通
+任务的多核执行（迁移、共享 mm、远程唤醒）仍是后续门禁（plans/README.md
+004-007），不要仅通过增加 QEMU CPU 数量就把当前内核当成多核安全实现。
 
 ### 测试边界
 
