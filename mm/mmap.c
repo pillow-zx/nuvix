@@ -229,14 +229,26 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 				struct page *page = virt_to_page(__va(pa));
 
 				if (page &&
-				    refcount_dec_and_test(&page->refcount))
+				    refcount_read(&page->refcount) == 1) {
+					/* Last mapping: free_page() owns the
+					 * page; the buddy free resets the
+					 * refcount to zero. */
 					free_page(__va(pa), 0);
+				} else if (page) {
+					refcount_dec_and_test(&page->refcount);
+				}
 			}
 		} else {
 			struct page *page = virt_to_page(__va(pa));
 
-			if (page && refcount_dec_and_test(&page->refcount))
+			if (page && refcount_read(&page->refcount) == 1) {
+				/* Last mapping: free_page() owns the page;
+				 * the buddy free resets the refcount to
+				 * zero. */
 				free_page(__va(pa), 0);
+			} else if (page) {
+				refcount_dec_and_test(&page->refcount);
+			}
 		}
 
 		*pte = 0;
