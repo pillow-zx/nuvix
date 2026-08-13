@@ -10,6 +10,7 @@ ARCH_OBJS = \
 	arch/riscv/timer.o             \
 	arch/riscv/plic.o              \
 	arch/riscv/sbi.o               \
+	arch/riscv/platform.o          \
 	arch/riscv/mm/page_table.o     \
 	arch/riscv/mm/user_map.o       \
 	arch/riscv/mm/tlb.o            \

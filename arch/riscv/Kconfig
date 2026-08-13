@@ -23,6 +23,10 @@ config QEMU_CPUS
 	range 1 8
 	default 1
 	help
-	  This controls QEMU -smp only. The kernel still boots hart 0 only.
+	  Number of QEMU virt harts to boot. Controls both QEMU -smp and the
+	  exact number of required kernel CPUs: every configured hart must
+	  reach its idle loop through SBI HSM or the kernel panics. The virt
+	  platform table enumerates harts 0..7; the first N entries are
+	  required.
 
 endmenu
