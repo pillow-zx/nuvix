@@ -14,6 +14,11 @@ void trap_cpu_init(void)
 	csr_write(stvec, __alltraps);
 	csr_write(sscratch, 0);
 	csr_set(sie, SIE_STIE);
+}
+
+/* CPU 0-only diagnostic; secondaries must never print. */
+void trap_cpu_init_print(void)
+{
 	pr_info("stvec: 0x%lx, sscratch: 0x%lx, sie: 0x%lx, sstatus: 0x%lx\n",
 		csr_read(stvec), csr_read(sscratch), csr_read(sie),
 		csr_read(sstatus));

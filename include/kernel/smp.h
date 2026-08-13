@@ -40,7 +40,8 @@ int smp_prepare(uint32_t boot_hartid);
 void smp_boot_cpus(void);
 
 /* Secondary entry from the assembly trampoline; never returns. */
-__noreturn void smp_secondary_main(uint32_t hartid, uint32_t logical_id);
+__noreturn
+void smp_secondary_main(uint32_t hartid, uint32_t logical_id);
 
 /* Per-CPU boot-error slot, writable by the pre-satp trampoline. */
 extern uint32_t smp_boot_errors[];

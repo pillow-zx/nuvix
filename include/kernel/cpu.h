@@ -87,7 +87,7 @@ static inline void cpu_state_store_release(struct cpu *cpu, uint32_t state)
 	atomic_set_release(&cpu->state, (int)state);
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__always_inline __must_check __nonnull(1)
 static inline uint32_t cpu_state_load_acquire(const struct cpu *cpu)
 {
 	return (uint32_t)atomic_read_acquire(&cpu->state);
