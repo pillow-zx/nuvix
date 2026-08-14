@@ -1034,6 +1034,17 @@ static ssize_t mremap_move_locked(struct mm_struct *mm, const struct vm_area_str
 		new_template.vm_offset = vma_offset_at(old_vma, old_addr);
 
 	if (fixed) {
+		/* Pre-flight the whole move before tearing down the
+		 * destination.  The destination unmap may split VMAs, the
+		 * old-range unmap needs `old_needed` split slots, and the
+		 * new VMA needs one more; every one of these must fit in
+		 * the slots that exist *before* the destination is
+		 * unmapped.  Otherwise the -ENOMEM error path would return
+		 * after the destination range was already destroyed. */
+		if (vma_munmap_slots_needed(mm, new_start, new_end) +
+		    vma_munmap_slots_needed(mm, old_addr, old_end) + 1 >
+		    vma_free_slot_count(mm))
+			return -ENOMEM;
 		ret = mm_unmap_range_locked(mm, new_start, new_end);
 		if (ret < 0)
 			return ret;
