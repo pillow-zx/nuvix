@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
@@ -468,4 +469,100 @@ UT_CASE(cow_fork_release_paths, 10000)
 		UT_EXPECT_EQ(page[page_size / sizeof(*page)], 0x3333);
 	}
 	UT_ASSERT_EQ(munmap(page, page_size * 2), 0);
+}
+
+/*
+ * mm_mremap_fixed_slot_exhaustion_keeps_target
+ *
+ * Regression test for the mremap(MREMAP_FIXED) failure-path atomicity
+ * defect (fixed in mm/mmap.c mremap_move_locked): with the fixed VMA slot
+ * array (NR_VMA=16) exhausted, mremap must return -ENOMEM *without*
+ * destroying the destination range.  The pre-flight slot check runs
+ * before the destination unmap, so the destination mapping, its data and
+ * its VMA slot all survive the failed call.
+ *
+ * Before the fix this test failed: the destination was unmapped first and
+ * the -ENOMEM error path returned with the range silently destroyed
+ * (child access SIGSEGV, slot freed and immediately re-mappable).
+ */
+UT_CASE(mm_mremap_fixed_slot_exhaustion_keeps_target, 10000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	unsigned char *host;
+	unsigned char *target;
+	unsigned char *slots[16];
+	int nr_slots = 0;
+	unsigned int toggle = 0;
+	unsigned char *result;
+	pid_t child;
+
+	UT_ASSERT(page_size > 0);
+
+	/* 旧区宿主 [H, H+3P)：mremap 的 old 区间取其中间 1 页（内部挖空，
+	 * vma_munmap_slots_needed(old) = 1）。显式地址远离 text/data/heap。 */
+	host = mmap((void *)0x4000000UL, page_size * 3, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(host != MAP_FAILED);
+	UT_ASSERT_EQ((uintptr_t)host, 0x4000000UL);
+
+	/* 目标区 [T, T+3P)：MREMAP_FIXED 的落点，与旧区整删对齐
+	 * （vma_munmap_slots_needed(target) = 0，unmap 预检必然通过）。 */
+	target = mmap((void *)0x5000000UL, page_size * 3, PROT_READ | PROT_WRITE,
+		      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(target != MAP_FAILED);
+	UT_ASSERT_EQ((uintptr_t)target, 0x5000000UL);
+
+	/* 目标区与旧区宿主写入数据并 fault-in（失败路径不得破坏它们） */
+	memset(target, 0x5a, page_size * 3);
+	host[0] = 0x7b;
+
+	/* 交替 prot 填充 VMA 槽（相邻同属性 VMA 会合并，交替避免）直到占满 */
+	while (nr_slots < 16) {
+		int prot = (toggle++ & 1) ? PROT_READ
+					  : PROT_READ | PROT_WRITE;
+		void *p = mmap(NULL, page_size, prot,
+			       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+		if (p == MAP_FAILED)
+			break;
+		slots[nr_slots++] = p;
+	}
+	/* 槽已占满：任意新 mmap 必然失败 */
+	UT_EXPECT_EQ(mmap(NULL, page_size, PROT_READ,
+			  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0), MAP_FAILED);
+	printf("[mm] vma slots filled=%d\n", nr_slots);
+
+	/* 触发：槽数不足（旧区挖空 1 槽 + 新 VMA 1 槽 + 目标区拆分槽）→
+	 * 预检在目标区 unmap 之前失败，mremap 返回 -ENOMEM。 */
+	errno = 0;
+	result = mremap(host + page_size, page_size, page_size * 3,
+			MREMAP_MAYMOVE | MREMAP_FIXED, target);
+	UT_EXPECT_EQ(result, MAP_FAILED);
+	UT_EXPECT_EQ(errno, ENOMEM);
+	printf("[mm] mremap fixed result=%p errno=%d\n", (void *)result, errno);
+
+	/* 目标区必须完好：child 读到 0x5a 后正常退出（撕裂则 SIGSEGV） */
+	child = UT_FORK();
+	if (child == 0) {
+		volatile unsigned char value = target[0];
+
+		if (value != 0x5a)
+			_exit(126);
+		_exit(127);
+	}
+	UT_EXPECT_EXIT(child, 127);
+
+	/* 目标区槽必须保留：同一地址重新 mmap 必须失败（-EINVAL） */
+	UT_EXPECT_EQ(mmap((void *)0x5000000UL, page_size * 3,
+			  PROT_READ | PROT_WRITE,
+			  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0), MAP_FAILED);
+
+	/* 旧区宿主必须完好：数据仍在（mremap 失败未动旧区） */
+	UT_EXPECT_EQ(host[0], 0x7b);
+
+	/* 清理 */
+	for (int i = 0; i < nr_slots; i++)
+		UT_ASSERT_EQ(munmap(slots[i], page_size), 0);
+	UT_ASSERT_EQ(munmap(host, page_size * 3), 0);
+	UT_ASSERT_EQ(munmap(target, page_size * 3), 0);
 }
