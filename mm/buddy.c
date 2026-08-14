@@ -12,6 +12,7 @@
 
 struct page *mem_map;
 struct free_area free_area[MAX_ORDER + 1];
+static DEFINE_SPINLOCK(buddy_lock, LOCK_RANK_ALLOC);
 static size_t total_pages;
 static size_t nr_free_pages;
 
@@ -116,6 +117,8 @@ void buddy_init(void)
 {
 	void *mem_start = bootmem_end();
 
+	/* Pre-SMP boot phase: no secondary hart is online, so the free lists
+	 * are not yet shared. buddy_lock is not required here. */
 	total_pages = DRAM_SIZE / PAGE_SIZE;
 
 
@@ -174,17 +177,16 @@ void *get_free_page(uint32_t order, enum alloc_mode mode)
 	struct page *page;
 
 	alloc_check(mode);
+	spin_lock(&buddy_lock);
 	if (order > MAX_ORDER)
-		return NULL;
-
+		goto out;
 
 	uint32_t cur = order;
 	while (cur <= MAX_ORDER && list_empty(&free_area[cur].free_list))
 		cur++;
 
 	if (cur > MAX_ORDER)
-		return NULL;
-
+		goto out;
 
 	node = free_area[cur].free_list.next;
 	page = list_entry(node, struct page, lru);
@@ -199,15 +201,11 @@ void *get_free_page(uint32_t order, enum alloc_mode mode)
 		      cur, (unsigned long)page_to_pfn(page), page->order);
 	buddy_remove_free_block(page);
 
-
 	while (cur > order) {
 		cur--;
-
 		size_t buddy_pfn = page_to_pfn(page) + (1UL << cur);
-
 		buddy_add_free_block(buddy_pfn, cur, false);
 	}
-
 
 	page->flags = 0;
 	page->order = order;
@@ -215,7 +213,12 @@ void *get_free_page(uint32_t order, enum alloc_mode mode)
 
 	nr_free_pages -= (1UL << order);
 
+	spin_unlock(&buddy_lock);
 	return pfn_to_virt(page_to_pfn(page));
+
+out:
+	spin_unlock(&buddy_lock);
+	return NULL;
 }
 
 void free_page(void *addr, uint32_t order)
@@ -224,6 +227,7 @@ void free_page(void *addr, uint32_t order)
 	struct page *page;
 
 	alloc_free_check();
+	spin_lock(&buddy_lock);
 	if (order > MAX_ORDER)
 		panic("free_page: order %d > MAX_ORDER", order);
 
@@ -250,6 +254,7 @@ void free_page(void *addr, uint32_t order)
 	BUG_ON(!refcount_dec_and_test(&page->refcount));
 	page->flags = 0;
 	buddy_free_page(pfn, order);
+	spin_unlock(&buddy_lock);
 }
 
 void page_get(struct page *page)
@@ -265,13 +270,20 @@ void page_put(struct page *page)
 		return;
 
 	alloc_free_check();
+	spin_lock(&buddy_lock);
 	page->flags = 0;
 	buddy_free_page(page_to_pfn(page), 0);
+	spin_unlock(&buddy_lock);
 }
 
 size_t buddy_free_pages(void)
 {
-	return nr_free_pages;
+	size_t nr;
+
+	spin_lock(&buddy_lock);
+	nr = nr_free_pages;
+	spin_unlock(&buddy_lock);
+	return nr;
 }
 
 struct page *virt_to_page(const void *addr)
