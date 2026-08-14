@@ -34,24 +34,6 @@ I/O 和 ABI 契约应当闭合，并不意味着当前项目承诺完整 Linux �
 契约；syscall 层只做 ABI 适配，不能因为入口位于 `syscall/` 就拥有文件系统、
 内存或调度语义。
 
-## 当前状态
-
-当前普通任务执行基线是单个逻辑 CPU、内核不可抢占的 RISC-V 64 内核。未来目标
-与当前状态明确区分：
-
-| 领域 | 当前状态 | 长期目标 |
-| --- | --- | --- |
-| CPU | 全部配置 hart 经 SBI HSM 启动到各自 idle 循环，per-CPU trap/Sstc/IPI 状态独立；仅 logical CPU 0 可调度普通任务 | SMP 多核、远程唤醒、迁移、负载均衡和 offline |
-| 调度 | per-CPU FIFO RR（固定时间片），用户返回点可按 timer 请求切换 | 通用调度机制加可替换策略，支持迁移和负载管理 |
-| 内核抢占 | 未实现；内核路径不可抢占 | 完整的 preempt/IRQ/sleep 契约和内核抢占 |
-| 内存 | Sv39、固定 VMA 数组、延迟缺页、私有映射 COW fork | 共享 mm 并发、uaccess、TLB shootdown 和可扩展 MM 机制 |
-| 存储 | VFS、ext2、page cache、virtio-blk，主要为轮询 I/O | 并发安全的文件系统、页缓存、请求生命周期和 I/O 策略接缝 |
-| 架构 | RISC-V 64 与 QEMU `virt` | architecture、platform、user ABI 分层，并验证第二架构 |
-
-SMP、内核抢占和多架构不是可有可无的附加功能。虽然当前基线还没有实现它们，
-新代码不能继续依赖“关闭本地中断等于全局互斥”“CPU 0 等于当前 CPU”或“全局
-静态请求天然串行”等单核假设。
-
 ## 已有能力与边界
 
 当前系统具备以下主要能力：
@@ -69,15 +51,6 @@ SMP、内核抢占和多架构不是可有可无的附加功能。虽然当前�
 入口数量不等于完整 Linux 兼容。当前 syscall 的成熟度、最小语义、明确失败和
 后续优先级以 [SYSCALL.md](SYSCALL.md) 为准。架构文档记录实现边界，代码头文件
 记录精确的类型和接口。
-
-以下能力目前不属于运行时承诺，除非路线后续明确启用：
-
-- SMP、多核并发、内核抢占、IPI 和 TLB shootdown；
-- 动态链接、`PT_INTERP`、PIE、用户 FPU/vector 上下文；
-- swap、reclaim/OOM 和生产级内存压力处理；
-- 完整 Linux capability、namespace、cgroup 和安全模块；
-- 广泛设备、设备树/ACPI 平台发现、DMA/IOMMU、NUMA 和生产级块调度；
-- 完整实时/截止期调度、PI futex、procfs/sysfs 和全部 Linux 边缘语义。
 
 这些边界不应被误解为可以跳过 SMP、抢占所需的基础机制。真实 spinlock、内存
 序、per-CPU 状态、任务所有权、wait/wakeup、uaccess 生命周期、页表一致性、
@@ -121,12 +94,6 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验
 
 当前默认配置使用 QEMU `virt` 支持的八个 CPU；`CONFIG_QEMU_CPUS=N` 同时决定
 QEMU `-smp` 和内核要求的 CPU 数。SBI 实际 boot hart 始终映射为 logical CPU 0。
-多核里程碑（plan 001-003 完成）下：每个配置 hart 必须经 SBI HSM 启动到隔离
-idle 循环，先证明本地 timer tick 与一次 IPI 投递（boot 门禁）才继续初始化，
-失败即 panic；副核只执行 idle/timer/IPI，普通任务、VFS、分配器仍只在 logical
-CPU 0。`make utest` 验证所有配置副核的启动门禁。普通
-任务的多核执行（迁移、共享 mm、远程唤醒）仍是后续门禁（plans/README.md
-004-007），不要仅通过增加 QEMU CPU 数量就把当前内核当成多核安全实现。
 
 ### 测试边界
 
@@ -138,6 +105,8 @@ rootfs 和 virtio-blk 启动。module interface 的 host 单元测试计划在�
 ## 代码与文档导航
 
 - [SYSCALL.md](SYSCALL.md)：syscall 成熟度、语义边界、已知缺口和优先级。
+- `CONTEXT.md`（本地文件，不入库）：项目术语与当前基线快照。
+- `plans/`（本地目录，不入库）：短期实现计划与执行状态。
 - `include/kernel/`：通用内核接口、对象契约和跨子系统类型。
 - `include/uapi/`：用户可见的 syscall、结构、常量和 ABI 定义。
 - `scripts/filelist.mk`：内核源文件对象清单；新增源文件必须同步更新。
