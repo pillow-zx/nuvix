@@ -174,7 +174,7 @@ int user_range_probe(const void *addr, size_t size, bool write);
  * User memory must cross the kernel/userspace boundary through this helper or
  * an equivalent uaccess helper, never through direct dereference.
  */
-__must_check  __access(write_only, 1, 3) __access(read_only, 2, 3)
+__must_check __access(read_write, 1, 3) __access(read_only, 2, 3)
 size_t copy_to_user(void *to, const void *from, size_t n);
 
 

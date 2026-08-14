@@ -23,6 +23,7 @@
 #include <kernel/irq.h>
 #include <kernel/user_map_arch.h>
 #include <kernel/tty.h>
+#include <kernel/smp.h>
 
 static const char logo[] =
 	"  /$$$$$$              /$$                /$$$$$$   /$$$$$$ \n"
@@ -38,10 +39,6 @@ void kernel_main(uint64_t boot_hartid)
 {
 	struct task_struct *init;
 	struct task_struct *writeback;
-	struct cpu_topology_entry boot_topology = {
-		.logical_id = 0,
-		.hartid = (uint32_t)boot_hartid,
-	};
 	int ret;
 
 	console_init_sbi();
@@ -65,9 +62,9 @@ void kernel_main(uint64_t boot_hartid)
 	signal_user_map_init();
 	pr_info("mm: init successfully\n");
 
-	/* One-entry boot topology from OpenSBI's incoming hart; plan 002
-	 * replaces this singleton with platform enumeration. */
-	BUG_ON(cpu_topology_init(&boot_topology, 1) < 0);
+	/* Platform enumeration validates the boot hart and fills the
+	 * topology; every configured hart is required to start later. */
+	BUG_ON(smp_prepare((uint32_t)boot_hartid) < 0);
 
 	/* Global initialization: every static queue and slot is reset once. */
 	task_init();
@@ -79,19 +76,21 @@ void kernel_main(uint64_t boot_hartid)
 	clockevent_init();
 	pr_info("timer: init successfully\n");
 
-	/* CPU 0-local initialization: touches only this hart's CSRs and slot.
+	/* Logical CPU 0-local initialization: touches only this hart's CSRs and
+	 * slot.
 	 * The Sstc timer is programmed only after task_init, so a timer IRQ
 	 * can never fire with no current task installed. */
 	trap_cpu_init();
+	trap_cpu_init_print();
 	pr_info("trap: init successfully\n");
 
 	timer_cpu_init();
 	clockevent_cpu_init();
 
-	/* Publish CPU 0 only after its idle/current and local state exist. */
-	cpu_state_store_release(&cpu_table[0], CPU_ONLINE);
-	cpu_set_online(0);
-	cpu_set_schedulable(0);
+	/* Boot every configured secondary into its isolated idle loop
+	 * before any syscall/VFS/device/thread initialization. The boot
+	 * CPU's online/schedulable publication happens inside smp_boot_cpus(). */
+	smp_boot_cpus();
 
 	syscall_init();
 	pr_info("syscall: init successfully\n");

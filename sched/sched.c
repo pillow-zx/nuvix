@@ -72,7 +72,9 @@ static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
 	/* Affinity invariant: a task may only sit on a runqueue whose CPU is
 	 * in its allowed mask. CPU assignment is scheduler-owner state. */
 	BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
-	task->cpu = cpu_by_id((uint32_t)(rq - runqueues));
+	/* Direct slot indexing: runqueues are indexed 0..NR_CPUS-1 and the
+	 * slot always exists; cpu_by_id() would truncate at nr_cpu_ids. */
+	task->cpu = &cpu_table[(uint32_t)(rq - runqueues)];
 	policy->enqueue(rq, task, reason);
 	task->on_rq = true;
 	rq->nr_running++;
@@ -103,7 +105,7 @@ static void sched_switch_locked(struct runqueue *rq, struct task_struct *prev,
 	if (prev && prev != rq->idle)
 		prev->on_cpu = false;
 	if (next) {
-		next->cpu = cpu_by_id((uint32_t)(rq - runqueues));
+		next->cpu = &cpu_table[(uint32_t)(rq - runqueues)];
 		next->on_cpu = true;
 		next->run_state = TASK_RUNNING;
 	}
@@ -338,21 +340,19 @@ bool sched_has_runnable(void)
 	return rq->nr_running != 0;
 }
 
-void schedule(void)
+/*
+ * The one switch core behind both entries: enqueue the preempted task,
+ * pick, switch, hand off. IRQ state is restored to whatever the caller
+ * entered with, so the trap-return path may call in with IRQs already
+ * disabled (DESIGN.md: both entries share one scheduler core).
+ */
+static void sched_switch_core(void)
 {
-	struct runqueue *rq;
-	struct task_struct *prev;
+	struct runqueue *rq = sched_rq_for_cpu(current_cpu());
+	struct task_struct *prev = current_task();
 	struct task_struct *next;
 	irq_flags_t flags;
 
-	BUG_ON(in_irq());
-	BUG_ON(!current_task());
-	BUG_ON(!preemptible());
-	BUG_ON(spinlock_held());
-	BUG_ON(irqs_disabled());
-
-	rq = sched_rq_for_cpu(current_cpu());
-	prev = current_task();
 	flags = local_irq_save();
 	spin_lock(&rq->lock);
 	task_set_need_resched(prev, 0);
@@ -372,39 +372,27 @@ void schedule(void)
 	local_irq_restore(flags);
 }
 
+void schedule(void)
+{
+	BUG_ON(in_irq());
+	BUG_ON(!current_task());
+	BUG_ON(!preemptible());
+	BUG_ON(spinlock_held());
+	BUG_ON(irqs_disabled());
+
+	sched_switch_core();
+}
+
 void schedule_irqoff(void)
 {
+	/* The trap-return path owns IRQ restoration after this handoff. */
 	BUG_ON(!irqs_disabled());
 	BUG_ON(in_irq());
 	BUG_ON(!current_task());
 	BUG_ON(!preemptible());
 	BUG_ON(spinlock_held());
 
-	/* The trap-return path owns IRQ restoration after this handoff. */
-	{
-		struct runqueue *rq = sched_rq_for_cpu(current_cpu());
-		struct task_struct *prev = current_task();
-		struct task_struct *next;
-		irq_flags_t flags;
-
-		flags = local_irq_save();
-		spin_lock(&rq->lock);
-		task_set_need_resched(prev, 0);
-		if (prev != rq->idle && prev->lifecycle == TASK_LIVE &&
-		    prev->run_state == TASK_RUNNING && !prev->on_rq)
-			sched_enqueue_locked(rq, prev, SCHED_ENQUEUE_PREEMPT);
-		next = sched_pick_locked(rq);
-		if (!next)
-			next = rq->idle;
-		sched_switch_locked(rq, prev, next);
-		spin_unlock(&rq->lock);
-		if (next == prev) {
-			local_irq_restore(flags);
-			return;
-		}
-		sched_handoff(prev, next);
-		local_irq_restore(flags);
-	}
+	sched_switch_core();
 }
 
 __noreturn

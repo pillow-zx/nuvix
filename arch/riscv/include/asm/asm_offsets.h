@@ -80,8 +80,19 @@
 #define TASK_KSTACK_SIZE 1024 * 16
 
 /* ---- struct cpu offsets ---- */
+#define CPU_STATE	   8
 #define CPU_CURRENT_TASK  24
 #define CPU_PREEMPT_COUNT 32
 #define CPU_ENTRY_SCRATCH 48
+
+/*
+ * sizeof(struct cpu), config-dependent through CONFIG_DEBUG_CONTEXT.
+ * The C side checks it with a static_assert in include/kernel/cpu.h.
+ */
+#if defined(CONFIG_DEBUG_CONTEXT)
+#define CPU_SIZE 336
+#else
+#define CPU_SIZE 64
+#endif
 
 #endif

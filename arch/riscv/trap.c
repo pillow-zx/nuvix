@@ -17,6 +17,7 @@
 #include <kernel/signal.h>
 #include <kernel/wait.h>
 #include <kernel/user_return.h>
+#include <kernel/ipi.h>
 
 static const char *trap_origin(const struct trap_frame *tf)
 {
@@ -123,6 +124,12 @@ void trap_handler(struct trap_frame *tf)
 	if (is_interrupt) {
 		irq_enter();
 		switch (code) {
+		case IRQ_S_SOFT:
+			ipi_handle();
+			irq_exit();
+			if (user)
+				trap_user_return(tf);
+			return;
 		case IRQ_S_TIMER:
 			handle_timer_irq();
 			irq_exit();

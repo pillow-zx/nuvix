@@ -62,11 +62,14 @@ QUIET_ANALYZE = @echo '  ANALYZE $<'
 endif
 
 KCONFIG       := Kconfig
-DEFCONFIG     := configs/cuteos_defconfig
-DOT_CONFIG    := .config
-AUTO_CONF     := include/config/auto.conf
-AUTO_CONF_CMD := include/config/auto.conf.cmd
-AUTOCONF_H    := include/generated/autoconf.h
+# Config/output paths are overridable so an isolated tree can build a second
+# configuration without touching the active .config.
+# DEFCONFIG is a bare filename, resolved only under configs/.
+DEFCONFIG     ?= cuteos_defconfig
+DOT_CONFIG    ?= .config
+AUTO_CONF     ?= include/config/auto.conf
+AUTO_CONF_CMD ?= include/config/auto.conf.cmd
+AUTOCONF_H    ?= include/generated/autoconf.h
 
 KCONFIG_DIR    := tools/kconfig
 CONF           := $(KCONFIG_DIR)/build/conf
@@ -74,8 +77,8 @@ MCONF          := $(KCONFIG_DIR)/build/mconf
 KCONFIG_SRCS   := $(KCONFIG) arch/riscv/Kconfig fs/Kconfig kernel/Kconfig
 KCONFIG_SILENT := -s
 
-KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format defconfig \
-	test-cputime
+KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format \
+	defconfig savedefconfig test-cputime
 ifneq ($(strip $(MAKECMDGOALS)),)
 ifneq ($(filter-out $(KCONFIG_SKIP_GOALS),$(MAKECMDGOALS)),)
 KCONFIG_NEED_CONFIG := 1
@@ -92,11 +95,19 @@ $(CONF):
 $(MCONF):
 	$(Q)$(MAKE) -s -C $(KCONFIG_DIR) NAME=mconf
 
-$(DOT_CONFIG): $(CONF) $(DEFCONFIG) $(KCONFIG_SRCS)
-	$(Q)$(CONF) $(KCONFIG_SILENT) --defconfig=$(DEFCONFIG) $(KCONFIG)
+# Kconfig resolves its output paths from the environment; pass the
+# parameterized locations so an isolated tree never touches the root
+# .config. Default values keep the classic layout identical.
+KCONFIG_ENV := KCONFIG_CONFIG=$(DOT_CONFIG) \
+	KCONFIG_AUTOCONFIG=$(AUTO_CONF) \
+	KCONFIG_AUTOHEADER=$(AUTOCONF_H)
+
+$(DOT_CONFIG): $(CONF) configs/$(DEFCONFIG) $(KCONFIG_SRCS)
+	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) \
+		--defconfig=configs/$(DEFCONFIG) $(KCONFIG)
 
 $(AUTO_CONF) $(AUTOCONF_H): $(DOT_CONFIG) $(CONF) $(KCONFIG_SRCS)
-	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
+	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
 
 ifeq ($(KCONFIG_NEED_CONFIG),1)
 include $(AUTO_CONF)
@@ -105,10 +116,16 @@ endif
 
 syncconfig: $(AUTO_CONF)
 
-defconfig: $(CONF) $(DEFCONFIG) $(KCONFIG_SRCS)
-	$(Q)cp $(DEFCONFIG) $(DOT_CONFIG)
-	$(Q)$(CONF) $(KCONFIG_SILENT) --olddefconfig $(KCONFIG)
-	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
+# configs/$(DEFCONFIG) is a plain file prerequisite (never rebuilt), so a
+# defconfig edit triggers .config regeneration through the normal chain.
+defconfig: $(CONF) $(KCONFIG_SRCS)
+	$(Q)cp configs/$(DEFCONFIG) $(DOT_CONFIG)
+	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --olddefconfig $(KCONFIG)
+	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
+
+savedefconfig: $(CONF) $(DOT_CONFIG)
+	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) \
+		--savedefconfig=configs/$(DEFCONFIG) $(KCONFIG)
 
 menuconfig: $(MCONF) $(CONF) $(DOT_CONFIG)
 	$(Q)$(MCONF) $(KCONFIG)
@@ -131,4 +148,4 @@ include scripts/kernel.mk
 include scripts/userspace.mk
 include scripts/workflows.mk
 
-.PHONY: syncconfig defconfig menuconfig check-gcc-version
+.PHONY: syncconfig defconfig savedefconfig menuconfig check-gcc-version

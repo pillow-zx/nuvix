@@ -21,8 +21,9 @@ int mm_range_end_page_aligned(uintptr_t start, size_t length, uintptr_t *end)
 	aligned_len = mm_page_align_up(length);
 	if (aligned_len == 0 || start + aligned_len < start)
 		return -EINVAL;
+	/* Range beyond TASK_SIZE: same contract as mm_mlock_range(). */
 	if (start + aligned_len > TASK_SIZE)
-		return -EINVAL;
+		return -ENOMEM;
 
 	*end = start + aligned_len;
 	return 0;

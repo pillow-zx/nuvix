@@ -52,6 +52,10 @@ struct cpu {
 	      bool lock_irqsave[CPU_LOCK_MAX];)
 };
 
+static_assert(offsetof(struct cpu, state) == CPU_STATE,
+	      "CPU_STATE offset in entry.S out of sync with struct cpu");
+static_assert(sizeof(struct cpu) == CPU_SIZE,
+	      "CPU_SIZE in asm_offsets.h out of sync with struct cpu");
 static_assert(offsetof(struct cpu, current_task) == CPU_CURRENT_TASK,
 	      "CPU_CURRENT_TASK offset in entry.S out of sync with struct cpu");
 static_assert(
@@ -87,7 +91,7 @@ static inline void cpu_state_store_release(struct cpu *cpu, uint32_t state)
 	atomic_set_release(&cpu->state, (int)state);
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__always_inline __must_check __nonnull(1)
 static inline uint32_t cpu_state_load_acquire(const struct cpu *cpu)
 {
 	return (uint32_t)atomic_read_acquire(&cpu->state);
@@ -96,11 +100,12 @@ static inline uint32_t cpu_state_load_acquire(const struct cpu *cpu)
 /*
  * Online versus schedulable: the online mask records CPUs whose local state
  * exists; the schedulable mask records CPUs available to ordinary tasks.
- * Publication of both is release; observation is acquire.
+ * Publication of both is release; observation is acquire. Neither is
+ * __pure: the acquire reads must not be CSE'd across boot-gate iterations.
  */
-__must_check __pure
+__must_check
 uint64_t cpu_online_mask(void);
-__must_check __pure
+__must_check
 uint64_t cpu_schedulable_mask(void);
 
 void cpu_set_online(uint32_t id);

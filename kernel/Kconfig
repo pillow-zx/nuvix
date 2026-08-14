@@ -27,6 +27,16 @@ config CC_OPTIMIZE_OS
 
 endchoice
 
+config CC_OPT
+	string
+	default "-O0" if CC_OPTIMIZE_O0
+	default "-O1" if CC_OPTIMIZE_O1
+	default "-Og" if CC_OPTIMIZE_OG
+	default "-O2" if CC_OPTIMIZE_O2
+	default "-O3" if CC_OPTIMIZE_O3
+	default "-Oz" if CC_OPTIMIZE_OZ
+	default "-Os" if CC_OPTIMIZE_OS
+
 config GC_SECTIONS
 	bool "Garbage collect unused sections"
 	default y if !CC_OPTIMIZE_O0
@@ -64,7 +74,7 @@ config UBSAN
 
 config KSYMS
 	bool "Kernel symbol lookup table"
-	depends on !LTO
+	depends on !LTO && !GC_SECTIONS
 	default y
 
 endmenu

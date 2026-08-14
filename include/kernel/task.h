@@ -58,6 +58,8 @@ enum task_exit_request {
 #define TASK_ANY_SLEEP                                                         \
 	(TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE | TASK_KILLABLE)
 
+#define TASK_FLAG_IDLE (1u << 0)
+
 #define KSTACK_ORDER ARCH_KSTACK_ORDER
 #define KSTACK_SIZE  ARCH_KSTACK_SIZE
 
@@ -128,7 +130,8 @@ struct task_sched_entity {
  *
  * The architecture state remains first because `entry.S` consumes fixed
  * offsets generated for this prefix.  Scheduler-owned fields are present
- * from the first build even though only CPU 0 is online today.
+ * from the first build even though ordinary tasks currently run only on
+ * logical CPU 0.
  */
 struct task_struct {
 	struct task_state arch;
@@ -142,7 +145,6 @@ struct task_struct {
 	enum task_exit_request exit_request;
 	enum task_run_state run_state;
 	uint32_t flags;
-#define TASK_FLAG_IDLE (1u << 0)
 	struct cpu *cpu;
 	bool on_rq;
 	bool on_cpu;

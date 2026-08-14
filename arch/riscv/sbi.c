@@ -6,11 +6,6 @@
 #include <arch/system.h>
 #include <kernel/types.h>
 
-struct sbi_ret {
-	int64_t error;
-	int64_t value;
-};
-
 #define SBI_EID_CONSOLE_PUTCHAR 0x01
 #define SBI_EID_SHUTDOWN	0x08
 #define SBI_EID_SYSTEM_RESET	0x53525354
@@ -45,6 +40,57 @@ void sbi_console_putchar(int ch)
 {
 	sbi_ecall(SBI_EID_CONSOLE_PUTCHAR, 0, (uint64_t)(unsigned char)ch, 0, 0,
 		  0, 0);
+}
+
+struct sbi_ret sbi_base_spec_version(void)
+{
+	return sbi_ecall(SBI_EID_BASE, SBI_FID_BASE_SPEC_VERSION, 0, 0, 0, 0,
+			 0);
+}
+
+struct sbi_ret sbi_probe_extension(uint64_t extension_id)
+{
+	return sbi_ecall(SBI_EID_BASE, SBI_FID_BASE_PROBE_EXT, extension_id, 0,
+			 0, 0, 0);
+}
+
+struct sbi_ret sbi_hsm_hart_start(uint64_t hartid, uint64_t start_addr,
+				  uint64_t opaque)
+{
+	return sbi_ecall(SBI_EID_HSM, SBI_FID_HSM_HART_START, hartid,
+			 start_addr, opaque, 0, 0);
+}
+
+struct sbi_ret sbi_hsm_hart_get_status(uint64_t hartid)
+{
+	return sbi_ecall(SBI_EID_HSM, SBI_FID_HSM_HART_GET_STATUS, hartid, 0, 0,
+			 0, 0);
+}
+
+struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base)
+{
+	return sbi_ecall(SBI_EID_IPI, SBI_FID_IPI_SEND, hart_mask,
+			 hart_mask_base, 0, 0, 0);
+}
+
+const char *sbi_hsm_status_name(uint64_t value)
+{
+	switch (value) {
+	case SBI_HSM_STARTED:
+		return "STARTED";
+	case SBI_HSM_STOPPED:
+		return "STOPPED";
+	case SBI_HSM_START_PENDING:
+		return "START_PENDING";
+	case SBI_HSM_STOP_PENDING:
+		return "STOP_PENDING";
+	case SBI_HSM_SUSPENDED:
+		return "SUSPENDED";
+	case SBI_HSM_RESUME_PENDING:
+		return "RESUME_PENDING";
+	default:
+		return NULL;
+	}
 }
 
 void system_reset(enum system_reset_mode mode)

@@ -13,8 +13,9 @@
 #include <arch/processor.h>
 
 /*
- * Boot baseline: every task is affine to CPU 0 until sched_set_affinity
- * replaces the mask. Single-CPU build (nr_cpu_ids fixed at boot).
+ * Boot baseline: every task is affine to logical CPU 0 until
+ * sched_set_affinity replaces the mask. The configured CPU count is fixed at
+ * boot.
  */
 #define SCHED_BOOT_AFFINITY_MASK BIT(0)
 

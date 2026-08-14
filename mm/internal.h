@@ -132,6 +132,13 @@ static inline pgprot_t vma_flags_to_pte(uint32_t vm_flags)
 			   (vm_flags & VM_EXEC) != 0);
 }
 
+/* COW view of a leaf protection: readable, never writable. */
+__always_inline __must_check __const
+static inline pgprot_t pgprot_make_readonly(pgprot_t prot)
+{
+	return (prot & ~PTE_W) | PTE_R;
+}
+
 __always_inline __must_check __pure __nonnull(1)
 static inline bool vma_overlaps(const struct vm_area_struct *vma, const uintptr_t start, const uintptr_t end)
 {

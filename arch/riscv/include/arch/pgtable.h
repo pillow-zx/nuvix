@@ -3,6 +3,7 @@
 
 #include <kernel/compiler.h>
 #include <kernel/types.h>
+#include <kernel/atomic.h>
 #include <arch/page.h>
 #include <asm/csr.h>
 #include <asm/pte.h>
@@ -22,6 +23,19 @@ pte_t *kernel_pt(void);
 
 __must_check
 uintptr_t kenrel_pgroot(void);
+
+/*
+ * Kernel Sv39 satp token for secondary entry: acquire-load the
+ * release-published token, or validate Sv39 mode and a nonzero PPN.
+ * The raw symbol is also referenced by the physical trampoline.
+ */
+extern atomic_isize_t pgtable_boot_token;
+
+__must_check
+uintptr_t pgtable_boot_token_acquire(void);
+
+__must_check
+bool pgtable_boot_token_valid(void);
 
 __must_check __nonnull(1)
 pte_t *pgtable_lookup(pte_t *root, uintptr_t va);
