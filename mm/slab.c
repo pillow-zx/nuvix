@@ -51,6 +51,7 @@ static_assert(sizeof(struct kmalloc_header) % alignof(struct list_head) == 0,
 	      "slab free-list nodes must be naturally aligned");
 
 static struct kmem_cache caches[NR_CACHES];
+static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC);
 
 static int find_cache(size_t size)
 {
@@ -63,8 +64,11 @@ static int find_cache(size_t size)
 	return -1;
 }
 
-static void refill_cache(struct kmem_cache *cache, uint32_t cache_idx,
-			 enum alloc_mode mode)
+/* Build a fresh slab page lock-free, linking each object node into the
+ * caller-owned batch list. The caller moves the batch into cache->free_list
+ * under slab_lock, so get_free_page()/free_page() never run under the lock. */
+static void refill_cache_alloc(struct kmem_cache *cache, uint32_t cache_idx,
+			       enum alloc_mode mode, struct list_head *batch)
 {
 	void *page = get_free_page(0, mode);
 	struct slab_page_header *slab;
@@ -108,11 +112,14 @@ static void refill_cache(struct kmem_cache *cache, uint32_t cache_idx,
 		hdr->slab.slab = slab;
 		hdr->slab.free = true;
 		INIT_LIST_HEAD(node);
-		list_add_tail(node, &cache->free_list);
+		list_add_tail(node, batch);
 	}
 }
 
-static void slab_reclaim_page(struct slab_page_header *slab)
+/* Under slab_lock: detach every free object node of the slab from its cache
+ * free list and clear PG_SLAB. The caller free_page()s the page after the
+ * lock is released. */
+static void slab_reclaim_detach_locked(struct slab_page_header *slab)
 {
 	struct kmem_cache *cache;
 	struct page *meta;
@@ -139,7 +146,6 @@ static void slab_reclaim_page(struct slab_page_header *slab)
 	}
 
 	page_clear_flag(meta, PG_SLAB);
-	free_page(slab, 0);
 }
 
 static uint32_t kmalloc_large_order(size_t size)
@@ -178,6 +184,8 @@ static void *kmalloc_large(size_t size, enum alloc_mode mode)
 
 void slab_init(void)
 {
+	/* Pre-SMP boot phase: the cache tables are not yet shared, so
+	 * slab_lock is not required here. */
 	for (int i = 0; i < NR_CACHES; i++) {
 		caches[i].obj_size = cache_sizes[i];
 		INIT_LIST_HEAD(&caches[i].free_list);
@@ -201,12 +209,29 @@ void *kmalloc(size_t size, enum alloc_mode mode)
 
 	struct kmem_cache *cache = &caches[idx];
 
+	spin_lock(&slab_lock);
 	if (list_empty(&cache->free_list)) {
-		refill_cache(cache, (uint32_t)idx, mode);
-		if (list_empty(&cache->free_list))
-			return NULL;
-	}
+		struct list_head batch;
 
+		/* Refill lock-free (get_free_page may allocate), then splice
+		 * the batch into the free list under the lock. */
+		INIT_LIST_HEAD(&batch);
+		spin_unlock(&slab_lock);
+
+		refill_cache_alloc(cache, (uint32_t)idx, mode, &batch);
+
+		spin_lock(&slab_lock);
+		while (!list_empty(&batch)) {
+			struct list_head *bnode = batch.next;
+
+			list_del(bnode);
+			list_add_tail(bnode, &cache->free_list);
+		}
+	}
+	if (list_empty(&cache->free_list)) {
+		spin_unlock(&slab_lock);
+		return NULL;
+	}
 
 	struct list_head *node = cache->free_list.next;
 	list_del(node);
@@ -218,6 +243,7 @@ void *kmalloc(size_t size, enum alloc_mode mode)
 	BUG_ON(!hdr->slab.free);
 	hdr->slab.free = false;
 	hdr->slab.slab->free_objs--;
+	spin_unlock(&slab_lock);
 
 	return (void *)node;
 }
@@ -248,14 +274,23 @@ void kfree(void *ptr)
 
 	if (cache_idx >= NR_CACHES)
 		panic("kfree: invalid cache index %d", (int)cache_idx);
-	if (hdr->slab.free)
-		panic("kfree: double free");
 
 	struct list_head *node = (struct list_head *)(uintptr_t)ptr;
+	bool reclaim = false;
+
+	spin_lock(&slab_lock);
+	if (hdr->slab.free)
+		panic("kfree: double free");
 	hdr->slab.free = true;
 	slab->free_objs++;
 	list_add(node, &caches[cache_idx].free_list);
 
-	if (slab->free_objs == slab->total_objs)
-		slab_reclaim_page(slab);
+	if (slab->free_objs == slab->total_objs) {
+		slab_reclaim_detach_locked(slab);
+		reclaim = true;
+	}
+	spin_unlock(&slab_lock);
+
+	if (reclaim)
+		free_page(slab, 0);
 }
