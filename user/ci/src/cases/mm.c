@@ -102,3 +102,162 @@ UT_CASE(mm_file_mapping_msync_mincore_and_madvise, 5000)
 	UT_EXPECT_EQ(anonymous[0], 0);
 	UT_ASSERT_EQ(munmap(anonymous, page_size), 0);
 }
+
+UT_CASE(cow_fork_anon_isolation, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	uint32_t *page;
+	pid_t child;
+
+	UT_ASSERT(page_size > 0);
+	page = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(page != MAP_FAILED);
+	page[0] = 0x1111;
+	child = UT_FORK();
+	if (child == 0) {
+		/* The child must see the parent's pre-fork value. */
+		if (page[0] != 0x1111)
+			_exit(90);
+		/* The child's write must stay private to the child. */
+		page[0] = 0x2222;
+		if (page[0] != 0x2222)
+			_exit(91);
+		_exit(0);
+	}
+	UT_EXPECT_EXIT(child, 0);
+	/* The parent's page must be untouched by the child's write. */
+	UT_EXPECT_EQ(page[0], 0x1111);
+	UT_ASSERT_EQ(munmap(page, page_size), 0);
+}
+
+UT_CASE(cow_fork_file_private, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	unsigned char *mapping;
+	unsigned char *disk;
+	unsigned char *content;
+	char *path;
+	pid_t child;
+	int fd;
+
+	UT_ASSERT(page_size > 0);
+	content = malloc(page_size);
+	UT_ASSERT(content != NULL);
+	memset(content, 0xaa, page_size);
+	UT_ASSERT_EQ(ut_write_file("cow-file", content, page_size, 0600), 0);
+	free(content);
+	path = ut_path("cow-file");
+	UT_ASSERT(path != NULL);
+	fd = open(path, O_RDWR);
+	free(path);
+	UT_ASSERT(fd >= 0);
+	mapping = mmap(NULL, page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
+		       fd, 0);
+	UT_ASSERT(mapping != MAP_FAILED);
+	/* A read maps the page-cache page read-only... */
+	UT_EXPECT_EQ(mapping[0], 0xaa);
+	/* ...and the write COWs it into a private copy. */
+	memset(mapping, 0x11, page_size);
+	child = UT_FORK();
+	if (child == 0) {
+		if (mapping[0] != 0x11)
+			_exit(90);
+		memset(mapping, 0x22, page_size);
+		if (mapping[0] != 0x22)
+			_exit(91);
+		_exit(0);
+	}
+	UT_EXPECT_EXIT(child, 0);
+	/* The parent's private copy is untouched by the child. */
+	UT_EXPECT_EQ(mapping[0], 0x11);
+	UT_ASSERT_EQ(munmap(mapping, page_size), 0);
+	/* The on-disk content is unchanged. */
+	disk = malloc(page_size);
+	UT_ASSERT(disk != NULL);
+	UT_ASSERT_EQ(pread(fd, disk, page_size, 0), (ssize_t)page_size);
+	UT_EXPECT_EQ(disk[0], 0xaa);
+	UT_EXPECT_EQ(disk[page_size - 1], 0xaa);
+	free(disk);
+	UT_ASSERT_EQ(close(fd), 0);
+}
+
+UT_CASE(cow_write_readonly_never_segfaults, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	unsigned char *mapping;
+	pid_t child;
+
+	UT_ASSERT(page_size > 0);
+	mapping = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(mapping != MAP_FAILED);
+	mapping[0] = 1;
+	UT_ASSERT_EQ(mprotect(mapping, page_size, PROT_READ), 0);
+	child = UT_FORK();
+	if (child == 0) {
+		mapping[0] = 2;
+		_exit(127);
+	}
+	/* A genuinely read-only vma still faults on write. */
+	UT_EXPECT_SIGNAL(child, SIGSEGV);
+	/* Granting write back must make the write succeed, no signal. */
+	UT_ASSERT_EQ(mprotect(mapping, page_size, PROT_READ | PROT_WRITE), 0);
+	mapping[0] = 3;
+	UT_EXPECT_EQ(mapping[0], 3);
+	UT_ASSERT_EQ(munmap(mapping, page_size), 0);
+}
+
+UT_CASE(cow_fork_mprotect_isolation, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	uint32_t *page;
+	pid_t child;
+
+	UT_ASSERT(page_size > 0);
+	page = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(page != MAP_FAILED);
+	page[0] = 0x1111;
+	child = UT_FORK();
+	if (child == 0) {
+		/* mprotect(RW) on a fork-shared page must not grant a
+		 * writable view of the shared physical page. */
+		if (mprotect(page, page_size, PROT_READ | PROT_WRITE) != 0)
+			_exit(90);
+		page[0] = 0x2222;
+		if (page[0] != 0x2222)
+			_exit(91);
+		_exit(0);
+	}
+	UT_EXPECT_EXIT(child, 0);
+	/* The parent's page must be untouched by the child's write. */
+	UT_EXPECT_EQ(page[0], 0x1111);
+	UT_ASSERT_EQ(munmap(page, page_size), 0);
+}
+
+UT_CASE(cow_fork_stress, 10000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	uint32_t *page;
+	int i;
+
+	UT_ASSERT(page_size > 0);
+	page = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(page != MAP_FAILED);
+	for (i = 0; i < 32; i++) {
+		pid_t child;
+
+		page[0] = 0x1111;
+		child = UT_FORK();
+		if (child == 0) {
+			page[0] = 0x2222 + (uint32_t)i;
+			_exit(0);
+		}
+		UT_EXPECT_EXIT(child, 0);
+		/* The parent's page is stable across the fork churn. */
+		UT_EXPECT_EQ(page[0], 0x1111);
+	}
+	UT_ASSERT_EQ(munmap(page, page_size), 0);
+}

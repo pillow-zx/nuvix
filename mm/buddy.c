@@ -60,7 +60,7 @@ static void buddy_add_free_block(size_t pfn, uint32_t order, bool tail)
 
 	page->flags = BIT(PG_BUDDY);
 	page->order = order;
-	page->refcount = 0;
+	refcount_set(&page->refcount, 0);
 	if (tail)
 		list_add_tail(&page->lru, &free_area[order].free_list);
 	else
@@ -89,7 +89,7 @@ void buddy_init(void)
 	for (size_t i = 0; i < total_pages; i++) {
 		mem_map[i].flags = BIT(PG_RESERVED);
 		mem_map[i].order = 0;
-		mem_map[i].refcount = 0;
+		refcount_set(&mem_map[i].refcount, 0);
 		INIT_LIST_HEAD(&mem_map[i].lru);
 	}
 
@@ -172,7 +172,7 @@ void *get_free_page(uint32_t order, enum alloc_mode mode)
 
 	page->flags = 0;
 	page->order = order;
-	page->refcount = 1;
+	refcount_set(&page->refcount, 1);
 
 	nr_free_pages -= (1UL << order);
 
@@ -205,7 +205,7 @@ void free_page(void *addr, uint32_t order)
 		panic("free_page: reserved pfn %zu", pfn);
 	if (page_test_flag(page, PG_SLAB))
 		panic("free_page: slab pfn %zu", pfn);
-	if (page->refcount == 0)
+	if (refcount_read(&page->refcount) == 0)
 		panic("free_page: unallocated pfn %zu", pfn);
 	if (page->order != order)
 		panic("free_page: pfn %zu order %u != %u", pfn, page->order,
@@ -213,7 +213,7 @@ void free_page(void *addr, uint32_t order)
 
 
 	page->flags = 0;
-	page->refcount = 0;
+	refcount_set(&page->refcount, 0);
 
 
 	while (order < MAX_ORDER) {
