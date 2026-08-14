@@ -62,7 +62,7 @@ static void release_proc_mm(struct proc_struct *proc, bool current)
 	if (!mm)
 		return;
 	if (current)
-		activate_pgroot(kenrel_pgroot());
+		activate_pgroot(kernel_pgroot());
 	mm_put(mm);
 }
 

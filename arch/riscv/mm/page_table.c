@@ -148,7 +148,7 @@ int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
 	return 0;
 }
 
-uintptr_t kenrel_pgroot(void)
+uintptr_t kernel_pgroot(void)
 {
 	return kpgroot;
 }
@@ -176,7 +176,7 @@ pte_t *current_pt(void)
 
 pte_t *kernel_pt(void)
 {
-	uintptr_t satp_val = kenrel_pgroot();
+	uintptr_t satp_val = kernel_pgroot();
 	uintptr_t root_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
 
 	return (pte_t *)__va(root_pa);

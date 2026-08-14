@@ -624,7 +624,7 @@ static void flush_old_exec(struct mm_struct *oldmm)
 	if (!oldmm)
 		return;
 
-	activate_pgroot(kenrel_pgroot());
+	activate_pgroot(kernel_pgroot());
 	mm_put(oldmm);
 }
 

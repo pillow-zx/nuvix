@@ -14,7 +14,7 @@ static uintptr_t task_pgroot(const struct task_struct *task)
 {
 	uint64_t satp = task->arch.pgroot;
 
-	return satp ? satp : kenrel_pgroot();
+	return satp ? satp : kernel_pgroot();
 }
 
 void arch_task_init(struct task_struct *task)

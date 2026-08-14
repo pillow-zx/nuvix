@@ -22,7 +22,7 @@ __must_check
 pte_t *kernel_pt(void);
 
 __must_check
-uintptr_t kenrel_pgroot(void);
+uintptr_t kernel_pgroot(void);
 
 /*
  * Kernel Sv39 satp token for secondary entry: acquire-load the
@@ -137,7 +137,7 @@ static inline  uintptr_t pgtable_make_token(const pte_t *pgd)
 __always_inline
 static inline void pgtable_activate_kpgtable(void)
 {
-	activate_pgroot(kenrel_pgroot());
+	activate_pgroot(kernel_pgroot());
 }
 
 __always_inline
