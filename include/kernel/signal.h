@@ -6,7 +6,7 @@
 struct trap_frame;
 struct task_struct;
 
-/* Syscall-restart context: task-owned signal state (DESIGN.md). The
+/* Syscall-restart context: task-owned signal state. The
  * dispatcher saves through restart_save(); the signal module owns the
  * restartable policy and the signal-delivery decision. */
 void restart_save(struct task_struct *task, const struct trap_frame *tf,

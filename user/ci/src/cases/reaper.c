@@ -1,5 +1,5 @@
 /*
- * Reaper/TID lifecycle regression (TODO.md P0): zombie visibility, TID/PID
+ * Reaper/TID lifecycle regression: zombie visibility, TID/PID
  * release after claim, SIG_IGN / SA_NOCLDWAIT auto-reap with immediate PID
  * reuse, fork/exit storm reaping, and PID role retention until claim.
  *

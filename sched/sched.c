@@ -344,7 +344,7 @@ bool sched_has_runnable(void)
  * The one switch core behind both entries: enqueue the preempted task,
  * pick, switch, hand off. IRQ state is restored to whatever the caller
  * entered with, so the trap-return path may call in with IRQs already
- * disabled (DESIGN.md: both entries share one scheduler core).
+ * disabled (both entries share one scheduler core).
  */
 static void sched_switch_core(void)
 {

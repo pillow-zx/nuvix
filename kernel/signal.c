@@ -1754,7 +1754,8 @@ ssize_t do_sigreturn(struct trap_frame *tf, uintptr_t sp)
 }
 
 /*
- * Syscall-restart context. DESIGN.md assigns restart state to the task's
+ * Syscall-restart context: restart state is task-owned, assigned by the
+ * signal module.
  * signal state; the signal module owns the policy and the dispatcher only
  * saves through these interfaces.
  */

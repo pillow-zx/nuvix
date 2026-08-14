@@ -241,6 +241,6 @@ UT_CASE(time_child_cputime_accounting, 5000)
 }
 
 /*
- * setitimer / POSIX timer_create/settime/delete are postponed by DESIGN.md
+ * setitimer / POSIX timer_create/settime/delete are postponed (see SYSCALL.md)
  * and return -ENOSYS; sigtimedwait itself is covered by signal_* cases.
  */

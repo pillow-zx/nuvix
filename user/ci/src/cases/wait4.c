@@ -1,5 +1,5 @@
 /*
- * wait4 ABI selector/option regression (TODO.md P2): PID/PGID selectors
+ * wait4 ABI selector/option regression: PID/PGID selectors
  * (pid>0, pid==0, pid==-1, pid<-1), __WNOTHREAD/__WCLONE/__WALL classes,
  * unknown-option -EINVAL, stop/continue/exit claim priority, WNOHANG,
  * -ECHILD and -EFAULT rollback, and rusage.

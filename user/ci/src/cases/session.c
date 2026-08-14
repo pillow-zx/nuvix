@@ -1,5 +1,5 @@
 /*
- * Session/TTY leader-exit regression (TODO.md P0): controlling-TTY release
+ * Session/TTY leader-exit regression: controlling-TTY release
  * order (release then SIGHUP then SIGCONT to the old foreground pgrp),
  * leader exit with live siblings, non-session-leader process exit, TTY
  * takeover, TIOCNOTTY idempotence, and foreground-pgrp roundtrips.

@@ -1,5 +1,5 @@
 /*
- * Scheduler seam regression (TODO.md P2): affinity storage/roundtrip,
+ * Scheduler seam regression: affinity storage/roundtrip,
  * -EBUSY/-EINVAL/-EPERM/-ESRCH paths, and the single-core membarrier
  * FLAG_CPU seam (online-CPU check, no hardcoded CPU 0).
  *
