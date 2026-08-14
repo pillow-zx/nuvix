@@ -2,14 +2,14 @@
  * kernel/session.c - process-session and controlling-TTY coordination
  */
 
-#include <kernel/errno.h>
-#include <kernel/pid.h>
-#include <kernel/proc.h>
-#include <kernel/session.h>
-#include <kernel/signal.h>
-#include <kernel/mutex.h>
-#include <kernel/task.h>
-#include <kernel/tools.h>
+#include <nuvix/errno.h>
+#include <nuvix/pid.h>
+#include <nuvix/proc.h>
+#include <nuvix/session.h>
+#include <nuvix/signal.h>
+#include <nuvix/mutex.h>
+#include <nuvix/task.h>
+#include <nuvix/tools.h>
 #include <uapi/signal.h>
 
 #include "tty_internal.h"

@@ -2,31 +2,31 @@
  * kernel/exec.c - ELF 加载与 execve 替换语义
  */
 
-#include <kernel/elf.h>
-#include <kernel/errno.h>
-#include <kernel/buddy.h>
-#include <kernel/exec.h>
-#include <kernel/fdtable.h>
-#include <kernel/fork.h>
-#include <kernel/futex.h>
-#include <kernel/fs.h>
-#include <kernel/mm.h>
-#include <kernel/printk.h>
-#include <kernel/proc.h>
-#include <kernel/random.h>
-#include <kernel/rseq.h>
-#include <kernel/signal.h>
-#include <kernel/slab.h>
-#include <kernel/task.h>
-#include <kernel/syscall.h>
-#include <kernel/vfs.h>
-#include <kernel/vmalloc.h>
+#include <nuvix/elf.h>
+#include <nuvix/errno.h>
+#include <nuvix/buddy.h>
+#include <nuvix/exec.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fork.h>
+#include <nuvix/futex.h>
+#include <nuvix/fs.h>
+#include <nuvix/mm.h>
+#include <nuvix/printk.h>
+#include <nuvix/proc.h>
+#include <nuvix/random.h>
+#include <nuvix/rseq.h>
+#include <nuvix/signal.h>
+#include <nuvix/slab.h>
+#include <nuvix/task.h>
+#include <nuvix/syscall.h>
+#include <nuvix/vfs.h>
+#include <nuvix/vmalloc.h>
 #include <uapi/auxvec.h>
 #include <uapi/mman.h>
-#include <kernel/processor.h>
-#include <kernel/page.h>
-#include <kernel/pgtable.h>
-#include <kernel/trap.h>
+#include <nuvix/processor.h>
+#include <nuvix/page.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/trap.h>
 
 struct exec_image {
 	struct file *file;

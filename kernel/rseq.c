@@ -2,13 +2,13 @@
  * kernel/rseq.c - restartable sequence legacy single-core support
  */
 
-#include <kernel/errno.h>
-#include <kernel/mm.h>
-#include <kernel/rseq.h>
-#include <kernel/task.h>
-#include <kernel/trap.h>
-#include <kernel/tools.h>
-#include <kernel/bitops.h>
+#include <nuvix/errno.h>
+#include <nuvix/mm.h>
+#include <nuvix/rseq.h>
+#include <nuvix/task.h>
+#include <nuvix/trap.h>
+#include <nuvix/tools.h>
+#include <nuvix/bitops.h>
 #include <uapi/rseq.h>
 #include <uapi/sched.h>
 

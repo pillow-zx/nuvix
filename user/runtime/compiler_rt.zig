@@ -1,1 +1,1 @@
-export fn cuteosCompilerRuntimeAnchor() void {}
+export fn nuvixCompilerRuntimeAnchor() void {}

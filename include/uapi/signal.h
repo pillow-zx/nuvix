@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_SIGNAL_H
-#define _CUTEOS_UAPI_SIGNAL_H
+#ifndef _NUVIX_UAPI_SIGNAL_H
+#define _NUVIX_UAPI_SIGNAL_H
 
 #include <uapi/siginfo.h>
 
@@ -128,7 +128,7 @@ struct sigaction {
  * @brief Linux sigevent ABI layout for POSIX timer notification.
  *
  * The union padding keeps the structure at 64 bytes and preserves the Linux
- * offsets asserted below. cuteOS currently implements SIGEV_NONE and
+ * offsets asserted below. nuvix currently implements SIGEV_NONE and
  * SIGEV_SIGNAL semantics most deeply.
  *
  * @par Fields

@@ -1,11 +1,11 @@
-#ifndef _CUTEOS_UAPI_MEMBARRIER_H
-#define _CUTEOS_UAPI_MEMBARRIER_H
+#ifndef _NUVIX_UAPI_MEMBARRIER_H
+#define _NUVIX_UAPI_MEMBARRIER_H
 
 /**
  * @file membarrier.h
  * @brief Linux membarrier command and flag UAPI constants.
  *
- * The constants are ABI values from Linux. cuteOS currently provides
+ * The constants are ABI values from Linux. nuvix currently provides
  * single-core-compatible behavior for supported commands; the bit values must
  * not be renumbered even when an implementation remains shallow.
  */

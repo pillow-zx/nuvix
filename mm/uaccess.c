@@ -2,11 +2,11 @@
  * mm/uaccess.c - 用户空间内存访问
  */
 
-#include <kernel/mm.h>
-#include <kernel/errno.h>
-#include <kernel/task.h>
-#include <kernel/page.h>
-#include <kernel/uaccess_arch.h>
+#include <nuvix/mm.h>
+#include <nuvix/errno.h>
+#include <nuvix/task.h>
+#include <nuvix/page.h>
+#include <nuvix/uaccess_arch.h>
 
 #include "internal.h"
 

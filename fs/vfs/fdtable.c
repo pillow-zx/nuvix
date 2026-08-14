@@ -2,13 +2,13 @@
  * fs/vfs/fdtable.c - file descriptor table management
  */
 
-#include <kernel/errno.h>
-#include <kernel/blkdev.h>
-#include <kernel/fdtable.h>
-#include <kernel/proc.h>
-#include <kernel/slab.h>
-#include <kernel/task.h>
-#include <kernel/vfs.h>
+#include <nuvix/errno.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/proc.h>
+#include <nuvix/slab.h>
+#include <nuvix/task.h>
+#include <nuvix/vfs.h>
 
 static struct files_struct *current_files(void)
 {

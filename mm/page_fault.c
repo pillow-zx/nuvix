@@ -2,18 +2,18 @@
  * mm/page_fault.c - 缺页异常处理
  */
 
-#include <kernel/mm.h>
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/exit.h>
-#include <kernel/page_cache.h>
-#include <kernel/printk.h>
-#include <kernel/signal.h>
-#include <kernel/task.h>
-#include <kernel/page.h>
-#include <kernel/pgtable.h>
-#include <kernel/trap.h>
-#include <kernel/processor.h>
+#include <nuvix/mm.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/exit.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/printk.h>
+#include <nuvix/signal.h>
+#include <nuvix/task.h>
+#include <nuvix/page.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/trap.h>
+#include <nuvix/processor.h>
 
 #include "internal.h"
 

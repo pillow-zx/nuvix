@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_UCONTEXT_H
-#define _CUTEOS_UAPI_UCONTEXT_H
+#ifndef _NUVIX_UAPI_UCONTEXT_H
+#define _NUVIX_UAPI_UCONTEXT_H
 
 struct user_regs_struct {
 	unsigned long pc;

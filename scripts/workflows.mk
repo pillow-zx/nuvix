@@ -75,9 +75,9 @@ gtags:
 FMT_FILES := $(shell find . \( -name '*.c' -o -name '*.h' \))
 
 help:
-	@printf 'CuteOS build usage:\n'
+	@printf 'nuvix build usage:\n'
 	@printf '  make                         Build kernel ELF using .config\n'
-	@printf '  make defconfig               Reset .config from configs/cuteos_defconfig\n'
+	@printf '  make defconfig               Reset .config from configs/nuvix_defconfig\n'
 	@printf '  make DEFCONFIG=xxx defconfig Load configs/xxx as .config\n'
 	@printf '  make savedefconfig           Save current .config back to the active defconfig\n'
 	@printf '  make menuconfig              Configure build options\n'
@@ -89,7 +89,7 @@ help:
 	@printf '  make user                    Build user-space ELFs only\n'
 	@printf '  make user-rootfs             Build the staged user-space rootfs\n'
 	@printf '  make user-image              Build the user-space ext2 image\n'
-	@printf '  make cuteos.img              Build filesystem image\n'
+	@printf '  make nuvix.img              Build filesystem image\n'
 	@printf '  make analyze                 Run GCC analyzer and extra diagnostics\n'
 	@printf '  make tags                    Generate a ctags index for the project\n'
 	@printf '  make gtags                   Generate GNU Global tag databases\n'

@@ -2,15 +2,15 @@
  * syscall/sys_futex.c - futex and robust-list syscall ABI wrappers
  */
 
-#include <kernel/errno.h>
-#include <kernel/futex.h>
-#include <kernel/mm.h>
-#include <kernel/pid.h>
-#include <kernel/syscall.h>
-#include <kernel/task.h>
-#include <kernel/time.h>
-#include <kernel/trap.h>
-#include <kernel/wait.h>
+#include <nuvix/errno.h>
+#include <nuvix/futex.h>
+#include <nuvix/mm.h>
+#include <nuvix/pid.h>
+#include <nuvix/syscall.h>
+#include <nuvix/task.h>
+#include <nuvix/time.h>
+#include <nuvix/trap.h>
+#include <nuvix/wait.h>
 
 static int futex_copy_timeout(const struct timespec *utimeout,
 			      struct wait_deadline *deadline)

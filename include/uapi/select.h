@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_SELECT_H
-#define _CUTEOS_UAPI_SELECT_H
+#ifndef _NUVIX_UAPI_SELECT_H
+#define _NUVIX_UAPI_SELECT_H
 
 #define __FD_SETSIZE 1024
 #define __NFDBITS    (8 * (int)sizeof(unsigned long))

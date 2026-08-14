@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_AUXVEC_H
-#define _CUTEOS_UAPI_AUXVEC_H
+#ifndef _NUVIX_UAPI_AUXVEC_H
+#define _NUVIX_UAPI_AUXVEC_H
 
 /* Linux auxiliary-vector type values used at process entry. */
 #define AT_NULL		     0

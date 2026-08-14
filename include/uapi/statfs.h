@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_STATFS_H
-#define _CUTEOS_UAPI_STATFS_H
+#ifndef _NUVIX_UAPI_STATFS_H
+#define _NUVIX_UAPI_STATFS_H
 
 /**
  * @file statfs.h

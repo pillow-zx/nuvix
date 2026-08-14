@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_COMPILER_ATTRIBUTE_H
-#define _CUTEOS_COMPILER_ATTRIBUTE_H
+#ifndef _NUVIX_COMPILER_ATTRIBUTE_H
+#define _NUVIX_COMPILER_ATTRIBUTE_H
 
 /*
  * include/compiler/compiler_attribute.h - compiler attribute 宏

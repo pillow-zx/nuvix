@@ -2,27 +2,27 @@
  * syscall/sys_misc.c - 轻量兼容系统调用
  */
 
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/futex.h>
-#include <kernel/fs.h>
-#include <kernel/fs_struct.h>
-#include <kernel/mm.h>
-#include <kernel/pid.h>
-#include <kernel/proc.h>
-#include <kernel/resource.h>
-#include <kernel/random.h>
-#include <kernel/syscall.h>
-#include <kernel/task.h>
-#include <kernel/signal.h>
-#include <kernel/timer.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/futex.h>
+#include <nuvix/fs.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/mm.h>
+#include <nuvix/pid.h>
+#include <nuvix/proc.h>
+#include <nuvix/resource.h>
+#include <nuvix/random.h>
+#include <nuvix/syscall.h>
+#include <nuvix/task.h>
+#include <nuvix/signal.h>
+#include <nuvix/timer.h>
 #include <uapi/random.h>
 #include <uapi/sysinfo.h>
 #include <uapi/utsname.h>
-#include <kernel/printk.h>
-#include <kernel/reboot.h>
-#include <kernel/trap.h>
-#include <kernel/vfs.h>
+#include <nuvix/printk.h>
+#include <nuvix/reboot.h>
+#include <nuvix/trap.h>
+#include <nuvix/vfs.h>
 #include <uapi/reboot.h>
 
 #define GRND_VALID_FLAGS (GRND_NONBLOCK | GRND_RANDOM | GRND_INSECURE)
@@ -112,10 +112,10 @@ ssize_t sys_uname(struct trap_frame *tf)
 		return -EFAULT;
 
 	memset(&k, 0, sizeof(k));
-	uts_copy(k.sysname, "CuteOS");
-	uts_copy(k.nodename, "cuteos");
+	uts_copy(k.sysname, "nuvix");
+	uts_copy(k.nodename, "nuvix");
 	uts_copy(k.release, "0.0.6");
-	uts_copy(k.version, "CuteOS teaching kernel");
+	uts_copy(k.version, "nuvix teaching kernel");
 	uts_copy(k.machine, "riscv64");
 	uts_copy(k.domainname, "(none)");
 

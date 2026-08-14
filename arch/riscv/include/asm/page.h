@@ -1,12 +1,12 @@
-#ifndef _CUTEOS_ASM_PAGE_H
-#define _CUTEOS_ASM_PAGE_H
+#ifndef _NUVIX_ASM_PAGE_H
+#define _NUVIX_ASM_PAGE_H
 
 /**
  * @file page.h
  * @brief RISC-V base page-size and PFN conversion definitions.
  */
 
-#include <kernel/types.h>
+#include <nuvix/types.h>
 
 /**
  * @def PAGE_SIZE

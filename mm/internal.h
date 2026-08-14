@@ -1,17 +1,17 @@
-#ifndef _CUTEOS_MM_INTERNAL_H
-#define _CUTEOS_MM_INTERNAL_H
+#ifndef _NUVIX_MM_INTERNAL_H
+#define _NUVIX_MM_INTERNAL_H
 
-#include <kernel/mm.h>
-#include <kernel/bitops.h>
-#include <kernel/cleanup.h>
-#include <kernel/refcount.h>
-#include <kernel/mutex.h>
-#include <kernel/tools.h>
-#include <kernel/types.h>
+#include <nuvix/mm.h>
+#include <nuvix/bitops.h>
+#include <nuvix/cleanup.h>
+#include <nuvix/refcount.h>
+#include <nuvix/mutex.h>
+#include <nuvix/tools.h>
+#include <nuvix/types.h>
 #include <uapi/mman.h>
 
-#include <kernel/page.h>
-#include <kernel/pgtable.h>
+#include <nuvix/page.h>
+#include <nuvix/pgtable.h>
 
 struct file;
 

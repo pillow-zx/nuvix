@@ -504,7 +504,7 @@ UT_CASE(signal_sigchld_cld_siginfo_events, 5000)
 	signal_expect_cld(CLD_KILLED, SIGKILL);
 	UT_EXPECT_SIGNAL(child, SIGKILL);
 
-	/* A SIGSEGV death reports CLD_KILLED (cuteOS has no core model:
+	/* A SIGSEGV death reports CLD_KILLED (nuvix has no core model:
 	 * the 0x80 coredump bit is never set, so no CLD_DUMPED). */
 	child = UT_FORK();
 	if (child == 0) {

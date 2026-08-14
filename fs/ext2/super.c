@@ -1,11 +1,11 @@
-#include <kernel/blkdev.h>
-#include <kernel/errno.h>
-#include <kernel/page_cache.h>
-#include <kernel/printk.h>
-#include <kernel/slab.h>
-#include <kernel/statfs.h>
-#include <kernel/vmalloc.h>
-#include <kernel/vfs.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/errno.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/printk.h>
+#include <nuvix/slab.h>
+#include <nuvix/statfs.h>
+#include <nuvix/vmalloc.h>
+#include <nuvix/vfs.h>
 
 #include "ext2.h"
 

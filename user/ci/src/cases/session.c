@@ -164,7 +164,7 @@ static void session_wait_sigusr1(int code)
 		_exit(code);
 }
 
-/* Blocking wait with EINTR retry: cuteOS delivers SIGCHLD notifications
+/* Blocking wait with EINTR retry: nuvix delivers SIGCHLD notifications
  * even under SIG_DFL, so a blocking waitpid can be interrupted. */
 static int session_wait_child(pid_t child, int *status)
 {
@@ -561,7 +561,7 @@ UT_CASE(session_tiotty_roundtrip_and_setsid_errors, 5000)
 		{
 			pid_t bad_pgid = 200;
 
-			/* cuteOS divergence: a nonexistent pgrp is rejected
+			/* nuvix divergence: a nonexistent pgrp is rejected
 			 * with EPERM (Linux returns ESRCH); the cross-session
 			 * and range checks below still distinguish EPERM from
 			 * EINVAL. */

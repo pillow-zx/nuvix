@@ -1,8 +1,8 @@
-#include <kernel/ksyms.h>
-#include <kernel/printk.h>
-#include <kernel/stacktrace.h>
-#include <kernel/task.h>
-#include <kernel/types.h>
+#include <nuvix/ksyms.h>
+#include <nuvix/printk.h>
+#include <nuvix/stacktrace.h>
+#include <nuvix/task.h>
+#include <nuvix/types.h>
 
 #define STACKTRACE_MAX_DEPTH 16
 

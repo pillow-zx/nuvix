@@ -1,14 +1,14 @@
-#ifndef _CUTEOS_FS_EXT2_EXT2_H
-#define _CUTEOS_FS_EXT2_EXT2_H
+#ifndef _NUVIX_FS_EXT2_EXT2_H
+#define _NUVIX_FS_EXT2_EXT2_H
 
 /*
  * fs/ext2/ext2.h - EXT2 磁盘格式定义
  */
 
-#include <kernel/blkdev.h>
-#include <kernel/compiler.h>
-#include <kernel/fs.h>
-#include <kernel/types.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/compiler.h>
+#include <nuvix/fs.h>
+#include <nuvix/types.h>
 
 #define EXT2_SUPER_MAGIC	 0xef53
 #define EXT2_ROOT_INO		 2

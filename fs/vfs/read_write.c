@@ -2,8 +2,8 @@
  * fs/vfs/read_write.c - VFS 读写入口
  */
 
-#include <kernel/errno.h>
-#include <kernel/fs.h>
+#include <nuvix/errno.h>
+#include <nuvix/fs.h>
 
 #define SEEK_SET 0
 #define SEEK_CUR 1

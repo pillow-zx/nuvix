@@ -1,8 +1,8 @@
-#ifndef _CUTEOS_ARCH_RISCV_IRQ_H
-#define _CUTEOS_ARCH_RISCV_IRQ_H
+#ifndef _NUVIX_ARCH_RISCV_IRQ_H
+#define _NUVIX_ARCH_RISCV_IRQ_H
 
-#include <kernel/compiler.h>
-#include <kernel/types.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
 #include <asm/csr.h>
 
 typedef unsigned long irq_flags_t;

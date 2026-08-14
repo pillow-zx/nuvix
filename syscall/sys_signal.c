@@ -2,12 +2,12 @@
  * syscall/sys_signal.c - 信号相关系统调用（ABI 边界层）
  */
 
-#include <kernel/errno.h>
-#include <kernel/mm.h>
-#include <kernel/signal.h>
-#include <kernel/syscall.h>
-#include <kernel/types.h>
-#include <kernel/trap.h>
+#include <nuvix/errno.h>
+#include <nuvix/mm.h>
+#include <nuvix/signal.h>
+#include <nuvix/syscall.h>
+#include <nuvix/types.h>
+#include <nuvix/trap.h>
 
 /*
  * SYSCALL_SUPPORT(B): kill

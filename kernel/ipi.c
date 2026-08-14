@@ -6,11 +6,11 @@
  * observed flag. A stale interrupt with an empty reason set is legal.
  */
 
-#include <kernel/ipi.h>
-#include <kernel/atomic.h>
-#include <kernel/cpu.h>
-#include <kernel/errno.h>
-#include <kernel/sched.h>
+#include <nuvix/ipi.h>
+#include <nuvix/atomic.h>
+#include <nuvix/cpu.h>
+#include <nuvix/errno.h>
+#include <nuvix/sched.h>
 #include <arch/smp.h>
 
 /* Pending reasons per CPU; publication release, consumption acquire. */

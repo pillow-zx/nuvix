@@ -4,7 +4,7 @@
 
 #include <arch/sbi.h>
 #include <arch/system.h>
-#include <kernel/types.h>
+#include <nuvix/types.h>
 
 #define SBI_EID_CONSOLE_PUTCHAR 0x01
 #define SBI_EID_SHUTDOWN	0x08

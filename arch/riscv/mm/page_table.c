@@ -2,11 +2,11 @@
  * arch/riscv/mm/page_table.c - Sv39 三级页表操作
  */
 
-#include <kernel/printk.h>
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/tools.h>
-#include <kernel/atomic.h>
+#include <nuvix/printk.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/tools.h>
+#include <nuvix/atomic.h>
 #include <arch/page.h>
 #include <arch/pgtable.h>
 #include <asm/csr.h>

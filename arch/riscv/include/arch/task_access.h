@@ -1,12 +1,12 @@
-#ifndef _CUTEOS_ARCH_RISCV_TASK_ACCESS_H
-#define _CUTEOS_ARCH_RISCV_TASK_ACCESS_H
+#ifndef _NUVIX_ARCH_RISCV_TASK_ACCESS_H
+#define _NUVIX_ARCH_RISCV_TASK_ACCESS_H
 
 /*
  * arch/riscv/include/arch/task_access.h - RISC-V task accessors
  */
 
-#include <kernel/compiler.h>
-#include <kernel/types.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
 
 static_assert(offsetof(struct task_struct, arch.kstack) == TASK_KSTACK,
 		      "TASK_KSTACK offset in entry.S out of sync with task_struct");

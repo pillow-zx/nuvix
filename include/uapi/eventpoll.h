@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_EVENTPOLL_H
-#define _CUTEOS_UAPI_EVENTPOLL_H
+#ifndef _NUVIX_UAPI_EVENTPOLL_H
+#define _NUVIX_UAPI_EVENTPOLL_H
 
 /**
  * @file eventpoll.h

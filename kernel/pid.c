@@ -2,12 +2,12 @@
  * kernel/pid.c - single-namespace PID identity registry
  */
 
-#include <kernel/errno.h>
-#include <kernel/pid.h>
-#include <kernel/proc.h>
-#include <kernel/slab.h>
-#include <kernel/spinlock.h>
-#include <kernel/task.h>
+#include <nuvix/errno.h>
+#include <nuvix/pid.h>
+#include <nuvix/proc.h>
+#include <nuvix/slab.h>
+#include <nuvix/spinlock.h>
+#include <nuvix/task.h>
 
 static DEFINE_SPINLOCK(pid_lock, LOCK_RANK_PID);
 static bool pid_used[PID_COUNT];

@@ -2,19 +2,19 @@
  * kernel/task.c - schedulable task object and task-local lifecycle
  */
 
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/fdtable.h>
-#include <kernel/fs_struct.h>
-#include <kernel/mm.h>
-#include <kernel/pid.h>
-#include <kernel/printk.h>
-#include <kernel/proc.h>
-#include <kernel/sched.h>
-#include <kernel/signal.h>
-#include <kernel/slab.h>
-#include <kernel/task.h>
-#include <kernel/vfs.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/mm.h>
+#include <nuvix/pid.h>
+#include <nuvix/printk.h>
+#include <nuvix/proc.h>
+#include <nuvix/sched.h>
+#include <nuvix/signal.h>
+#include <nuvix/slab.h>
+#include <nuvix/task.h>
+#include <nuvix/vfs.h>
 
 struct task_struct idle_tasks[NR_CPUS];
 uint8_t idle_stacks[NR_CPUS][KSTACK_SIZE] __aligned(PAGE_SIZE);

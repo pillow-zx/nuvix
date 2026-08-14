@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_ASM_TRAP_FRAME_H
-#define _CUTEOS_ASM_TRAP_FRAME_H
+#ifndef _NUVIX_ASM_TRAP_FRAME_H
+#define _NUVIX_ASM_TRAP_FRAME_H
 
 /**
  * @file
@@ -9,8 +9,8 @@
  * use <arch/trap.h> accessors instead of field access.
  */
 
-#include <kernel/compiler.h>
-#include <kernel/types.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
 #include <asm/asm_offsets.h>
 
 /**

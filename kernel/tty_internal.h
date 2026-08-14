@@ -1,8 +1,8 @@
-#ifndef _CUTEOS_KERNEL_TTY_INTERNAL_H
-#define _CUTEOS_KERNEL_TTY_INTERNAL_H
+#ifndef _NUVIX_TTY_INTERNAL_H
+#define _NUVIX_TTY_INTERNAL_H
 
-#include <kernel/compiler.h>
-#include <kernel/types.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
 
 struct tty_endpoint;
 struct pgrp_struct;

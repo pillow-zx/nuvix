@@ -7,10 +7,10 @@
  * entries and never assumes they are equal.
  */
 
-#include <kernel/cpu.h>
-#include <kernel/errno.h>
-#include <kernel/smp.h>
-#include <kernel/types.h>
+#include <nuvix/cpu.h>
+#include <nuvix/errno.h>
+#include <nuvix/smp.h>
+#include <nuvix/types.h>
 
 #define PLATFORM_QEMU_VIRT_CPUS 8
 

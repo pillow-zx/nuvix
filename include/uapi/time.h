@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_TIME_H
-#define _CUTEOS_UAPI_TIME_H
+#ifndef _NUVIX_UAPI_TIME_H
+#define _NUVIX_UAPI_TIME_H
 
 /**
  * @file time.h

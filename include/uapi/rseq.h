@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_RSEQ_H
-#define _CUTEOS_UAPI_RSEQ_H
+#ifndef _NUVIX_UAPI_RSEQ_H
+#define _NUVIX_UAPI_RSEQ_H
 
 /**
  * @file rseq.h
@@ -43,10 +43,10 @@ struct rseq_cs {
  *
  * @par Fields
  * - @c cpu_id_start: CPU id sampled before user critical path.
- * - @c cpu_id: Current CPU id; single-core cuteOS writes 0.
+ * - @c cpu_id: Current CPU id; single-core nuvix writes 0.
  * - @c rseq_cs: User pointer to current struct rseq_cs.
  * - @c flags: Thread-level rseq flags.
- * - @c node_id: NUMA node id; single-node cuteOS writes 0.
+ * - @c node_id: NUMA node id; single-node nuvix writes 0.
  * - @c mm_cid: Memory-map concurrency id compatibility field.
  * - @c end: Flexible ABI extension marker.
  */

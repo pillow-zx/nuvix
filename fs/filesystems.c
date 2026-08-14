@@ -2,7 +2,7 @@
  * fs/filesystems.c - built-in filesystem registration
  */
 
-#include <kernel/vfs.h>
+#include <nuvix/vfs.h>
 
 #ifdef CONFIG_EXT2_FS
 #include "ext2/ext2.h"

@@ -2,12 +2,12 @@
  * kernel/tty.c - single-console terminal state and process attachments
  */
 
-#include <kernel/errno.h>
-#include <kernel/list.h>
-#include <kernel/slab.h>
-#include <kernel/mutex.h>
-#include <kernel/proc.h>
-#include <kernel/tty.h>
+#include <nuvix/errno.h>
+#include <nuvix/list.h>
+#include <nuvix/slab.h>
+#include <nuvix/mutex.h>
+#include <nuvix/proc.h>
+#include <nuvix/tty.h>
 
 #include "tty_internal.h"
 

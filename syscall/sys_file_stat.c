@@ -2,22 +2,22 @@
  * syscall/sys_file_stat.c - stat/statfs 元数据查询系统调用
  */
 
-#include <kernel/fdtable.h>
-#include <kernel/blkdev.h>
-#include <kernel/fs.h>
-#include <kernel/fs_struct.h>
-#include <kernel/signal.h>
-#include <kernel/stat.h>
-#include <kernel/statfs.h>
-#include <kernel/types.h>
-#include <kernel/errno.h>
-#include <kernel/syscall.h>
-#include <kernel/mm.h>
-#include <kernel/buddy.h>
-#include <kernel/task.h>
-#include <kernel/vfs.h>
-#include <kernel/page.h>
-#include <kernel/trap.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/fs.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/signal.h>
+#include <nuvix/stat.h>
+#include <nuvix/statfs.h>
+#include <nuvix/types.h>
+#include <nuvix/errno.h>
+#include <nuvix/syscall.h>
+#include <nuvix/mm.h>
+#include <nuvix/buddy.h>
+#include <nuvix/task.h>
+#include <nuvix/vfs.h>
+#include <nuvix/page.h>
+#include <nuvix/trap.h>
 
 #include "sys_file_internal.h"
 

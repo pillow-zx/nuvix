@@ -2,10 +2,10 @@
  * kernel/worker.c - small kernel worker helpers
  */
 
-#include <kernel/time.h>
-#include <kernel/timer.h>
-#include <kernel/wait.h>
-#include <kernel/worker.h>
+#include <nuvix/time.h>
+#include <nuvix/timer.h>
+#include <nuvix/wait.h>
+#include <nuvix/worker.h>
 
 static uint64_t worker_interval_ticks(unsigned int interval_sec)
 {

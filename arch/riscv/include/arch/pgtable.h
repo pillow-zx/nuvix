@@ -1,9 +1,9 @@
-#ifndef _CUTEOS_ARCH_RISCV_PGTABLE_H
-#define _CUTEOS_ARCH_RISCV_PGTABLE_H
+#ifndef _NUVIX_ARCH_RISCV_PGTABLE_H
+#define _NUVIX_ARCH_RISCV_PGTABLE_H
 
-#include <kernel/compiler.h>
-#include <kernel/types.h>
-#include <kernel/atomic.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
+#include <nuvix/atomic.h>
 #include <arch/page.h>
 #include <asm/csr.h>
 #include <asm/pte.h>

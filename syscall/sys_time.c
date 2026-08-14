@@ -2,16 +2,16 @@
  * syscall/sys_time.c - clock and sleep syscall adapters
  */
 
-#include <kernel/errno.h>
-#include <kernel/mm.h>
-#include <kernel/proc.h>
-#include <kernel/resource.h>
-#include <kernel/syscall.h>
-#include <kernel/task.h>
-#include <kernel/time.h>
-#include <kernel/timer.h>
-#include <kernel/trap.h>
-#include <kernel/wait.h>
+#include <nuvix/errno.h>
+#include <nuvix/mm.h>
+#include <nuvix/proc.h>
+#include <nuvix/resource.h>
+#include <nuvix/syscall.h>
+#include <nuvix/task.h>
+#include <nuvix/time.h>
+#include <nuvix/timer.h>
+#include <nuvix/trap.h>
+#include <nuvix/wait.h>
 
 #define NSEC_PER_SEC 1000000000LL
 

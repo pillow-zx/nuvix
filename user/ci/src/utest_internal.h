@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UTEST_INTERNAL_H
-#define _CUTEOS_UTEST_INTERNAL_H
+#ifndef _NUVIX_UTEST_INTERNAL_H
+#define _NUVIX_UTEST_INTERNAL_H
 
 #include <stdint.h>
 

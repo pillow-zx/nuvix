@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_RESOURCE_H
-#define _CUTEOS_UAPI_RESOURCE_H
+#ifndef _NUVIX_UAPI_RESOURCE_H
+#define _NUVIX_UAPI_RESOURCE_H
 
 /**
  * @file resource.h

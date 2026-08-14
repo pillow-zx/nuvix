@@ -3,17 +3,17 @@
  */
 
 #include <drivers/uart.h>
-#include <kernel/blkdev.h>
-#include <kernel/errno.h>
-#include <kernel/irq.h>
-#include <kernel/mm.h>
-#include <kernel/session.h>
-#include <kernel/task.h>
-#include <kernel/time.h>
-#include <kernel/timer.h>
-#include <kernel/tty.h>
-#include <kernel/vfs.h>
-#include <kernel/wait.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/errno.h>
+#include <nuvix/irq.h>
+#include <nuvix/mm.h>
+#include <nuvix/session.h>
+#include <nuvix/task.h>
+#include <nuvix/time.h>
+#include <nuvix/timer.h>
+#include <nuvix/tty.h>
+#include <nuvix/vfs.h>
+#include <nuvix/wait.h>
 #include <uapi/signal.h>
 #include <uapi/tty.h>
 

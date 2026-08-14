@@ -2,15 +2,15 @@
  * syscall/sys_task.c - task lifecycle syscall ABI wrappers
  */
 
-#include <kernel/errno.h>
-#include <kernel/exit.h>
-#include <kernel/fork.h>
-#include <kernel/mm.h>
-#include <kernel/resource.h>
-#include <kernel/signal.h>
-#include <kernel/syscall.h>
+#include <nuvix/errno.h>
+#include <nuvix/exit.h>
+#include <nuvix/fork.h>
+#include <nuvix/mm.h>
+#include <nuvix/resource.h>
+#include <nuvix/signal.h>
+#include <nuvix/syscall.h>
 #include <uapi/sched.h>
-#include <kernel/trap.h>
+#include <nuvix/trap.h>
 
 static int sys_write_tid(int *uaddr, pid_t tid)
 {

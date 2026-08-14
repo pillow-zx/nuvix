@@ -1,11 +1,11 @@
-# cuteOS
+# nuvix
 
-cuteOS 是一个面向实验和内核机制验证的 Unix-like 宏内核，当前运行在
+nuvix 是一个面向实验和内核机制验证的 Unix-like 宏内核，当前运行在
 QEMU `virt` 的 RISC-V 64 平台上，经 OpenSBI 启动。项目以运行真实的静态
 riscv64 ELF 程序为验证目标，并以 Linux riscv64 ABI 作为已声明用户可见语义
 的兼容边界。
 
-cuteOS 的长期目标不是实现一个微内核，也不是复制 Linux 的全部功能，而是：
+nuvix 的长期目标不是实现一个微内核，也不是复制 Linux 的全部功能，而是：
 
 - 保持宏内核定位，提供完整、可复用、可验证的内核机制；
 - 每类策略只提供一套默认实现，保证基本运行需求和实现可理解性；
@@ -80,7 +80,7 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验
 | `make` | 构建内核 ELF |
 | `make defconfig` | 使用默认配置重新生成 `.config` |
 | `make DEFCONFIG=xxx defconfig` | 加载 `configs/xxx` 作为 `.config` |
-| `make savedefconfig` | 将当前 `.config` 写回 `configs/cuteos_defconfig` |
+| `make savedefconfig` | 将当前 `.config` 写回 `configs/nuvix_defconfig` |
 | `make menuconfig` | 修改配置 |
 | `make user` | 构建用户态 ELF |
 | `make user-rootfs` | 构建交互式用户态 rootfs |
@@ -105,7 +105,7 @@ rootfs 和 virtio-blk 启动。module interface 的 host 单元测试计划在�
 ## 代码与文档导航
 
 - [SYSCALL.md](SYSCALL.md)：syscall 成熟度、语义边界、已知缺口和优先级。
-- `include/kernel/`：通用内核接口、对象契约和跨子系统类型。
+- `include/nuvix/`：通用内核接口、对象契约和跨子系统类型。
 - `include/uapi/`：用户可见的 syscall、结构、常量和 ABI 定义。
 - `scripts/filelist.mk`：内核源文件对象清单；新增源文件必须同步更新。
 

@@ -2,27 +2,27 @@
  * kernel/exit.c - task exit and proc-owned zombie/reap state
  */
 
-#include <kernel/errno.h>
-#include <kernel/exit.h>
-#include <kernel/fdtable.h>
-#include <kernel/fork.h>
-#include <kernel/futex.h>
-#include <kernel/mm.h>
-#include <kernel/pgtable.h>
-#include <kernel/printk.h>
-#include <kernel/proc.h>
-#include <kernel/processor.h>
-#include <kernel/resource.h>
-#include <kernel/rseq.h>
-#include <kernel/sched.h>
-#include <kernel/signal.h>
-#include <kernel/session.h>
-#include <kernel/slab.h>
-#include <kernel/syscall.h>
-#include <kernel/task.h>
-#include <kernel/time.h>
-#include <kernel/timer.h>
-#include <kernel/wait.h>
+#include <nuvix/errno.h>
+#include <nuvix/exit.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fork.h>
+#include <nuvix/futex.h>
+#include <nuvix/mm.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/printk.h>
+#include <nuvix/proc.h>
+#include <nuvix/processor.h>
+#include <nuvix/resource.h>
+#include <nuvix/rseq.h>
+#include <nuvix/sched.h>
+#include <nuvix/signal.h>
+#include <nuvix/session.h>
+#include <nuvix/slab.h>
+#include <nuvix/syscall.h>
+#include <nuvix/task.h>
+#include <nuvix/time.h>
+#include <nuvix/timer.h>
+#include <nuvix/wait.h>
 #include <uapi/signal.h>
 #include <uapi/wait.h>
 

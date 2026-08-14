@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_FUTEX_H
-#define _CUTEOS_UAPI_FUTEX_H
+#ifndef _NUVIX_UAPI_FUTEX_H
+#define _NUVIX_UAPI_FUTEX_H
 
 /**
  * @file futex.h

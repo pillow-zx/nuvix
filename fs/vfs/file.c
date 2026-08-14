@@ -2,15 +2,15 @@
  * fs/vfs/file.c - Stage 4 最小 file/fd 层
  */
 
-#include <kernel/fdtable.h>
-#include <kernel/slab.h>
-#include <kernel/page_cache.h>
-#include <kernel/printk.h>
-#include <kernel/stat.h>
-#include <kernel/statfs.h>
-#include <kernel/blkdev.h>
-#include <kernel/errno.h>
-#include <kernel/vfs.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/slab.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/printk.h>
+#include <nuvix/stat.h>
+#include <nuvix/statfs.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/errno.h>
+#include <nuvix/vfs.h>
 
 #define FILE_STATUS_FLAGS	 (O_ACCMODE | O_APPEND | O_NONBLOCK | O_DIRECTORY)
 #define FILE_SETFL_MUTABLE_FLAGS (O_APPEND | O_NONBLOCK)

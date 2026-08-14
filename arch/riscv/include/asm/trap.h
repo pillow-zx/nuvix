@@ -1,12 +1,12 @@
-#ifndef _CUTEOS_ASM_TRAP_H
-#define _CUTEOS_ASM_TRAP_H
+#ifndef _NUVIX_ASM_TRAP_H
+#define _NUVIX_ASM_TRAP_H
 
 /**
  * @file
  * @brief RISC-V scause interrupt and exception encodings.
  */
 
-#include <kernel/types.h>
+#include <nuvix/types.h>
 
 /** @def IRQ_S_SOFT
  * @brief Supervisor software interrupt code.

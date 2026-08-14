@@ -2,13 +2,13 @@
  * syscall/sys_sched.c - scheduler-related syscall ABI wrappers
  */
 
-#include <kernel/errno.h>
-#include <kernel/mm.h>
-#include <kernel/pid.h>
-#include <kernel/sched.h>
-#include <kernel/syscall.h>
-#include <kernel/task.h>
-#include <kernel/trap.h>
+#include <nuvix/errno.h>
+#include <nuvix/mm.h>
+#include <nuvix/pid.h>
+#include <nuvix/sched.h>
+#include <nuvix/syscall.h>
+#include <nuvix/task.h>
+#include <nuvix/trap.h>
 
 static struct task_struct *affinity_target_task(pid_t pid, bool *put_task)
 {

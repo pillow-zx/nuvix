@@ -1,12 +1,12 @@
-#include <kernel/futex.h>
-#include <kernel/errno.h>
-#include <kernel/list.h>
-#include <kernel/mm.h>
-#include <kernel/mutex.h>
-#include <kernel/slab.h>
-#include <kernel/task.h>
-#include <kernel/wait.h>
-#include <kernel/processor.h>
+#include <nuvix/futex.h>
+#include <nuvix/errno.h>
+#include <nuvix/list.h>
+#include <nuvix/mm.h>
+#include <nuvix/mutex.h>
+#include <nuvix/slab.h>
+#include <nuvix/task.h>
+#include <nuvix/wait.h>
+#include <nuvix/processor.h>
 
 #define FUTEX_BUCKETS		32
 #define ROBUST_LIST_LIMIT	2048

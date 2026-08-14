@@ -1,5 +1,5 @@
-#include <kernel/errno.h>
-#include <kernel/page_cache.h>
+#include <nuvix/errno.h>
+#include <nuvix/page_cache.h>
 
 #include "ext2.h"
 

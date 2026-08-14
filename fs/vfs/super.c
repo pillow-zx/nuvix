@@ -2,10 +2,10 @@
  * fs/vfs/super.c - VFS 超级块管理
  */
 
-#include <kernel/errno.h>
-#include <kernel/fs.h>
-#include <kernel/slab.h>
-#include <kernel/vfs.h>
+#include <nuvix/errno.h>
+#include <nuvix/fs.h>
+#include <nuvix/slab.h>
+#include <nuvix/vfs.h>
 
 #define NR_FILESYSTEMS 8
 

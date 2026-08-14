@@ -1,14 +1,14 @@
-#ifndef _CUTEOS_ASM_PTE_H
-#define _CUTEOS_ASM_PTE_H
+#ifndef _NUVIX_ASM_PTE_H
+#define _NUVIX_ASM_PTE_H
 
 /**
  * @file
  * @brief RISC-V Sv39 page-table entry bit definitions.
  */
 
-#include <kernel/compiler.h>
-#include <kernel/types.h>
-#include <kernel/bitops.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
+#include <nuvix/bitops.h>
 #include <asm/page.h>
 
 /**
@@ -16,7 +16,7 @@
  * @brief Raw 64-bit Sv39 page-table entry.
  *
  * Bits 9:0 hold architectural flags and bits 53:10 hold the physical page
- * number. cuteOS only emits Sv39 leaf and table entries; reserved bits must
+ * number. nuvix only emits Sv39 leaf and table entries; reserved bits must
  * stay zero.
  */
 typedef uint64_t pte_t;
@@ -46,11 +46,11 @@ typedef uint64_t pte_t;
  */
 #define PTE_G BIT(5)
 /** @def PTE_A
- * @brief Accessed bit. cuteOS sets it eagerly and does not handle A faults.
+ * @brief Accessed bit. nuvix sets it eagerly and does not handle A faults.
  */
 #define PTE_A BIT(6)
 /** @def PTE_D
- * @brief Dirty bit. cuteOS sets it eagerly and does not handle D faults.
+ * @brief Dirty bit. nuvix sets it eagerly and does not handle D faults.
  */
 #define PTE_D BIT(7)
 

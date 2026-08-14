@@ -1,4 +1,4 @@
-# CuteOS build bootstrap: toolchain, configuration, output layout, and modules.
+# nuvix build bootstrap: toolchain, configuration, output layout, and modules.
 
 ifndef TOOLPREFIX
 TOOLPREFIX := $(shell if riscv64-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
@@ -65,7 +65,7 @@ KCONFIG       := Kconfig
 # Config/output paths are overridable so an isolated tree can build a second
 # configuration without touching the active .config.
 # DEFCONFIG is a bare filename, resolved only under configs/.
-DEFCONFIG     ?= cuteos_defconfig
+DEFCONFIG     ?= nuvix_defconfig
 DOT_CONFIG    ?= .config
 AUTO_CONF     ?= include/config/auto.conf
 AUTO_CONF_CMD ?= include/config/auto.conf.cmd

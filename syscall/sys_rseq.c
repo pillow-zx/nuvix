@@ -2,9 +2,9 @@
  * syscall/sys_rseq.c - restartable sequence syscall ABI wrapper
  */
 
-#include <kernel/rseq.h>
-#include <kernel/syscall.h>
-#include <kernel/trap.h>
+#include <nuvix/rseq.h>
+#include <nuvix/syscall.h>
+#include <nuvix/trap.h>
 
 /*
  * SYSCALL_SUPPORT(B): rseq

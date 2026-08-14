@@ -3,7 +3,7 @@
  */
 
 #include <drivers/uart.h>
-#include <kernel/tools.h>
+#include <nuvix/tools.h>
 
 __always_inline
 static inline void uart_write_reg(int reg, uint8_t val)

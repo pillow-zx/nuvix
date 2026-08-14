@@ -1,7 +1,7 @@
-# cuteOS syscall 语义矩阵报告
+# nuvix syscall 语义矩阵报告
 
-本文是 cuteOS 当前 syscall 支持面的基线，记录
-`include/kernel/syscall_table.h` 中 120 个 syscall 入口的语义成熟度。它不
+本文是 nuvix 当前 syscall 支持面的基线，记录
+`include/nuvix/syscall_table.h` 中 120 个 syscall 入口的语义成熟度。它不
 是 Linux 完整兼容声明；入口存在只表示分发表安装了 handler，具体支持等级以
 本文的 A/B/C/D 矩阵为准。
 
@@ -60,7 +60,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 
 ### `fcntl` cmd 支持表
 
-`fcntl` 对 cuteOS 识别的 cmd 先检查 fd；fd 无效时返回 `-EBADF`。fd
+`fcntl` 对 nuvix 识别的 cmd 先检查 fd；fd 无效时返回 `-EBADF`。fd
 有效但 cmd 不支持时返回表中的 unsupported errno。未识别 cmd 对有效 fd
 返回 `-EINVAL`。
 
@@ -86,7 +86,7 @@ B/C/D 入口还在对应 `syscall/sys_*.c` handler 附近保留
 ### Pipe I/O
 
 每个 pipe 的容量和 `PIPE_BUF` 均为 4096 bytes。对同一 pipe 的单次
-`write()`/总长度不超过 `PIPE_BUF` 的 `writev()`，cuteOS 保持一个 VFS 写入
+`write()`/总长度不超过 `PIPE_BUF` 的 `writev()`，nuvix 保持一个 VFS 写入
 请求：阻塞写会等待完整空间后一次性提交，非阻塞写则只会完整写入或返回
 `-EAGAIN`。超过该大小的非阻塞 `write()` 在 pipe 不为空闲时返回 `-EAGAIN`，
 否则可返回正的短写；阻塞写在没有信号或断管时继续等待剩余字节。
@@ -260,7 +260,7 @@ vfork。复杂 Linux 模型先固定为 `-EINVAL`，避免真实程序把探测�
 | flag / 组合 | 状态 | errno / 语义 |
 | --- | --- | --- |
 | exit signal `0` / `SIGCHLD` | supported | 非线程 clone 可用；`0` 或任意有效 signal（1..NSIG）均可作 exit signal，非法信号值返回 `-EINVAL` |
-| `CLONE_VM` | supported | 共享 mm；必须提供 child stack；`CLONE_SIGHAND` 可选（Linux 要求 `CLONE_SIGHAND` 必须与 `CLONE_VM` 成对，cuteOS 仅强制 `CLONE_SIGHAND` → `CLONE_VM` 单向） |
+| `CLONE_VM` | supported | 共享 mm；必须提供 child stack；`CLONE_SIGHAND` 可选（Linux 要求 `CLONE_SIGHAND` 必须与 `CLONE_VM` 成对，nuvix 仅强制 `CLONE_SIGHAND` → `CLONE_VM` 单向） |
 | `CLONE_FS` | supported | 共享 cwd/root/umask 状态 |
 | `CLONE_FILES` | supported | 共享 fdtable |
 | `CLONE_SIGHAND` | supported | 共享 handler 表；必须同时设置 `CLONE_VM` |
@@ -396,7 +396,7 @@ task-local LIFO 链。`rt_sigreturn` 只接受该链的当前栈顶地址，再�
 ### `mmap` flag 支持表
 
 `mmap` 先按 Linux `MAP_TYPE` 解析映射类型。`MAP_SHARED_VALIDATE` 的普通
-映射语义与 `MAP_SHARED` 相同；携带 cuteOS 不支持的扩展 flag 时返回
+映射语义与 `MAP_SHARED` 相同；携带 nuvix 不支持的扩展 flag 时返回
 `-EOPNOTSUPP`。
 
 | flag / type | 状态 | errno / 语义 |
@@ -497,7 +497,7 @@ CPU0 参数校验。没有 SMP IPI、remote runqueue 扫描或跨 hart expedited
 
 | cmd / flag | 状态 | errno / 语义 |
 | --- | --- | --- |
-| `MEMBARRIER_CMD_QUERY` | supported | 返回 cuteOS 当前支持的 cmd bitmask |
+| `MEMBARRIER_CMD_QUERY` | supported | 返回 nuvix 当前支持的 cmd bitmask |
 | `MEMBARRIER_CMD_GLOBAL` | supported single-core | 执行本地 full memory barrier |
 | `MEMBARRIER_CMD_GLOBAL_EXPEDITED` | supported single-core | 执行本地 full memory barrier；不要求调用者注册 |
 | `REGISTER_*` cmds | supported | 记录到当前 mm registration bitmask 并执行本地 barrier |
@@ -520,7 +520,7 @@ CPU0 参数校验。没有 SMP IPI、remote runqueue 扫描或跨 hart expedited
 | 146 | `setuid` | B | root 或自身 uid 改写 | saved uid/euid 不完整 | 同 cred |
 | 158 | `getgroups` | B | 返回 per-task supplementary groups（上限 `NGROUPS_MAX` 32）；size 0 仅查询数量；缓冲过小 `-EINVAL`；坏指针 `-EFAULT` | 无 capability | 引入 capability 后收紧 |
 | 159 | `setgroups` | B | euid 0 可设置至多 32 组；size 0 清空；非 root `-EPERM`；越界 `-EINVAL` | 无 capability（以 euid 0 代 `CAP_SETGID`） | 引入 capability 后收紧 |
-| 160 | `uname` | A | 固定 cuteOS/riscv64 信息 | 保持 |
+| 160 | `uname` | A | 固定 nuvix/riscv64 信息 | 保持 |
 | 165 | `getrusage` | B | self/children cputime 基础字段 | 许多资源字段置零 | 补内存/IO 统计或文档化 |
 | 166 | `umask` | A | fs_struct umask | 保持 |
 | 174 | `getuid` | A | 返回 uid | cred 模型浅但查询可用 | 保持 |

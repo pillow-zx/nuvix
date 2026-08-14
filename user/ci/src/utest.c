@@ -16,7 +16,7 @@
 
 #include "utest_internal.h"
 
-#define UT_EXEC_DIRECTORY "/usr/lib/cuteos-tests"
+#define UT_EXEC_DIRECTORY "/usr/lib/nuvix-tests"
 
 struct ut_context {
 	const char *fixture;

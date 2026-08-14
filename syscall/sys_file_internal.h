@@ -4,12 +4,12 @@
 #ifndef SYS_FILE_INTERNAL_H
 #define SYS_FILE_INTERNAL_H
 
-#include <kernel/buddy.h>
-#include <kernel/cleanup.h>
-#include <kernel/fdtable.h>
-#include <kernel/fs.h>
-#include <kernel/types.h>
-#include <kernel/vfs.h>
+#include <nuvix/buddy.h>
+#include <nuvix/cleanup.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fs.h>
+#include <nuvix/types.h>
+#include <nuvix/vfs.h>
 
 #define SYS_FILE_BUF_SIZE 256
 #define SYS_IOV_MAX	  64

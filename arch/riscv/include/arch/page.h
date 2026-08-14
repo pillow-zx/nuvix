@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_ARCH_RISCV_PAGE_H
-#define _CUTEOS_ARCH_RISCV_PAGE_H
+#ifndef _NUVIX_ARCH_RISCV_PAGE_H
+#define _NUVIX_ARCH_RISCV_PAGE_H
 
 /**
  * @file page.h
@@ -7,8 +7,8 @@
  */
 
 #include <asm/page.h>
-#include <kernel/compiler.h>
-#include <kernel/types.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
 
 /**
  * @def DRAM_BASE

@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_COMPILER_BUILTIN_H
-#define _CUTEOS_COMPILER_BUILTIN_H
+#ifndef _NUVIX_COMPILER_BUILTIN_H
+#define _NUVIX_COMPILER_BUILTIN_H
 
 /*
  * include/compiler/compiler_builtin.h - compiler builtin 宏

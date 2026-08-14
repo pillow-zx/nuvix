@@ -1,7 +1,7 @@
 /* Logical-to-physical association management for the page cache. */
 
-#include <kernel/errno.h>
-#include <kernel/slab.h>
+#include <nuvix/errno.h>
+#include <nuvix/slab.h>
 
 #include "internal.h"
 

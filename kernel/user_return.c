@@ -2,12 +2,12 @@
  * kernel/user_return.c - generic user-return work boundary
  */
 
-#include <kernel/user_return.h>
-#include <kernel/exit.h>
-#include <kernel/rseq.h>
-#include <kernel/proc.h>
-#include <kernel/signal.h>
-#include <kernel/trap.h>
+#include <nuvix/user_return.h>
+#include <nuvix/exit.h>
+#include <nuvix/rseq.h>
+#include <nuvix/proc.h>
+#include <nuvix/signal.h>
+#include <nuvix/trap.h>
 #include <uapi/signal.h>
 
 void user_return_work(struct trap_frame *tf)

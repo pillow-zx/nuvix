@@ -1,7 +1,7 @@
-#ifndef _CUTEOS_KERNEL_SCHED_INTERNAL_H
-#define _CUTEOS_KERNEL_SCHED_INTERNAL_H
+#ifndef _NUVIX_SCHED_INTERNAL_H
+#define _NUVIX_SCHED_INTERNAL_H
 
-#include <kernel/sched.h>
+#include <nuvix/sched.h>
 
 enum sched_enqueue_reason {
 	SCHED_ENQUEUE_NEW,

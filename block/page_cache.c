@@ -1,12 +1,12 @@
 /* Physical page cache keyed by (device, block). */
 #include "internal.h"
 
-#include <kernel/blkdev.h>
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/hash.h>
-#include <kernel/list.h>
-#include <kernel/slab.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/hash.h>
+#include <nuvix/list.h>
+#include <nuvix/slab.h>
 
 #define PGCACHE_HASH_BITS	7
 #define PGCACHE_NR_PAGES	512U

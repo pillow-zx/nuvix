@@ -1,4 +1,4 @@
-# cuteOS RISC-V kernel debugging setup.
+# nuvix RISC-V kernel debugging setup.
 #
 # qemu-gdb starts with QEMU paused before the kernel runs.  The kernel ELF is
 # linked in the high-half mapping, while early boot executes at its physical

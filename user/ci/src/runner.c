@@ -16,7 +16,7 @@
 
 #include "utest_internal.h"
 
-#define UT_FIXTURE_DIRECTORY "/tmp/cuteos-tests"
+#define UT_FIXTURE_DIRECTORY "/tmp/nuvix-tests"
 #define UT_POLL_INTERVAL_MS 5
 
 extern const struct ut_case __start_ut_cases[];

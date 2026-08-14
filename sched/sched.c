@@ -1,11 +1,11 @@
 /* sched/sched.c - generic scheduler mechanism */
 
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/rseq.h>
-#include <kernel/sched.h>
-#include <kernel/task.h>
-#include <kernel/trap.h>
+#include <nuvix/errno.h>
+#include <nuvix/printk.h>
+#include <nuvix/rseq.h>
+#include <nuvix/sched.h>
+#include <nuvix/task.h>
+#include <nuvix/trap.h>
 
 #include "internal.h"
 

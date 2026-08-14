@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_UTSNAME_H
-#define _CUTEOS_UAPI_UTSNAME_H
+#ifndef _NUVIX_UAPI_UTSNAME_H
+#define _NUVIX_UAPI_UTSNAME_H
 
 /**
  * @file utsname.h

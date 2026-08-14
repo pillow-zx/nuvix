@@ -2,11 +2,11 @@
  * fs/vfs/dentry.c - Dentry 缓存
  */
 
-#include <kernel/errno.h>
-#include <kernel/fs.h>
-#include <kernel/hash.h>
-#include <kernel/slab.h>
-#include <kernel/vfs.h>
+#include <nuvix/errno.h>
+#include <nuvix/fs.h>
+#include <nuvix/hash.h>
+#include <nuvix/slab.h>
+#include <nuvix/vfs.h>
 
 #define DCACHE_HASH_BITS 7
 #define DCACHE_HASH_SIZE (1u << DCACHE_HASH_BITS)

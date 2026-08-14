@@ -2,17 +2,17 @@
  * kernel/proc.c - process object, topology, and wait-visible lifecycle
  */
 
-#include <kernel/errno.h>
-#include <kernel/fdtable.h>
-#include <kernel/fs_struct.h>
-#include <kernel/init.h>
-#include <kernel/mm.h>
-#include <kernel/pid.h>
-#include <kernel/proc.h>
-#include <kernel/resource.h>
-#include <kernel/signal.h>
-#include <kernel/slab.h>
-#include <kernel/task.h>
+#include <nuvix/errno.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/init.h>
+#include <nuvix/mm.h>
+#include <nuvix/pid.h>
+#include <nuvix/proc.h>
+#include <nuvix/resource.h>
+#include <nuvix/signal.h>
+#include <nuvix/slab.h>
+#include <nuvix/task.h>
 #include <uapi/signal.h>
 
 static DEFINE_SPINLOCK(proc_topology_lock, LOCK_RANK_TOPOLOGY);

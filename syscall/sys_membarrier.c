@@ -2,14 +2,14 @@
  * syscall/sys_membarrier.c - membarrier Linux ABI compatibility wrapper
  */
 
-#include <kernel/cpu.h>
-#include <kernel/errno.h>
-#include <kernel/mm.h>
-#include <kernel/syscall.h>
-#include <kernel/task.h>
+#include <nuvix/cpu.h>
+#include <nuvix/errno.h>
+#include <nuvix/mm.h>
+#include <nuvix/syscall.h>
+#include <nuvix/task.h>
 #include <uapi/membarrier.h>
-#include <kernel/processor.h>
-#include <kernel/trap.h>
+#include <nuvix/processor.h>
+#include <nuvix/trap.h>
 
 #define MEMBARRIER_SUPPORTED_MASK                                              \
 	(MEMBARRIER_CMD_GLOBAL | MEMBARRIER_CMD_GLOBAL_EXPEDITED |             \

@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_WAIT_H
-#define _CUTEOS_UAPI_WAIT_H
+#ifndef _NUVIX_UAPI_WAIT_H
+#define _NUVIX_UAPI_WAIT_H
 
 /**
  * @file wait.h

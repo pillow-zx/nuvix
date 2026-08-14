@@ -2,8 +2,8 @@
  * mm/user_map.c - 用户页表特殊映射注册表
  */
 
-#include <kernel/user_map.h>
-#include <kernel/errno.h>
+#include <nuvix/user_map.h>
+#include <nuvix/errno.h>
 
 #define NR_USER_MAPS 4
 

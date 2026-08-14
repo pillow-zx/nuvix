@@ -6,16 +6,16 @@
  * only their local idle loop: no scheduler, no allocator, no I/O.
  */
 
-#include <kernel/smp.h>
-#include <kernel/cpu.h>
-#include <kernel/errno.h>
-#include <kernel/ipi.h>
-#include <kernel/pgtable.h>
-#include <kernel/processor.h>
-#include <kernel/printk.h>
-#include <kernel/task.h>
-#include <kernel/timer.h>
-#include <kernel/irq.h>
+#include <nuvix/smp.h>
+#include <nuvix/cpu.h>
+#include <nuvix/errno.h>
+#include <nuvix/ipi.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/processor.h>
+#include <nuvix/printk.h>
+#include <nuvix/task.h>
+#include <nuvix/timer.h>
+#include <nuvix/irq.h>
 #include <asm/csr.h>
 #include <arch/trap.h>
 

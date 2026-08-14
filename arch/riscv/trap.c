@@ -4,20 +4,20 @@
 
 #include <asm/csr.h>
 #include <asm/trap.h>
-#include <kernel/trap.h>
-#include <kernel/printk.h>
-#include <kernel/types.h>
-#include <kernel/sched.h>
-#include <kernel/task.h>
-#include <kernel/timer.h>
-#include <kernel/syscall.h>
-#include <kernel/mm.h>
-#include <kernel/exit.h>
-#include <kernel/irq.h>
-#include <kernel/signal.h>
-#include <kernel/wait.h>
-#include <kernel/user_return.h>
-#include <kernel/ipi.h>
+#include <nuvix/trap.h>
+#include <nuvix/printk.h>
+#include <nuvix/types.h>
+#include <nuvix/sched.h>
+#include <nuvix/task.h>
+#include <nuvix/timer.h>
+#include <nuvix/syscall.h>
+#include <nuvix/mm.h>
+#include <nuvix/exit.h>
+#include <nuvix/irq.h>
+#include <nuvix/signal.h>
+#include <nuvix/wait.h>
+#include <nuvix/user_return.h>
+#include <nuvix/ipi.h>
 
 static const char *trap_origin(const struct trap_frame *tf)
 {

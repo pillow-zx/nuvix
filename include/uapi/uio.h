@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_UIO_H
-#define _CUTEOS_UAPI_UIO_H
+#ifndef _NUVIX_UAPI_UIO_H
+#define _NUVIX_UAPI_UIO_H
 
 /**
  * @file uio.h

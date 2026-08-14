@@ -1,13 +1,13 @@
-#ifndef _CUTEOS_ASM_CSR_H
-#define _CUTEOS_ASM_CSR_H
+#ifndef _NUVIX_ASM_CSR_H
+#define _NUVIX_ASM_CSR_H
 
 /**
  * @file
  * @brief RISC-V CSR bit definitions and inline access helpers.
  */
 
-#include <kernel/types.h>
-#include <kernel/bitops.h>
+#include <nuvix/types.h>
+#include <nuvix/bitops.h>
 
 /** @def SSTATUS_SPP
  * @brief Previous privilege mode bit in sstatus; set means return to S-mode.

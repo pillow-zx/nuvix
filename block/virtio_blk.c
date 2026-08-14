@@ -4,11 +4,11 @@
 
 #include <drivers/virtio_blk.h>
 #include <drivers/virtio.h>
-#include <kernel/blkdev.h>
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/tools.h>
-#include <kernel/page.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/errno.h>
+#include <nuvix/printk.h>
+#include <nuvix/tools.h>
+#include <nuvix/page.h>
 
 #define VBLK_QSIZE	     8
 #define VBLK_MAX_SECTORS     256u

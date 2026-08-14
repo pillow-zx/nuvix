@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_ERRNO_H
-#define _CUTEOS_UAPI_ERRNO_H
+#ifndef _NUVIX_UAPI_ERRNO_H
+#define _NUVIX_UAPI_ERRNO_H
 
 #define EPERM		1
 #define ENOENT		2

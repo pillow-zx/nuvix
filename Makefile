@@ -1,4 +1,4 @@
-# CuteOS build entry point.
+# nuvix build entry point.
 
 .DEFAULT_GOAL := all
 

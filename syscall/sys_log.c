@@ -2,12 +2,12 @@
  * syscall/sys_log.c - syslog ABI compatibility wrapper
  */
 
-#include <kernel/errno.h>
-#include <kernel/printk.h>
-#include <kernel/syscall.h>
-#include <kernel/task.h>
+#include <nuvix/errno.h>
+#include <nuvix/printk.h>
+#include <nuvix/syscall.h>
+#include <nuvix/task.h>
 #include <uapi/syslog.h>
-#include <kernel/trap.h>
+#include <nuvix/trap.h>
 
 __must_check __pure
 static inline bool syslog_action_valid(const int type)

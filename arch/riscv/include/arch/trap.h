@@ -1,9 +1,9 @@
-#ifndef _CUTEOS_ARCH_RISCV_TRAP_H
-#define _CUTEOS_ARCH_RISCV_TRAP_H
+#ifndef _NUVIX_ARCH_RISCV_TRAP_H
+#define _NUVIX_ARCH_RISCV_TRAP_H
 
-#include <kernel/compiler.h>
-#include <kernel/types.h>
-#include <kernel/trap_types.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
+#include <nuvix/trap_types.h>
 #include <asm/csr.h>
 #include <asm/context.h>
 #include <asm/trap.h>

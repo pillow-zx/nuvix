@@ -2,12 +2,12 @@
  * mm/buddy.c - 伙伴系统（物理页分配）
  */
 
-#include <kernel/buddy.h>
-#include <kernel/page.h>
-#include <kernel/printk.h>
-#include <kernel/bitops.h>
-#include <kernel/tools.h>
-#include <kernel/page.h>
+#include <nuvix/buddy.h>
+#include <nuvix/page.h>
+#include <nuvix/printk.h>
+#include <nuvix/bitops.h>
+#include <nuvix/tools.h>
+#include <nuvix/page.h>
 
 struct page *mem_map;
 struct free_area free_area[MAX_ORDER + 1];

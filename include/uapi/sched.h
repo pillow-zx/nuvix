@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_SCHED_H
-#define _CUTEOS_UAPI_SCHED_H
+#ifndef _NUVIX_UAPI_SCHED_H
+#define _NUVIX_UAPI_SCHED_H
 
 /**
  * @file sched.h

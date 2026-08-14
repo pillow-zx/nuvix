@@ -2,15 +2,15 @@
  * fs/vfs/mount.c - single-namespace VFS mount table
  */
 
-#include <kernel/blkdev.h>
-#include <kernel/errno.h>
-#include <kernel/fs.h>
-#include <kernel/page_cache.h>
-#include <kernel/slab.h>
-#include <kernel/stat.h>
-#include <kernel/mutex.h>
-#include <kernel/printk.h>
-#include <kernel/vfs.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/errno.h>
+#include <nuvix/fs.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/slab.h>
+#include <nuvix/stat.h>
+#include <nuvix/mutex.h>
+#include <nuvix/printk.h>
+#include <nuvix/vfs.h>
 
 #include "namei_internal.h"
 

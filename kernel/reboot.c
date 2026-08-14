@@ -3,9 +3,9 @@
  */
 
 #include <arch/system.h>
-#include <kernel/errno.h>
-#include <kernel/reboot.h>
-#include <kernel/task.h>
+#include <nuvix/errno.h>
+#include <nuvix/reboot.h>
+#include <nuvix/task.h>
 
 int kernel_reboot(enum kernel_reboot_command command)
 {

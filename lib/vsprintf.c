@@ -2,8 +2,8 @@
  * lib/vsprintf.c - 格式化输出（printk 底层）
  */
 
-#include <kernel/types.h>
-#include <kernel/printk.h>
+#include <nuvix/types.h>
+#include <nuvix/printk.h>
 
 static char *emit(char *buf, char *end, char c)
 {

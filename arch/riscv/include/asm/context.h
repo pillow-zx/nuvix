@@ -1,12 +1,12 @@
-#ifndef _CUTEOS_ASM_CONTEXT_H
-#define _CUTEOS_ASM_CONTEXT_H
+#ifndef _NUVIX_ASM_CONTEXT_H
+#define _NUVIX_ASM_CONTEXT_H
 
 /**
  * @file
  * @brief switch.S saved context layout.
  */
 
-#include <kernel/types.h>
+#include <nuvix/types.h>
 
 /**
  * @struct context

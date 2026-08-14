@@ -137,7 +137,7 @@ UT_CASE(sched_affinity_cross_user_eperm, 5000)
 		if (syscall(SYS_sched_setaffinity, getppid(), sizeof(mask),
 			    &mask) != -1 || errno != EPERM)
 			_exit(126);
-		/* cuteOS divergence: getaffinity has no uid gate (Linux
+		/* nuvix divergence: getaffinity has no uid gate (Linux
 		 * returns EPERM for a cross-user read). */
 		if (syscall(SYS_sched_getaffinity, getppid(), sizeof(mask),
 			    &mask) != (long)sizeof(mask))

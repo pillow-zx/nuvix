@@ -3,11 +3,11 @@
  * @brief virtio MMIO register offsets, status bits, and vring ABI structs.
  */
 
-#ifndef _CUTEOS_DRIVERS_VIRTIO_H
-#define _CUTEOS_DRIVERS_VIRTIO_H
+#ifndef _NUVIX_DRIVERS_VIRTIO_H
+#define _NUVIX_DRIVERS_VIRTIO_H
 
-#include <kernel/types.h>
-#include <kernel/tools.h>
+#include <nuvix/types.h>
+#include <nuvix/tools.h>
 
 /**
  * @def VIRTIO_MMIO_BASE
@@ -136,7 +136,7 @@ struct vring_used_elem {
  *
  * @par Fields
  * - @c type: VIRTIO_BLK_T_* request type.
- * - @c ioprio: I/O priority field; cuteOS leaves it zero.
+ * - @c ioprio: I/O priority field; nuvix leaves it zero.
  * - @c sector: Starting 512-byte sector on the block device.
  */
 struct virtio_blk_outhdr {

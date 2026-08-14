@@ -2,7 +2,7 @@
  * arch/riscv/mm/tlb.c - TLB 刷新 (sfence.vma)
  */
 
-#include <kernel/types.h>
+#include <nuvix/types.h>
 #include <asm/csr.h>
 
 __always_inline

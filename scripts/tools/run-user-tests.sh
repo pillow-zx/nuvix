@@ -16,7 +16,7 @@ log=${UTEST_LOG:-}
 run_image=
 
 if [ -z "$log" ]; then
-	log=$(mktemp "${TMPDIR:-/tmp}/cuteos-utest.XXXXXX.log")
+	log=$(mktemp "${TMPDIR:-/tmp}/nuvix-utest.XXXXXX.log")
 fi
 
 if ! command -v timeout >/dev/null 2>&1; then
@@ -24,7 +24,7 @@ if ! command -v timeout >/dev/null 2>&1; then
 	exit 2
 fi
 
-run_image=$(mktemp "${TMPDIR:-/tmp}/cuteos-utest-img.XXXXXX")
+run_image=$(mktemp "${TMPDIR:-/tmp}/nuvix-utest-img.XXXXXX")
 cleanup()
 {
 	rm -f "$run_image"

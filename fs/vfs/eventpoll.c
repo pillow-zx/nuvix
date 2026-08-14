@@ -2,17 +2,17 @@
  * fs/vfs/eventpoll.c - eventpoll file implementation
  */
 
-#include <kernel/cleanup.h>
-#include <kernel/errno.h>
-#include <kernel/eventpoll.h>
-#include <kernel/fdtable.h>
-#include <kernel/fs.h>
-#include <kernel/list.h>
-#include <kernel/slab.h>
-#include <kernel/spinlock.h>
-#include <kernel/task.h>
-#include <kernel/tools.h>
-#include <kernel/wait.h>
+#include <nuvix/cleanup.h>
+#include <nuvix/errno.h>
+#include <nuvix/eventpoll.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fs.h>
+#include <nuvix/list.h>
+#include <nuvix/slab.h>
+#include <nuvix/spinlock.h>
+#include <nuvix/task.h>
+#include <nuvix/tools.h>
+#include <nuvix/wait.h>
 #include <uapi/poll.h>
 
 struct epitem {

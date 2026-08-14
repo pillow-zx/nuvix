@@ -2,13 +2,13 @@
  * syscall/sys_mm.c - 内存相关系统调用
  */
 
-#include <kernel/errno.h>
-#include <kernel/syscall.h>
-#include <kernel/mm.h>
-#include <kernel/page.h>
-#include <kernel/task.h>
+#include <nuvix/errno.h>
+#include <nuvix/syscall.h>
+#include <nuvix/mm.h>
+#include <nuvix/page.h>
+#include <nuvix/task.h>
 #include <uapi/mman.h>
-#include <kernel/trap.h>
+#include <nuvix/trap.h>
 
 ssize_t sys_brk(struct trap_frame *tf)
 {

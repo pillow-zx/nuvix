@@ -1,5 +1,5 @@
-#include <kernel/ksyms.h>
-#include <kernel/compiler.h>
+#include <nuvix/ksyms.h>
+#include <nuvix/compiler.h>
 
 #ifdef CONFIG_KSYMS
 __weak

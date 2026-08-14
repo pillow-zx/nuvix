@@ -2,18 +2,18 @@
  * kernel/printk.c - 内核日志与格式化输出
  */
 
-#include <kernel/printk.h>
-#include <kernel/errno.h>
-#include <kernel/mm.h>
-#include <kernel/stacktrace.h>
-#include <kernel/processor.h>
-#include <kernel/compiler.h>
-#include <kernel/sbi.h>
-#include <kernel/slab.h>
-#include <kernel/task.h>
-#include <kernel/spinlock.h>
-#include <kernel/mutex.h>
-#include <kernel/wait.h>
+#include <nuvix/printk.h>
+#include <nuvix/errno.h>
+#include <nuvix/mm.h>
+#include <nuvix/stacktrace.h>
+#include <nuvix/processor.h>
+#include <nuvix/compiler.h>
+#include <nuvix/sbi.h>
+#include <nuvix/slab.h>
+#include <nuvix/task.h>
+#include <nuvix/spinlock.h>
+#include <nuvix/mutex.h>
+#include <nuvix/wait.h>
 #include <drivers/uart.h>
 
 #define PRINTK_BUF_SIZE	    1024

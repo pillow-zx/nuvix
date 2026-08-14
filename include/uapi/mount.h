@@ -1,11 +1,11 @@
-#ifndef _CUTEOS_UAPI_MOUNT_H
-#define _CUTEOS_UAPI_MOUNT_H
+#ifndef _NUVIX_UAPI_MOUNT_H
+#define _NUVIX_UAPI_MOUNT_H
 
 /**
  * @file mount.h
  * @brief Linux mount(2) and umount2(2) flag constants.
  *
- * These numeric values are UAPI. cuteOS currently implements only the
+ * These numeric values are UAPI. nuvix currently implements only the
  * documented zero-flag mount model; nonzero flags are exposed so user-space
  * probes can receive stable unsupported errors.
  */

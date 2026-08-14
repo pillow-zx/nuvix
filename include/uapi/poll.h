@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_POLL_H
-#define _CUTEOS_UAPI_POLL_H
+#ifndef _NUVIX_UAPI_POLL_H
+#define _NUVIX_UAPI_POLL_H
 
 /**
  * @file poll.h

@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_ASM_OFFSETS_H
-#define _CUTEOS_ASM_OFFSETS_H
+#ifndef _NUVIX_ASM_OFFSETS_H
+#define _NUVIX_ASM_OFFSETS_H
 
 /*
  * arch/riscv/include/asm/asm_offsets.h - assembly-visible structure offsets
@@ -72,7 +72,7 @@
 
 /*
  * Must match offsetof(struct task_struct, ...). The C side checks these in
- * include/kernel/task.h, catching layout drift at build time.
+ * include/nuvix/task.h, catching layout drift at build time.
  */
 #define TASK_KSTACK 120
 #define TASK_SATP   128
@@ -87,7 +87,7 @@
 
 /*
  * sizeof(struct cpu), config-dependent through CONFIG_DEBUG_CONTEXT.
- * The C side checks it with a static_assert in include/kernel/cpu.h.
+ * The C side checks it with a static_assert in include/nuvix/cpu.h.
  */
 #if defined(CONFIG_DEBUG_CONTEXT)
 #define CPU_SIZE 336

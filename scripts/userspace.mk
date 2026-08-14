@@ -209,10 +209,10 @@ $(UTEST_ROOTFS_STAMP): $(UTEST_ROOTFS_DEPS) $(AUTO_CONF)
 	$(QUIET_UTEST)
 	$(Q)rm -rf $(UTEST_ROOTFS)
 	$(Q)mkdir -p $(UTEST_ROOTFS)/bin $(UTEST_ROOTFS)/dev $(UTEST_ROOTFS)/etc \
-		$(UTEST_ROOTFS)/tmp $(UTEST_ROOTFS)/usr/lib/cuteos-tests
+		$(UTEST_ROOTFS)/tmp $(UTEST_ROOTFS)/usr/lib/nuvix-tests
 	$(Q)cp -a $(BUSYBOX_INSTALL)/. $(UTEST_ROOTFS)/
 	$(Q)cp $(UTEST_SRC)/rootfs/inittab $(UTEST_ROOTFS)/etc/inittab
-	$(Q)cp $(UTEST_ELFS) $(UTEST_ROOTFS)/usr/lib/cuteos-tests/
+	$(Q)cp $(UTEST_ELFS) $(UTEST_ROOTFS)/usr/lib/nuvix-tests/
 	$(Q)touch $@
 
 busybox-menuconfig:

@@ -1,8 +1,8 @@
-#include <kernel/blkdev.h>
-#include <kernel/errno.h>
-#include <kernel/page_cache.h>
-#include <kernel/slab.h>
-#include <kernel/stat.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/errno.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/slab.h>
+#include <nuvix/stat.h>
 
 #include "ext2.h"
 

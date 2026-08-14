@@ -6,15 +6,15 @@
  * this module only owns the generation handshake and task wakeup.
  */
 
-#include <kernel/errno.h>
-#include <kernel/irq.h>
-#include <kernel/processor.h>
-#include <kernel/sched.h>
-#include <kernel/signal.h>
-#include <kernel/task.h>
-#include <kernel/timer.h>
-#include <kernel/tools.h>
-#include <kernel/wait.h>
+#include <nuvix/errno.h>
+#include <nuvix/irq.h>
+#include <nuvix/processor.h>
+#include <nuvix/sched.h>
+#include <nuvix/signal.h>
+#include <nuvix/task.h>
+#include <nuvix/timer.h>
+#include <nuvix/tools.h>
+#include <nuvix/wait.h>
 
 struct wait_deadline_queue {
 	spinlock_t lock;

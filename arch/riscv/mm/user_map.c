@@ -2,8 +2,8 @@
  * arch/riscv/mm/user_map.c - QEMU virt 用户页表平台映射
  */
 
-#include <kernel/printk.h>
-#include <kernel/user_map.h>
+#include <nuvix/printk.h>
+#include <nuvix/user_map.h>
 #include <arch/page.h>
 #include <arch/pgtable.h>
 #include <arch/user_map.h>

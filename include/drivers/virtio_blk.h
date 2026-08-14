@@ -1,12 +1,12 @@
-#ifndef _CUTEOS_DRIVERS_VIRTIO_BLK_H
-#define _CUTEOS_DRIVERS_VIRTIO_BLK_H
+#ifndef _NUVIX_DRIVERS_VIRTIO_BLK_H
+#define _NUVIX_DRIVERS_VIRTIO_BLK_H
 
 /**
  * @file virtio_blk.h
  * @brief virtio-blk device-number contract and initialization API.
  */
 
-#include <kernel/blkdev.h>
+#include <nuvix/blkdev.h>
 
 /**
  * @def VIRTIO_BLK_MAJOR

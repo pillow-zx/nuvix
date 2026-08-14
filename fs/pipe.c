@@ -2,18 +2,18 @@
  * fs/pipe.c - 管道
  */
 
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/fdtable.h>
-#include <kernel/fs.h>
-#include <kernel/pipe.h>
-#include <kernel/slab.h>
-#include <kernel/signal.h>
-#include <kernel/spinlock.h>
-#include <kernel/task.h>
-#include <kernel/wait.h>
-#include <kernel/page.h>
-#include <kernel/printk.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fs.h>
+#include <nuvix/pipe.h>
+#include <nuvix/slab.h>
+#include <nuvix/signal.h>
+#include <nuvix/spinlock.h>
+#include <nuvix/task.h>
+#include <nuvix/wait.h>
+#include <nuvix/page.h>
+#include <nuvix/printk.h>
 
 #define PIPE_SIZE PAGE_SIZE
 

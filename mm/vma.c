@@ -4,10 +4,10 @@
 
 #include "internal.h"
 
-#include <kernel/errno.h>
-#include <kernel/fdtable.h>
-#include <kernel/printk.h>
-#include <kernel/page.h>
+#include <nuvix/errno.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/printk.h>
+#include <nuvix/page.h>
 
 int mm_range_end_page_aligned(uintptr_t start, size_t length, uintptr_t *end)
 {

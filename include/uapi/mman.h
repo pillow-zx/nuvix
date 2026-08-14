@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_MMAN_H
-#define _CUTEOS_UAPI_MMAN_H
+#ifndef _NUVIX_UAPI_MMAN_H
+#define _NUVIX_UAPI_MMAN_H
 
 /**
  * @file mman.h
@@ -33,25 +33,25 @@
 #define MAP_ANONYMOUS 0x20
 /** @def MAP_TYPE Linux mapping-type mask. */
 #define MAP_TYPE 0x0f
-/** @def MAP_GROWSDOWN Linux stack-growth flag, unsupported by cuteOS. */
+/** @def MAP_GROWSDOWN Linux stack-growth flag, unsupported by nuvix. */
 #define MAP_GROWSDOWN 0x0100
 /** @def MAP_DENYWRITE Historical Linux no-op compatibility flag. */
 #define MAP_DENYWRITE 0x0800
 /** @def MAP_EXECUTABLE Historical Linux no-op compatibility flag. */
 #define MAP_EXECUTABLE 0x1000
-/** @def MAP_LOCKED Linux prefault-and-lock flag, unsupported by cuteOS. */
+/** @def MAP_LOCKED Linux prefault-and-lock flag, unsupported by nuvix. */
 #define MAP_LOCKED 0x2000
 /** @def MAP_NORESERVE Linux overcommit hint, accepted as a no-op. */
 #define MAP_NORESERVE 0x4000
 /** @def MAP_POPULATE Best-effort prefault of mapping pages. */
 #define MAP_POPULATE 0x008000
-/** @def MAP_NONBLOCK Linux MAP_POPULATE modifier, unsupported by cuteOS. */
+/** @def MAP_NONBLOCK Linux MAP_POPULATE modifier, unsupported by nuvix. */
 #define MAP_NONBLOCK 0x010000
 /** @def MAP_STACK Linux stack-placement hint, accepted as a no-op. */
 #define MAP_STACK 0x020000
-/** @def MAP_HUGETLB Linux huge-page mapping flag, unsupported by cuteOS. */
+/** @def MAP_HUGETLB Linux huge-page mapping flag, unsupported by nuvix. */
 #define MAP_HUGETLB 0x040000
-/** @def MAP_SYNC Linux DAX synchronized fault flag, unsupported by cuteOS. */
+/** @def MAP_SYNC Linux DAX synchronized fault flag, unsupported by nuvix. */
 #define MAP_SYNC 0x080000
 /** @def MAP_FIXED_NOREPLACE Fixed mmap that must not replace an old mapping. */
 #define MAP_FIXED_NOREPLACE 0x100000

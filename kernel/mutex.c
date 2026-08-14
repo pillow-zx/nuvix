@@ -1,6 +1,6 @@
-#include <kernel/mutex.h>
-#include <kernel/sched.h>
-#include <kernel/task.h>
+#include <nuvix/mutex.h>
+#include <nuvix/sched.h>
+#include <nuvix/task.h>
 
 bool mutex_trylock(mutex_t *mutex)
 {

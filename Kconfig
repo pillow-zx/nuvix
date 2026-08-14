@@ -1,8 +1,8 @@
-mainmenu "cuteOS Configuration"
+mainmenu "nuvix Configuration"
 
 menu "General setup"
 
-comment "cuteOS uses a single .config in the repository root."
+comment "nuvix uses a single .config in the repository root."
 
 config ARCH_RISCV
 	bool

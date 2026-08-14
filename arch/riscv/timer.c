@@ -2,7 +2,7 @@
  * arch/riscv/timer.c - Sstc 时钟 (100Hz)
  */
 
-#include <kernel/timer.h>
+#include <nuvix/timer.h>
 #include <asm/csr.h>
 
 uint64_t timer_now(void)

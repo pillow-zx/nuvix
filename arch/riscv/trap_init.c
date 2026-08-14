@@ -5,7 +5,7 @@
 #include <asm/csr.h>
 #include <asm/trap.h>
 #include <arch/trap.h>
-#include <kernel/printk.h>
+#include <nuvix/printk.h>
 
 extern void __alltraps(void);
 

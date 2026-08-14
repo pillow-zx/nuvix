@@ -2,9 +2,9 @@
  * arch/riscv/task.c - RISC-V task context helpers
  */
 
-#include <kernel/mm.h>
-#include <kernel/task.h>
-#include <kernel/tools.h>
+#include <nuvix/mm.h>
+#include <nuvix/task.h>
+#include <nuvix/tools.h>
 #include <uapi/sched.h>
 #include <arch/pgtable.h>
 #include <arch/trap.h>

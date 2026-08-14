@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_DIRENT_H
-#define _CUTEOS_UAPI_DIRENT_H
+#ifndef _NUVIX_UAPI_DIRENT_H
+#define _NUVIX_UAPI_DIRENT_H
 
 /**
  * @file dirent.h

@@ -1,9 +1,9 @@
-#ifndef _CUTEOS_ARCH_RISCV_UACCESS_H
-#define _CUTEOS_ARCH_RISCV_UACCESS_H
+#ifndef _NUVIX_ARCH_RISCV_UACCESS_H
+#define _NUVIX_ARCH_RISCV_UACCESS_H
 
 #include <asm/csr.h>
-#include <kernel/compiler.h>
-#include <kernel/types.h>
+#include <nuvix/compiler.h>
+#include <nuvix/types.h>
 
 __always_inline __must_check
 static inline bool user_access_begin(void)

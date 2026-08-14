@@ -2,14 +2,14 @@
  * kernel/time.c - monotonic clock, realtime offset, and deadline conversion
  */
 
-#include <kernel/bitops.h>
-#include <kernel/cpu.h>
-#include <kernel/errno.h>
-#include <kernel/sched.h>
-#include <kernel/spinlock.h>
-#include <kernel/time.h>
-#include <kernel/timer.h>
-#include <kernel/wait.h>
+#include <nuvix/bitops.h>
+#include <nuvix/cpu.h>
+#include <nuvix/errno.h>
+#include <nuvix/sched.h>
+#include <nuvix/spinlock.h>
+#include <nuvix/time.h>
+#include <nuvix/timer.h>
+#include <nuvix/wait.h>
 
 #define NSEC_PER_SEC 1000000000L
 

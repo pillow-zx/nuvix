@@ -2,19 +2,19 @@
  * kernel/fork.c - clone transaction and proc/task construction
  */
 
-#include "kernel/cpu.h"
-#include <kernel/errno.h>
-#include <kernel/fdtable.h>
-#include <kernel/fork.h>
-#include <kernel/fs_struct.h>
-#include <kernel/mm.h>
-#include <kernel/proc.h>
-#include <kernel/rseq.h>
-#include <kernel/sched.h>
-#include <kernel/session.h>
-#include <kernel/signal.h>
-#include <kernel/task.h>
-#include <kernel/wait.h>
+#include "nuvix/cpu.h"
+#include <nuvix/errno.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fork.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/mm.h>
+#include <nuvix/proc.h>
+#include <nuvix/rseq.h>
+#include <nuvix/sched.h>
+#include <nuvix/session.h>
+#include <nuvix/signal.h>
+#include <nuvix/task.h>
+#include <nuvix/wait.h>
 #include <uapi/sched.h>
 #include <uapi/signal.h>
 

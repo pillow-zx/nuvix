@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_TTY_H
-#define _CUTEOS_UAPI_TTY_H
+#ifndef _NUVIX_UAPI_TTY_H
+#define _NUVIX_UAPI_TTY_H
 
 #define TCGETS	   0x5401
 #define TCSETS	   0x5402

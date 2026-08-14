@@ -2,14 +2,14 @@
  * syscall/syscall.c - 系统调用分发
  */
 
-#include <kernel/syscall.h>
-#include <kernel/errno.h>
-#include <kernel/futex.h>
-#include <kernel/printk.h>
-#include <kernel/signal.h>
-#include <kernel/syscall_table.h>
-#include <kernel/task.h>
-#include <kernel/trap.h>
+#include <nuvix/syscall.h>
+#include <nuvix/errno.h>
+#include <nuvix/futex.h>
+#include <nuvix/printk.h>
+#include <nuvix/signal.h>
+#include <nuvix/syscall_table.h>
+#include <nuvix/task.h>
+#include <nuvix/trap.h>
 #include <uapi/futex.h>
 #include <uapi/syscall.h>
 

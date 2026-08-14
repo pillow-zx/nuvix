@@ -1,13 +1,13 @@
-#ifndef _CUTEOS_ARCH_RISCV_TASK_H
-#define _CUTEOS_ARCH_RISCV_TASK_H
+#ifndef _NUVIX_ARCH_RISCV_TASK_H
+#define _NUVIX_ARCH_RISCV_TASK_H
 
 /**
  * @file
  * @brief RISC-V task architecture state.
  */
 
-#include <kernel/types.h>
-#include <kernel/compiler.h>
+#include <nuvix/types.h>
+#include <nuvix/compiler.h>
 #include <arch/page.h>
 #include <asm/asm_offsets.h>
 #include <asm/context.h>

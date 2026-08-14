@@ -1,7 +1,7 @@
 /* block/blkdev.c - block-device registration and lookup */
 
-#include <kernel/blkdev.h>
-#include <kernel/errno.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/errno.h>
 
 #define NR_BLOCK_DEVICES 32
 

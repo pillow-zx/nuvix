@@ -1,8 +1,8 @@
-#ifndef _CUTEOS_KERNEL_PID_INTERNAL_H
-#define _CUTEOS_KERNEL_PID_INTERNAL_H
+#ifndef _NUVIX_PID_INTERNAL_H
+#define _NUVIX_PID_INTERNAL_H
 
-#include <kernel/pid.h>
-#include <kernel/task.h>
+#include <nuvix/pid.h>
+#include <nuvix/task.h>
 
 typedef bool (*pid_task_visit_fn)(struct task_struct *task, void *arg);
 

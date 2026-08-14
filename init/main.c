@@ -2,28 +2,28 @@
  * init/main.c - kernel_main() 内核初始化入口
  */
 
-#include <kernel/printk.h>
-#include <kernel/buddy.h>
-#include <kernel/init.h>
-#include <kernel/slab.h>
-#include <kernel/page_cache.h>
-#include <kernel/task.h>
-#include <kernel/sched.h>
-#include <kernel/timer.h>
-#include <kernel/syscall.h>
-#include <kernel/signal.h>
-#include <kernel/user_map.h>
-#include <kernel/vmalloc.h>
-#include <kernel/vfs.h>
+#include <nuvix/printk.h>
+#include <nuvix/buddy.h>
+#include <nuvix/init.h>
+#include <nuvix/slab.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/task.h>
+#include <nuvix/sched.h>
+#include <nuvix/timer.h>
+#include <nuvix/syscall.h>
+#include <nuvix/signal.h>
+#include <nuvix/user_map.h>
+#include <nuvix/vmalloc.h>
+#include <nuvix/vfs.h>
 #include <drivers/virtio_blk.h>
-#include <kernel/trap.h>
-#include <kernel/processor.h>
-#include <kernel/pgtable.h>
-#include <kernel/exit.h>
-#include <kernel/irq.h>
-#include <kernel/user_map_arch.h>
-#include <kernel/tty.h>
-#include <kernel/smp.h>
+#include <nuvix/trap.h>
+#include <nuvix/processor.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/exit.h>
+#include <nuvix/irq.h>
+#include <nuvix/user_map_arch.h>
+#include <nuvix/tty.h>
+#include <nuvix/smp.h>
 
 static const char logo[] =
 	"  /$$$$$$              /$$                /$$$$$$   /$$$$$$ \n"

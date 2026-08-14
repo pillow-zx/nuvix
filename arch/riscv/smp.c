@@ -10,10 +10,10 @@
 #include <arch/smp.h>
 #include <arch/page.h>
 #include <asm/csr.h>
-#include <kernel/cpu.h>
-#include <kernel/printk.h>
-#include <kernel/smp.h>
-#include <kernel/types.h>
+#include <nuvix/cpu.h>
+#include <nuvix/printk.h>
+#include <nuvix/smp.h>
+#include <nuvix/types.h>
 
 extern char secondary_entry[];
 

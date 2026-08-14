@@ -2,10 +2,10 @@
  * include/drivers/uart.h - NS16550A UART 驱动接口
  */
 
-#ifndef _CUTEOS_DRIVERS_UART_H
-#define _CUTEOS_DRIVERS_UART_H
+#ifndef _NUVIX_DRIVERS_UART_H
+#define _NUVIX_DRIVERS_UART_H
 
-#include <kernel/types.h>
+#include <nuvix/types.h>
 
 #define UART_BASE	0x10000000UL
 

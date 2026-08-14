@@ -2,11 +2,11 @@
  * fs/vfs/fs_struct.c - 可共享的进程文件系统上下文
  */
 
-#include <kernel/errno.h>
-#include <kernel/fs_struct.h>
-#include <kernel/proc.h>
-#include <kernel/slab.h>
-#include <kernel/vfs.h>
+#include <nuvix/errno.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/proc.h>
+#include <nuvix/slab.h>
+#include <nuvix/vfs.h>
 
 static void fs_set_initial_root(struct fs_struct *fs)
 {

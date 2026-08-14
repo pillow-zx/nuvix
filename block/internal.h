@@ -1,8 +1,8 @@
-#ifndef _CUTEOS_BLOCK_PAGE_CACHE_INTERNAL_H
-#define _CUTEOS_BLOCK_PAGE_CACHE_INTERNAL_H
+#ifndef _NUVIX_BLOCK_PAGE_CACHE_INTERNAL_H
+#define _NUVIX_BLOCK_PAGE_CACHE_INTERNAL_H
 
-#include <kernel/page_cache.h>
-#include <kernel/spinlock.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/spinlock.h>
 
 struct pgcache {
 	dev_t dev;

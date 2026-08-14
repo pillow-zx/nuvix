@@ -2,17 +2,17 @@
  * syscall/sys_file_helpers.c - shared file syscall ABI helpers
  */
 
-#include <kernel/buddy.h>
-#include <kernel/compiler.h>
-#include <kernel/errno.h>
-#include <kernel/fdtable.h>
-#include <kernel/fs.h>
-#include <kernel/fs_struct.h>
-#include <kernel/mm.h>
-#include <kernel/stat.h>
-#include <kernel/task.h>
-#include <kernel/vfs.h>
-#include <kernel/page.h>
+#include <nuvix/buddy.h>
+#include <nuvix/compiler.h>
+#include <nuvix/errno.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fs.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/mm.h>
+#include <nuvix/stat.h>
+#include <nuvix/task.h>
+#include <nuvix/vfs.h>
+#include <nuvix/page.h>
 
 #include "sys_file_internal.h"
 

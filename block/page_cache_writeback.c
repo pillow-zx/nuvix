@@ -2,10 +2,10 @@
 
 #include "internal.h"
 
-#include <kernel/blkdev.h>
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/worker.h>
+#include <nuvix/blkdev.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/worker.h>
 
 #define PAGE_CACHE_WB_MAX 32
 

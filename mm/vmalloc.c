@@ -2,16 +2,16 @@
  * mm/vmalloc.c - vmalloc 区虚拟内存分配
  */
 
-#include <kernel/vmalloc.h>
-#include <kernel/bitops.h>
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/list.h>
-#include <kernel/printk.h>
-#include <kernel/slab.h>
-#include <kernel/processor.h>
-#include <kernel/page.h>
-#include <kernel/pgtable.h>
+#include <nuvix/vmalloc.h>
+#include <nuvix/bitops.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/list.h>
+#include <nuvix/printk.h>
+#include <nuvix/slab.h>
+#include <nuvix/processor.h>
+#include <nuvix/page.h>
+#include <nuvix/pgtable.h>
 
 #define VMALLOC_SIZE (128UL << 20)
 

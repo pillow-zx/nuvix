@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_ARCH_RISCV_SBI_H
-#define _CUTEOS_ARCH_RISCV_SBI_H
+#ifndef _NUVIX_ARCH_RISCV_SBI_H
+#define _NUVIX_ARCH_RISCV_SBI_H
 
 /*
  * arch/riscv/include/arch/sbi.h - OpenSBI ecall protocol surface
@@ -8,7 +8,7 @@
  * kernel code.
  */
 
-#include <kernel/types.h>
+#include <nuvix/types.h>
 
 #define SBI_EID_BASE		0x10
 #define SBI_EID_HSM		0x48534D

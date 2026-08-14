@@ -2,24 +2,24 @@
  * syscall/sys_file_path.c - 路径与目录操作系统调用
  */
 
-#include <kernel/fdtable.h>
-#include <kernel/fs.h>
-#include <kernel/fs_struct.h>
-#include <kernel/signal.h>
-#include <kernel/stat.h>
-#include <kernel/statfs.h>
-#include <kernel/types.h>
-#include <kernel/errno.h>
-#include <kernel/syscall.h>
-#include <kernel/mm.h>
-#include <kernel/buddy.h>
-#include <kernel/pipe.h>
-#include <kernel/task.h>
-#include <kernel/timer.h>
-#include <kernel/vfs.h>
-#include <kernel/page.h>
-#include <kernel/trap.h>
-#include <kernel/time.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/fs.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/signal.h>
+#include <nuvix/stat.h>
+#include <nuvix/statfs.h>
+#include <nuvix/types.h>
+#include <nuvix/errno.h>
+#include <nuvix/syscall.h>
+#include <nuvix/mm.h>
+#include <nuvix/buddy.h>
+#include <nuvix/pipe.h>
+#include <nuvix/task.h>
+#include <nuvix/timer.h>
+#include <nuvix/vfs.h>
+#include <nuvix/page.h>
+#include <nuvix/trap.h>
+#include <nuvix/time.h>
 
 #include "sys_file_internal.h"
 

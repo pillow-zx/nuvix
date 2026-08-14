@@ -1,5 +1,5 @@
 #include <asm/asm_offsets.h>
-#include <kernel/smp.h>
+#include <nuvix/smp.h>
 
 #define SSTATUS_SIE (1 << 1)
 #define SATP_MODE_SV39_VAL 8

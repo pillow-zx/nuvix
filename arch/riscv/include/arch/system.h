@@ -1,7 +1,7 @@
-#ifndef _CUTEOS_ARCH_RISCV_SYSTEM_H
-#define _CUTEOS_ARCH_RISCV_SYSTEM_H
+#ifndef _NUVIX_ARCH_RISCV_SYSTEM_H
+#define _NUVIX_ARCH_RISCV_SYSTEM_H
 
-#include <kernel/compiler.h>
+#include <nuvix/compiler.h>
 
 enum system_reset_mode {
 	ARCH_SYSTEM_RESET_RESTART,

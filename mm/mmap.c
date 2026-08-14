@@ -2,20 +2,20 @@
  * mm/mmap.c - 用户地址空间管理
  */
 
-#include <kernel/mm.h>
-#include <kernel/fdtable.h>
-#include <kernel/errno.h>
-#include <kernel/fs.h>
-#include <kernel/page_cache.h>
-#include <kernel/printk.h>
-#include <kernel/slab.h>
-#include <kernel/buddy.h>
-#include <kernel/task.h>
-#include <kernel/user_map.h>
+#include <nuvix/mm.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/errno.h>
+#include <nuvix/fs.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/printk.h>
+#include <nuvix/slab.h>
+#include <nuvix/buddy.h>
+#include <nuvix/task.h>
+#include <nuvix/user_map.h>
 #include <uapi/mman.h>
-#include <kernel/page.h>
-#include <kernel/pgtable.h>
-#include <kernel/processor.h>
+#include <nuvix/page.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/processor.h>
 
 #include "internal.h"
 

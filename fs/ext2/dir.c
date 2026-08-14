@@ -1,7 +1,7 @@
-#include <kernel/errno.h>
-#include <kernel/page_cache.h>
-#include <kernel/slab.h>
-#include <kernel/vfs.h>
+#include <nuvix/errno.h>
+#include <nuvix/page_cache.h>
+#include <nuvix/slab.h>
+#include <nuvix/vfs.h>
 
 #include "ext2.h"
 

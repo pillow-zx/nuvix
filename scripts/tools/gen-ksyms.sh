@@ -8,7 +8,7 @@ tmp="$out.tmp"
 mkdir -p "$(dirname "$out")"
 
 {
-	printf '#include <kernel/ksyms.h>\n\n'
+	printf '#include <nuvix/ksyms.h>\n\n'
 	printf 'const struct ksym ksym_table[] = {\n'
 	awk '
 		$2 == ".text" {

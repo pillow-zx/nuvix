@@ -2,12 +2,12 @@
  * syscall/sys_proc.c - 进程相关系统调用
  */
 
-#include <kernel/errno.h>
-#include <kernel/syscall.h>
-#include <kernel/exit.h>
-#include <kernel/session.h>
-#include <kernel/task.h>
-#include <kernel/trap.h>
+#include <nuvix/errno.h>
+#include <nuvix/syscall.h>
+#include <nuvix/exit.h>
+#include <nuvix/session.h>
+#include <nuvix/task.h>
+#include <nuvix/trap.h>
 
 ssize_t sys_getpid(struct trap_frame *tf)
 {
@@ -80,7 +80,7 @@ ssize_t sys_getpgid(struct trap_frame *tf)
  * SYSCALL_SUPPORT(B): getsid
  * Current: returns the session id for self or an existing group leader pid.
  * Unsupported errno: negative or missing pid returns -ESRCH. Linux does not
- * reject cross-session getsid() with EPERM, and neither does cuteOS.
+ * reject cross-session getsid() with EPERM, and neither does nuvix.
  * Future: revisit permission checks when a fuller credential model exists.
  */
 ssize_t sys_getsid(struct trap_frame *tf)
@@ -95,7 +95,7 @@ ssize_t sys_getsid(struct trap_frame *tf)
  * Current: creates a new session and process group for the current process
  * when no process group already uses the caller's process id.
  * Unsupported errno: process-group leaders return -EPERM.
- * Future: connect multiple controlling terminals if cuteOS grows more tty
+ * Future: connect multiple controlling terminals if nuvix grows more tty
  * devices.
  */
 ssize_t sys_setsid(struct trap_frame *tf)

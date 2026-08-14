@@ -2,31 +2,31 @@
  * kernel/signal.c - 信号机制
  */
 
-#include <kernel/errno.h>
-#include <kernel/exit.h>
-#include <kernel/buddy.h>
-#include <kernel/compiler.h>
-#include <kernel/fs.h>
-#include <kernel/init.h>
-#include <kernel/mm.h>
-#include <kernel/pid.h>
-#include <kernel/printk.h>
-#include <kernel/proc.h>
-#include <kernel/sched.h>
-#include <kernel/rseq.h>
-#include <kernel/signal.h>
-#include <kernel/slab.h>
-#include <kernel/task.h>
-#include <kernel/syscall.h>
-#include <kernel/time.h>
-#include <kernel/user_map.h>
-#include <kernel/wait.h>
+#include <nuvix/errno.h>
+#include <nuvix/exit.h>
+#include <nuvix/buddy.h>
+#include <nuvix/compiler.h>
+#include <nuvix/fs.h>
+#include <nuvix/init.h>
+#include <nuvix/mm.h>
+#include <nuvix/pid.h>
+#include <nuvix/printk.h>
+#include <nuvix/proc.h>
+#include <nuvix/sched.h>
+#include <nuvix/rseq.h>
+#include <nuvix/signal.h>
+#include <nuvix/slab.h>
+#include <nuvix/task.h>
+#include <nuvix/syscall.h>
+#include <nuvix/time.h>
+#include <nuvix/user_map.h>
+#include <nuvix/wait.h>
 #include <uapi/futex.h>
 #include <uapi/syscall.h>
-#include <kernel/processor.h>
-#include <kernel/page.h>
-#include <kernel/pgtable.h>
-#include <kernel/trap.h>
+#include <nuvix/processor.h>
+#include <nuvix/page.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/trap.h>
 
 static void *trampoline_page;
 

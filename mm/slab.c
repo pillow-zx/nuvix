@@ -2,13 +2,13 @@
  * mm/slab.c - SLAB 对象缓存
  */
 
-#include <kernel/slab.h>
-#include <kernel/buddy.h>
-#include <kernel/bitops.h>
-#include <kernel/printk.h>
-#include <kernel/list.h>
-#include <kernel/compiler.h>
-#include <kernel/page.h>
+#include <nuvix/slab.h>
+#include <nuvix/buddy.h>
+#include <nuvix/bitops.h>
+#include <nuvix/printk.h>
+#include <nuvix/list.h>
+#include <nuvix/compiler.h>
+#include <nuvix/page.h>
 
 #define NR_CACHES     8
 #define KMALLOC_MAGIC 0x6b6d616cU

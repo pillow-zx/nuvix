@@ -1,6 +1,6 @@
 /* sched/rr.c - fixed-quantum FIFO round-robin policy */
 
-#include <kernel/task.h>
+#include <nuvix/task.h>
 
 #include "internal.h"
 

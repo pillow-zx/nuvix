@@ -23,7 +23,7 @@ CFLAGS += -Wall -Werror -Wformat
 CFLAGS += -Wno-unknown-attributes
 CFLAGS += -Wno-main
 CFLAGS += -std=gnu17
-CFLAGS += -include include/kernel/compiler.h
+CFLAGS += -include include/nuvix/compiler.h
 CFLAGS += -ffreestanding -fno-common -nostdlib -nostdinc
 CFLAGS += -fno-stack-protector
 CFLAGS += -fno-delete-null-pointer-checks
@@ -103,7 +103,7 @@ OBJ_REL = \
 	$(SYSCALL_OBJS)     \
 	$(LIB_OBJS)
 
-KERNEL_NAME = cuteos
+KERNEL_NAME = nuvix
 KERNEL = $(OUTDIR)/$(KERNEL_NAME)
 KERNEL_STAGE1 = $(OUTDIR)/$(KERNEL_NAME).stage1
 KERNEL_IMG = $(KERNEL).img

@@ -2,15 +2,15 @@
  * fs/vfs/namei.c - 路径解析
  */
 
-#include <kernel/fs.h>
-#include <kernel/errno.h>
-#include <kernel/buddy.h>
-#include <kernel/fs_struct.h>
-#include <kernel/fdtable.h>
-#include <kernel/stat.h>
-#include <kernel/task.h>
-#include <kernel/vfs.h>
-#include <kernel/page.h>
+#include <nuvix/fs.h>
+#include <nuvix/errno.h>
+#include <nuvix/buddy.h>
+#include <nuvix/fs_struct.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/stat.h>
+#include <nuvix/task.h>
+#include <nuvix/vfs.h>
+#include <nuvix/page.h>
 
 #include "namei_internal.h"
 

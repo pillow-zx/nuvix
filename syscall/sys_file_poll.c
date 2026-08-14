@@ -2,23 +2,23 @@
  * syscall/sys_file_poll.c - poll/select/epoll 系统调用
  */
 
-#include <kernel/fdtable.h>
-#include <kernel/cleanup.h>
-#include <kernel/eventpoll.h>
-#include <kernel/fs.h>
-#include <kernel/mm.h>
-#include <kernel/signal.h>
-#include <kernel/types.h>
-#include <kernel/errno.h>
-#include <kernel/syscall.h>
-#include <kernel/task.h>
-#include <kernel/timer.h>
-#include <kernel/vfs.h>
-#include <kernel/page.h>
-#include <kernel/trap.h>
-#include <kernel/time.h>
-#include <kernel/tools.h>
-#include <kernel/wait.h>
+#include <nuvix/fdtable.h>
+#include <nuvix/cleanup.h>
+#include <nuvix/eventpoll.h>
+#include <nuvix/fs.h>
+#include <nuvix/mm.h>
+#include <nuvix/signal.h>
+#include <nuvix/types.h>
+#include <nuvix/errno.h>
+#include <nuvix/syscall.h>
+#include <nuvix/task.h>
+#include <nuvix/timer.h>
+#include <nuvix/vfs.h>
+#include <nuvix/page.h>
+#include <nuvix/trap.h>
+#include <nuvix/time.h>
+#include <nuvix/tools.h>
+#include <nuvix/wait.h>
 #include <uapi/eventpoll.h>
 #include <uapi/poll.h>
 #include <uapi/select.h>

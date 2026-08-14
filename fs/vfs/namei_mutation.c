@@ -2,10 +2,10 @@
  * fs/vfs/namei_mutation.c - VFS 命名修改操作
  */
 
-#include <kernel/errno.h>
-#include <kernel/fs.h>
-#include <kernel/stat.h>
-#include <kernel/vfs.h>
+#include <nuvix/errno.h>
+#include <nuvix/fs.h>
+#include <nuvix/stat.h>
+#include <nuvix/vfs.h>
 
 #include "namei_internal.h"
 

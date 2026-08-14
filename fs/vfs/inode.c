@@ -2,14 +2,14 @@
  * fs/vfs/inode.c - Inode 缓存
  */
 
-#include <kernel/errno.h>
-#include <kernel/fs.h>
-#include <kernel/hash.h>
-#include <kernel/slab.h>
-#include <kernel/stat.h>
-#include <kernel/task.h>
-#include <kernel/time.h>
-#include <kernel/vfs.h>
+#include <nuvix/errno.h>
+#include <nuvix/fs.h>
+#include <nuvix/hash.h>
+#include <nuvix/slab.h>
+#include <nuvix/stat.h>
+#include <nuvix/task.h>
+#include <nuvix/time.h>
+#include <nuvix/vfs.h>
 
 #define ICACHE_HASH_BITS 6
 #define ICACHE_HASH_SIZE (1u << ICACHE_HASH_BITS)

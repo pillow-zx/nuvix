@@ -1,5 +1,5 @@
-#ifndef _CUTEOS_UAPI_REBOOT_H
-#define _CUTEOS_UAPI_REBOOT_H
+#ifndef _NUVIX_UAPI_REBOOT_H
+#define _NUVIX_UAPI_REBOOT_H
 
 /* Linux reboot(2) magic values. */
 #define LINUX_REBOOT_MAGIC1  0xfee1dead

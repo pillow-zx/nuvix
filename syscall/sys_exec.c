@@ -2,15 +2,15 @@
  * syscall/sys_exec.c - execve ABI wrapper
  */
 
-#include <kernel/buddy.h>
-#include <kernel/errno.h>
-#include <kernel/exec.h>
-#include <kernel/fs.h>
-#include <kernel/mm.h>
-#include <kernel/syscall.h>
-#include <kernel/page.h>
-#include <kernel/slab.h>
-#include <kernel/trap.h>
+#include <nuvix/buddy.h>
+#include <nuvix/errno.h>
+#include <nuvix/exec.h>
+#include <nuvix/fs.h>
+#include <nuvix/mm.h>
+#include <nuvix/syscall.h>
+#include <nuvix/page.h>
+#include <nuvix/slab.h>
+#include <nuvix/trap.h>
 
 static int copy_user_string(char *dst, const char *user, size_t max_len)
 {
