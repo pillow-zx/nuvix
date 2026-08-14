@@ -25,15 +25,12 @@
 #include <nuvix/tty.h>
 #include <nuvix/smp.h>
 
-static const char logo[] =
-	"  /$$$$$$              /$$                /$$$$$$   /$$$$$$ \n"
-	" /$$__  $$            | $$               /$$__  $$ /$$__  $$\n"
-	"| $$  \\__/ /$$   /$$ /$$$$$$    /$$$$$$ | $$  \\ $$| $$  \\__/\n"
-	"| $$      | $$  | $$|_  $$_/   /$$__  $$| $$  | $$|  $$$$$$ \n"
-	"| $$      | $$  | $$  | $$    | $$$$$$$$| $$  | $$ \\____  $$\n"
-	"| $$    $$| $$  | $$  | $$ /$$| $$_____/| $$  | $$ /$$  \\ $$\n"
-	"|  $$$$$$/|  $$$$$$/  |  $$$$/|  $$$$$$$|  $$$$$$/|  $$$$$$/\n"
-	" \\______/  \\______/    \\___/   \\_______/ \\______/  \\______/\n";
+static const char logo[] = "███╗   ██╗██╗   ██╗██╗   ██╗██╗██╗  ██╗\n"
+			   "████╗  ██║██║   ██║██║   ██║██║╚██╗██╔╝\n"
+			   "██╔██╗ ██║██║   ██║██║   ██║██║ ╚███╔╝\n"
+			   "██║╚██╗██║██║   ██║╚██╗ ██╔╝██║ ██╔██╗\n"
+			   "██║ ╚████║╚██████╔╝ ╚████╔╝ ██║██╔╝ ██╗\n"
+			   "╚═╝  ╚═══╝ ╚═════╝   ╚═══╝  ╚═╝╚═╝  ╚═╝\n";
 
 void kernel_main(uint64_t boot_hartid)
 {
@@ -89,7 +86,8 @@ void kernel_main(uint64_t boot_hartid)
 
 	/* Boot every configured secondary into its isolated idle loop
 	 * before any syscall/VFS/device/thread initialization. The boot
-	 * CPU's online/schedulable publication happens inside smp_boot_cpus(). */
+	 * CPU's online/schedulable publication happens inside smp_boot_cpus().
+	 */
 	smp_boot_cpus();
 
 	syscall_init();
