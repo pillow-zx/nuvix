@@ -76,6 +76,41 @@ static void buddy_remove_free_block(struct page *page)
 	free_area[page->order].nr_free--;
 }
 
+static void buddy_free_page(size_t pfn, uint32_t order)
+{
+	size_t freed_pages = 1UL << order;
+
+	while (order < MAX_ORDER) {
+		size_t buddy_pfn = pfn ^ (1UL << order);
+		struct page *buddy;
+
+		if (buddy_pfn >= total_pages)
+			break;
+
+		buddy = pfn_to_page(buddy_pfn);
+		if (!page_test_flag(buddy, PG_BUDDY))
+			break;
+		if (buddy->order != order)
+			break;
+
+		buddy_remove_free_block(buddy);
+		pfn = pfn < buddy_pfn ? pfn : buddy_pfn;
+		order++;
+	}
+
+	buddy_add_free_block(pfn, order, false);
+	nr_free_pages += freed_pages;
+}
+
+static void page_ref_check(const struct page *page)
+{
+	BUG_ON(page < mem_map || page >= mem_map + total_pages);
+	BUG_ON(page_test_flag(page, PG_BUDDY));
+	BUG_ON(page_test_flag(page, PG_RESERVED));
+	BUG_ON(page_test_flag(page, PG_SLAB));
+	BUG_ON(page->order != 0);
+}
+
 void buddy_init(void)
 {
 	void *mem_start = bootmem_end();
@@ -181,7 +216,6 @@ void *get_free_page(uint32_t order, enum alloc_mode mode)
 
 void free_page(void *addr, uint32_t order)
 {
-	size_t freed_pages;
 	size_t pfn;
 	struct page *page;
 
@@ -189,13 +223,11 @@ void free_page(void *addr, uint32_t order)
 	if (order > MAX_ORDER)
 		panic("free_page: order %d > MAX_ORDER", order);
 
-	freed_pages = 1UL << order;
-
 	if (!virt_to_pfn_checked(addr, &pfn))
 		panic("free_page: invalid page address %p", addr);
-	if (pfn + freed_pages > total_pages)
+	if (pfn + (1UL << order) > total_pages)
 		panic("free_page: pfn %zu order %u out of range", pfn, order);
-	if (pfn & (freed_pages - 1))
+	if (pfn & ((1UL << order) - 1))
 		panic("free_page: pfn %zu is not order %u aligned", pfn, order);
 
 	page = pfn_to_page(pfn);
@@ -205,44 +237,32 @@ void free_page(void *addr, uint32_t order)
 		panic("free_page: reserved pfn %zu", pfn);
 	if (page_test_flag(page, PG_SLAB))
 		panic("free_page: slab pfn %zu", pfn);
-	if (refcount_read(&page->refcount) == 0)
-		panic("free_page: unallocated pfn %zu", pfn);
+	if (refcount_read(&page->refcount) != 1)
+		panic("free_page: pfn %zu still referenced", pfn);
 	if (page->order != order)
 		panic("free_page: pfn %zu order %u != %u", pfn, page->order,
 		      order);
 
-
+	BUG_ON(!refcount_dec_and_test(&page->refcount));
 	page->flags = 0;
-	refcount_set(&page->refcount, 0);
+	buddy_free_page(pfn, order);
+}
 
+void page_get(struct page *page)
+{
+	page_ref_check(page);
+	refcount_inc(&page->refcount);
+}
 
-	while (order < MAX_ORDER) {
-		size_t buddy_pfn = pfn ^ (1UL << order);
+void page_put(struct page *page)
+{
+	page_ref_check(page);
+	if (!refcount_dec_and_test(&page->refcount))
+		return;
 
-
-		if (buddy_pfn >= total_pages)
-			break;
-
-		struct page *buddy = pfn_to_page(buddy_pfn);
-
-
-		if (!page_test_flag(buddy, PG_BUDDY))
-			break;
-		if (buddy->order != order)
-			break;
-
-
-		buddy_remove_free_block(buddy);
-
-
-		pfn = pfn < buddy_pfn ? pfn : buddy_pfn;
-		order++;
-	}
-
-
-	buddy_add_free_block(pfn, order, false);
-
-	nr_free_pages += freed_pages;
+	alloc_free_check();
+	page->flags = 0;
+	buddy_free_page(page_to_pfn(page), 0);
 }
 
 size_t buddy_free_pages(void)

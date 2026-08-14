@@ -65,6 +65,20 @@ void *get_free_page(uint32_t order, enum alloc_mode mode);
 __nonnull(1)
 void free_page(void *addr, uint32_t order);
 
+/**
+ * @brief Take an order-0 page reference held by a user PTE.
+ * @param page Allocated order-0 page descriptor.
+ */
+__nonnull(1)
+void page_get(struct page *page);
+
+/**
+ * @brief Drop an order-0 page reference and free the page when it is last.
+ * @param page Allocated order-0 page descriptor.
+ */
+__nonnull(1)
+void page_put(struct page *page);
+
 
 CLEANUP_DEFINE(page0, char *, if (_T) free_page(_T, 0));
 

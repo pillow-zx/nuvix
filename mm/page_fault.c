@@ -48,8 +48,8 @@ static bool pte_allows_fault(int access, pte_t pte)
 	}
 }
 
-static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
-			  pte_t *existing, const struct vm_area_struct *vma);
+static int cow_split_page(uintptr_t page_addr, pte_t *existing,
+			  const struct vm_area_struct *vma);
 
 static void signal_or_panic_segv(struct trap_frame *tf, int code)
 {
@@ -93,13 +93,10 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 
 		if (access == USER_FAULT_WRITE && (vma->vm_flags & VM_WRITE) &&
 		    pte_allows_user_read(*existing)) {
-			int cow_ret = cow_split_page(mm, page_addr, existing,
-						     vma);
+			int cow_ret = cow_split_page(page_addr, existing, vma);
 
-			if (cow_ret == 0) {
-				flush_tlb_page(page_addr);
+			if (cow_ret == 0)
 				return 0;
-			}
 			if (cow_ret == -ENOMEM)
 				return cow_ret;
 		}
@@ -230,15 +227,14 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 /* Write fault on a present read-only PTE of a writable vma: split the
  * page. Returns 0 on success (PTE rewritten), -ENOMEM, or -EFAULT when
  * the split is not possible. Caller holds mm->mmap_lock. */
-static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
-			  pte_t *existing, const struct vm_area_struct *vma)
+static int cow_split_page(uintptr_t page_addr, pte_t *existing,
+			  const struct vm_area_struct *vma)
 {
 	paddr_t pa = pte_phys_addr(*existing);
 	pgprot_t writable_prot = pte_leaf_prot(*existing) | PTE_W;
 	struct pgcache *cache_page = NULL;
 	struct page *page = NULL;
 	void *new_page;
-	int ret;
 
 	if (vma->vm_file && !vma->vm_shared) {
 		cache_page = pgcache_get_data(__va(pa));
@@ -253,43 +249,39 @@ static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
 			}
 			memcpy(new_page, page_cache_data(cache_page),
 			       PAGE_SIZE);
-			goto map_copy;
-		}
-		/* mm-owned copy: fall through to the anon rules. */
-	}
-
-	page = virt_to_page(__va(pa));
-	BUG_ON(!page);
-	if (refcount_read(&page->refcount) == 1) {
-		/* Last mapping: flip it writable. */
-		*existing = pte_make(pa, writable_prot);
-		return 0;
-	}
-	new_page = get_free_page(0, ALLOC_NOWAIT);
-	if (!new_page)
-		return -ENOMEM;
-	memcpy(new_page, __va(pa), PAGE_SIZE);
-
-map_copy:
-	ret = map_page(mm->pgd, page_addr, __pa((uintptr_t)new_page),
-		       writable_prot);
-	if (ret < 0) {
-		/* The old page's references are untouched, so the PTE is
-		 * still covered; drop only the transient lookup ref. */
-		if (cache_page)
 			pgcache_put_page(cache_page);
-		free_page(new_page, 0);
-		return ret;
-	}
-	*existing = pte_make(__pa((uintptr_t)new_page), writable_prot);
-	/* The new PTE is installed; release the old page's references.
-	 * The sibling mapping keeps the refcount above zero. */
-	if (cache_page) {
-		pgcache_put_page(cache_page);
-		pgcache_put_page(cache_page);
+			cache_page = NULL;
+		} else {
+			/* mm-owned copy: fall through to the anonymous rules. */
+			page = virt_to_page(__va(pa));
+			BUG_ON(!page);
+			if (refcount_read(&page->refcount) == 1) {
+				*existing = pte_make(pa, writable_prot);
+				flush_tlb_page(page_addr);
+				return 0;
+			}
+			new_page = get_free_page(0, ALLOC_NOWAIT);
+			if (!new_page)
+				return -ENOMEM;
+			memcpy(new_page, __va(pa), PAGE_SIZE);
+		}
 	} else {
-		refcount_dec_and_test(&page->refcount);
+		page = virt_to_page(__va(pa));
+		BUG_ON(!page);
+		if (refcount_read(&page->refcount) == 1) {
+			*existing = pte_make(pa, writable_prot);
+			flush_tlb_page(page_addr);
+			return 0;
+		}
+		new_page = get_free_page(0, ALLOC_NOWAIT);
+		if (!new_page)
+			return -ENOMEM;
+		memcpy(new_page, __va(pa), PAGE_SIZE);
 	}
+
+	*existing = pte_make(__pa((uintptr_t)new_page), writable_prot);
+	flush_tlb_page(page_addr);
+	mm_pte_mapping_put(vma, pa);
 	return 0;
 }
 

@@ -38,8 +38,8 @@ uint32_t mm_membarrier_registrations(const struct mm_struct *mm);
  * @param oldmm Source address space.
  * @return New mm on success, or NULL.
  *
- * The current implementation copies user mappings rather than installing a
- * copy-on-write contract.
+ * Private anonymous and file-backed mappings use copy-on-write sharing;
+ * shared mappings retain their shared semantics.
  */
 __must_check
 struct mm_struct *dup_mm(struct mm_struct *oldmm);

@@ -59,11 +59,6 @@ static uintptr_t find_unmapped_area(struct mm_struct *mm, size_t length)
 	return 0;
 }
 
-static bool mm_owns_page_frame(paddr_t pa)
-{
-	return pa >= DRAM_BASE && pa < DRAM_BASE + DRAM_SIZE;
-}
-
 static int mmap_parse_flags(int flags, bool *shared, bool *private, bool *fixed,
 			    bool *noreplace, bool *populate)
 {
@@ -188,19 +183,37 @@ static void vma_mark_shared_page_dirty(const struct vm_area_struct *vma,
 	pgcache_put_page(page);
 }
 
-static void release_shared_pte_page(paddr_t pa, bool writable)
+void mm_pte_mapping_get(paddr_t pa)
 {
 	struct pgcache *page = pgcache_get_data(__va(pa));
+	struct page *buddy_page;
 
-	if (!page) {
-		if (mm_owns_page_frame(pa))
-			free_page(__va(pa), 0);
+	if (page)
+		return;
+
+	buddy_page = virt_to_page(__va(pa));
+	if (!buddy_page)
+		return;
+	page_get(buddy_page);
+}
+
+void mm_pte_mapping_put(const struct vm_area_struct *vma, paddr_t pa)
+{
+	struct pgcache *page = pgcache_get_data(__va(pa));
+	struct page *buddy_page;
+
+	if (page) {
+		if (vma && vma->vm_file && vma->vm_shared &&
+		    (vma->vm_flags & VM_WRITE))
+			pgcache_mark_dirty(page);
+		pgcache_put_page(page);
+		pgcache_put_page(page);
 		return;
 	}
-	if (writable)
-		pgcache_mark_dirty(page);
-	pgcache_put_page(page);
-	pgcache_put_page(page);
+
+	buddy_page = virt_to_page(__va(pa));
+	if (buddy_page)
+		page_put(buddy_page);
 }
 
 void mm_unmap_user_pages_locked(struct mm_struct *mm,
@@ -214,45 +227,9 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 			continue;
 
 		paddr_t pa = pte_phys_addr(*pte);
-
-		if (vma && vma->vm_file && vma->vm_shared) {
-			release_shared_pte_page(pa, vma->vm_flags & VM_WRITE);
-		} else if (vma && vma->vm_file && !vma->vm_shared) {
-			struct pgcache *cache_page = pgcache_get_data(__va(pa));
-
-			if (cache_page) {
-				/* PTE held one cache ref; drop lookup + PTE
-				 * refs, mirroring release_shared_pte_page. */
-				pgcache_put_page(cache_page);
-				pgcache_put_page(cache_page);
-			} else {
-				struct page *page = virt_to_page(__va(pa));
-
-				if (page &&
-				    refcount_read(&page->refcount) == 1) {
-					/* Last mapping: free_page() owns the
-					 * page; the buddy free resets the
-					 * refcount to zero. */
-					free_page(__va(pa), 0);
-				} else if (page) {
-					refcount_dec_and_test(&page->refcount);
-				}
-			}
-		} else {
-			struct page *page = virt_to_page(__va(pa));
-
-			if (page && refcount_read(&page->refcount) == 1) {
-				/* Last mapping: free_page() owns the page;
-				 * the buddy free resets the refcount to
-				 * zero. */
-				free_page(__va(pa), 0);
-			} else if (page) {
-				refcount_dec_and_test(&page->refcount);
-			}
-		}
-
 		*pte = 0;
 		flush_tlb_page(va);
+		mm_pte_mapping_put(vma, pa);
 	}
 }
 
@@ -275,6 +252,15 @@ static int mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa,
 	BUG_ON(!pte);
 	*pte = pte_make(pa, perm);
 	return 0;
+}
+
+static pte_t mm_private_child_pte(pte_t entry)
+{
+	if (!pte_is_present(entry))
+		return entry;
+
+	return pte_make(pte_phys_addr(entry),
+			pgprot_make_readonly(pte_leaf_prot(entry)));
 }
 
 int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
@@ -428,6 +414,7 @@ uintptr_t mm_pgroot(const struct mm_struct *mm)
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
 {
 	struct mm_struct *newmm;
+	bool parent_downgraded = false;
 
 	if (!oldmm)
 		return NULL;
@@ -454,87 +441,68 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 	}
 
 	for (int i = 0; i < NR_VMA; i++) {
-		struct vm_area_struct *vma = &oldmm->vma[i];
+		struct vm_area_struct *old_vma = &oldmm->vma[i];
+		struct vm_area_struct *new_vma = &newmm->vma[i];
 
-		if (!vma->used || (vma->vm_file && vma->vm_shared))
-			continue; /* shared maps stay shared */
+		if (!old_vma->used ||
+		    (old_vma->vm_file && old_vma->vm_shared))
+			continue;
 
-		uintptr_t start = vma->vm_start;
-		uintptr_t end = vma->vm_end;
+		uintptr_t start = old_vma->vm_start;
+		uintptr_t end = old_vma->vm_end;
 
 		for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
 			pte_t *pte = pgtable_lookup(oldmm->pgd, va);
+			pte_t entry;
+			pte_t child_entry;
 			paddr_t pa;
 			int ret;
 
 			if (!pte || !pte_is_user_page(*pte))
 				continue;
 
-			pa = pte_phys_addr(*pte);
-			if (vma->vm_file && !vma->vm_shared) {
-				struct pgcache *cache_page =
-					pgcache_get_data(__va(pa));
-
-				/* Page-cache-backed clean page: map it
-				 * read-only in the child. The get_data
-				 * reference becomes the child PTE's cache
-				 * ref; the child's unmap drops it (step 4
-				 * discipline). */
-				if (cache_page) {
-					ret = map_page(
-						newmm->pgd, va, pa,
-						pgprot_make_readonly(
-							pte_leaf_prot(*pte)));
-					if (ret < 0) {
-						pgcache_put_page(cache_page);
-						goto fail_loop;
-					}
-					/* ensure the mapped PTE is the RO one */
-					pte_t *cpte =
-						pgtable_lookup(newmm->pgd, va);
-
-					BUG_ON(!cpte);
-					*cpte = pte_make(
-						pa,
-						pgprot_make_readonly(
-							pte_leaf_prot(*pte)));
-					continue;
-				}
-				/* mm-owned COW copy: fall through to the
-				 * anon path */
-			}
-
-			/* Anonymous (or already-COW'd file-private) page:
-			 * share it read-only between parent and child. Take
-			 * the map reference BEFORE publishing the child PTE
-			 * so a failure can roll back cleanly. */
-			struct page *page = virt_to_page(__va(pa));
-
-			BUG_ON(!page);
-			refcount_inc(&page->refcount);
-			ret = map_page(newmm->pgd, va, pa,
-				       pgprot_make_readonly(
-					       pte_leaf_prot(*pte)));
+			entry = *pte;
+			pa = pte_phys_addr(entry);
+			child_entry = old_vma->vm_shared
+					      ? entry
+					      : mm_private_child_pte(entry);
+			/* The acquired reference becomes the child PTE's
+			 * reference only after its exact entry is installed. */
+			mm_pte_mapping_get(pa);
+			ret = mm_map_user_pte_like(newmm->pgd, va, pa, child_entry);
 			if (ret < 0) {
-				refcount_dec_and_test(&page->refcount);
+				mm_pte_mapping_put(new_vma, pa);
 				goto fail_loop;
 			}
-			pte_t *cpte = pgtable_lookup(newmm->pgd, va);
-
-			BUG_ON(!cpte);
-			*cpte = pte_make(pa,
-					 pgprot_make_readonly(
-						 pte_leaf_prot(*pte)));
-			*pte = pte_make(pa,
-					pgprot_make_readonly(
-						pte_leaf_prot(*pte)));
 		}
 	}
-	/* Parent's local TLB may still hold writable entries for the
-	 * now-RO pages; a full local flush is the only correct scope
-	 * without ASIDs. The SMP shootdown plan replaces this with a
-	 * remote flush of the parent mm. */
-	flush_tlb_all();
+
+	/* Commit the parent's COW permissions only after every child PTE is
+	 * installed, so a failed fork leaves the parent untouched. */
+	for (int i = 0; i < NR_VMA; i++) {
+		struct vm_area_struct *vma = &oldmm->vma[i];
+
+		if (!vma->used || vma->vm_shared)
+			continue;
+
+		for (uintptr_t va = vma->vm_start; va < vma->vm_end;
+		     va += PAGE_SIZE) {
+			pte_t *pte = pgtable_lookup(oldmm->pgd, va);
+			pte_t cow_entry;
+
+			if (!pte || !pte_is_user_page(*pte) ||
+			    !pte_is_present(*pte))
+				continue;
+
+			cow_entry = mm_private_child_pte(*pte);
+			if (*pte != cow_entry) {
+				*pte = cow_entry;
+				parent_downgraded = true;
+			}
+		}
+	}
+	if (parent_downgraded)
+		flush_tlb_all();
 	mm_unlock(oldmm);
 
 	return newmm;
@@ -1496,7 +1464,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 					 * page-cache-backed page writable;
 					 * the next write fault COWs it. */
 					pte_flags = pgprot_make_readonly(
-						pte_leaf_prot(*pte));
+						new_pte_flags);
 					pgcache_put_page(cache_page);
 				} else {
 					/* A fork-shared mm-owned page must
@@ -1506,7 +1474,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 					if (page &&
 					    refcount_read(&page->refcount) > 1)
 						pte_flags = pgprot_make_readonly(
-							pte_leaf_prot(*pte));
+							new_pte_flags);
 				}
 			}
 			*pte = pte_make(pa, pte_flags);
