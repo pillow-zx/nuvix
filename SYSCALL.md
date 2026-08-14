@@ -401,8 +401,8 @@ task-local LIFO 链。`rt_sigreturn` 只接受该链的当前栈顶地址，再�
 
 | flag / type | 状态 | errno / 语义 |
 | --- | --- | --- |
-| `MAP_PRIVATE` | supported | 匿名映射分配私有零页；file-backed 映射按需从 page cache 拷贝私有页，修改不写回 |
-| `MAP_SHARED` | supported | regular file 页直接映射 page cache；resident writable 页在 `msync`/`munmap` 时标脏并可写回 |
+| `MAP_PRIVATE` | supported | fork 后匿名和 file-backed 页以 COW 共享；file-backed 读 fault 可只读映射 page cache，首次写入复制私有页，修改不写回 |
+| `MAP_SHARED` | supported | regular file 页直接映射 page cache；匿名共享页在 fork 后保持共享；resident writable file 页在 `msync`/`munmap` 时标脏并可写回 |
 | `MAP_FIXED` | supported | 使用精确地址，先 unmap 目标范围 |
 | `MAP_FIXED_NOREPLACE` | supported | 使用精确地址但不覆盖已有 VMA；冲突返回 `-EEXIST` |
 | `MAP_ANONYMOUS` | supported | 不使用 fd；仍要求 `MAP_PRIVATE` 或 `MAP_SHARED` 类型 |

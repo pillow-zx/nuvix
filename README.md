@@ -44,7 +44,7 @@ I/O 和 ABI 契约应当闭合，并不意味着当前项目承诺完整 Linux �
 | CPU | 全部配置 hart 经 SBI HSM 启动到各自 idle 循环，per-CPU trap/Sstc/IPI 状态独立；仅 logical CPU 0 可调度普通任务 | SMP 多核、远程唤醒、迁移、负载均衡和 offline |
 | 调度 | per-CPU FIFO RR（固定时间片），用户返回点可按 timer 请求切换 | 通用调度机制加可替换策略，支持迁移和负载管理 |
 | 内核抢占 | 未实现；内核路径不可抢占 | 完整的 preempt/IRQ/sleep 契约和内核抢占 |
-| 内存 | Sv39、固定 VMA 数组、延迟缺页、复制式 fork | 共享 mm 并发、uaccess、COW、TLB shootdown 和可扩展 MM 机制 |
+| 内存 | Sv39、固定 VMA 数组、延迟缺页、私有映射 COW fork | 共享 mm 并发、uaccess、TLB shootdown 和可扩展 MM 机制 |
 | 存储 | VFS、ext2、page cache、virtio-blk，主要为轮询 I/O | 并发安全的文件系统、页缓存、请求生命周期和 I/O 策略接缝 |
 | 架构 | RISC-V 64 与 QEMU `virt` | architecture、platform、user ABI 分层，并验证第二架构 |
 
@@ -74,7 +74,7 @@ SMP、内核抢占和多架构不是可有可无的附加功能。虽然当前�
 
 - SMP、多核并发、内核抢占、IPI 和 TLB shootdown；
 - 动态链接、`PT_INTERP`、PIE、用户 FPU/vector 上下文；
-- 完整 COW fork、swap、reclaim/OOM 和生产级内存压力处理；
+- swap、reclaim/OOM 和生产级内存压力处理；
 - 完整 Linux capability、namespace、cgroup 和安全模块；
 - 广泛设备、设备树/ACPI 平台发现、DMA/IOMMU、NUMA 和生产级块调度；
 - 完整实时/截止期调度、PI futex、procfs/sysfs 和全部 Linux 边缘语义。
