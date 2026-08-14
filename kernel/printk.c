@@ -32,6 +32,7 @@ struct printk_ring {
 
 static void (*console_putc)(int ch);
 static bool printk_panic_mode;
+static DEFINE_SPINLOCK(console_lock, LOCK_RANK_CONSOLE_EMIT);
 
 static struct printk_ring printk_ring = {
 	.lock = SPINLOCK_INIT(LOCK_RANK_PRINTK_RING),
@@ -292,8 +293,13 @@ static void printk_emit(int level, const char *message, size_t size,
 		return;
 	}
 	printk_ring_append_message(level, message, size);
-	if (to_console && console_putc)
+	if (to_console && console_putc) {
+		irq_flags_t flags;
+
+		spin_lock_irqsave(&console_lock, &flags);
 		console_write(message);
+		spin_unlock_irqrestore(&console_lock, flags);
+	}
 }
 
 static int vprintk(int level, const char *fmt, va_list ap, bool to_console)
