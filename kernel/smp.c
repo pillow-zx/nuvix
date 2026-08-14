@@ -3,7 +3,8 @@
  *
  * Logical CPU 0 coordinates topology publication, HSM start, and the acquire
  * wait for each secondary's self-published ONLINE state. Secondary harts run
- * only their local idle loop: no scheduler, no allocator, no I/O.
+ * only their local idle loop (no scheduler, no I/O); a bounded boot-time
+ * allocator/console self-test is their only allocation.
  */
 
 #include <nuvix/smp.h>
@@ -14,6 +15,8 @@
 #include <nuvix/pgtable.h>
 #include <nuvix/processor.h>
 #include <nuvix/printk.h>
+#include <nuvix/slab.h>
+#include <nuvix/vmalloc.h>
 #include <nuvix/task.h>
 #include <nuvix/timer.h>
 #include <nuvix/irq.h>
@@ -256,6 +259,36 @@ BOOTINFO_BLOCK(cpu, void,
 	     schedulable_count);
 )
 
+/* One-shot bounded allocator/console exercise on each secondary, run before
+ * ONLINE is published so the CPU0 boot gate only proceeds once every hart has
+ * passed it. This is the only secondary execution of the allocator and console
+ * locks until ordinary tasks are scheduled on secondary harts. */
+static void smp_alloc_self_test(uint32_t logical_id)
+{
+	void *objs[4];
+	const size_t sizes[] = {16, 128, 1024, 4096};
+	void *region;
+
+	/* Slab (small caches) and large (buddy) paths, freed immediately. */
+	for (size_t i = 0; i < 4; i++) {
+		objs[i] = kmalloc(sizes[i], ALLOC_NOWAIT);
+		BUG_ON(!objs[i]);
+		memset(objs[i], 0, sizes[i]);
+	}
+	for (size_t i = 0; i < 4; i++)
+		kfree(objs[i]);
+
+	/* One vmalloc/vfree: reserve/merge under vmalloc_lock, lock-free mapping
+	 * into the pre-populated tables. Concurrent secondaries exercise the
+	 * shared-table concurrent-mapping path directly. */
+	region = vmalloc(PAGE_SIZE, ALLOC_NOWAIT);
+	BUG_ON(!region);
+	memset(region, 0, PAGE_SIZE);
+	vfree(region);
+
+	pr_info("smp: cpu %u allocator/console self-test ok\n", logical_id);
+}
+
 __noreturn
 void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 {
@@ -286,6 +319,10 @@ void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 	trap_cpu_init();
 	timer_cpu_init();
 	clockevent_cpu_init();
+
+	/* Exercise the allocator and console locks on this hart before ONLINE,
+	 * so the boot gate only proceeds once every secondary has passed. */
+	smp_alloc_self_test(logical_id);
 
 	/* Publish ONLINE only after all local state is complete. */
 	cpu_state_store_release(cpu, CPU_ONLINE);
