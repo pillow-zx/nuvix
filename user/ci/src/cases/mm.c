@@ -131,6 +131,38 @@ UT_CASE(cow_fork_anon_isolation, 5000)
 	UT_ASSERT_EQ(munmap(page, page_size), 0);
 }
 
+UT_CASE(cow_fork_anonymous_shared_visibility, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	unsigned char *page;
+	int ready[2];
+	pid_t child;
+
+	UT_ASSERT(page_size > 0);
+	page = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		    MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(page != MAP_FAILED);
+	UT_ASSERT_EQ(pipe(ready), 0);
+	page[0] = 0x11;
+	child = UT_FORK();
+	if (child == 0) {
+		char byte = 'x';
+
+		(void)close(ready[0]);
+		page[0] = 0x22;
+		if (write(ready[1], &byte, 1) != 1)
+			_exit(90);
+		(void)close(ready[1]);
+		_exit(0);
+	}
+	UT_ASSERT_EQ(close(ready[1]), 0);
+	UT_ASSERT_EQ(read(ready[0], &(char){0}, 1), 1);
+	UT_EXPECT_EQ(page[0], 0x22);
+	UT_EXPECT_EXIT(child, 0);
+	UT_ASSERT_EQ(close(ready[0]), 0);
+	UT_ASSERT_EQ(munmap(page, page_size), 0);
+}
+
 UT_CASE(cow_fork_file_private, 5000)
 {
 	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
@@ -173,6 +205,57 @@ UT_CASE(cow_fork_file_private, 5000)
 	UT_EXPECT_EQ(mapping[0], 0x11);
 	UT_ASSERT_EQ(munmap(mapping, page_size), 0);
 	/* The on-disk content is unchanged. */
+	disk = malloc(page_size);
+	UT_ASSERT(disk != NULL);
+	UT_ASSERT_EQ(pread(fd, disk, page_size, 0), (ssize_t)page_size);
+	UT_EXPECT_EQ(disk[0], 0xaa);
+	UT_EXPECT_EQ(disk[page_size - 1], 0xaa);
+	free(disk);
+	UT_ASSERT_EQ(close(fd), 0);
+}
+
+UT_CASE(cow_fork_file_private_cache_page, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	unsigned char *mapping;
+	unsigned char *disk;
+	unsigned char *content;
+	char *path;
+	pid_t child;
+	int fd;
+
+	UT_ASSERT(page_size > 0);
+	content = malloc(page_size);
+	UT_ASSERT(content != NULL);
+	memset(content, 0xaa, page_size);
+	UT_ASSERT_EQ(ut_write_file("cow-cache-file", content, page_size, 0600),
+		     0);
+	free(content);
+	path = ut_path("cow-cache-file");
+	UT_ASSERT(path != NULL);
+	fd = open(path, O_RDWR);
+	free(path);
+	UT_ASSERT(fd >= 0);
+	mapping = mmap(NULL, page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE,
+		       fd, 0);
+	UT_ASSERT(mapping != MAP_FAILED);
+	/* Keep this PTE backed by the page cache across fork. */
+	UT_ASSERT_EQ(mapping[0], 0xaa);
+	child = UT_FORK();
+	if (child == 0) {
+		if (mapping[0] != 0xaa)
+			_exit(90);
+		mapping[0] = 0x22;
+		if (mapping[0] != 0x22)
+			_exit(91);
+		_exit(0);
+	}
+	UT_EXPECT_EXIT(child, 0);
+	UT_EXPECT_EQ(mapping[0], 0xaa);
+	/* The parent must COW from the same cache-backed PTE as well. */
+	mapping[0] = 0x11;
+	UT_EXPECT_EQ(mapping[0], 0x11);
+	UT_ASSERT_EQ(munmap(mapping, page_size), 0);
 	disk = malloc(page_size);
 	UT_ASSERT(disk != NULL);
 	UT_ASSERT_EQ(pread(fd, disk, page_size, 0), (ssize_t)page_size);
@@ -236,6 +319,94 @@ UT_CASE(cow_fork_mprotect_isolation, 5000)
 	UT_ASSERT_EQ(munmap(page, page_size), 0);
 }
 
+UT_CASE(cow_fork_prot_none_and_restore, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	unsigned char *page;
+	int child_ready[2];
+	int parent_ready[2];
+	int child_done[2];
+	pid_t child;
+
+	UT_ASSERT(page_size > 0);
+	page = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(page != MAP_FAILED);
+	page[0] = 0x11;
+	UT_ASSERT_EQ(mprotect(page, page_size, PROT_NONE), 0);
+	child = UT_FORK();
+	if (child == 0) {
+		volatile unsigned char value = page[0];
+
+		(void)value;
+		_exit(127);
+	}
+	UT_EXPECT_SIGNAL(child, SIGSEGV);
+	UT_ASSERT_EQ(pipe(child_ready), 0);
+	UT_ASSERT_EQ(pipe(parent_ready), 0);
+	UT_ASSERT_EQ(pipe(child_done), 0);
+	child = UT_FORK();
+	if (child == 0) {
+		char byte = 'x';
+
+		(void)close(child_ready[0]);
+		(void)close(parent_ready[1]);
+		(void)close(child_done[0]);
+		if (mprotect(page, page_size, PROT_READ | PROT_WRITE) != 0)
+			_exit(90);
+		if (page[0] != 0x11)
+			_exit(91);
+		if (write(child_ready[1], &byte, 1) != 1)
+			_exit(92);
+		if (read(parent_ready[0], &byte, 1) != 1)
+			_exit(93);
+		page[0] = 0x22;
+		if (page[0] != 0x22)
+			_exit(94);
+		if (write(child_done[1], &byte, 1) != 1)
+			_exit(95);
+		_exit(0);
+	}
+	UT_ASSERT_EQ(close(child_ready[1]), 0);
+	UT_ASSERT_EQ(close(parent_ready[0]), 0);
+	UT_ASSERT_EQ(close(child_done[1]), 0);
+	UT_ASSERT_EQ(read(child_ready[0], &(char){0}, 1), 1);
+	UT_ASSERT_EQ(mprotect(page, page_size, PROT_READ | PROT_WRITE), 0);
+	UT_EXPECT_EQ(page[0], 0x11);
+	page[0] = 0x33;
+	UT_ASSERT_EQ(write(parent_ready[1], &(char){'x'}, 1), 1);
+	UT_ASSERT_EQ(read(child_done[0], &(char){0}, 1), 1);
+	UT_EXPECT_EQ(page[0], 0x33);
+	UT_EXPECT_EXIT(child, 0);
+	UT_ASSERT_EQ(close(child_ready[0]), 0);
+	UT_ASSERT_EQ(close(parent_ready[1]), 0);
+	UT_ASSERT_EQ(close(child_done[0]), 0);
+	UT_ASSERT_EQ(munmap(page, page_size), 0);
+}
+
+UT_CASE(cow_fork_execute_only_stays_unreadable, 5000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	unsigned char *page;
+	pid_t child;
+
+	UT_ASSERT(page_size > 0);
+	page = mmap(NULL, page_size, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(page != MAP_FAILED);
+	page[0] = 0x11;
+	UT_ASSERT_EQ(mprotect(page, page_size, PROT_EXEC), 0);
+	child = UT_FORK();
+	if (child == 0) {
+		volatile unsigned char value = page[0];
+
+		(void)value;
+		_exit(127);
+	}
+	UT_EXPECT_SIGNAL(child, SIGSEGV);
+	UT_ASSERT_EQ(munmap(page, page_size), 0);
+}
+
 UT_CASE(cow_fork_stress, 10000)
 {
 	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
@@ -260,4 +431,41 @@ UT_CASE(cow_fork_stress, 10000)
 		UT_EXPECT_EQ(page[0], 0x1111);
 	}
 	UT_ASSERT_EQ(munmap(page, page_size), 0);
+}
+
+UT_CASE(cow_fork_release_paths, 10000)
+{
+	const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
+	uint32_t *page;
+	int i;
+
+	UT_ASSERT(page_size > 0);
+	page = mmap(NULL, page_size * 2, PROT_READ | PROT_WRITE,
+		    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	UT_ASSERT(page != MAP_FAILED);
+	for (i = 0; i < 16; i++) {
+		unsigned char *resized;
+		pid_t child;
+
+		page[0] = 0x1111;
+		page[page_size / sizeof(*page)] = 0x3333;
+		child = UT_FORK();
+		if (child == 0) {
+			resized = mremap(page, page_size * 2, page_size * 3,
+					 MREMAP_MAYMOVE);
+			if (resized == MAP_FAILED)
+				_exit(90);
+			resized[0] = 0x22;
+			if (madvise(resized + page_size, page_size,
+				    MADV_DONTNEED) != 0)
+				_exit(91);
+			if (munmap(resized, page_size * 3) != 0)
+				_exit(92);
+			_exit(0);
+		}
+		UT_EXPECT_EXIT(child, 0);
+		UT_EXPECT_EQ(page[0], 0x1111);
+		UT_EXPECT_EQ(page[page_size / sizeof(*page)], 0x3333);
+	}
+	UT_ASSERT_EQ(munmap(page, page_size * 2), 0);
 }
