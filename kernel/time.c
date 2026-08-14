@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/bitops.h>
+#include <nuvix/bootinfo.h>
 #include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/sched.h>
@@ -280,3 +281,10 @@ int mtime_deadline_from_ms(long timeout_ms,
 	*deadline = wait_deadline_at(mtime_deadline_after(timer_now(), delta));
 	return 0;
 }
+
+/* Phase-A boot banner: both rows are compile-time timer constants. */
+BOOTINFO_BLOCK(timer, void,
+	BROW("Timer Device", "sstc @ %llu MHz",
+	     (unsigned long long)(MTIME_FREQ / 1000000ULL));
+	BROW("Timer Tick", "%llu Hz", (unsigned long long)HZ);
+)

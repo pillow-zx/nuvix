@@ -47,6 +47,4 @@ void syscall_init(void)
 #define INSTALL_SYSCALL(nr, name, fn) syscall_table[nr] = fn;
 	SYSCALL_TABLE(INSTALL_SYSCALL)
 #undef INSTALL_SYSCALL
-
-	pr_info("syscall: initialized (%d entries)\n", NR_SYSCALL);
 }

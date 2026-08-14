@@ -283,7 +283,20 @@ void printk_log_clear(void)
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
 }
 
-static int vprintk(int level, const char *fmt, va_list ap)
+static void printk_emit(int level, const char *message, size_t size,
+			bool to_console)
+{
+	if (printk_panic_mode) {
+		if (to_console && console_putc)
+			console_write(message);
+		return;
+	}
+	printk_ring_append_message(level, message, size);
+	if (to_console && console_putc)
+		console_write(message);
+}
+
+static int vprintk(int level, const char *fmt, va_list ap, bool to_console)
 {
 	char message[PRINTK_BUF_SIZE];
 	int formatted;
@@ -297,14 +310,7 @@ static int vprintk(int level, const char *fmt, va_list ap)
 		size = sizeof(message) - 1;
 	if (size == 0)
 		return formatted;
-	if (printk_panic_mode) {
-		if (console_putc)
-			console_write(message);
-		return formatted;
-	}
-	printk_ring_append_message(level, message, size);
-	if (console_putc)
-		console_write(message);
+	printk_emit(level, message, size, to_console);
 	return formatted;
 }
 
@@ -314,9 +320,18 @@ int __printk(int level, const char *fmt, ...)
 	int ret;
 
 	va_start(ap, fmt);
-	ret = vprintk(level, fmt, ap);
+	ret = vprintk(level, fmt, ap, true);
 	va_end(ap);
 	return ret;
+}
+
+void printk_ring_record(int level, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	(void)vprintk(level, fmt, ap, false);
+	va_end(ap);
 }
 
 __noreturn
@@ -330,7 +345,7 @@ void __panic(const char *fmt, ...)
 
 	va_list ap;
 	va_start(ap, fmt);
-	(void)vprintk(LOG_ERROR, fmt, ap);
+	(void)vprintk(LOG_ERROR, fmt, ap, true);
 	va_end(ap);
 	pr_err("\n");
 

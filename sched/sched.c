@@ -135,7 +135,6 @@ void sched_init(void)
 		spin_lock_init(&retired_queues[id].lock, LOCK_RANK_RETIRED);
 		INIT_LIST_HEAD(&retired_queues[id].tasks);
 	}
-	pr_info("sched: FIFO RR initialized\n");
 }
 
 void sched_enqueue_new(struct task_struct *task)

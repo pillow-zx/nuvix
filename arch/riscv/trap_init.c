@@ -5,7 +5,6 @@
 #include <asm/csr.h>
 #include <asm/trap.h>
 #include <arch/trap.h>
-#include <nuvix/printk.h>
 
 extern void __alltraps(void);
 
@@ -18,12 +17,4 @@ void trap_cpu_init(void)
 	 * bit is set by writing 1 (not W1C), so csr_set would assert it. */
 	csr_clear(sip, SIP_SSIP);
 	csr_set(sie, SIE_SSIE);
-}
-
-/* Logical CPU 0-only diagnostic; secondaries must never print. */
-void trap_cpu_init_print(void)
-{
-	pr_info("stvec: 0x%lx, sscratch: 0x%lx, sie: 0x%lx, sstatus: 0x%lx\n",
-		csr_read(stvec), csr_read(sscratch), csr_read(sie),
-		csr_read(sstatus));
 }

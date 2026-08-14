@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -379,6 +380,40 @@ static void ut_print_usage(const char *program)
 	fprintf(stderr, "usage: %s [--list] [--case NAME]\n", program);
 }
 
+/* Relay the kernel's ring-only SMP boot record as [SMP] Probe: protocol. The
+ * harness audits the SMP gate from this line; the [SMP] prefix keeps it
+ * distinct from [UTEST] test-case results. */
+static void ut_report_smp_probe(void)
+{
+	char buffer[4096];
+	char *probe;
+	char *end;
+	long count;
+
+	count = syscall(SYS_syslog, 3 /* SYSLOG_ACTION_READ_ALL */, buffer,
+			(long)sizeof(buffer));
+	if (count <= 0) {
+		printf("[SMP] Probe: unavailable (syslog errno=%d)\n", errno);
+		return;
+	}
+	if (count >= (long)sizeof(buffer))
+		count = (long)sizeof(buffer) - 1;
+	buffer[count] = '\0';
+
+	probe = strstr(buffer, "SMP Probe:");
+	if (!probe) {
+		printf("[SMP] Probe: not found\n");
+		return;
+	}
+	probe += strlen("SMP Probe:");
+	while (*probe == ' ')
+		probe++;
+	end = strchr(probe, '\n');
+	if (end)
+		*end = '\0';
+	printf("[SMP] Probe: %s\n", probe);
+}
+
 int main(int argc, char **argv)
 {
 	const char *filter = NULL;
@@ -405,6 +440,8 @@ int main(int argc, char **argv)
 		fprintf(stderr, "[UTEST] cannot create fixture root: errno=%d\n", errno);
 		return 1;
 	}
+	if (!list_only)
+		ut_report_smp_probe();
 	for (test_case = __start_ut_cases; test_case < __stop_ut_cases;
 	     test_case++) {
 		char reason[UT_REASON_SIZE];

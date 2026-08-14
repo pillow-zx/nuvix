@@ -19,7 +19,8 @@ ARCH_OBJS = \
 	arch/riscv/lib/string.o
 
 INIT_OBJS = \
-	init/main.o
+	init/main.o        \
+	init/bootinfo.o
 
 KERNEL_OBJS = \
 	kernel/printk.o         \

@@ -7,6 +7,7 @@
  */
 
 #include <nuvix/smp.h>
+#include <nuvix/bootinfo.h>
 #include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/ipi.h>
@@ -72,6 +73,8 @@ static void smp_gate_fail(uint64_t secondary_mask,
 	unreachable();
 }
 
+static void smp_probe_record(uint64_t timer_seen, uint64_t ipi_seen);
+
 static void smp_boot_gate(uint32_t boot_id)
 {
 	uint64_t secondary_mask = 0;
@@ -86,8 +89,11 @@ static void smp_boot_gate(uint32_t boot_id)
 	BUG_ON((cpu_online_mask() & ~(1ULL << boot_id)) != secondary_mask);
 	BUG_ON(cpu_schedulable_mask() != (1ULL << boot_id));
 
-	if (nr_cpu_ids == 1)
-		return; /* UP: validate state only; no SMP sentinel. */
+	if (nr_cpu_ids == 1) {
+		/* UP: validate state only; no secondaries to prove. */
+		smp_probe_record(0, 0);
+		return;
+	}
 
 	/* Every secondary must prove one local timer tick within one
 	 * second; the observation is published after reprogramming. */
@@ -123,10 +129,32 @@ static void smp_boot_gate(uint32_t boot_id)
 				      ipi_observed, "ipi-seen");
 	}
 
-	pr_info("[SMP] ready cpus=%u online=0x%llx schedulable=0x%llx "
-		"timer_seen=0x%llx ipi_seen=0x%llx\n",
-		nr_cpu_ids, cpu_online_mask(), cpu_schedulable_mask(),
-		timer_seen, ipi_observed);
+	smp_probe_record(timer_seen, ipi_observed);
+}
+
+/*
+ * Ring-only SMP boot record consumed by user space via syslog(READ_ALL); the
+ * utest runner relays it as [UTEST] test protocol so the host harness can
+ * audit the gate without parsing the human banner.
+ */
+static void smp_probe_record(uint64_t timer_seen, uint64_t ipi_seen)
+{
+	char harts[128];
+	size_t off = 0;
+
+	for (uint32_t id = 0; id < nr_cpu_ids; id++)
+		off = bootinfo_append(harts, sizeof(harts), off, "%s%u",
+				      off ? "," : "", cpu_table[id].hartid);
+
+	printk_ring_record(LOG_INFO,
+			   "SMP Probe: cpus=%u boot=%u online=0x%016llx "
+			   "schedulable=0x%016llx timer_seen=0x%016llx "
+			   "ipi_seen=0x%016llx harts=%s\n",
+			   nr_cpu_ids, cpu_table[0].hartid,
+			   (unsigned long long)cpu_online_mask(),
+			   (unsigned long long)cpu_schedulable_mask(),
+			   (unsigned long long)timer_seen,
+			   (unsigned long long)ipi_seen, harts);
 }
 
 static void smp_wait_online(uint32_t id)
@@ -145,7 +173,6 @@ static void smp_wait_online(uint32_t id)
 		smp_boot_fail(id, state == CPU_PARKED ? "parked" : "bad-state",
 			      state);
 	cpu_set_online(id);
-	pr_info("cpu: logical=%u hart=%u online\n", cpu->id, cpu->hartid);
 }
 
 int smp_prepare(uint32_t boot_hartid)
@@ -184,8 +211,6 @@ void smp_boot_cpus(void)
 	cpu_state_store_release(&cpu_table[boot_id], CPU_ONLINE);
 	cpu_set_online(boot_id);
 	cpu_set_schedulable(boot_id);
-	pr_info("cpu: logical=%u hart=%u online\n", cpu_table[boot_id].id,
-		cpu_table[boot_id].hartid);
 
 	for (id = 0; id < nr_cpu_ids; id++) {
 		struct cpu *cpu = &cpu_table[id];
@@ -208,6 +233,28 @@ void smp_boot_cpus(void)
 	 * or thread initialization proceeds. */
 	smp_boot_gate(boot_id);
 }
+
+/*
+ * Post-bring-up boot banner: online/schedulable masks are only meaningful
+ * after smp_boot_cpus() has published them, so this runs after the gate.
+ */
+BOOTINFO_BLOCK(cpu, void,
+
+	char table[128];
+	size_t off = 0;
+	uint32_t schedulable_count = 0;
+
+	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
+		off = bootinfo_append(table, sizeof(table), off, "%s%u->%u",
+				      off ? " " : "", id, cpu_table[id].hartid);
+		if (cpu_is_schedulable(id))
+			schedulable_count++;
+	}
+
+	BROW("CPU Table", "%s", table);
+	BROW("SMP", "%u harts online, %u schedulable", nr_cpu_ids,
+	     schedulable_count);
+)
 
 __noreturn
 void smp_secondary_main(uint32_t hartid, uint32_t logical_id)

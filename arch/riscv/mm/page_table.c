@@ -24,6 +24,8 @@ atomic_isize_t pgtable_boot_token;
 
 static char *early_alloc_ptr;
 
+extern char _end[];
+
 void *bootmem_end(void)
 {
 	return early_alloc_ptr;
@@ -184,7 +186,6 @@ pte_t *kernel_pt(void)
 
 void pagetable_init(void)
 {
-	extern char _end[];
 	paddr_t end_addr;
 	pte_t *root = NULL;
 
@@ -195,7 +196,7 @@ void pagetable_init(void)
 
 	root = (pte_t *)early_alloc_page();
 
-	pr_info("page_table: mapping %dMB DRAM with 4KB pages...\n",
+	pr_debug("page_table: mapping %dMB DRAM with 4KB pages...\n",
 		(int)(DRAM_SIZE >> 20));
 
 	for (paddr_t pa = DRAM_BASE; pa < DRAM_BASE + DRAM_SIZE;
@@ -219,7 +220,7 @@ void pagetable_init(void)
 	 * a secondary observing the token may switch page tables immediately. */
 	atomic_isize_set_release(&pgtable_boot_token, (isize)satp_val);
 
-	pr_info("page_table: switched to kernel page table (root=%p, "
+	pr_debug("page_table: switched to kernel page table (root=%p, "
 		"early_alloc=%dKB)\n",
 		(void *)root_pa,
 		(int)((uintptr_t)early_alloc_ptr - (uintptr_t)_end) / 1024);

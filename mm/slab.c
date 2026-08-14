@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/slab.h>
+#include <nuvix/bootinfo.h>
 #include <nuvix/buddy.h>
 #include <nuvix/bitops.h>
 #include <nuvix/printk.h>
@@ -181,9 +182,13 @@ void slab_init(void)
 		caches[i].obj_size = cache_sizes[i];
 		INIT_LIST_HEAD(&caches[i].free_list);
 	}
-
-	pr_info("slab: %d caches initialized (16..2048 bytes)\n", NR_CACHES);
 }
+
+BOOTINFO_BLOCK(slab, void,
+	BROW("Slab Caches", "%u (%u..%u B)", NR_CACHES,
+	     (unsigned)cache_sizes[0],
+	     (unsigned)cache_sizes[NR_CACHES - 1]);
+)
 
 void *kmalloc(size_t size, enum alloc_mode mode)
 {

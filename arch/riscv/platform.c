@@ -7,6 +7,8 @@
  * entries and never assumes they are equal.
  */
 
+#include <arch/page.h>
+#include <nuvix/bootinfo.h>
 #include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/smp.h>
@@ -37,3 +39,26 @@ int platform_cpu_entries(uint32_t boot_hartid,
 	*count = logical_id;
 	return 0;
 }
+
+/*
+ * Phase-A boot banner: everything here is a compile-time or link-time fact
+ * (DRAM layout, kernel image symbols), so it can print before page tables and
+ * the MM subsystems exist. The boot hart ID comes from the SBI boot argument,
+ * since cpu_table is not populated until smp_prepare() runs.
+ */
+extern char _start[];
+
+BOOTINFO_BLOCK(platform, uint32_t boot_hartid,
+	BROW("Platform Name", "QEMU riscv-virt");
+	BROW("Platform HART Count", "%u", (unsigned)CONFIG_QEMU_CPUS);
+	/* The trailing "(logical 0)" distinguishes this row from OpenSBI's bare
+	 * "Boot HART ID : N" line and documents the logical-0 normalization
+	 * performed by platform_cpu_entries(). */
+	BROW("Boot HART ID", "%u (logical 0)", boot_hartid);
+	BROW("Boot Console", "uart8250 (SBI early)");
+	BROW("Memory Base", "0x%016llx", (unsigned long long)DRAM_BASE);
+	BROW("Memory Size", "%llu MiB", (unsigned long long)(DRAM_SIZE >> 20));
+	BROW("Page Table Mode", "Sv39");
+	BROW("Kernel Image Base", "0x%016llx",
+	     (unsigned long long)__pa((uintptr_t)_start));
+)

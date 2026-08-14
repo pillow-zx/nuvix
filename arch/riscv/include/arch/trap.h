@@ -12,8 +12,6 @@
 /* Programs hart-local CSRs (stvec, sscratch, sie); CPU-local only. */
 void trap_cpu_init(void);
 
-/* Logical CPU 0-only CSR diagnostic print; never call from a secondary. */
-void trap_cpu_init_print(void);
 void trap_handler(struct trap_frame *tf);
 void __trapret(void);
 

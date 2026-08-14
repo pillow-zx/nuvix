@@ -21,7 +21,11 @@ typedef __builtin_va_list va_list;
 #define LOG_ERROR   5
 
 #ifndef LOG_LEVEL
+#ifdef CONFIG_LOG_LEVEL
+#define LOG_LEVEL CONFIG_LOG_LEVEL
+#else
 #define LOG_LEVEL LOG_INFO
+#endif
 #endif
 
 void console_init_sbi(void);
@@ -38,6 +42,12 @@ int vsprintf(char *buf, const char *fmt, va_list ap);
 
 __printf(2, 3) __nonnull(2)
 int __printk(int level, const char *fmt, ...) ;
+
+/* Append to the log ring without echoing to the console. Used for
+ * machine-readable boot records (e.g. the SMP probe) that are consumed via
+ * syslog() but must not pollute the human banner. */
+__printf(2, 3) __nonnull(2)
+void printk_ring_record(int level, const char *fmt, ...);
 
 __noreturn __printf(1, 2) __nonnull(1) __cold
 void __panic(const char *fmt, ...);

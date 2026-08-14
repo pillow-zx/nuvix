@@ -600,7 +600,7 @@ void task_init(void)
 	set_current_task(idle_tasks);
 	pid_init();
 	wait_init();
-	pr_info("task: idle task created\n");
+	pr_debug("task: idle task created\n");
 }
 
 struct task_struct *kernel_thread(void (*fn)(void *), void *arg)

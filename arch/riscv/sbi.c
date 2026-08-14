@@ -4,6 +4,7 @@
 
 #include <arch/sbi.h>
 #include <arch/system.h>
+#include <nuvix/bootinfo.h>
 #include <nuvix/types.h>
 
 #define SBI_EID_CONSOLE_PUTCHAR 0x01
@@ -72,6 +73,48 @@ struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base)
 	return sbi_ecall(SBI_EID_IPI, SBI_FID_IPI_SEND, hart_mask,
 			 hart_mask_base, 0, 0, 0);
 }
+
+/* Extensions nuvix reports in its boot banner, in display order. */
+static const struct {
+	uint64_t eid;
+	const char *name;
+} sbi_extensions[] = {
+	{SBI_EID_BASE, "base"}, {SBI_EID_HSM, "hsm"},
+	{SBI_EID_IPI, "ipi"},	{SBI_EID_TIME, "time"},
+	{SBI_EID_RFNC, "rfnc"}, {SBI_EID_SYSTEM_RESET, "srst"},
+};
+
+BOOTINFO_BLOCK(
+	sbi, void,
+
+	const size_t nr_extensions = sizeof(sbi_extensions) /
+				     sizeof(sbi_extensions[0]);
+	struct sbi_ret ret = sbi_base_spec_version(); char extensions[128];
+	size_t off = 0; size_t found = 0;
+
+	if (ret.error != 0) {
+		BROW("SBI Version", "unavailable (error=%lld)",
+		     (long long)ret.error);
+	} else {
+		/* Spec version encodes major in the high byte and minor in
+		 * the low 24 bits, e.g. SBI 3.0 -> 0x30000. */
+		BROW("SBI Version", "%llu.%llu",
+		     (unsigned long long)(ret.value >> 24),
+		     (unsigned long long)(ret.value & 0xFFFFFF));
+	}
+
+	for (size_t i = 0; i < nr_extensions; i++) {
+		ret = sbi_probe_extension(sbi_extensions[i].eid);
+		if (ret.error != 0 || ret.value == 0)
+			continue;
+		off = bootinfo_append(extensions, sizeof(extensions), off,
+				      "%s%s", found ? "," : "",
+				      sbi_extensions[i].name);
+		found++;
+	}
+
+	if (found == 0) BROW("SBI Extensions", "none");
+	else BROW("SBI Extensions", "%s", extensions);)
 
 const char *sbi_hsm_status_name(uint64_t value)
 {

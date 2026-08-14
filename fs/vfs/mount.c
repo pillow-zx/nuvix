@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/blkdev.h>
+#include <nuvix/bootinfo.h>
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/page_cache.h>
@@ -342,7 +343,7 @@ int vfs_mount_root(dev_t dev)
 		return ret;
 	}
 
-	pr_info("VFS: mounted root (%s)\n", fs_type->name);
+	bootinfo_block(fs_type->name);
 	return 0;
 }
 

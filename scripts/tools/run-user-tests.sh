@@ -70,20 +70,22 @@ fail()
 }
 
 if [ "$cpus" -gt 1 ]; then
-	# Every configured virt hart must complete the mandatory SMP boot gate before
-	# user-space starts. This checks all secondary IDs, not only CPU 1.
-	count=$(grep -cE '^\[SMP\] ready ' "$log")
-	[ "$count" -eq 1 ] || fail "expected exactly one [SMP] ready sentinel, got $count"
-
-	smp=$(grep -E '^\[SMP\] ready ' "$log" | tail -n 1)
-	if [[ ! "$smp" =~ cpus=([0-9]+)[[:space:]]+online=0x([0-9a-f]+)[[:space:]]+schedulable=0x([0-9a-f]+)[[:space:]]+timer_seen=0x([0-9a-f]+)[[:space:]]+ipi_seen=0x([0-9a-f]+) ]]; then
-		fail "malformed [SMP] ready sentinel: $smp"
+	# The SMP boot gate is enforced in-kernel before user space starts. The
+	# utest runner relays the ring-only probe as [SMP] Probe: protocol, so the
+	# harness audits the gate without parsing the kernel banner on stdout.
+	line=$(tr -d '\r' < "$log" | grep -E '^\[SMP\] Probe:' | tail -n 1)
+	count=$(printf '%s\n' "$line" | sed '/^$/d' | wc -l)
+	[ "$count" -eq 1 ] || fail "expected exactly one SMP Probe sentinel, got $count"
+	if [[ ! "$line" =~ \[SMP\]\ Probe:\ cpus=([0-9]+)\ boot=([0-9]+)\ online=0x([0-9a-f]+)\ schedulable=0x([0-9a-f]+)\ timer_seen=0x([0-9a-f]+)\ ipi_seen=0x([0-9a-f]+)\ harts=([0-9,]+) ]]; then
+		fail "malformed SMP Probe sentinel: $line"
 	fi
 	smp_cpus=${BASH_REMATCH[1]}
-	online=$(( 16#${BASH_REMATCH[2]} ))
-	schedulable=$(( 16#${BASH_REMATCH[3]} ))
-	timer_seen=$(( 16#${BASH_REMATCH[4]} ))
-	ipi_seen=$(( 16#${BASH_REMATCH[5]} ))
+	boot_hart=${BASH_REMATCH[2]}
+	online=$(( 16#${BASH_REMATCH[3]} ))
+	schedulable=$(( 16#${BASH_REMATCH[4]} ))
+	timer_seen=$(( 16#${BASH_REMATCH[5]} ))
+	ipi_seen=$(( 16#${BASH_REMATCH[6]} ))
+	IFS=, read -r -a harts <<< "${BASH_REMATCH[7]}"
 
 	[ "$smp_cpus" -eq "$cpus" ] || fail "sentinel cpus=$smp_cpus != requested $cpus"
 
@@ -97,25 +99,14 @@ if [ "$cpus" -gt 1 ]; then
 	[ $(( ipi_seen & secondary )) -eq "$secondary" ] || \
 		fail "ipi_seen=0x$(printf %x "$ipi_seen") missing secondary bits 0x$(printf %x "$secondary")"
 
+	[ "${#harts[@]}" -eq "$cpus" ] || \
+		fail "SMP Probe hart count ${#harts[@]} != $cpus"
+	[ "${harts[0]}" -eq "$boot_hart" ] || \
+		fail "logical CPU 0 hart=${harts[0]} != probe boot hart=$boot_hart"
 	declare -A seen_harts=()
-	boot_hart=$(tr -d '\r' < "$log" |
-		sed -nE 's/^Boot HART ID[[:space:]]*:[[:space:]]*([0-9]+)$/\1/p')
-	[ "$(printf '%s\n' "$boot_hart" | sed '/^$/d' | wc -l)" -eq 1 ] || \
-		fail "expected exactly one OpenSBI boot-hart record"
-	for i in $(seq 0 $((cpus - 1))); do
-		mapping=$(tr -d '\r' < "$log" |
-			grep -E "^cpu: logical=$i hart=[0-9]+ online$")
-		[ "$(printf '%s\n' "$mapping" | sed '/^$/d' | wc -l)" -eq 1 ] || \
-			fail "logical CPU $i must have exactly one online mapping"
-		if [[ ! "$mapping" =~ ^cpu:\ logical=$i\ hart=([0-9]+)\ online$ ]]; then
-			fail "malformed CPU mapping: $mapping"
-		fi
-		hart=${BASH_REMATCH[1]}
-		if [ "$i" -eq 0 ] && [ "$hart" -ne "$boot_hart" ]; then
-			fail "logical CPU 0 hart=$hart != SBI boot hart=$boot_hart"
-		fi
+	for hart in "${harts[@]}"; do
 		[ "$hart" -lt "$cpus" ] || \
-			fail "logical CPU $i maps outside configured harts: $hart"
+			fail "logical CPU maps outside configured harts: $hart"
 		[ -z "${seen_harts[$hart]+x}" ] || \
 			fail "hart $hart appears in more than one logical mapping"
 		seen_harts[$hart]=1
