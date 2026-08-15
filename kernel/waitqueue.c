@@ -369,9 +369,15 @@ static bool wait_channel_wake_match(struct wait_channel *channel,
 			spin_unlock_irqrestore(&wait->lock, wait_flags);
 			continue;
 		}
-		task = entry->task;
-		if (!task_try_get(task))
+		/* A failed try_get means the target is past the point of being
+		 * reaped; skip it without taking a reference.  Release the wait
+		 * lock first and keep task NULL so the post-loop guard cannot
+		 * fall through to a wake on an un-referenced task. */
+		if (!task_try_get(entry->task)) {
+			spin_unlock_irqrestore(&wait->lock, wait_flags);
 			continue;
+		}
+		task = entry->task;
 		generation = wait->generation;
 		wait->reason = TASK_WAKE_EVENT;
 		list_del_init(&entry->channel_node);
