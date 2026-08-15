@@ -14,19 +14,20 @@
  * regular files only: the data path allocates page-cache pages, which the
  * debug-context gate forbids under a spinlock, and pipes/character devices
  * must not take the lock at all because their ops can block on the wait
- * module.  pread/pwrite use the caller-provided offset and never add a
- * separate lock for it. */
+ * module.  pread/pwrite pass the caller-provided offset straight into the
+ * core and never take f_lock for it. */
 static bool vfs_pos_locked(const struct file *file)
 {
 	return file && file->f_inode && S_ISREG(file->f_inode->i_mode);
 }
 
-static ssize_t vfs_read_core(struct file *file, char *buf, size_t count)
+static ssize_t vfs_read_core(struct file *file, char *buf, size_t count,
+			     loff_t *pos)
 {
 	ssize_t ret = file->f_op->read(file, buf, count);
 
 	if (ret > 0)
-		file->f_pos += ret;
+		*pos += ret;
 	return ret;
 }
 
@@ -40,23 +41,24 @@ ssize_t vfs_read(struct file *file, char *buf, size_t count)
 
 	if (vfs_pos_locked(file))
 		mutex_lock(&file->f_lock);
-	ret = vfs_read_core(file, buf, count);
+	ret = vfs_read_core(file, buf, count, &file->f_pos);
 	if (vfs_pos_locked(file))
 		mutex_unlock(&file->f_lock);
 
 	return ret;
 }
 
-static ssize_t vfs_write_core(struct file *file, const char *buf, size_t count)
+static ssize_t vfs_write_core(struct file *file, const char *buf, size_t count,
+			      loff_t *pos)
 {
 	ssize_t ret;
 
 	if ((file->f_flags & O_APPEND) && file->f_inode)
-		file->f_pos = (loff_t)file->f_inode->i_size;
+		*pos = (loff_t)file->f_inode->i_size;
 
 	ret = file->f_op->write(file, buf, count);
 	if (ret > 0)
-		file->f_pos += ret;
+		*pos += ret;
 
 	return ret;
 }
@@ -71,7 +73,7 @@ ssize_t vfs_write(struct file *file, const char *buf, size_t count)
 
 	if (vfs_pos_locked(file))
 		mutex_lock(&file->f_lock);
-	ret = vfs_write_core(file, buf, count);
+	ret = vfs_write_core(file, buf, count, &file->f_pos);
 	if (vfs_pos_locked(file))
 		mutex_unlock(&file->f_lock);
 
@@ -80,7 +82,6 @@ ssize_t vfs_write(struct file *file, const char *buf, size_t count)
 
 ssize_t vfs_read_pos(struct file *file, char *buf, size_t count, loff_t *pos)
 {
-	loff_t old_pos;
 	ssize_t ret;
 
 	if (!pos)
@@ -91,23 +92,13 @@ ssize_t vfs_read_pos(struct file *file, char *buf, size_t count, loff_t *pos)
 	    !file->f_op->read)
 		return -EBADF;
 
-	if (vfs_pos_locked(file))
-		mutex_lock(&file->f_lock);
-	old_pos = file->f_pos;
-	file->f_pos = *pos;
-	ret = vfs_read_core(file, buf, count);
-	if (ret > 0)
-		*pos = file->f_pos;
-	file->f_pos = old_pos;
-	if (vfs_pos_locked(file))
-		mutex_unlock(&file->f_lock);
+	ret = vfs_read_core(file, buf, count, pos);
 	return ret;
 }
 
 ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count,
 		      loff_t *pos)
 {
-	loff_t old_pos;
 	ssize_t ret;
 
 	if (!pos)
@@ -118,16 +109,7 @@ ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count,
 	    !file->f_op->write)
 		return -EBADF;
 
-	if (vfs_pos_locked(file))
-		mutex_lock(&file->f_lock);
-	old_pos = file->f_pos;
-	file->f_pos = *pos;
-	ret = vfs_write_core(file, buf, count);
-	if (ret > 0)
-		*pos = file->f_pos;
-	file->f_pos = old_pos;
-	if (vfs_pos_locked(file))
-		mutex_unlock(&file->f_lock);
+	ret = vfs_write_core(file, buf, count, pos);
 	return ret;
 }
 
