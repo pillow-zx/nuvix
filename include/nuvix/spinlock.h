@@ -49,6 +49,8 @@ __must_check bool lock_equal_rank_order_ok(const spinlock_t *prev,
 #define LOCK_RANK_PRINTK_READ  20
 #define LOCK_RANK_FILES        22
 #define LOCK_RANK_VFS_CACHE    23
+/* Per-inode data mutation mutex; never acquired under vfs_cache_lock. */
+#define LOCK_RANK_INODE        23
 #define LOCK_RANK_EXT2_SB      24
 #define LOCK_RANK_MM_MMAP      24
 #define LOCK_RANK_PRINTK_RING  25

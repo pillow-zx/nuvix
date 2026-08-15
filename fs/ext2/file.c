@@ -129,9 +129,14 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		done += chunk;
 	}
 
+	ret = 0;
 	if ((uint64_t)pos + done > inode->i_size) {
-		inode->i_size = (uint64_t)pos + done;
-		ret = ext2_write_inode(inode);
+		mutex_lock(&inode->i_lock);
+		if ((uint64_t)pos + done > inode->i_size) {
+			inode->i_size = (uint64_t)pos + done;
+			ret = ext2_write_inode(inode);
+		}
+		mutex_unlock(&inode->i_lock);
 		if (ret < 0)
 			return ret;
 	}

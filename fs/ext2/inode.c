@@ -98,7 +98,7 @@ static void ext2_free_indirect_chain(struct super_block *sb, uint32_t block,
 	ext2_free_block(sb, block);
 }
 
-void ext2_free_inode_blocks(struct inode *inode)
+static void ext2_free_inode_blocks_locked(struct inode *inode)
 {
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
 
@@ -119,6 +119,16 @@ void ext2_free_inode_blocks(struct inode *inode)
 	raw->i_size = 0;
 	inode->i_size = 0;
 	inode->i_blocks = 0;
+}
+
+void ext2_free_inode_blocks(struct inode *inode)
+{
+	if (!inode)
+		return;
+
+	mutex_lock(&inode->i_lock);
+	ext2_free_inode_blocks_locked(inode);
+	mutex_unlock(&inode->i_lock);
 }
 
 static uint32_t ext2_count_tree_blocks(struct super_block *sb, uint32_t block,
@@ -405,10 +415,15 @@ static int ext2_fallocate_inode(struct inode *inode, int mode, uint64_t offset,
 		ret = ext2_zero_extend_tail(inode, inode->i_size);
 		if (ret < 0)
 			return ret;
+	}
+
+	mutex_lock(&inode->i_lock);
+	if (end > inode->i_size) {
 		inode->i_size = end;
 		raw->i_size = (uint32_t)end;
 	}
 	raw->i_blocks = (uint32_t)inode->i_blocks;
+	mutex_unlock(&inode->i_lock);
 
 	return ext2_write_inode(inode);
 }
@@ -657,11 +672,11 @@ static uint32_t ext2_inode_tree_blocks(const struct inode *inode)
 	return total;
 }
 
-/* Composite: block-tree allocation serializes per leaf (ext2_alloc_block
- * and ext2_write_inode self-lock).  The in-memory i_block[] mirrors are
- * not individually serialized, matching the same-sb composite-ops policy. */
-int ext2_bmap(struct inode *inode, uint32_t block, bool create,
-	      uint32_t *mapped)
+/* Block-tree mutation runs under the per-inode data lock so two callers
+ * cannot allocate different blocks for the same index; the bitmap and
+ * inode-write leaves still self-lock their own state. */
+static int ext2_bmap_locked(struct inode *inode, uint32_t block, bool create,
+			    uint32_t *mapped)
 {
 	struct ext2_inode *raw;
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
@@ -750,6 +765,25 @@ int ext2_bmap(struct inode *inode, uint32_t block, bool create,
 	return ext2_ind_bmap(inode, first, second, create, mapped);
 }
 
+int ext2_bmap(struct inode *inode, uint32_t block, bool create,
+	      uint32_t *mapped)
+{
+	int ret;
+
+	if (!mapped)
+		return -EINVAL;
+	*mapped = 0;
+	if (!inode || !inode->i_private)
+		return -EINVAL;
+	if (!create)
+		return ext2_bmap_locked(inode, block, create, mapped);
+
+	mutex_lock(&inode->i_lock);
+	ret = ext2_bmap_locked(inode, block, create, mapped);
+	mutex_unlock(&inode->i_lock);
+	return ret;
+}
+
 /* Lockless block-map read: raw inode mirrors and indirect blocks are read
  * through the page cache, and the map is a best-effort snapshot taken
  * before s_lock.  Directory scans pin their pages first and serialize the
@@ -790,7 +824,7 @@ uint32_t ext2_bmap_readonly(struct inode *inode, uint32_t block)
 	return ext2_ind_bmap_readonly(inode->i_sb, first, second);
 }
 
-int ext2_truncate_inode(struct inode *inode, uint64_t size)
+static int ext2_truncate_inode_locked(struct inode *inode, uint64_t size)
 {
 	struct ext2_inode *raw;
 	uint64_t old_size;
@@ -798,18 +832,11 @@ int ext2_truncate_inode(struct inode *inode, uint64_t size)
 	uint32_t remaining;
 	int ret;
 
-	if (!inode || !inode->i_private)
-		return -EINVAL;
-	if (size > UINT32_MAX)
-		return -EINVAL;
-	if (size == inode->i_size)
-		return 0;
-
 	raw = &EXT2_I(inode)->raw_inode;
 	old_size = inode->i_size;
 	if (size == 0) {
 		pgcache_invalidate_inode(inode);
-		ext2_free_inode_blocks(inode);
+		ext2_free_inode_blocks_locked(inode);
 		return ext2_write_inode(inode);
 	}
 
@@ -865,4 +892,21 @@ int ext2_truncate_inode(struct inode *inode, uint64_t size)
 	inode->i_blocks = raw->i_blocks;
 
 	return ext2_write_inode(inode);
+}
+
+int ext2_truncate_inode(struct inode *inode, uint64_t size)
+{
+	int ret;
+
+	if (!inode || !inode->i_private)
+		return -EINVAL;
+	if (size > UINT32_MAX)
+		return -EINVAL;
+	if (size == inode->i_size)
+		return 0;
+
+	mutex_lock(&inode->i_lock);
+	ret = ext2_truncate_inode_locked(inode, size);
+	mutex_unlock(&inode->i_lock);
+	return ret;
 }

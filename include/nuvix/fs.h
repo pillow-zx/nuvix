@@ -253,6 +253,7 @@ struct super_block {
  * - @c i_ctime_sec: Last metadata-change time, seconds.
  * - @c i_rdev: Device id for special files.
  * - @c i_refcount: Lifetime reference count.
+ * - @c i_lock: Serializes inode data mutations (rank 23).
  * - @c i_sb: Owning superblock.
  * - @c i_op: Namespace/metadata operations.
  * - @c i_fop: Default file operations.
@@ -274,6 +275,7 @@ struct inode {
 	int64_t i_ctime_sec;
 	dev_t i_rdev;
 	refcount_t i_refcount;
+	mutex_t i_lock;
 	struct super_block *i_sb;
 	const struct inode_operations *i_op;
 	const struct file_operations *i_fop;
