@@ -754,7 +754,13 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	/* Thread-local registrations point into the old address space: drop
 	 * them with the old mm instead of writing into released memory on a
 	 * later exit.  No wake is published for exec. */
-	task_set_robust_list(task, NULL, 0);
+	{
+		irq_flags_t flags;
+
+		spin_lock_irqsave(&task->wait.lock, &flags);
+		task_set_robust_list(task, NULL, 0);
+		spin_unlock_irqrestore(&task->wait.lock, flags);
+	}
 	task_set_clear_child_tid(task, NULL);
 
 	kernel_clone_complete_vfork(task);

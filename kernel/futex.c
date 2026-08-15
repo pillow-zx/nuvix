@@ -300,20 +300,28 @@ void futex_exit_robust_list(struct task_struct *task)
 int futex_set_robust_list(struct task_struct *task,
 			  struct robust_list_head *head, size_t len)
 {
+	irq_flags_t flags;
+
 	if (len != sizeof(struct robust_list_head))
 		return -EINVAL;
 	if (!task)
 		return -EFAULT;
 
+	spin_lock_irqsave(&task->wait.lock, &flags);
 	task_set_robust_list(task, head, len);
+	spin_unlock_irqrestore(&task->wait.lock, flags);
 	return 0;
 }
 
 int futex_get_robust_list(struct task_struct *task,
 			  struct robust_list_head **head, size_t *len)
 {
+	irq_flags_t flags;
+
+	spin_lock_irqsave(&task->wait.lock, &flags);
 	*head = task_robust_list(task);
 	*len = task_robust_list_len(task);
+	spin_unlock_irqrestore(&task->wait.lock, flags);
 	return 0;
 }
 
