@@ -86,6 +86,7 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 		int ret = sb->s_op->read_inode(inode);
 
 		if (ret < 0) {
+			kfree(inode->i_private);
 			kfree(inode);
 			return NULL;
 		}
@@ -98,6 +99,9 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 		if (existing->i_sb == sb && existing->i_ino == ino) {
 			igrab(existing);
 			spin_unlock(&vfs_cache_lock);
+			/* read_inode ran outside the cache lock; the loser's
+			 * private state is heap-only and never published. */
+			kfree(inode->i_private);
 			kfree(inode);
 			return existing;
 		}

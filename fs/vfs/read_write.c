@@ -16,7 +16,7 @@
  * must not take the lock at all because their ops can block on the wait
  * module.  pread/pwrite use the caller-provided offset and never add a
  * separate lock for it. */
-static bool vfs_file_position_locked(const struct file *file)
+static bool vfs_pos_locked(const struct file *file)
 {
 	return file && file->f_inode && S_ISREG(file->f_inode->i_mode);
 }
@@ -38,10 +38,10 @@ ssize_t vfs_read(struct file *file, char *buf, size_t count)
 	    !file->f_op->read)
 		return -EBADF;
 
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_lock(&file->f_lock);
 	ret = vfs_read_core(file, buf, count);
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_unlock(&file->f_lock);
 
 	return ret;
@@ -69,10 +69,10 @@ ssize_t vfs_write(struct file *file, const char *buf, size_t count)
 	    !file->f_op->write)
 		return -EBADF;
 
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_lock(&file->f_lock);
 	ret = vfs_write_core(file, buf, count);
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_unlock(&file->f_lock);
 
 	return ret;
@@ -91,7 +91,7 @@ ssize_t vfs_read_pos(struct file *file, char *buf, size_t count, loff_t *pos)
 	    !file->f_op->read)
 		return -EBADF;
 
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_lock(&file->f_lock);
 	old_pos = file->f_pos;
 	file->f_pos = *pos;
@@ -99,7 +99,7 @@ ssize_t vfs_read_pos(struct file *file, char *buf, size_t count, loff_t *pos)
 	if (ret > 0)
 		*pos = file->f_pos;
 	file->f_pos = old_pos;
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_unlock(&file->f_lock);
 	return ret;
 }
@@ -118,7 +118,7 @@ ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count,
 	    !file->f_op->write)
 		return -EBADF;
 
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_lock(&file->f_lock);
 	old_pos = file->f_pos;
 	file->f_pos = *pos;
@@ -126,7 +126,7 @@ ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count,
 	if (ret > 0)
 		*pos = file->f_pos;
 	file->f_pos = old_pos;
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_unlock(&file->f_lock);
 	return ret;
 }
@@ -135,10 +135,10 @@ void vfs_rewind_pos(struct file *file, loff_t count)
 {
 	if (!file || count <= 0)
 		return;
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_lock(&file->f_lock);
 	file->f_pos -= count;
-	if (vfs_file_position_locked(file))
+	if (vfs_pos_locked(file))
 		mutex_unlock(&file->f_lock);
 }
 
@@ -202,7 +202,7 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
 	if (!file)
 		return -EBADF;
 
-	locked = vfs_file_position_locked(file);
+	locked = vfs_pos_locked(file);
 	if (file->f_op && file->f_op->llseek) {
 		loff_t result;
 
