@@ -5,6 +5,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/stat.h>
+#include <nuvix/tools.h>
 #include <nuvix/vfs.h>
 
 #include "namei_internal.h"
@@ -249,6 +250,10 @@ int vfs_unlink_at_path(const struct path *base, const char *path, int flags)
 	}
 
 	dentry = vfs_lookup_one(parent, name, namelen);
+	if (IS_ERR(dentry)) {
+		path_put(&parent_path);
+		return PTR_ERR(dentry);
+	}
 	if (!dentry) {
 		path_put(&parent_path);
 		return -ENOENT;
@@ -335,6 +340,11 @@ int vfs_rename_at_path(const struct path *old_base, const char *old_path,
 	}
 
 	old_dentry = vfs_lookup_one(old_parent, old_name, old_namelen);
+	if (IS_ERR(old_dentry)) {
+		path_put(&old_parent_path);
+		path_put(&new_parent_path);
+		return PTR_ERR(old_dentry);
+	}
 	if (!old_dentry) {
 		path_put(&old_parent_path);
 		path_put(&new_parent_path);
@@ -342,6 +352,12 @@ int vfs_rename_at_path(const struct path *old_base, const char *old_path,
 	}
 
 	new_dentry = vfs_lookup_one_any(new_parent, new_name, new_namelen);
+	if (IS_ERR(new_dentry)) {
+		dput(old_dentry);
+		path_put(&old_parent_path);
+		path_put(&new_parent_path);
+		return PTR_ERR(new_dentry);
+	}
 	if (!new_dentry) {
 		dput(old_dentry);
 		path_put(&old_parent_path);

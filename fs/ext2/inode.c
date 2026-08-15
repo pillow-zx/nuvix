@@ -750,10 +750,11 @@ int ext2_bmap(struct inode *inode, uint32_t block, bool create,
 	return ext2_ind_bmap(inode, first, second, create, mapped);
 }
 
-/* Lockless by design: reads raw inode block pointers plus indirect blocks
- * through the page cache.  Callers that need a consistent snapshot (dir
- * scans, readdir) hold s_lock; the remaining callers accept a stale map,
- * matching Linux's concurrent-truncate semantics. */
+/* Lockless block-map read: raw inode mirrors and indirect blocks are read
+ * through the page cache, and the map is a best-effort snapshot taken
+ * before s_lock.  Directory scans pin their pages first and serialize the
+ * scan itself with s_lock; remaining callers accept a stale map, matching
+ * Linux's concurrent-truncate semantics. */
 uint32_t ext2_bmap_readonly(struct inode *inode, uint32_t block)
 {
 	struct ext2_inode *raw;

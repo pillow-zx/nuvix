@@ -172,6 +172,36 @@
 #define IS_POWER_OF_2(x) ((x) != 0 && (((x) & ((x) - 1)) == 0))
 
 /**
+ * @def MAX_ERRNO
+ * @brief Largest negative errno representable as an encoded pointer.
+ */
+#define MAX_ERRNO 4095
+
+/**
+ * @def IS_ERR_VALUE
+ * @brief Test whether an unsigned value falls in the kernel error range.
+ */
+#define IS_ERR_VALUE(x) ((unsigned long)(x) >= (unsigned long)(-MAX_ERRNO))
+
+/**
+ * @def ERR_PTR
+ * @brief Encode a negative errno as a tagged pointer.
+ */
+#define ERR_PTR(err) ((void *)(long)(err))
+
+/**
+ * @def PTR_ERR
+ * @brief Decode a tagged pointer back to its negative errno.
+ */
+#define PTR_ERR(ptr) ((int)(long)(ptr))
+
+/**
+ * @def IS_ERR
+ * @brief Test whether a pointer is an encoded negative errno.
+ */
+#define IS_ERR(ptr) IS_ERR_VALUE((unsigned long)(ptr))
+
+/**
  * @def MAX
  * @brief Type-checked maximum of two same-typed expressions.
  */

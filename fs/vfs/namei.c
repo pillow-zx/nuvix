@@ -9,6 +9,7 @@
 #include <nuvix/fdtable.h>
 #include <nuvix/stat.h>
 #include <nuvix/task.h>
+#include <nuvix/tools.h>
 #include <nuvix/vfs.h>
 #include <nuvix/page.h>
 
@@ -269,6 +270,10 @@ struct dentry *vfs_lookup_one(struct dentry *parent, const char *name,
 		return NULL;
 
 	found = parent->d_inode->i_op->lookup(parent->d_inode, dentry);
+	if (IS_ERR(found)) {
+		dput(dentry);
+		return found;
+	}
 	if (!found || !found->d_inode) {
 		dcache_insert(dentry);
 		dput(dentry);
@@ -302,6 +307,10 @@ struct dentry *vfs_lookup_one_any(struct dentry *parent, const char *name,
 		return NULL;
 
 	found = parent->d_inode->i_op->lookup(parent->d_inode, dentry);
+	if (IS_ERR(found)) {
+		dput(dentry);
+		return found;
+	}
 	if (!found || !found->d_inode) {
 		dcache_insert(dentry);
 		return dentry;
@@ -432,6 +441,10 @@ static int walk_path(struct path *base, const char *path, uint32_t flags,
 		}
 
 		next = vfs_lookup_one(cur.dentry, name, len);
+		if (IS_ERR(next)) {
+			path_put(&cur);
+			return PTR_ERR(next);
+		}
 		if (!next) {
 			path_put(&cur);
 			return -ENOENT;
@@ -573,6 +586,10 @@ int path_parent_lookupat_path(const struct path *base, const char *path,
 
 		struct dentry *next =
 			vfs_lookup_one(parent.dentry, component, len);
+		if (IS_ERR(next)) {
+			path_put(&parent);
+			return PTR_ERR(next);
+		}
 		if (!next) {
 			path_put(&parent);
 			return -ENOENT;

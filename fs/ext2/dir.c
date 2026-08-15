@@ -1,11 +1,38 @@
 #include <nuvix/errno.h>
 #include <nuvix/page_cache.h>
 #include <nuvix/slab.h>
+#include <nuvix/tools.h>
 #include <nuvix/vfs.h>
 
 #include "ext2.h"
 
 #define EXT2_DIR_REC_LEN(name_len) (((name_len) + 8 + 3) & ~3u)
+#define EXT2_DIR_RETRY_LIMIT 3
+
+typedef int (*ext2_dir_entry_visit_t)(struct ext2_dir_entry_2 *de, void *arg);
+
+/* Walks one directory page and calls @visit for every valid entry.
+ * A non-zero visit result stops the walk and is returned as-is. */
+static int ext2_walk_page_entries(uint8_t *data,
+				  ext2_dir_entry_visit_t visit, void *arg)
+{
+	uint32_t offset = 0;
+
+	while (offset + 8 <= BLOCK_SIZE) {
+		struct ext2_dir_entry_2 *de =
+			(struct ext2_dir_entry_2 *)(data + offset);
+		int ret;
+
+		if (de->rec_len < 8 || offset + de->rec_len > BLOCK_SIZE)
+			break;
+		ret = visit(de, arg);
+		if (ret != 0)
+			return ret;
+		offset += de->rec_len;
+	}
+
+	return 0;
+}
 
 static int ext2_sync_dir_page(struct pgcache *page)
 {
@@ -77,35 +104,6 @@ static struct pgcache *ext2_new_inode_page(struct inode *inode,
 	return page;
 }
 
-/* Pins every directory page of @dir (fetches may allocate, so they run
- * outside s_lock) so a whole-directory scan can happen atomically under
- * it.  Returns the pinned array (caller frees with ext2_unpin_dir_pages)
- * or NULL when the directory has no pages. */
-static struct pgcache **ext2_pin_dir_pages(struct inode *dir, uint32_t *count)
-{
-	uint32_t blocks;
-	struct pgcache **pages;
-
-	if (!count)
-		return NULL;
-	blocks = (uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
-	if (blocks == 0) {
-		*count = 0;
-		return NULL;
-	}
-	pages = kmalloc(blocks * sizeof(*pages), ALLOC_NOWAIT);
-	if (!pages)
-		return NULL;
-	for (uint32_t i = 0; i < blocks; i++) {
-		pages[i] = NULL;
-		if (!ext2_bmap_readonly(dir, i))
-			continue;
-		pages[i] = ext2_read_inode_page(dir, i);
-	}
-	*count = blocks;
-	return pages;
-}
-
 static void ext2_unpin_dir_pages(struct pgcache **pages, uint32_t count)
 {
 	if (!pages)
@@ -115,89 +113,204 @@ static void ext2_unpin_dir_pages(struct pgcache **pages, uint32_t count)
 	kfree(pages);
 }
 
-/* Scans pinned directory pages only; s_lock must be held. */
-static struct ext2_dir_entry_2 *ext2_find_in_pages(struct pgcache **pages,
-						   uint32_t count,
-						   const char *name,
-						   size_t namelen,
-						   struct pgcache **res_page)
+/* Pins every directory page of @dir lockless (page fetches may allocate,
+ * which the debug-context gate forbids under s_lock), so a whole-directory
+ * scan can run atomically under the lock.  Returns 0 with a pinned array in
+ * @out_pages (NULL when the directory has no pages), or a negative errno
+ * after releasing any pages pinned so far. */
+static int ext2_pin_dir_pages(struct inode *dir, struct pgcache ***out_pages,
+			      uint32_t *count)
+{
+	uint32_t blocks;
+	struct pgcache **pages;
+
+	if (!dir || !out_pages || !count)
+		return -EINVAL;
+	*out_pages = NULL;
+	*count = 0;
+
+	blocks = (uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
+	if (blocks == 0)
+		return 0;
+
+	pages = kmalloc(blocks * sizeof(*pages), ALLOC_NOWAIT);
+	if (!pages)
+		return -ENOMEM;
+	for (uint32_t i = 0; i < blocks; i++) {
+		pages[i] = NULL;
+		if (!ext2_bmap_readonly(dir, i))
+			continue;
+		pages[i] = ext2_read_inode_page(dir, i);
+		if (!pages[i]) {
+			ext2_unpin_dir_pages(pages, i);
+			return -EIO;
+		}
+	}
+	*out_pages = pages;
+	*count = blocks;
+	return 0;
+}
+
+struct ext2_find_ctx {
+	const char *name;
+	size_t namelen;
+	struct ext2_dir_entry_2 *de;
+};
+
+static int ext2_find_visit(struct ext2_dir_entry_2 *de, void *arg)
+{
+	struct ext2_find_ctx *ctx = arg;
+
+	if (ext2_match(de, ctx->name, ctx->namelen)) {
+		ctx->de = de;
+		return 1;
+	}
+	return 0;
+}
+
+/* Scans pinned directory pages; s_lock must be held.  Returns 1 when the
+ * entry is found, 0 otherwise, or a negative errno. */
+static int ext2_find_in_pages(struct pgcache **pages, uint32_t count,
+			      const char *name, size_t namelen,
+			      struct pgcache **res_page,
+			      struct ext2_dir_entry_2 **res_de)
 {
 	for (uint32_t i = 0; i < count; i++) {
-		uint8_t *data;
-		uint32_t offset = 0;
+		struct ext2_find_ctx ctx = {.name = name, .namelen = namelen};
+		int ret;
 
 		if (!pages || !pages[i])
 			continue;
-		data = page_cache_data(pages[i]);
-
-		while (offset + 8 <= BLOCK_SIZE) {
-			struct ext2_dir_entry_2 *de =
-				(struct ext2_dir_entry_2 *)(data + offset);
-
-			if (de->rec_len < 8 ||
-			    offset + de->rec_len > BLOCK_SIZE)
-				break;
-			if (ext2_match(de, name, namelen)) {
-				if (res_page)
-					*res_page = pages[i];
-				return de;
-			}
-			offset += de->rec_len;
+		ret = ext2_walk_page_entries(page_cache_data(pages[i]),
+					     ext2_find_visit, &ctx);
+		if (ret == 1) {
+			if (res_page)
+				*res_page = pages[i];
+			if (res_de)
+				*res_de = ctx.de;
+			return 1;
 		}
+		if (ret < 0)
+			return ret;
 	}
 
-	return NULL;
+	return 0;
 }
-static struct ext2_dir_entry_2 *ext2_find_entry(struct inode *dir,
-						const char *name,
-						size_t namelen,
-						struct pgcache **res_page)
+
+/* Unlocked pre-check used by composite create/symlink/mkdir paths.
+ * Returns 1 when the entry exists (with the page referenced in @res_page),
+ * 0 when it does not, or a negative errno. */
+static int ext2_find_entry(struct inode *dir, const char *name,
+			   size_t namelen, struct pgcache **res_page)
 {
 	uint32_t blocks =
 		(uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
 	for (uint32_t lblock = 0; lblock < blocks; lblock++) {
+		struct ext2_find_ctx ctx = {.name = name, .namelen = namelen};
 		struct pgcache *page;
-		uint8_t *data;
-		uint32_t offset = 0;
+		int ret;
 
 		if (!ext2_bmap_readonly(dir, lblock))
 			continue;
 		page = ext2_read_inode_page(dir, lblock);
 		if (!page)
-			continue;
-		data = page_cache_data(page);
+			return -EIO;
 
-		while (offset + 8 <= BLOCK_SIZE) {
-			struct ext2_dir_entry_2 *de =
-				(struct ext2_dir_entry_2 *)(data + offset);
-
-			if (de->rec_len < 8 ||
-			    offset + de->rec_len > BLOCK_SIZE)
-				break;
-			if (ext2_match(de, name, namelen)) {
+		ret = ext2_walk_page_entries(page_cache_data(page),
+					     ext2_find_visit, &ctx);
+		if (ret == 1) {
+			if (res_page)
 				*res_page = page;
-				return de;
-			}
-			offset += de->rec_len;
+			return 1;
 		}
 		pgcache_put_page(page);
+		if (ret < 0)
+			return ret;
 	}
 
-	return NULL;
+	return 0;
+}
+
+struct ext2_slot_ctx {
+	uint16_t need;
+	uint32_t ino;
+	uint8_t type;
+	const char *name;
+	size_t namelen;
+};
+
+static int ext2_slot_visit(struct ext2_dir_entry_2 *de, void *arg)
+{
+	struct ext2_slot_ctx *ctx = arg;
+	uint16_t used;
+	uint16_t spare;
+
+	if (!de->inode && de->rec_len >= ctx->need) {
+		ext2_dirent_init(de, ctx->ino, de->rec_len, ctx->name,
+				 ctx->namelen, ctx->type);
+		return 1;
+	}
+
+	used = EXT2_DIR_REC_LEN(de->name_len);
+	spare = de->rec_len - used;
+	if (spare >= ctx->need) {
+		struct ext2_dir_entry_2 *new_de;
+
+		de->rec_len = used;
+		new_de = (struct ext2_dir_entry_2 *)((uint8_t *)de + used);
+		ext2_dirent_init(new_de, ctx->ino, spare, ctx->name,
+				 ctx->namelen, ctx->type);
+		return 1;
+	}
+
+	return 0;
+}
+
+struct ext2_prev_ctx {
+	struct ext2_dir_entry_2 *target;
+	struct ext2_dir_entry_2 *prev;
+};
+
+static int ext2_prev_visit(struct ext2_dir_entry_2 *de, void *arg)
+{
+	struct ext2_prev_ctx *ctx = arg;
+
+	if (de == ctx->target)
+		return 1;
+	ctx->prev = de;
+	return 0;
+}
+
+struct ext2_nonempty_ctx {
+	bool nonempty;
+};
+
+static int ext2_nonempty_visit(struct ext2_dir_entry_2 *de, void *arg)
+{
+	struct ext2_nonempty_ctx *ctx = arg;
+	bool dot = (de->name_len == 1 && de->name[0] == '.') ||
+		   (de->name_len == 2 && de->name[0] == '.' &&
+		    de->name[1] == '.');
+
+	if (de->inode && !dot) {
+		ctx->nonempty = true;
+		return 1;
+	}
+	return 0;
 }
 
 /* Directory page mutations pin the pages lockless (fetches may allocate,
  * which is forbidden under a spinlock), then run the whole scan + write as
- * one critical section on the pinned pages.  The extension path maps the
- * new block and re-verifies under s_lock that no other CPU claimed the
+ * one critical section on the pinned pages.  Page mutations happen under
+ * s_lock; device syncs run after it is released.  The extension path maps
+ * the new block and re-verifies under s_lock that no other CPU claimed the
  * same index or inserted the name meanwhile. */
 static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 			  uint32_t ino, uint8_t type)
 {
 	struct pgcache **pages;
 	struct pgcache *page = NULL;
-	struct pgcache *found_page = NULL;
 	struct ext2_sb_info *sbi;
 	uint16_t need = EXT2_DIR_REC_LEN(namelen);
 	uint32_t blocks;
@@ -210,9 +323,9 @@ static int ext2_add_entry(struct inode *dir, const char *name, size_t namelen,
 	sbi = EXT2_SB(dir->i_sb);
 
 retry:
-	pages = ext2_pin_dir_pages(dir, &count);
-	if (count && !pages)
-		return -ENOMEM;
+	ret = ext2_pin_dir_pages(dir, &pages, &count);
+	if (ret < 0)
+		return ret;
 
 	spin_lock(&sbi->s_lock);
 	if ((uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE) != count) {
@@ -222,69 +335,40 @@ retry:
 		goto retry;
 	}
 
-	if (ext2_find_in_pages(pages, count, name, namelen, &found_page)) {
+	ret = ext2_find_in_pages(pages, count, name, namelen, NULL, NULL);
+	if (ret != 0) {
 		spin_unlock(&sbi->s_lock);
 		ext2_unpin_dir_pages(pages, count);
-		return -EEXIST;
+		return ret == 1 ? -EEXIST : ret;
 	}
 
 	for (uint32_t i = 0; i < count; i++) {
-		uint8_t *data;
-		uint32_t offset = 0;
+		struct ext2_slot_ctx ctx = {
+			.need = need,
+			.ino = ino,
+			.type = type,
+			.name = name,
+			.namelen = namelen,
+		};
 
 		if (!pages || !pages[i])
 			continue;
-		data = page_cache_data(pages[i]);
-
-		while (offset + 8 <= BLOCK_SIZE) {
-			struct ext2_dir_entry_2 *de =
-				(struct ext2_dir_entry_2 *)(data + offset);
-			uint16_t used;
-			uint16_t spare;
-
-			if (de->rec_len < 8 ||
-			    offset + de->rec_len > BLOCK_SIZE)
-				break;
-
-			if (!de->inode && de->rec_len >= need) {
-				ext2_dirent_init(de, ino, de->rec_len, name,
-						 namelen, type);
-
-				pgcache_mark_dirty(pages[i]);
-				if (ext2_sync_dir_page(pages[i]) < 0) {
-					spin_unlock(&sbi->s_lock);
-					ext2_unpin_dir_pages(pages, count);
-					return -EIO;
-				}
-				spin_unlock(&sbi->s_lock);
+		ret = ext2_walk_page_entries(page_cache_data(pages[i]),
+					     ext2_slot_visit, &ctx);
+		if (ret == 1) {
+			pgcache_mark_dirty(pages[i]);
+			spin_unlock(&sbi->s_lock);
+			if (ext2_sync_dir_page(pages[i]) < 0) {
 				ext2_unpin_dir_pages(pages, count);
-				return 0;
+				return -EIO;
 			}
-
-			used = EXT2_DIR_REC_LEN(de->name_len);
-			spare = de->rec_len - used;
-			if (spare >= need) {
-				struct ext2_dir_entry_2 *new_de;
-
-				de->rec_len = used;
-				new_de =
-					(struct ext2_dir_entry_2 *)((uint8_t *)
-									    de +
-								    used);
-				ext2_dirent_init(new_de, ino, spare, name,
-						 namelen, type);
-				pgcache_mark_dirty(pages[i]);
-				if (ext2_sync_dir_page(pages[i]) < 0) {
-					spin_unlock(&sbi->s_lock);
-					ext2_unpin_dir_pages(pages, count);
-					return -EIO;
-				}
-				spin_unlock(&sbi->s_lock);
-				ext2_unpin_dir_pages(pages, count);
-				return 0;
-			}
-
-			offset += de->rec_len;
+			ext2_unpin_dir_pages(pages, count);
+			return 0;
+		}
+		if (ret < 0) {
+			spin_unlock(&sbi->s_lock);
+			ext2_unpin_dir_pages(pages, count);
+			return ret;
 		}
 	}
 	spin_unlock(&sbi->s_lock);
@@ -305,7 +389,7 @@ retry:
 				   &ret);
 	if (!page) {
 		ext2_unpin_dir_pages(pages, count);
-		return -EIO;
+		return ret < 0 ? ret : -EIO;
 	}
 
 	spin_lock(&sbi->s_lock);
@@ -318,11 +402,12 @@ retry:
 		ext2_unpin_dir_pages(pages, count);
 		goto retry;
 	}
-	if (ext2_find_in_pages(pages, count, name, namelen, &found_page)) {
+	ret = ext2_find_in_pages(pages, count, name, namelen, NULL, NULL);
+	if (ret != 0) {
 		spin_unlock(&sbi->s_lock);
 		pgcache_put_page(page);
 		ext2_unpin_dir_pages(pages, count);
-		return -EEXIST;
+		return ret == 1 ? -EEXIST : ret;
 	}
 
 	uint8_t *data = page_cache_data(page);
@@ -348,16 +433,18 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 	struct pgcache **pages;
 	struct pgcache *found_page = NULL;
 	struct ext2_dir_entry_2 *de;
+	struct ext2_prev_ctx pctx;
 	struct ext2_sb_info *sbi;
 	uint32_t count;
+	int ret;
 
 	if (!dir || !dir->i_sb || !dentry)
 		return -EINVAL;
 	sbi = EXT2_SB(dir->i_sb);
 
-	pages = ext2_pin_dir_pages(dir, &count);
-	if (count && !pages)
-		return -ENOMEM;
+	ret = ext2_pin_dir_pages(dir, &pages, &count);
+	if (ret < 0)
+		return ret;
 
 	spin_lock(&sbi->s_lock);
 	if ((uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE) != count) {
@@ -366,40 +453,35 @@ static int ext2_delete_entry(struct inode *dir, struct dentry *dentry)
 		return -ENOENT;
 	}
 
-	de = ext2_find_in_pages(pages, count, dentry->d_name,
-				dentry->d_namelen, &found_page);
-	if (!de) {
+	ret = ext2_find_in_pages(pages, count, dentry->d_name,
+				 dentry->d_namelen, &found_page, &de);
+	if (ret != 1) {
 		spin_unlock(&sbi->s_lock);
 		ext2_unpin_dir_pages(pages, count);
-		return -ENOENT;
+		return ret == 0 ? -ENOENT : ret;
 	}
 
-	uint8_t *data = page_cache_data(found_page);
-	uint32_t offset = 0;
-	struct ext2_dir_entry_2 *prev = NULL;
-
-	while (offset + 8 <= BLOCK_SIZE) {
-		struct ext2_dir_entry_2 *cur =
-			(struct ext2_dir_entry_2 *)(data + offset);
-
-		if (cur == de) {
-			if (prev)
-				prev->rec_len += de->rec_len;
-			else
-				de->inode = 0;
-			break;
-		}
-		prev = cur;
-		offset += cur->rec_len;
+	pctx.target = de;
+	pctx.prev = NULL;
+	ret = ext2_walk_page_entries(page_cache_data(found_page),
+				     ext2_prev_visit, &pctx);
+	if (ret != 1) {
+		spin_unlock(&sbi->s_lock);
+		ext2_unpin_dir_pages(pages, count);
+		return ret < 0 ? ret : -ENOENT;
 	}
+	if (pctx.prev)
+		pctx.prev->rec_len += de->rec_len;
+	else
+		de->inode = 0;
 
 	pgcache_mark_dirty(found_page);
+	spin_unlock(&sbi->s_lock);
+
 	if (ext2_sync_dir_page(found_page) < 0) {
-		spin_unlock(&sbi->s_lock);
 		ext2_unpin_dir_pages(pages, count);
 		return -EIO;
 	}
-	spin_unlock(&sbi->s_lock);
 	ext2_unpin_dir_pages(pages, count);
 	return 0;
 }
@@ -412,14 +494,15 @@ static int ext2_replace_entry(struct inode *dir, struct dentry *dentry,
 	struct ext2_dir_entry_2 *de;
 	struct ext2_sb_info *sbi;
 	uint32_t count;
+	int ret;
 
 	if (!dir || !dir->i_sb || !dentry)
 		return -EINVAL;
 	sbi = EXT2_SB(dir->i_sb);
 
-	pages = ext2_pin_dir_pages(dir, &count);
-	if (count && !pages)
-		return -ENOMEM;
+	ret = ext2_pin_dir_pages(dir, &pages, &count);
+	if (ret < 0)
+		return ret;
 
 	spin_lock(&sbi->s_lock);
 	if ((uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE) != count) {
@@ -428,23 +511,23 @@ static int ext2_replace_entry(struct inode *dir, struct dentry *dentry,
 		return -ENOENT;
 	}
 
-	de = ext2_find_in_pages(pages, count, dentry->d_name,
-				dentry->d_namelen, &found_page);
-	if (!de) {
+	ret = ext2_find_in_pages(pages, count, dentry->d_name,
+				 dentry->d_namelen, &found_page, &de);
+	if (ret != 1) {
 		spin_unlock(&sbi->s_lock);
 		ext2_unpin_dir_pages(pages, count);
-		return -ENOENT;
+		return ret == 0 ? -ENOENT : ret;
 	}
 
 	de->inode = ino;
 	de->file_type = type;
 	pgcache_mark_dirty(found_page);
+	spin_unlock(&sbi->s_lock);
+
 	if (ext2_sync_dir_page(found_page) < 0) {
-		spin_unlock(&sbi->s_lock);
 		ext2_unpin_dir_pages(pages, count);
 		return -EIO;
 	}
-	spin_unlock(&sbi->s_lock);
 	ext2_unpin_dir_pages(pages, count);
 	return 0;
 }
@@ -461,11 +544,12 @@ static void ext2_rollback_new_inode(struct inode *inode)
 static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 {
 	struct pgcache **pages;
-	struct pgcache *found_page = NULL;
 	struct ext2_dir_entry_2 *de;
 	struct ext2_sb_info *sbi;
 	struct inode *inode;
 	uint32_t count;
+	uint32_t ino = 0;
+	int ret;
 
 	if (!dir || !dentry)
 		return NULL;
@@ -475,22 +559,25 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 		return NULL;
 	sbi = EXT2_SB(dir->i_sb);
 
-	pages = ext2_pin_dir_pages(dir, &count);
-	if (count && !pages)
-		return NULL;
+	ret = ext2_pin_dir_pages(dir, &pages, &count);
+	if (ret < 0)
+		return ERR_PTR(ret);
 
 	spin_lock(&sbi->s_lock);
-	de = ext2_find_in_pages(pages, count, dentry->d_name,
-				dentry->d_namelen, &found_page);
+	ret = ext2_find_in_pages(pages, count, dentry->d_name,
+				 dentry->d_namelen, NULL, &de);
+	if (ret == 1)
+		ino = de->inode;
+	/* The inode number is snapshotted under the lock; the pinned pages
+	 * are released before iget so no page ref is carried across I/O. */
 	spin_unlock(&sbi->s_lock);
-	if (!de) {
-		ext2_unpin_dir_pages(pages, count);
-		return NULL;
-	}
-
-	/* found_page stays pinned across iget. */
-	inode = iget(dir->i_sb, de->inode);
 	ext2_unpin_dir_pages(pages, count);
+	if (ret < 0)
+		return ERR_PTR(ret);
+	if (ret == 0)
+		return NULL;
+
+	inode = iget(dir->i_sb, ino);
 	if (!inode)
 		return NULL;
 
@@ -509,10 +596,13 @@ static int ext2_create(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	struct ext2_inode_info *ei;
 	int ret;
 
-	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
+	ret = ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page);
+	if (ret == 1) {
 		pgcache_put_page(page);
 		return -EEXIST;
 	}
+	if (ret < 0)
+		return ret;
 
 	if (type == 0)
 		type = EXT2_S_IFREG;
@@ -568,10 +658,13 @@ static int ext2_symlink(struct inode *dir, struct dentry *dentry,
 		return -ENOENT;
 	if (len > BLOCK_SIZE)
 		return -ENAMETOOLONG;
-	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
+	ret = ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page);
+	if (ret == 1) {
 		pgcache_put_page(page);
 		return -EEXIST;
 	}
+	if (ret < 0)
+		return ret;
 
 	ino = ext2_alloc_inode(dir->i_sb, EXT2_S_IFLNK | 0777);
 	if (!ino)
@@ -746,10 +839,13 @@ static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	struct ext2_inode_info *ei;
 	int ret;
 
-	if (ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page)) {
+	ret = ext2_find_entry(dir, dentry->d_name, dentry->d_namelen, &page);
+	if (ret == 1) {
 		pgcache_put_page(page);
 		return -EEXIST;
 	}
+	if (ret < 0)
+		return ret;
 
 	ino = ext2_alloc_inode(dir->i_sb, (uint16_t)(EXT2_S_IFDIR | mode));
 	if (!ino)
@@ -796,52 +892,58 @@ static int ext2_mkdir(struct inode *dir, struct dentry *dentry, uint32_t mode)
 	return 0;
 }
 
-static bool ext2_dir_is_empty(struct inode *inode)
+static int ext2_dir_is_empty(struct inode *inode)
 {
 	struct pgcache **pages;
 	struct ext2_sb_info *sbi;
 	uint32_t count;
-	bool empty = true;
+	int attempt;
 
 	if (!inode || !inode->i_sb)
-		return false;
+		return -EINVAL;
 	sbi = EXT2_SB(inode->i_sb);
 
-	pages = ext2_pin_dir_pages(inode, &count);
-	if (count && !pages)
-		return false;
+	for (attempt = 0; attempt < EXT2_DIR_RETRY_LIMIT; attempt++) {
+		bool empty = true;
+		int ret = ext2_pin_dir_pages(inode, &pages, &count);
 
-	spin_lock(&sbi->s_lock);
-	for (uint32_t i = 0; i < count; i++) {
-		uint8_t *data;
-		uint32_t offset = 0;
+		if (ret < 0)
+			return ret;
 
-		if (!pages || !pages[i])
+		spin_lock(&sbi->s_lock);
+		if ((uint32_t)((inode->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE) !=
+		    count) {
+			/* Directory changed while pages were being pinned. */
+			spin_unlock(&sbi->s_lock);
+			ext2_unpin_dir_pages(pages, count);
 			continue;
-		data = page_cache_data(pages[i]);
-
-		while (offset + 8 <= BLOCK_SIZE) {
-			struct ext2_dir_entry_2 *de =
-				(struct ext2_dir_entry_2 *)(data + offset);
-			bool dot;
-
-			if (de->rec_len < 8 ||
-			    offset + de->rec_len > BLOCK_SIZE)
-				break;
-			dot = (de->name_len == 1 && de->name[0] == '.') ||
-			      (de->name_len == 2 && de->name[0] == '.' &&
-			       de->name[1] == '.');
-			if (de->inode && !dot) {
-				empty = false;
-				goto out;
-			}
-			offset += de->rec_len;
 		}
+		for (uint32_t i = 0; i < count; i++) {
+			struct ext2_nonempty_ctx ctx = {.nonempty = false};
+			int wret;
+
+			if (!pages[i])
+				continue;
+			wret = ext2_walk_page_entries(page_cache_data(pages[i]),
+						      ext2_nonempty_visit,
+						      &ctx);
+			if (ctx.nonempty) {
+				empty = false;
+				break;
+			}
+			if (wret < 0) {
+				spin_unlock(&sbi->s_lock);
+				ext2_unpin_dir_pages(pages, count);
+				return wret;
+			}
+		}
+		spin_unlock(&sbi->s_lock);
+		ext2_unpin_dir_pages(pages, count);
+		return empty ? 1 : 0;
 	}
-out:
-	spin_unlock(&sbi->s_lock);
-	ext2_unpin_dir_pages(pages, count);
-	return empty;
+
+	/* Repeatedly changed under us: fail conservatively as non-empty. */
+	return 0;
 }
 
 static int ext2_unlink(struct inode *dir, struct dentry *dentry)
@@ -875,7 +977,10 @@ static int ext2_rmdir(struct inode *dir, struct dentry *dentry)
 		return -ENOENT;
 	if ((inode->i_mode & EXT2_S_IFMT) != EXT2_S_IFDIR)
 		return -ENOTDIR;
-	if (!ext2_dir_is_empty(inode))
+	ret = ext2_dir_is_empty(inode);
+	if (ret < 0)
+		return ret;
+	if (ret == 0)
 		return -ENOTEMPTY;
 
 	ret = ext2_delete_entry(dir, dentry);
@@ -964,33 +1069,48 @@ static int ext2_set_dotdot(struct inode *dir, uint32_t new_parent_ino)
 	struct ext2_dir_entry_2 *de;
 	struct ext2_sb_info *sbi;
 	uint32_t count;
+	int attempt;
 
 	if (!dir || !dir->i_sb)
 		return -EINVAL;
 	sbi = EXT2_SB(dir->i_sb);
 
-	pages = ext2_pin_dir_pages(dir, &count);
-	if (count && !pages)
-		return -ENOMEM;
+	for (attempt = 0; attempt < EXT2_DIR_RETRY_LIMIT; attempt++) {
+		int ret = ext2_pin_dir_pages(dir, &pages, &count);
 
-	spin_lock(&sbi->s_lock);
-	de = ext2_find_in_pages(pages, count, "..", 2, &found_page);
-	if (!de) {
+		if (ret < 0)
+			return ret;
+
+		spin_lock(&sbi->s_lock);
+		if ((uint32_t)((dir->i_size + BLOCK_SIZE - 1) / BLOCK_SIZE) !=
+		    count) {
+			/* Directory changed while pages were being pinned. */
+			spin_unlock(&sbi->s_lock);
+			ext2_unpin_dir_pages(pages, count);
+			continue;
+		}
+
+		ret = ext2_find_in_pages(pages, count, "..", 2, &found_page,
+					 &de);
+		if (ret != 1) {
+			spin_unlock(&sbi->s_lock);
+			ext2_unpin_dir_pages(pages, count);
+			return ret == 0 ? -ENOENT : ret;
+		}
+
+		de->inode = new_parent_ino;
+		pgcache_mark_dirty(found_page);
 		spin_unlock(&sbi->s_lock);
+
+		if (ext2_sync_dir_page(found_page) < 0) {
+			ext2_unpin_dir_pages(pages, count);
+			return -EIO;
+		}
 		ext2_unpin_dir_pages(pages, count);
-		return -ENOENT;
+		return 0;
 	}
 
-	de->inode = new_parent_ino;
-	pgcache_mark_dirty(found_page);
-	if (ext2_sync_dir_page(found_page) < 0) {
-		spin_unlock(&sbi->s_lock);
-		ext2_unpin_dir_pages(pages, count);
-		return -EIO;
-	}
-	spin_unlock(&sbi->s_lock);
-	ext2_unpin_dir_pages(pages, count);
-	return 0;
+	return -ENOENT;
 }
 
 static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
@@ -1029,8 +1149,13 @@ static int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 			return -EISDIR;
 		if (old_is_dir && !new_is_dir)
 			return -ENOTDIR;
-		if (new_is_dir && !ext2_dir_is_empty(new_inode))
-			return -ENOTEMPTY;
+		if (new_is_dir) {
+			ret = ext2_dir_is_empty(new_inode);
+			if (ret < 0)
+				return ret;
+			if (ret == 0)
+				return -ENOTEMPTY;
+		}
 	}
 
 	ftype = ext2_file_type(old_inode->i_mode);
