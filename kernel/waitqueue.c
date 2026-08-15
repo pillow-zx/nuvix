@@ -370,6 +370,8 @@ static bool wait_channel_wake_match(struct wait_channel *channel,
 			continue;
 		}
 		task = entry->task;
+		if (!task_try_get(task))
+			continue;
 		generation = wait->generation;
 		wait->reason = TASK_WAKE_EVENT;
 		list_del_init(&entry->channel_node);
@@ -381,6 +383,7 @@ static bool wait_channel_wake_match(struct wait_channel *channel,
 	if (!task)
 		return false;
 	(void)sched_wake(task, generation);
+	task_put(task);
 	return true;
 }
 
