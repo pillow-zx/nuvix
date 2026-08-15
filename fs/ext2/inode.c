@@ -336,48 +336,36 @@ static void ext2_fill_vfs_inode(struct inode *inode)
 	ext2_init_inode_ops(inode);
 }
 
+/* Symlink targets are immutable after creation; the raw inode mirrors are
+ * stable and the target page is fetched through the page cache. */
 static int ext2_readlink(struct inode *inode, char *buf, size_t size)
 {
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
-	struct ext2_sb_info *sbi;
-	uint64_t len;
+	uint64_t len = inode->i_size;
 
 	if (!buf || size == 0)
 		return -EINVAL;
-	if (!inode || !inode->i_sb)
-		return -EINVAL;
-
-	sbi = EXT2_SB(inode->i_sb);
-	spin_lock(&sbi->s_lock);
-	len = inode->i_size;
 	if (len > size)
 		len = size;
 
 	if (raw->i_blocks == 0) {
-		if (inode->i_size > sizeof(raw->i_block)) {
-			spin_unlock(&sbi->s_lock);
+		if (inode->i_size > sizeof(raw->i_block))
 			return -EIO;
-		}
 		memcpy(buf, raw->i_block, (size_t)len);
 	} else {
 		struct pgcache *page;
 
-		if (!ext2_bmap_readonly(inode, 0)) {
-			spin_unlock(&sbi->s_lock);
+		if (!ext2_bmap_readonly(inode, 0))
 			return -EIO;
-		}
 		page = pgcache_get_mapping(&inode->i_pages, 0,
 					      PAGE_CACHE_READ, NULL);
-		if (!page) {
-			spin_unlock(&sbi->s_lock);
+		if (!page)
 			return -EIO;
-		}
 		if (len > BLOCK_SIZE)
 			len = BLOCK_SIZE;
 		memcpy(buf, page_cache_data(page), (size_t)len);
 		pgcache_put_page(page);
 	}
-	spin_unlock(&sbi->s_lock);
 
 	return (int)len;
 }
@@ -452,34 +440,34 @@ int ext2_read_inode(struct inode *inode)
 		return -ENOMEM;
 	memset(ei, 0, sizeof(*ei));
 
-	sbi = EXT2_SB(inode->i_sb);
-	spin_lock(&sbi->s_lock);
 	ret = ext2_inode_location(inode, &block, &offset);
 	if (ret < 0) {
-		spin_unlock(&sbi->s_lock);
 		kfree(ei);
 		return ret;
 	}
 
+	/* Page fetch runs outside s_lock (fetching may allocate); the raw
+	 * inode copy happens under it for a consistent snapshot. */
 	page = pgcache_get_block(inode->i_sb->s_dev, block);
 	if (!page) {
-		spin_unlock(&sbi->s_lock);
 		kfree(ei);
 		return -EIO;
 	}
 
+	sbi = EXT2_SB(inode->i_sb);
+	spin_lock(&sbi->s_lock);
 	memcpy(&ei->raw_inode, page_cache_data(page) + offset,
 	       sizeof(ei->raw_inode));
-	pgcache_put_page(page);
-
 	inode->i_private = ei;
 	ext2_fill_vfs_inode(inode);
 	spin_unlock(&sbi->s_lock);
 
+	pgcache_put_page(page);
+
 	return 0;
 }
 
-int ext2_write_inode_locked(struct inode *inode)
+int ext2_write_inode(struct inode *inode)
 {
 	struct ext2_inode_info *ei;
 	struct pgcache *page;
@@ -493,9 +481,25 @@ int ext2_write_inode_locked(struct inode *inode)
 
 	ei = EXT2_I(inode);
 	sbi = EXT2_SB(inode->i_sb);
+
+	ret = ext2_inode_location(inode, &block, &offset);
+	if (ret < 0)
+		return ret;
+
+	/* Page fetch and the device sync both run outside s_lock (fetch may
+	 * allocate); the in-memory copy of the raw inode is the shared
+	 * mutation and stays under the lock. */
+	page = pgcache_get_block(inode->i_sb->s_dev, block);
+	if (!page)
+		return -EIO;
+
+	spin_lock(&sbi->s_lock);
 	if (sbi->s_es.s_creator_os != EXT2_OS_LINUX &&
-	    (inode->i_uid > UINT16_MAX || inode->i_gid > UINT16_MAX))
+	    (inode->i_uid > UINT16_MAX || inode->i_gid > UINT16_MAX)) {
+		spin_unlock(&sbi->s_lock);
+		pgcache_put_page(page);
 		return -EINVAL;
+	}
 	ei->raw_inode.i_mode = (uint16_t)inode->i_mode;
 	ei->raw_inode.i_uid = (uint16_t)inode->i_uid;
 	ei->raw_inode.i_gid = (uint16_t)inode->i_gid;
@@ -515,33 +519,13 @@ int ext2_write_inode_locked(struct inode *inode)
 	    (inode->i_mode & S_IFMT) == S_IFBLK)
 		ei->raw_inode.i_block[0] = ext2_encode_dev(inode->i_rdev);
 
-	ret = ext2_inode_location(inode, &block, &offset);
-	if (ret < 0)
-		return ret;
-
-	page = pgcache_get_block(inode->i_sb->s_dev, block);
-	if (!page)
-		return -EIO;
-
 	memcpy(page_cache_data(page) + offset, &ei->raw_inode,
 	       sizeof(ei->raw_inode));
+	spin_unlock(&sbi->s_lock);
+
 	ret = ext2_sync_metadata_page(page);
 	pgcache_put_page(page);
 
-	return ret;
-}
-
-int ext2_write_inode(struct inode *inode)
-{
-	struct ext2_sb_info *sbi;
-	int ret;
-
-	if (!inode || !inode->i_sb)
-		return -EINVAL;
-	sbi = EXT2_SB(inode->i_sb);
-	spin_lock(&sbi->s_lock);
-	ret = ext2_write_inode_locked(inode);
-	spin_unlock(&sbi->s_lock);
 	return ret;
 }
 
@@ -555,10 +539,10 @@ int ext2_datasync_inode(struct inode *inode)
 	return 0;
 }
 
-static uint32_t ext2_alloc_bmap_block_locked(struct inode *inode)
+static uint32_t ext2_alloc_bmap_block(struct inode *inode)
 {
 	struct ext2_inode *raw = &EXT2_I(inode)->raw_inode;
-	uint32_t block = ext2_alloc_block_locked(inode);
+	uint32_t block = ext2_alloc_block(inode);
 
 	if (block) {
 		raw->i_blocks += BLOCK_SIZE / SECTOR_SIZE;
@@ -588,7 +572,7 @@ static int ext2_ind_bmap(struct inode *inode, uint32_t ind_block,
 	blocks = ext2_block_words(page);
 	block = blocks[index];
 	if (!block && create) {
-		block = ext2_alloc_bmap_block_locked(inode);
+		block = ext2_alloc_bmap_block(inode);
 		if (block) {
 			blocks[index] = block;
 			ret = ext2_sync_metadata_page(page);
@@ -596,7 +580,7 @@ static int ext2_ind_bmap(struct inode *inode, uint32_t ind_block,
 				pgcache_put_page(page);
 				return ret;
 			}
-			ret = ext2_write_inode_locked(inode);
+			ret = ext2_write_inode(inode);
 			if (ret < 0) {
 				pgcache_put_page(page);
 				return ret;
@@ -673,8 +657,11 @@ static uint32_t ext2_inode_tree_blocks(const struct inode *inode)
 	return total;
 }
 
-int ext2_bmap_locked(struct inode *inode, uint32_t block, bool create,
-		     uint32_t *mapped)
+/* Composite: block-tree allocation serializes per leaf (ext2_alloc_block
+ * and ext2_write_inode self-lock).  The in-memory i_block[] mirrors are
+ * not individually serialized, matching the same-sb composite-ops policy. */
+int ext2_bmap(struct inode *inode, uint32_t block, bool create,
+	      uint32_t *mapped)
 {
 	struct ext2_inode *raw;
 	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
@@ -693,10 +680,9 @@ int ext2_bmap_locked(struct inode *inode, uint32_t block, bool create,
 	raw = &EXT2_I(inode)->raw_inode;
 	if (block < EXT2_NDIR_BLOCKS) {
 		if (!raw->i_block[block] && create) {
-			raw->i_block[block] = ext2_alloc_bmap_block_locked(
-				inode);
+			raw->i_block[block] = ext2_alloc_bmap_block(inode);
 			if (raw->i_block[block]) {
-				ret = ext2_write_inode_locked(inode);
+				ret = ext2_write_inode(inode);
 				if (ret < 0)
 					return ret;
 			}
@@ -709,9 +695,9 @@ int ext2_bmap_locked(struct inode *inode, uint32_t block, bool create,
 	if (block < ptrs) {
 		if (!raw->i_block[EXT2_IND_BLOCK] && create) {
 			raw->i_block[EXT2_IND_BLOCK] =
-				ext2_alloc_bmap_block_locked(inode);
+				ext2_alloc_bmap_block(inode);
 			if (raw->i_block[EXT2_IND_BLOCK]) {
-				ret = ext2_write_inode_locked(inode);
+				ret = ext2_write_inode(inode);
 				if (ret < 0)
 					return ret;
 			}
@@ -725,10 +711,9 @@ int ext2_bmap_locked(struct inode *inode, uint32_t block, bool create,
 		return 0;
 
 	if (!raw->i_block[EXT2_DIND_BLOCK] && create) {
-		raw->i_block[EXT2_DIND_BLOCK] =
-			ext2_alloc_bmap_block_locked(inode);
+		raw->i_block[EXT2_DIND_BLOCK] = ext2_alloc_bmap_block(inode);
 		if (raw->i_block[EXT2_DIND_BLOCK]) {
-			ret = ext2_write_inode_locked(inode);
+			ret = ext2_write_inode(inode);
 			if (ret < 0)
 				return ret;
 		}
@@ -745,14 +730,14 @@ int ext2_bmap_locked(struct inode *inode, uint32_t block, bool create,
 
 	blocks = ext2_block_words(page);
 	if (!blocks[first] && create) {
-		blocks[first] = ext2_alloc_bmap_block_locked(inode);
+		blocks[first] = ext2_alloc_bmap_block(inode);
 		if (blocks[first]) {
 			ret = ext2_sync_metadata_page(page);
 			if (ret < 0) {
 				pgcache_put_page(page);
 				return ret;
 			}
-			ret = ext2_write_inode_locked(inode);
+			ret = ext2_write_inode(inode);
 			if (ret < 0) {
 				pgcache_put_page(page);
 				return ret;
@@ -763,21 +748,6 @@ int ext2_bmap_locked(struct inode *inode, uint32_t block, bool create,
 	pgcache_put_page(page);
 
 	return ext2_ind_bmap(inode, first, second, create, mapped);
-}
-
-int ext2_bmap(struct inode *inode, uint32_t block, bool create,
-	      uint32_t *mapped)
-{
-	struct ext2_sb_info *sbi;
-	int ret;
-
-	if (!inode || !inode->i_sb)
-		return -EINVAL;
-	sbi = EXT2_SB(inode->i_sb);
-	spin_lock(&sbi->s_lock);
-	ret = ext2_bmap_locked(inode, block, create, mapped);
-	spin_unlock(&sbi->s_lock);
-	return ret;
 }
 
 /* Lockless by design: reads raw inode block pointers plus indirect blocks

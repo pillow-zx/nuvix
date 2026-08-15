@@ -146,11 +146,13 @@ struct __packed ext2_dir_entry_2 {
 };
 
 struct ext2_sb_info {
-	/* Serializes all on-disk state mutations: superblock counters, group
-	 * descriptors, bitmaps, inode table blocks, and directory entry
-	 * pages.  Held at rank 24, below the page cache (25) and virtio
-	 * submit (26).  Nested internally only via the *_locked variants of
-	 * ext2_bmap/ext2_write_inode/ext2_alloc_block. */
+	/* Serializes all in-memory on-disk state: superblock counters, group
+	 * descriptors, bitmap bytes, inode-table copies, and directory entry
+	 * pages.  Rank 24; the page cache (25) may nest below it for dirty
+	 * marking.  Page fetches, device I/O, and frees must run outside
+	 * this lock (the debug-context allocator gate forbids allocation and
+	 * freeing while a spinlock is held), so callers pin the pages they
+	 * need before locking and sync/put them after unlocking. */
 	spinlock_t s_lock;
 	struct ext2_super_block s_es;
 	struct ext2_group_desc *s_group_desc;
@@ -200,11 +202,6 @@ void ext2_init_inode_ops(struct inode *inode);
 void ext2_free_inode_blocks(struct inode *inode);
 int ext2_bmap(struct inode *inode, uint32_t block, bool create,
 	      uint32_t *mapped);
-/* The *_locked variants expect s_lock held; plain entry points self-lock. */
-int ext2_bmap_locked(struct inode *inode, uint32_t block, bool create,
-		     uint32_t *mapped);
-int ext2_write_inode_locked(struct inode *inode);
-uint32_t ext2_alloc_block_locked(struct inode *inode);
 uint32_t ext2_bmap_readonly(struct inode *inode, uint32_t block);
 int ext2_truncate_inode(struct inode *inode, uint64_t size);
 

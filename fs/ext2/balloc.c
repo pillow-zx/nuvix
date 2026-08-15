@@ -87,7 +87,12 @@ static void ext2_zero_block(struct super_block *sb, uint32_t block)
 	pgcache_put_page(page);
 }
 
-uint32_t ext2_alloc_block_locked(struct inode *inode)
+/* Allocation/free leaves pin the bitmap page before taking s_lock (page
+ * fetches may allocate and are therefore forbidden under a spinlock), then
+ * scan/set the bitmap and update the in-memory counters under the lock.
+ * The syncs run after unlocking: they copy the then-current shared state,
+ * so the last sync always persists the final counters. */
+uint32_t ext2_alloc_block(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
@@ -103,6 +108,7 @@ uint32_t ext2_alloc_block_locked(struct inode *inode)
 		struct pgcache *page;
 		uint32_t group_blocks;
 		uint8_t *data;
+		uint32_t block = 0;
 
 		if (!gd->bg_free_blocks_count)
 			continue;
@@ -112,22 +118,29 @@ uint32_t ext2_alloc_block_locked(struct inode *inode)
 			return 0;
 		data = page_cache_data(page);
 
-		group_blocks = ext2_group_blocks(sbi, group);
-		for (uint32_t bit = 0; bit < group_blocks; bit++) {
-			if (bitmap_test_bit(data, bit))
-				continue;
+		spin_lock(&sbi->s_lock);
+		if (gd->bg_free_blocks_count) {
+			group_blocks = ext2_group_blocks(sbi, group);
+			for (uint32_t bit = 0; bit < group_blocks; bit++) {
+				if (bitmap_test_bit(data, bit))
+					continue;
 
-			uint32_t block =
-				ext2_group_first_block(sbi, group) + bit;
+				block =
+					ext2_group_first_block(sbi, group) + bit;
+				bitmap_set_bit(data, bit);
+				gd->bg_free_blocks_count--;
+				sbi->s_es.s_free_blocks_count--;
+				break;
+			}
+		}
+		spin_unlock(&sbi->s_lock);
+
+		if (block) {
 			int sync_ret;
 
-			bitmap_set_bit(data, bit);
 			sync_ret = pgcache_sync_page(page);
 			(void)sync_ret;
 			pgcache_put_page(page);
-
-			gd->bg_free_blocks_count--;
-			sbi->s_es.s_free_blocks_count--;
 			ext2_sync_group_desc(sb, group);
 			ext2_sync_super(sb);
 			ext2_zero_block(sb, block);
@@ -140,17 +153,6 @@ uint32_t ext2_alloc_block_locked(struct inode *inode)
 	return 0;
 }
 
-uint32_t ext2_alloc_block(struct inode *inode)
-{
-	struct ext2_sb_info *sbi = EXT2_SB(inode->i_sb);
-	uint32_t block;
-
-	spin_lock(&sbi->s_lock);
-	block = ext2_alloc_block_locked(inode);
-	spin_unlock(&sbi->s_lock);
-	return block;
-}
-
 void ext2_free_block(struct super_block *sb, uint32_t block)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
@@ -158,7 +160,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	uint32_t bit;
 	struct pgcache *page;
 	uint8_t *data;
-	int sync_ret;
+	bool cleared = false;
 
 	if (block < sbi->s_first_data_block ||
 	    block >= sbi->s_es.s_blocks_count)
@@ -169,78 +171,84 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	if (group >= sbi->s_groups_count)
 		return;
 
-	spin_lock(&sbi->s_lock);
 	page = pgcache_get_block(sb->s_dev,
 				    sbi->s_group_desc[group].bg_block_bitmap);
-	if (!page) {
-		spin_unlock(&sbi->s_lock);
+	if (!page)
 		return;
-	}
 	data = page_cache_data(page);
 
+	spin_lock(&sbi->s_lock);
 	if (bitmap_test_bit(data, bit)) {
 		bitmap_clear_bit(data, bit);
-		sync_ret = pgcache_sync_page(page);
-		(void)sync_ret;
 		sbi->s_group_desc[group].bg_free_blocks_count++;
 		sbi->s_es.s_free_blocks_count++;
+		cleared = true;
+	}
+	spin_unlock(&sbi->s_lock);
+
+	if (cleared) {
+		int sync_ret;
+
+		sync_ret = pgcache_sync_page(page);
+		(void)sync_ret;
 		ext2_sync_group_desc(sb, group);
 		ext2_sync_super(sb);
 	}
 
 	pgcache_put_page(page);
-	spin_unlock(&sbi->s_lock);
 }
 
 uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
-	uint32_t ino;
 
-	spin_lock(&sbi->s_lock);
 	for (uint32_t group = 0; group < sbi->s_groups_count; group++) {
 		struct ext2_group_desc *gd = &sbi->s_group_desc[group];
 		struct pgcache *page;
 		uint8_t *data;
+		uint32_t ino = 0;
 
 		if (!gd->bg_free_inodes_count)
 			continue;
 
 		page = pgcache_get_block(sb->s_dev, gd->bg_inode_bitmap);
-		if (!page) {
-			ino = 0;
-			goto out;
-		}
+		if (!page)
+			return 0;
 		data = page_cache_data(page);
 
-		for (uint32_t bit = 0; bit < sbi->s_inodes_per_group; bit++) {
-			if (bitmap_test_bit(data, bit))
-				continue;
+		spin_lock(&sbi->s_lock);
+		if (gd->bg_free_inodes_count) {
+			for (uint32_t bit = 0;
+			     bit < sbi->s_inodes_per_group; bit++) {
+				if (bitmap_test_bit(data, bit))
+					continue;
 
+				ino = group * sbi->s_inodes_per_group + bit + 1;
+				bitmap_set_bit(data, bit);
+				gd->bg_free_inodes_count--;
+				if ((mode & EXT2_S_IFMT) == EXT2_S_IFDIR)
+					gd->bg_used_dirs_count++;
+				sbi->s_es.s_free_inodes_count--;
+				break;
+			}
+		}
+		spin_unlock(&sbi->s_lock);
+
+		if (ino) {
 			int sync_ret;
 
-			ino = group * sbi->s_inodes_per_group + bit + 1;
-
-			bitmap_set_bit(data, bit);
 			sync_ret = pgcache_sync_page(page);
 			(void)sync_ret;
 			pgcache_put_page(page);
-
-			gd->bg_free_inodes_count--;
-			if ((mode & EXT2_S_IFMT) == EXT2_S_IFDIR)
-				gd->bg_used_dirs_count++;
-			sbi->s_es.s_free_inodes_count--;
 			ext2_sync_group_desc(sb, group);
 			ext2_sync_super(sb);
-			goto out;
+			return ino;
 		}
 
 		pgcache_put_page(page);
 	}
-	ino = 0;
-out:
-	spin_unlock(&sbi->s_lock);
-	return ino;
+
+	return 0;
 }
 
 void ext2_free_inode(struct super_block *sb, uint32_t ino)
@@ -250,7 +258,7 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	uint32_t bit;
 	struct pgcache *page;
 	uint8_t *data;
-	int sync_ret;
+	bool cleared = false;
 
 	if (!ino || ino > sbi->s_es.s_inodes_count)
 		return;
@@ -260,25 +268,29 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	if (group >= sbi->s_groups_count)
 		return;
 
-	spin_lock(&sbi->s_lock);
 	page = pgcache_get_block(sb->s_dev,
 				    sbi->s_group_desc[group].bg_inode_bitmap);
-	if (!page) {
-		spin_unlock(&sbi->s_lock);
+	if (!page)
 		return;
-	}
 	data = page_cache_data(page);
 
+	spin_lock(&sbi->s_lock);
 	if (bitmap_test_bit(data, bit)) {
 		bitmap_clear_bit(data, bit);
-		sync_ret = pgcache_sync_page(page);
-		(void)sync_ret;
 		sbi->s_group_desc[group].bg_free_inodes_count++;
 		sbi->s_es.s_free_inodes_count++;
+		cleared = true;
+	}
+	spin_unlock(&sbi->s_lock);
+
+	if (cleared) {
+		int sync_ret;
+
+		sync_ret = pgcache_sync_page(page);
+		(void)sync_ret;
 		ext2_sync_group_desc(sb, group);
 		ext2_sync_super(sb);
 	}
 
 	pgcache_put_page(page);
-	spin_unlock(&sbi->s_lock);
 }
