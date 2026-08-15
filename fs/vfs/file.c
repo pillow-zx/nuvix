@@ -203,6 +203,7 @@ struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 	file->f_mode = mode;
 	file->private_data = private_data;
 	refcount_set(&file->refcount, 1);
+	spin_lock_init(&file->f_lock, LOCK_RANK_FILES);
 
 	return file;
 }

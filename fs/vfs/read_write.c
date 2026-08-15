@@ -10,13 +10,50 @@
 #define SEEK_END 2
 #define VFS_COPY_BUF_SIZE 256
 
+/* f_pos is serialized by f_lock for regular files only: pipes and
+ * character devices must not take the lock, because their reads/writes can
+ * block on the wait module.  This mirrors Linux's regular-file position
+ * semantics; pread/pwrite use the caller-provided offset and never add a
+ * separate lock for it. */
+static bool vfs_file_position_locked(const struct file *file)
+{
+	return file && file->f_inode && S_ISREG(file->f_inode->i_mode);
+}
+
+static ssize_t vfs_read_core(struct file *file, char *buf, size_t count)
+{
+	ssize_t ret = file->f_op->read(file, buf, count);
+
+	if (ret > 0)
+		file->f_pos += ret;
+	return ret;
+}
+
 ssize_t vfs_read(struct file *file, char *buf, size_t count)
 {
+	ssize_t ret;
+
 	if (!file || !(file->f_mode & FMODE_READ) || !file->f_op ||
 	    !file->f_op->read)
 		return -EBADF;
 
-	ssize_t ret = file->f_op->read(file, buf, count);
+	if (vfs_file_position_locked(file))
+		spin_lock(&file->f_lock);
+	ret = vfs_read_core(file, buf, count);
+	if (vfs_file_position_locked(file))
+		spin_unlock(&file->f_lock);
+
+	return ret;
+}
+
+static ssize_t vfs_write_core(struct file *file, const char *buf, size_t count)
+{
+	ssize_t ret;
+
+	if ((file->f_flags & O_APPEND) && file->f_inode)
+		file->f_pos = (loff_t)file->f_inode->i_size;
+
+	ret = file->f_op->write(file, buf, count);
 	if (ret > 0)
 		file->f_pos += ret;
 
@@ -25,16 +62,17 @@ ssize_t vfs_read(struct file *file, char *buf, size_t count)
 
 ssize_t vfs_write(struct file *file, const char *buf, size_t count)
 {
+	ssize_t ret;
+
 	if (!file || !(file->f_mode & FMODE_WRITE) || !file->f_op ||
 	    !file->f_op->write)
 		return -EBADF;
 
-	if ((file->f_flags & O_APPEND) && file->f_inode)
-		file->f_pos = (loff_t)file->f_inode->i_size;
-
-	ssize_t ret = file->f_op->write(file, buf, count);
-	if (ret > 0)
-		file->f_pos += ret;
+	if (vfs_file_position_locked(file))
+		spin_lock(&file->f_lock);
+	ret = vfs_write_core(file, buf, count);
+	if (vfs_file_position_locked(file))
+		spin_unlock(&file->f_lock);
 
 	return ret;
 }
@@ -48,15 +86,20 @@ ssize_t vfs_read_pos(struct file *file, char *buf, size_t count, loff_t *pos)
 		return vfs_read(file, buf, count);
 	if (*pos < 0)
 		return -EINVAL;
-	if (!file)
+	if (!file || !(file->f_mode & FMODE_READ) || !file->f_op ||
+	    !file->f_op->read)
 		return -EBADF;
 
+	if (vfs_file_position_locked(file))
+		spin_lock(&file->f_lock);
 	old_pos = file->f_pos;
 	file->f_pos = *pos;
-	ret = vfs_read(file, buf, count);
+	ret = vfs_read_core(file, buf, count);
 	if (ret > 0)
 		*pos = file->f_pos;
 	file->f_pos = old_pos;
+	if (vfs_file_position_locked(file))
+		spin_unlock(&file->f_lock);
 	return ret;
 }
 
@@ -70,15 +113,20 @@ ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count,
 		return vfs_write(file, buf, count);
 	if (*pos < 0)
 		return -EINVAL;
-	if (!file)
+	if (!file || !(file->f_mode & FMODE_WRITE) || !file->f_op ||
+	    !file->f_op->write)
 		return -EBADF;
 
+	if (vfs_file_position_locked(file))
+		spin_lock(&file->f_lock);
 	old_pos = file->f_pos;
 	file->f_pos = *pos;
-	ret = vfs_write(file, buf, count);
+	ret = vfs_write_core(file, buf, count);
 	if (ret > 0)
 		*pos = file->f_pos;
 	file->f_pos = old_pos;
+	if (vfs_file_position_locked(file))
+		spin_unlock(&file->f_lock);
 	return ret;
 }
 
@@ -86,7 +134,11 @@ void vfs_rewind_pos(struct file *file, loff_t count)
 {
 	if (!file || count <= 0)
 		return;
+	if (vfs_file_position_locked(file))
+		spin_lock(&file->f_lock);
 	file->f_pos -= count;
+	if (vfs_file_position_locked(file))
+		spin_unlock(&file->f_lock);
 }
 
 ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file,
@@ -116,21 +168,21 @@ ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file,
 			if (in_pos)
 				*in_pos = old_in_pos;
 			else
-				in_file->f_pos -= nr_read;
+				vfs_rewind_pos(in_file, nr_read);
 			return total ? total : nr_written;
 		}
 		if (nr_written == 0) {
 			if (in_pos)
 				*in_pos = old_in_pos;
 			else
-				in_file->f_pos -= nr_read;
+				vfs_rewind_pos(in_file, nr_read);
 			break;
 		}
 
 		if (in_pos && nr_written < nr_read)
 			*in_pos -= nr_read - nr_written;
 		else if (!in_pos && nr_written < nr_read)
-			in_file->f_pos -= nr_read - nr_written;
+			vfs_rewind_pos(in_file, nr_read - nr_written);
 
 		total += nr_written;
 		len -= (size_t)nr_written;
@@ -144,13 +196,25 @@ ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file,
 loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
 {
 	loff_t base;
+	bool locked;
 
 	if (!file)
 		return -EBADF;
 
-	if (file->f_op && file->f_op->llseek)
-		return file->f_op->llseek(file, offset, whence);
+	locked = vfs_file_position_locked(file);
+	if (file->f_op && file->f_op->llseek) {
+		loff_t result;
 
+		if (locked)
+			spin_lock(&file->f_lock);
+		result = file->f_op->llseek(file, offset, whence);
+		if (locked)
+			spin_unlock(&file->f_lock);
+		return result;
+	}
+
+	if (locked)
+		spin_lock(&file->f_lock);
 	switch (whence) {
 	case SEEK_SET:
 		base = 0;
@@ -159,18 +223,28 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
 		base = file->f_pos;
 		break;
 	case SEEK_END:
-		if (!file->f_inode)
+		if (!file->f_inode) {
+			if (locked)
+				spin_unlock(&file->f_lock);
 			return -ESPIPE;
+		}
 		base = (loff_t)file->f_inode->i_size;
 		break;
 	default:
+		if (locked)
+			spin_unlock(&file->f_lock);
 		return -EINVAL;
 	}
 
-	if (offset < 0 && base < -offset)
+	if (offset < 0 && base < -offset) {
+		if (locked)
+			spin_unlock(&file->f_lock);
 		return -EINVAL;
+	}
 
 	file->f_pos = base + offset;
+	if (locked)
+		spin_unlock(&file->f_lock);
 	return file->f_pos;
 }
 
