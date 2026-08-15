@@ -8,6 +8,7 @@
 #include <nuvix/bootinfo.h>
 #include <nuvix/errno.h>
 #include <nuvix/printk.h>
+#include <nuvix/spinlock.h>
 #include <nuvix/tools.h>
 #include <nuvix/page.h>
 
@@ -54,6 +55,13 @@ static struct vblk_avail vblk_avail __aligned(VRING_AVAIL_ALIGN_SIZE);
 static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
 static struct virtio_blk_req vblk_req;
 static struct virtio_blk_dev vblk_dev;
+
+/* The whole build+submit+wait transaction is one critical section: the
+ * vring, the single request slot, and the avail index are shared global
+ * state and the busy-poll loop must see a consistent used index.  Interrupt-
+ * driven virtio (a later phase) must replace this lock with an IRQ-safe
+ * completion protocol, not nest interrupts under it. */
+static DEFINE_SPINLOCK(vblk_submit_lock, LOCK_RANK_VIRTIO_SUBMIT);
 
 static int virtio_blk_read_sectors(struct blkdev *bdev, void *buf,
 				   uint64_t sector, uint32_t nsec);
@@ -171,15 +179,19 @@ static int virtio_blk_rw(struct blkdev *bdev, bool write, uintptr_t buf_addr,
 {
 	struct virtio_blk_dev *vd = bdev->bd_private;
 	uint16_t expected;
+	int ret;
 
 	if (nsec == 0 || nsec > VBLK_MAX_SECTORS)
 		return -EINVAL;
 	if (nsec > vd->capacity || sector > vd->capacity - nsec)
 		return -EINVAL;
 
+	spin_lock(&vblk_submit_lock);
 	vblk_build_req(buf_addr, sector, nsec, write);
 	expected = (uint16_t)(vblk_avail.idx + 1);
-	return vblk_submit_and_wait(vd->mmio_base, expected);
+	ret = vblk_submit_and_wait(vd->mmio_base, expected);
+	spin_unlock(&vblk_submit_lock);
+	return ret;
 }
 
 static int virtio_blk_read_sectors(struct blkdev *bdev, void *buf,
