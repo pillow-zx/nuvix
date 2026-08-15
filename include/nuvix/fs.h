@@ -8,6 +8,7 @@
 
 #include <nuvix/page_mapping.h>
 #include <nuvix/list.h>
+#include <nuvix/mutex.h>
 #include <nuvix/refcount.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/types.h>
@@ -365,7 +366,9 @@ struct path {
  * - @c f_mode: FMODE_* access mode bits.
  * - @c refcount: Open-file reference count.
  * - @c static_file: True for non-freeable built-in file objects.
- * - @c f_lock: Serializes @c f_pos updates for regular files (rank 22).
+ * - @c f_lock: Serializes @c f_pos for regular files (rank 22).  A mutex,
+ *   like Linux's f_pos_lock: the data path allocates page-cache pages,
+ *   which the debug-context gate forbids under a spinlock.
  */
 struct file {
 	const struct file_operations *f_op;
@@ -376,7 +379,7 @@ struct file {
 	uint32_t f_flags;
 	uint32_t f_mode;
 	refcount_t refcount;
-	spinlock_t f_lock;
+	mutex_t f_lock;
 	bool static_file;
 };
 

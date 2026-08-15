@@ -10,10 +10,11 @@
 #define SEEK_END 2
 #define VFS_COPY_BUF_SIZE 256
 
-/* f_pos is serialized by f_lock for regular files only: pipes and
- * character devices must not take the lock, because their reads/writes can
- * block on the wait module.  This mirrors Linux's regular-file position
- * semantics; pread/pwrite use the caller-provided offset and never add a
+/* f_pos is serialized by f_lock (a mutex, like Linux's f_pos_lock) for
+ * regular files only: the data path allocates page-cache pages, which the
+ * debug-context gate forbids under a spinlock, and pipes/character devices
+ * must not take the lock at all because their ops can block on the wait
+ * module.  pread/pwrite use the caller-provided offset and never add a
  * separate lock for it. */
 static bool vfs_file_position_locked(const struct file *file)
 {
@@ -38,10 +39,10 @@ ssize_t vfs_read(struct file *file, char *buf, size_t count)
 		return -EBADF;
 
 	if (vfs_file_position_locked(file))
-		spin_lock(&file->f_lock);
+		mutex_lock(&file->f_lock);
 	ret = vfs_read_core(file, buf, count);
 	if (vfs_file_position_locked(file))
-		spin_unlock(&file->f_lock);
+		mutex_unlock(&file->f_lock);
 
 	return ret;
 }
@@ -69,10 +70,10 @@ ssize_t vfs_write(struct file *file, const char *buf, size_t count)
 		return -EBADF;
 
 	if (vfs_file_position_locked(file))
-		spin_lock(&file->f_lock);
+		mutex_lock(&file->f_lock);
 	ret = vfs_write_core(file, buf, count);
 	if (vfs_file_position_locked(file))
-		spin_unlock(&file->f_lock);
+		mutex_unlock(&file->f_lock);
 
 	return ret;
 }
@@ -91,7 +92,7 @@ ssize_t vfs_read_pos(struct file *file, char *buf, size_t count, loff_t *pos)
 		return -EBADF;
 
 	if (vfs_file_position_locked(file))
-		spin_lock(&file->f_lock);
+		mutex_lock(&file->f_lock);
 	old_pos = file->f_pos;
 	file->f_pos = *pos;
 	ret = vfs_read_core(file, buf, count);
@@ -99,7 +100,7 @@ ssize_t vfs_read_pos(struct file *file, char *buf, size_t count, loff_t *pos)
 		*pos = file->f_pos;
 	file->f_pos = old_pos;
 	if (vfs_file_position_locked(file))
-		spin_unlock(&file->f_lock);
+		mutex_unlock(&file->f_lock);
 	return ret;
 }
 
@@ -118,7 +119,7 @@ ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count,
 		return -EBADF;
 
 	if (vfs_file_position_locked(file))
-		spin_lock(&file->f_lock);
+		mutex_lock(&file->f_lock);
 	old_pos = file->f_pos;
 	file->f_pos = *pos;
 	ret = vfs_write_core(file, buf, count);
@@ -126,7 +127,7 @@ ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count,
 		*pos = file->f_pos;
 	file->f_pos = old_pos;
 	if (vfs_file_position_locked(file))
-		spin_unlock(&file->f_lock);
+		mutex_unlock(&file->f_lock);
 	return ret;
 }
 
@@ -135,10 +136,10 @@ void vfs_rewind_pos(struct file *file, loff_t count)
 	if (!file || count <= 0)
 		return;
 	if (vfs_file_position_locked(file))
-		spin_lock(&file->f_lock);
+		mutex_lock(&file->f_lock);
 	file->f_pos -= count;
 	if (vfs_file_position_locked(file))
-		spin_unlock(&file->f_lock);
+		mutex_unlock(&file->f_lock);
 }
 
 ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file,
@@ -206,15 +207,15 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
 		loff_t result;
 
 		if (locked)
-			spin_lock(&file->f_lock);
+			mutex_lock(&file->f_lock);
 		result = file->f_op->llseek(file, offset, whence);
 		if (locked)
-			spin_unlock(&file->f_lock);
+			mutex_unlock(&file->f_lock);
 		return result;
 	}
 
 	if (locked)
-		spin_lock(&file->f_lock);
+		mutex_lock(&file->f_lock);
 	switch (whence) {
 	case SEEK_SET:
 		base = 0;
@@ -225,26 +226,26 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
 	case SEEK_END:
 		if (!file->f_inode) {
 			if (locked)
-				spin_unlock(&file->f_lock);
+				mutex_unlock(&file->f_lock);
 			return -ESPIPE;
 		}
 		base = (loff_t)file->f_inode->i_size;
 		break;
 	default:
 		if (locked)
-			spin_unlock(&file->f_lock);
+			mutex_unlock(&file->f_lock);
 		return -EINVAL;
 	}
 
 	if (offset < 0 && base < -offset) {
 		if (locked)
-			spin_unlock(&file->f_lock);
+			mutex_unlock(&file->f_lock);
 		return -EINVAL;
 	}
 
 	file->f_pos = base + offset;
 	if (locked)
-		spin_unlock(&file->f_lock);
+		mutex_unlock(&file->f_lock);
 	return file->f_pos;
 }
 
