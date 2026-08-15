@@ -24,7 +24,7 @@ struct files_struct *files_alloc(void)
 
 	memset(files, 0, sizeof(*files));
 	refcount_set(&files->refcount, 1);
-	mutex_init(&files->lock);
+	mutex_init(&files->lock, LOCK_RANK_FILES);
 	return files;
 }
 

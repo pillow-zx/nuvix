@@ -358,7 +358,7 @@ struct mm_struct *mm_alloc(void)
 
 	memset(mm, 0, sizeof(struct mm_struct));
 	refcount_set(&mm->refcount, 1);
-	mutex_init(&mm->mmap_lock);
+	mutex_init(&mm->mmap_lock, LOCK_RANK_MM_MMAP);
 	return mm;
 }
 

@@ -40,10 +40,16 @@ typedef struct spinlock {
 #define LOCK_RANK_TOPOLOGY     20
 #define LOCK_RANK_PID	       20
 #define LOCK_RANK_PRINTK_READ  20
+#define LOCK_RANK_FILES        22
+#define LOCK_RANK_VFS_CACHE    23
+#define LOCK_RANK_EXT2_SB      24
+#define LOCK_RANK_MM_MMAP      24
 #define LOCK_RANK_PRINTK_RING  25
 #define LOCK_RANK_VFS_MOUNT    25
 #define LOCK_RANK_PAGE_CACHE   25
 #define LOCK_RANK_CONSOLE_EMIT 26
+#define LOCK_RANK_VIRTIO_SUBMIT 26
+#define LOCK_RANK_WB_BUF       26
 #define LOCK_RANK_WAIT_CHANNEL 30
 #define LOCK_RANK_ALLOC	       35
 #define LOCK_RANK_WAIT	       40
