@@ -5,6 +5,7 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
+#include <nuvix/spinlock.h>
 #include <nuvix/worker.h>
 
 #define PAGE_CACHE_WB_MAX 32
@@ -12,6 +13,12 @@
 static uint8_t *wb_buf;
 static uint32_t wb_pages;
 static bool wb_ready;
+
+/* Serializes the writeback worker's shared buffer: fill + device submit
+ * must be one critical section, since the single wb_buf is the only staging
+ * area for multi-page writeback.  The blocking deadline sleep stays outside
+ * this lock (it lives in the worker loop, not in pgcache_wb_run). */
+static DEFINE_SPINLOCK(wb_buf_lock, LOCK_RANK_WB_BUF);
 
 static bool pgcache_has_mapping_locked(struct pgcache *page,
 					  struct page_mapping *mapping)
@@ -121,10 +128,12 @@ int pgcache_wb_run(struct pgcache *start, struct page_mapping *mapping)
 		spin_unlock_irqrestore(&pgcache_lock, flags);
 		return -ENXIO;
 	}
+	spin_lock(&wb_buf_lock);
 	for (uint32_t i = 0; i < nr; i++)
 		memcpy(wb_buf + i * BLOCK_SIZE, pages[i]->data, BLOCK_SIZE);
 	ret = bdev->bd_ops->write_sectors(
 		bdev, wb_buf, start->block * BLOCK_SECTORS, nr * BLOCK_SECTORS);
+	spin_unlock(&wb_buf_lock);
 	spin_lock_irqsave(&pgcache_lock, &flags);
 	for (uint32_t i = 0; i < nr; i++) {
 		pages[i]->writeback = false;
