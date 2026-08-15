@@ -6,6 +6,7 @@
 #include <nuvix/fs.h>
 #include <nuvix/hash.h>
 #include <nuvix/slab.h>
+#include <nuvix/spinlock.h>
 #include <nuvix/stat.h>
 #include <nuvix/task.h>
 #include <nuvix/time.h>
@@ -15,6 +16,8 @@
 #define ICACHE_HASH_SIZE (1u << ICACHE_HASH_BITS)
 
 HASH_TABLE_DECLARE_STATIC(inode_hashtable, ICACHE_HASH_BITS);
+
+extern spinlock_t vfs_cache_lock;
 
 static uint32_t inode_hash(dev_t dev, uint64_t ino)
 {
@@ -41,9 +44,7 @@ struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
 	INIT_LIST_HEAD(&inode->i_hash);
 	INIT_LIST_HEAD(&inode->i_sb_list);
 
-	if (sb)
-		list_add_tail(&inode->i_sb_list, &sb->s_inodes);
-
+	/* The caller links the inode into sb->s_inodes under vfs_cache_lock. */
 	return inode;
 }
 
@@ -56,35 +57,55 @@ static void inode_hash_insert(struct inode *inode)
 
 struct inode *iget(struct super_block *sb, uint64_t ino)
 {
+	struct inode *inode;
+	uint32_t hash;
+	struct list_head *pos;
+
 	if (!sb)
 		return NULL;
 
-	uint32_t hash = inode_hash(sb->s_dev, ino);
-	struct list_head *pos;
+	hash = inode_hash(sb->s_dev, ino);
 
+	spin_lock(&vfs_cache_lock);
 	hash_table_for_each_possible (pos, &inode_hashtable, hash) {
-		struct inode *inode = list_entry(pos, struct inode, i_hash);
+		inode = list_entry(pos, struct inode, i_hash);
 
 		if (inode->i_sb == sb && inode->i_ino == ino) {
 			igrab(inode);
+			spin_unlock(&vfs_cache_lock);
 			return inode;
 		}
 	}
+	spin_unlock(&vfs_cache_lock);
 
-	struct inode *inode = inode_alloc(sb, ino);
+	inode = inode_alloc(sb, ino);
 	if (!inode)
 		return NULL;
 
 	if (sb->s_op && sb->s_op->read_inode) {
 		int ret = sb->s_op->read_inode(inode);
+
 		if (ret < 0) {
-			list_del(&inode->i_sb_list);
 			kfree(inode);
 			return NULL;
 		}
 	}
 
+	spin_lock(&vfs_cache_lock);
+	hash_table_for_each_possible (pos, &inode_hashtable, hash) {
+		struct inode *existing = list_entry(pos, struct inode, i_hash);
+
+		if (existing->i_sb == sb && existing->i_ino == ino) {
+			igrab(existing);
+			spin_unlock(&vfs_cache_lock);
+			kfree(inode);
+			return existing;
+		}
+	}
+
+	list_add_tail(&inode->i_sb_list, &sb->s_inodes);
 	inode_hash_insert(inode);
+	spin_unlock(&vfs_cache_lock);
 	return inode;
 }
 
@@ -319,10 +340,12 @@ void inode_forget(struct inode *inode)
 	if (!inode)
 		return;
 
+	spin_lock(&vfs_cache_lock);
 	if (inode->i_hash.next && inode->i_hash.prev)
 		hash_table_del(&inode->i_hash);
 	if (inode->i_sb_list.next && inode->i_sb_list.prev)
 		list_del(&inode->i_sb_list);
+	spin_unlock(&vfs_cache_lock);
 
 	if (inode->i_sb && inode->i_sb->s_op && inode->i_sb->s_op->evict_inode)
 		inode->i_sb->s_op->evict_inode(inode);

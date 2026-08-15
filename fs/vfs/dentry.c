@@ -6,12 +6,20 @@
 #include <nuvix/fs.h>
 #include <nuvix/hash.h>
 #include <nuvix/slab.h>
+#include <nuvix/spinlock.h>
 #include <nuvix/vfs.h>
 
 #define DCACHE_HASH_BITS 7
 #define DCACHE_HASH_SIZE (1u << DCACHE_HASH_BITS)
 
 HASH_TABLE_DECLARE_STATIC(dentry_hashtable, DCACHE_HASH_BITS);
+
+/*
+ * One global lock serializes the dentry and inode hash tables, each
+ * superblock's inode list, and each dentry's child list.  All VFS cache
+ * mutations run under it; frees and eviction run after it is released.
+ */
+DEFINE_SPINLOCK(vfs_cache_lock, LOCK_RANK_VFS_CACHE);
 
 static uint32_t dentry_hash(struct dentry *parent, const char *name,
 			    size_t namelen)
@@ -28,6 +36,18 @@ static bool dentry_hashed(struct dentry *dentry)
 {
 	return dentry && dentry->d_hash.next && dentry->d_hash.prev &&
 	       !list_empty(&dentry->d_hash);
+}
+
+static void dcache_insert_locked(struct dentry *dentry)
+{
+	uint32_t hash;
+
+	if (!dentry || !dentry->d_parent || dentry_hashed(dentry))
+		return;
+
+	hash = dentry_hash(dentry->d_parent, dentry->d_name,
+			   dentry->d_namelen);
+	hash_table_add(&dentry_hashtable, hash, &dentry->d_hash);
 }
 
 void dcache_init(void)
@@ -56,8 +76,11 @@ struct dentry *dentry_alloc(struct dentry *parent, const char *name,
 	INIT_LIST_HEAD(&dentry->d_child);
 	INIT_LIST_HEAD(&dentry->d_subdirs);
 
-	if (parent)
+	if (parent) {
+		spin_lock(&vfs_cache_lock);
 		list_add_tail(&dentry->d_child, &parent->d_subdirs);
+		spin_unlock(&vfs_cache_lock);
+	}
 
 	return dentry;
 }
@@ -71,6 +94,7 @@ struct dentry *dcache_lookup(struct dentry *parent, const char *name,
 	uint32_t hash = dentry_hash(parent, name, namelen);
 	struct list_head *pos;
 
+	spin_lock(&vfs_cache_lock);
 	hash_table_for_each_possible (pos, &dentry_hashtable, hash) {
 		struct dentry *dentry = list_entry(pos, struct dentry, d_hash);
 
@@ -80,35 +104,34 @@ struct dentry *dcache_lookup(struct dentry *parent, const char *name,
 			continue;
 
 		dget(dentry);
+		spin_unlock(&vfs_cache_lock);
 		return dentry;
 	}
+	spin_unlock(&vfs_cache_lock);
 
 	return NULL;
 }
 
 void dcache_insert(struct dentry *dentry)
 {
-	if (!dentry || !dentry->d_parent)
-		return;
-	if (dentry_hashed(dentry))
-		return;
-
-	uint32_t hash = dentry_hash(dentry->d_parent, dentry->d_name,
-				    dentry->d_namelen);
-
-	hash_table_add(&dentry_hashtable, hash, &dentry->d_hash);
+	spin_lock(&vfs_cache_lock);
+	dcache_insert_locked(dentry);
+	spin_unlock(&vfs_cache_lock);
 }
 
 void dcache_invalidate(struct dentry *dentry)
 {
 	if (!dentry)
 		return;
+
+	spin_lock(&vfs_cache_lock);
 	if (dentry_hashed(dentry))
 		hash_table_del(&dentry->d_hash);
 	else
 		INIT_LIST_HEAD(&dentry->d_hash);
 
 	dentry->d_inode = NULL;
+	spin_unlock(&vfs_cache_lock);
 }
 
 void dcache_move(struct dentry *dentry, struct dentry *new_parent,
@@ -117,6 +140,7 @@ void dcache_move(struct dentry *dentry, struct dentry *new_parent,
 	if (!dentry || !new_parent || !new_name || new_namelen > VFS_NAME_MAX)
 		return;
 
+	spin_lock(&vfs_cache_lock);
 	if (dentry_hashed(dentry))
 		hash_table_del(&dentry->d_hash);
 	else
@@ -130,7 +154,8 @@ void dcache_move(struct dentry *dentry, struct dentry *new_parent,
 	dentry->d_namelen = (uint8_t)new_namelen;
 	dentry->d_parent = new_parent;
 	dentry->d_sb = new_parent->d_sb;
-	dcache_insert(dentry);
+	dcache_insert_locked(dentry);
+	spin_unlock(&vfs_cache_lock);
 }
 
 void dget(struct dentry *dentry)
