@@ -618,7 +618,8 @@ void signal_mark_pending(struct task_struct *task, uint64_t mask)
 	task_or_pending_mask(task, mask);
 }
 
-void signal_clear_pending(struct task_struct *task, uint64_t mask)
+static void signal_clear_pending_locked(struct task_struct *task,
+					uint64_t mask)
 {
 	if (!task)
 		return;
@@ -632,12 +633,24 @@ void signal_clear_pending(struct task_struct *task, uint64_t mask)
 	task->signal.forced_pending &= ~mask;
 }
 
-static void signal_clear_opposite_pending(struct task_struct *task, int sig)
+void signal_clear_pending(struct task_struct *task, uint64_t mask)
+{
+	irq_flags_t flags;
+
+	if (!task)
+		return;
+	spin_lock_irqsave(&task->wait.lock, &flags);
+	signal_clear_pending_locked(task, mask);
+	spin_unlock_irqrestore(&task->wait.lock, flags);
+}
+
+static void signal_clear_opposite_pending_locked(struct task_struct *task,
+						 int sig)
 {
 	if (sig == SIGCONT)
-		signal_clear_pending(task, signal_stop_mask());
+		signal_clear_pending_locked(task, signal_stop_mask());
 	else if (signal_is_stop_signal(sig))
-		signal_clear_pending(task, signal_mask(SIGCONT));
+		signal_clear_pending_locked(task, signal_mask(SIGCONT));
 }
 
 static void signal_clear_shared_opposite_pending(struct signal_struct *signal,
@@ -697,37 +710,41 @@ static void signal_restore_deferred_mask(struct task_struct *task)
 
 static void wake_signal_target(struct task_struct *task, int sig)
 {
+	uint64_t blocked;
+	uint64_t pending;
+	uint64_t forced;
+	uint64_t mask;
+	irq_flags_t flags;
+	bool fatal;
+	bool deliverable;
+
 	if (!task)
 		return;
+	mask = signal_mask(sig);
+	/* Snapshot the task-directed state under the wait lock; run state
+	 * is deliberately not read here, the wake/resume calls re-validate
+	 * it under their own locks and no-op for non-blocked targets. */
+	spin_lock_irqsave(&task->wait.lock, &flags);
+	blocked = task->signal.blocked;
+	pending = task->signal.pending;
+	forced = task->signal.forced_pending;
+	spin_unlock_irqrestore(&task->wait.lock, flags);
 
-	if (task->run_state == TASK_BLOCKED &&
-	    ((signal_mask(sig) & ~task_blocked_mask(task)) ||
-	     !signal_is_catchable(sig))) {
-		(void)wait_wake_signal(task, false);
-		return;
-	}
-	if (task->run_state == TASK_BLOCKED && signal_fatal_pending(task)) {
-		(void)wait_wake_signal(task, true);
-		return;
-	}
-
-	if (sig == SIGCONT && task->run_state == TASK_STOPPED) {
+	fatal = sig == SIGKILL ||
+		((pending | forced) & signal_mask(SIGKILL)) != 0;
+	deliverable = fatal || !signal_is_catchable(sig) ||
+		      !(blocked & mask);
+	if (deliverable)
+		(void)wait_wake_signal(task, fatal);
+	if (sig == SIGCONT || sig == SIGKILL)
 		(void)sched_resume(task);
-		return;
-	}
-
-	if (sig == SIGKILL) {
-		if (task->run_state == TASK_STOPPED)
-			(void)sched_resume(task);
-		else if (task->run_state == TASK_BLOCKED)
-			(void)wait_wake_signal(task, true);
-	}
 }
 
 static int send_signal_info_internal(int sig, const siginfo_t *info,
 				     struct task_struct *task, bool force)
 {
 	uint64_t mask;
+	irq_flags_t flags;
 
 	if (!signal_is_valid(sig))
 		return -EINVAL;
@@ -736,9 +753,16 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 	if (task_signal_target_dead(task))
 		return -ESRCH;
 
-	mask = signal_mask(sig);
-	signal_clear_opposite_pending(task, sig);
+	/* Shared pending first: the signal mutex (rank 15) must never nest
+	 * under the target wait lock (rank 40). */
 	signal_clear_task_shared_opposite_pending(task, sig);
+	mask = signal_mask(sig);
+	spin_lock_irqsave(&task->wait.lock, &flags);
+	if (task_is_exiting(task)) {
+		spin_unlock_irqrestore(&task->wait.lock, flags);
+		return -ESRCH;
+	}
+	signal_clear_opposite_pending_locked(task, sig);
 	if (!(task_pending_mask(task) & mask)) {
 		task->signal.pending_info[sig] = *info;
 		task->signal.pending_info[sig].si_signo = sig;
@@ -746,6 +770,7 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 	}
 	if (force)
 		task->signal.forced_pending |= mask;
+	spin_unlock_irqrestore(&task->wait.lock, flags);
 	wake_signal_target(task, sig);
 	if (sig == SIGCONT && task->proc) {
 		struct proc_parent_event event;
@@ -811,14 +836,18 @@ int send_group_signal_info(int sig, const siginfo_t *info,
 	}
 	mutex_unlock(&signal->lock);
 
-	signal_clear_opposite_pending(leader, sig);
 	if (leader->proc) {
 		count = proc_task_snapshot(leader->proc, NULL, targets,
 					   PID_COUNT);
 		for (size_t index = 0; index < count; index++) {
-			signal_clear_opposite_pending(targets[index], sig);
-			wake_signal_target(targets[index], sig);
-			task_put(targets[index]);
+			struct task_struct *target = targets[index];
+			irq_flags_t flags;
+
+			spin_lock_irqsave(&target->wait.lock, &flags);
+			signal_clear_opposite_pending_locked(target, sig);
+			spin_unlock_irqrestore(&target->wait.lock, flags);
+			wake_signal_target(target, sig);
+			task_put(target);
 		}
 		/* Publish once per proc, after all targets were woken, so the
 		 * continue event reflects the whole-proc resume state. */
@@ -830,6 +859,11 @@ int send_group_signal_info(int sig, const siginfo_t *info,
 			proc_parent_event_release(&event);
 		}
 	} else {
+		irq_flags_t flags;
+
+		spin_lock_irqsave(&leader->wait.lock, &flags);
+		signal_clear_opposite_pending_locked(leader, sig);
+		spin_unlock_irqrestore(&leader->wait.lock, flags);
 		wake_signal_target(leader, sig);
 	}
 	kfree(targets);
@@ -846,8 +880,8 @@ int send_group_signal(int sig, struct task_struct *leader)
 	return send_group_signal_info(sig, &info, leader);
 }
 
-int signal_pending_info(const struct task_struct *task, int sig,
-			siginfo_t *info)
+static int signal_pending_info_locked(const struct task_struct *task, int sig,
+				      siginfo_t *info)
 {
 	if (!task || !info || !signal_is_valid(sig))
 		return -EINVAL;
@@ -1256,18 +1290,25 @@ static int take_shared_pending(int sig, siginfo_t *info)
 
 static int take_pending_from_set(uint64_t set, siginfo_t *info)
 {
-	uint64_t pending = task_pending_mask(current_task()) & set;
+	struct task_struct *task = current_task();
+	uint64_t pending;
+	irq_flags_t flags;
+	int sig;
 
-	for (int sig = 1; sig <= NSIG; sig++) {
+	spin_lock_irqsave(&task->wait.lock, &flags);
+	pending = task_pending_mask(task) & set;
+	for (sig = 1; sig <= NSIG; sig++) {
 		uint64_t mask = signal_mask(sig);
 
 		if (!(pending & mask))
 			continue;
-		if (signal_pending_info(current_task(), sig, info) < 0)
+		if (signal_pending_info_locked(task, sig, info) < 0)
 			continue;
-		signal_clear_pending(current_task(), mask);
+		signal_clear_pending_locked(task, mask);
+		spin_unlock_irqrestore(&task->wait.lock, flags);
 		return sig;
 	}
+	spin_unlock_irqrestore(&task->wait.lock, flags);
 
 	return take_shared_pending_from_set(set, info);
 }
@@ -1403,16 +1444,26 @@ void do_signal(struct trap_frame *tf)
 		uint64_t mask = signal_mask(sig);
 		struct sigaction action = get_signal_action(sig);
 		__sighandler_t handler = action.sa_handler;
-		forced = !shared &&
-			 (current_task()->signal.forced_pending & mask) != 0;
 
 		if (shared) {
+			forced = false;
 			if (take_shared_pending(sig, &info) < 0)
 				continue;
 		} else {
-			if (signal_pending_info(current_task(), sig, &info) < 0)
+			irq_flags_t flags;
+
+			spin_lock_irqsave(&current_task()->wait.lock, &flags);
+			if (signal_pending_info_locked(current_task(), sig,
+						       &info) < 0) {
+				spin_unlock_irqrestore(
+					&current_task()->wait.lock, flags);
 				continue;
-			signal_clear_pending(current_task(), mask);
+			}
+			forced = (current_task()->signal.forced_pending &
+				  mask) != 0;
+			signal_clear_pending_locked(current_task(), mask);
+			spin_unlock_irqrestore(&current_task()->wait.lock,
+					       flags);
 		}
 
 		if (handler == SIG_IGN || handler == SIG_DFL)

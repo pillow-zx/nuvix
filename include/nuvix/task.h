@@ -96,6 +96,11 @@ struct cred {
 	gid_t groups[NGROUPS_MAX];
 };
 
+/* Task-directed pending state (pending, forced_pending, pending_info) is
+ * protected by the task's wait lock (LOCK_RANK_WAIT, 40); shared pending
+ * stays under the signal mutex (LOCK_RANK_SIGNAL, 15), which must never
+ * nest under the wait lock.  blocked is a lockless hint written only by
+ * the task itself. */
 struct task_signal_context {
 	uint64_t blocked;
 	uint64_t pending;

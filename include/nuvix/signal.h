@@ -219,8 +219,6 @@ void signal_notify_proc_parent(const struct proc_parent_event *event);
 int send_current_signal(int sig);
 int force_signal(int sig, struct task_struct *task);
 int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
-int signal_pending_info(const struct task_struct *task, int sig,
-			siginfo_t *info);
 bool signal_pending(struct task_struct *task);
 bool signal_fatal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);
