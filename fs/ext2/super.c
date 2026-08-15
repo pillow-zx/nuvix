@@ -115,6 +115,7 @@ static int ext2_statfs(struct super_block *sb, struct statfs64 *buf)
 	if (!sbi)
 		return -EINVAL;
 
+	spin_lock(&sbi->s_lock);
 	for (uint32_t i = 0; i < sbi->s_groups_count; i++) {
 		free_blocks += sbi->s_group_desc[i].bg_free_blocks_count;
 		free_inodes += sbi->s_group_desc[i].bg_free_inodes_count;
@@ -132,6 +133,7 @@ static int ext2_statfs(struct super_block *sb, struct statfs64 *buf)
 	buf->f_namelen = EXT2_NAME_LEN;
 	buf->f_frsize = sb->s_blocksize;
 	buf->f_flags = 0;
+	spin_unlock(&sbi->s_lock);
 	return 0;
 }
 
@@ -253,6 +255,7 @@ static int ext2_read_super(struct super_block *sb)
 	if (!sbi)
 		return -ENOMEM;
 	memset(sbi, 0, sizeof(*sbi));
+	spin_lock_init(&sbi->s_lock, LOCK_RANK_EXT2_SB);
 	sbi->s_es = *es;
 
 	sbi->s_inode_size = sbi->s_es.s_rev_level == EXT2_GOOD_OLD_REV

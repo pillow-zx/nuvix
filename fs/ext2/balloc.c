@@ -87,7 +87,7 @@ static void ext2_zero_block(struct super_block *sb, uint32_t block)
 	pgcache_put_page(page);
 }
 
-uint32_t ext2_alloc_block(struct inode *inode)
+uint32_t ext2_alloc_block_locked(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
@@ -140,6 +140,17 @@ uint32_t ext2_alloc_block(struct inode *inode)
 	return 0;
 }
 
+uint32_t ext2_alloc_block(struct inode *inode)
+{
+	struct ext2_sb_info *sbi = EXT2_SB(inode->i_sb);
+	uint32_t block;
+
+	spin_lock(&sbi->s_lock);
+	block = ext2_alloc_block_locked(inode);
+	spin_unlock(&sbi->s_lock);
+	return block;
+}
+
 void ext2_free_block(struct super_block *sb, uint32_t block)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
@@ -158,10 +169,13 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	if (group >= sbi->s_groups_count)
 		return;
 
+	spin_lock(&sbi->s_lock);
 	page = pgcache_get_block(sb->s_dev,
 				    sbi->s_group_desc[group].bg_block_bitmap);
-	if (!page)
+	if (!page) {
+		spin_unlock(&sbi->s_lock);
 		return;
+	}
 	data = page_cache_data(page);
 
 	if (bitmap_test_bit(data, bit)) {
@@ -175,12 +189,15 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	}
 
 	pgcache_put_page(page);
+	spin_unlock(&sbi->s_lock);
 }
 
 uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
+	uint32_t ino;
 
+	spin_lock(&sbi->s_lock);
 	for (uint32_t group = 0; group < sbi->s_groups_count; group++) {
 		struct ext2_group_desc *gd = &sbi->s_group_desc[group];
 		struct pgcache *page;
@@ -190,17 +207,19 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 			continue;
 
 		page = pgcache_get_block(sb->s_dev, gd->bg_inode_bitmap);
-		if (!page)
-			return 0;
+		if (!page) {
+			ino = 0;
+			goto out;
+		}
 		data = page_cache_data(page);
 
 		for (uint32_t bit = 0; bit < sbi->s_inodes_per_group; bit++) {
 			if (bitmap_test_bit(data, bit))
 				continue;
 
-			uint32_t ino =
-				group * sbi->s_inodes_per_group + bit + 1;
 			int sync_ret;
+
+			ino = group * sbi->s_inodes_per_group + bit + 1;
 
 			bitmap_set_bit(data, bit);
 			sync_ret = pgcache_sync_page(page);
@@ -213,13 +232,15 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 			sbi->s_es.s_free_inodes_count--;
 			ext2_sync_group_desc(sb, group);
 			ext2_sync_super(sb);
-			return ino;
+			goto out;
 		}
 
 		pgcache_put_page(page);
 	}
-
-	return 0;
+	ino = 0;
+out:
+	spin_unlock(&sbi->s_lock);
+	return ino;
 }
 
 void ext2_free_inode(struct super_block *sb, uint32_t ino)
@@ -239,10 +260,13 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	if (group >= sbi->s_groups_count)
 		return;
 
+	spin_lock(&sbi->s_lock);
 	page = pgcache_get_block(sb->s_dev,
 				    sbi->s_group_desc[group].bg_inode_bitmap);
-	if (!page)
+	if (!page) {
+		spin_unlock(&sbi->s_lock);
 		return;
+	}
 	data = page_cache_data(page);
 
 	if (bitmap_test_bit(data, bit)) {
@@ -256,4 +280,5 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	}
 
 	pgcache_put_page(page);
+	spin_unlock(&sbi->s_lock);
 }
