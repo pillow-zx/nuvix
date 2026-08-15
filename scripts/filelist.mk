@@ -29,6 +29,7 @@ KERNEL_OBJS = \
 	kernel/ipi.o            \
 	kernel/stacktrace.o     \
 	kernel/mutex.o          \
+	kernel/lock_order.o     \
 	kernel/task.o           \
 	kernel/proc.o           \
 	kernel/fork.o           \

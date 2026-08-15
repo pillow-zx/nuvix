@@ -12,12 +12,19 @@ typedef struct spinlock {
 	IFDEF(CONFIG_DEBUG_CONTEXT, uint16_t rank;)
 } spinlock_t;
 
+#ifdef CONFIG_DEBUG_CONTEXT
+__must_check bool lock_equal_rank_order_ok(const spinlock_t *prev,
+					   const spinlock_t *next);
+#endif
+
 /*
  * Lock ordering rules (must hold in every acquisition sequence):
  *
- *  1. Task context acquires locks in strictly increasing rank.  This makes
- *     the kernel-wide hold-wait graph a total order, so no deadlock cycle
- *     can exist.
+ *  1. Task context acquires locks in non-decreasing rank.  Strictly
+ *     increasing acquisition makes the kernel-wide hold-wait graph a total
+ *     order, so no deadlock cycle can exist; equal-rank nesting is allowed
+ *     only for pairs with a globally fixed acquisition order, which debug
+ *     builds check against the registered ordered pairs.
  *  2. Task context and interrupt handlers on the same CPU share one lock
  *     stack (cpu->locks): the rank check below therefore also validates
  *     cross-context ordering.  Any lock acquired in hardirq context must
@@ -116,6 +123,13 @@ static inline void spinlock_track_acquire(spinlock_t *lock, irq_flags_t flags, b
 	if (depth && lock->rank && cpu->locks[depth - 1]->rank &&
 	    lock->rank < cpu->locks[depth - 1]->rank)
 		panic("spinlock rank inversion: lock=%p rank=%u top=%p rank=%u",
+		      lock, lock->rank, cpu->locks[depth - 1],
+		      cpu->locks[depth - 1]->rank);
+	if (depth && lock->rank && cpu->locks[depth - 1]->rank &&
+	    lock->rank == cpu->locks[depth - 1]->rank &&
+	    !lock_equal_rank_order_ok(cpu->locks[depth - 1], lock))
+		panic("spinlock equal-rank order violation: lock=%p rank=%u "
+		      "top=%p rank=%u",
 		      lock, lock->rank, cpu->locks[depth - 1],
 		      cpu->locks[depth - 1]->rank);
 	cpu->locks[depth] = lock;
