@@ -97,10 +97,12 @@ struct cred {
 };
 
 /* Task-directed pending state (pending, forced_pending, pending_info) is
- * protected by the task's wait lock (LOCK_RANK_WAIT, 40); shared pending
- * stays under the signal mutex (LOCK_RANK_SIGNAL, 15), which must never
- * nest under the wait lock.  blocked is a lockless hint written only by
- * the task itself. */
+ * protected by the task's wait lock (LOCK_RANK_WAIT, 40) against remote
+ * writers and consistent takes; the owning task's own self-context mask
+ * reads of pending/forced_pending are lockless hints, re-validated under
+ * the lock before consumption.  shared pending stays under the signal
+ * mutex (LOCK_RANK_SIGNAL, 15), which must never nest under the wait lock.
+ * blocked is a lockless hint written only by the task itself. */
 struct task_signal_context {
 	uint64_t blocked;
 	uint64_t pending;

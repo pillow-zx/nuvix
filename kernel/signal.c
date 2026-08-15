@@ -714,6 +714,7 @@ static void wake_signal_target(struct task_struct *task, int sig)
 	uint64_t pending;
 	uint64_t forced;
 	uint64_t mask;
+	enum task_wait_policy policy;
 	irq_flags_t flags;
 	bool fatal;
 	bool deliverable;
@@ -723,18 +724,24 @@ static void wake_signal_target(struct task_struct *task, int sig)
 	mask = signal_mask(sig);
 	/* Snapshot the task-directed state under the wait lock; run state
 	 * is deliberately not read here, the wake/resume calls re-validate
-	 * it under their own locks and no-op for non-blocked targets. */
+	 * it under their own locks and no-op for non-blocked targets.  The
+	 * wait policy is read too: a task in a TASK_WAIT_UNINTERRUPTIBLE
+	 * wait (kernel mutex, exec serialization) must not be woken by a
+	 * signal — its wait's consumer treats only WAIT_OUTCOME_EVENT as
+	 * valid, so a signal wake would trip a BUG_ON.  wait_wake_signal
+	 * re-validates the policy under the wait lock. */
 	spin_lock_irqsave(&task->wait.lock, &flags);
 	blocked = task->signal.blocked;
 	pending = task->signal.pending;
 	forced = task->signal.forced_pending;
+	policy = task->wait.policy;
 	spin_unlock_irqrestore(&task->wait.lock, flags);
 
 	fatal = sig == SIGKILL ||
 		((pending | forced) & signal_mask(SIGKILL)) != 0;
 	deliverable = fatal || !signal_is_catchable(sig) ||
 		      !(blocked & mask);
-	if (deliverable)
+	if (deliverable && policy != TASK_WAIT_UNINTERRUPTIBLE)
 		(void)wait_wake_signal(task, fatal);
 	if (sig == SIGCONT || sig == SIGKILL)
 		(void)sched_resume(task);
