@@ -319,6 +319,8 @@ static bool task_active_on_cpu(const struct task_struct *task)
 {
 	if (!task)
 		return false;
+	/* Diagnostics only, racy by design: CPU current pointers are
+	 * scheduler-owned and this scan takes no runqueue lock. */
 	for (uint32_t id = 0; id < nr_cpu_ids; id++)
 		if (cpu_current_task(cpu_by_id(id)) == task)
 			return true;
@@ -413,6 +415,9 @@ void task_mark_dead(struct task_struct *task)
 
 bool task_reap_ready(const struct task_struct *task)
 {
+	/* Only the reaper calls this, after sched_retired_pop(): the retired
+	 * queue lock transfer orders every field written before the push
+	 * (lifecycle, on_rq, wait teardown, proc detach) with this read. */
 	return task && !task_is_idle(task) && task != current_task() &&
 	       task->lifecycle == TASK_DEAD && !task->on_rq &&
 	       !task_active_on_cpu(task) && task->wait.status == WAIT_IDLE &&

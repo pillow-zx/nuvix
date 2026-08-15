@@ -16,6 +16,11 @@ struct retired_queue {
 };
 
 static struct retired_queue retired_queues[NR_CPUS];
+/* Exiting tasks whose kernel stack is still in use until the next context
+ * switch completes on this CPU.  The switch-core tail, the exit path, and
+ * the tick drain this list into the retired queue, so the reaper only ever
+ * pops tasks whose stack is provably abandoned. */
+static struct list_head retired_pending[NR_CPUS];
 static const struct sched_ops *policy = &rr_ops;
 
 static void sched_switch_current(void)
@@ -134,6 +139,7 @@ void sched_init(void)
 		rq->current = cpu_table[id].current_task;
 		spin_lock_init(&retired_queues[id].lock, LOCK_RANK_RETIRED);
 		INIT_LIST_HEAD(&retired_queues[id].tasks);
+		INIT_LIST_HEAD(&retired_pending[id]);
 	}
 }
 
@@ -293,6 +299,30 @@ bool sched_retired_pop(struct task_struct **task)
 	return false;
 }
 
+static void sched_retired_drain(void)
+{
+	struct retired_queue *retired = &retired_queues[current_cpu()->id];
+	struct list_head *pending = &retired_pending[current_cpu()->id];
+	struct list_head *pos;
+	struct list_head *n;
+	irq_flags_t flags;
+
+	if (list_empty(pending))
+		return;
+	spin_lock_irqsave(&retired->lock, &flags);
+	list_for_each_safe (pos, n, pending) {
+		struct task_struct *task = list_entry(pos, struct task_struct,
+						      retired_node);
+
+		/* Only reached after the task's own handoff completed, so
+		 * its stack is abandoned; on_cpu was cleared under the
+		 * runqueue lock before that switch. */
+		BUG_ON(task->on_cpu);
+		list_move_tail(pos, &retired->tasks);
+	}
+	spin_unlock_irqrestore(&retired->lock, flags);
+}
+
 bool sched_stop(struct task_struct *task)
 {
 	struct runqueue *rq;
@@ -368,6 +398,9 @@ static void sched_switch_core(void)
 		return;
 	}
 	sched_handoff(prev, next);
+	/* After an exit handoff this runs in the next task's context and
+	 * publishes the exiting tasks whose stacks were abandoned by it. */
+	sched_retired_drain();
 	local_irq_restore(flags);
 }
 
@@ -398,32 +431,33 @@ __noreturn
 void sched_exit_current(void)
 {
 	struct runqueue *rq;
-	struct retired_queue *retired;
 	struct task_struct *prev;
 	struct task_struct *next;
 	irq_flags_t flags;
-	irq_flags_t retired_flags;
 
 	BUG_ON(!current_task() || task_is_idle(current_task()));
 	BUG_ON(current_task()->lifecycle != TASK_DEAD);
 
 	local_irq_disable();
 	rq = sched_rq_for_cpu(current_cpu());
-	retired = &retired_queues[current_cpu()->id];
 	prev = current_task();
 	spin_lock_irqsave(&rq->lock, &flags);
 	BUG_ON(rq->current != prev || prev->on_rq || prev->on_cpu == false);
 	prev->run_state = TASK_STOPPED;
 	prev->on_cpu = false;
-	spin_lock_irqsave(&retired->lock, &retired_flags);
-	list_add_tail(&prev->retired_node, &retired->tasks);
-	spin_unlock_irqrestore(&retired->lock, retired_flags);
 	next = sched_pick_locked(rq);
 	if (!next)
 		next = rq->idle;
 	sched_switch_locked(rq, prev, next);
 	spin_unlock_irqrestore(&rq->lock, flags);
 	BUG_ON(next == prev);
+	/* Publish tasks abandoned by earlier switches before this one. */
+	sched_retired_drain();
+	BUG_ON(prev->on_cpu);
+	/* The retired publication is deferred until after the handoff
+	 * completes (the switch-core tail or the tick drains this list),
+	 * so the reaper can never free a stack still in use. */
+	list_add_tail(&prev->retired_node, &retired_pending[current_cpu()->id]);
 	sched_handoff(prev, next);
 	panic("sched: exited task resumed");
 	unreachable();
@@ -444,6 +478,9 @@ void sched_tick(void)
 	irq_flags_t flags;
 	bool expire;
 
+	/* Bounded fallback for publishing retired tasks whose exit handoff
+	 * switched to a task that never reaches the switch-core tail. */
+	sched_retired_drain();
 	if (!task || task_is_idle(task))
 		return;
 	if (task_trap_frome_user(task))
