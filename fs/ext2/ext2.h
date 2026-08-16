@@ -146,13 +146,6 @@ struct __packed ext2_dir_entry_2 {
 };
 
 struct ext2_sb_info {
-	/* Serializes all in-memory on-disk state: superblock counters, group
-	 * descriptors, bitmap bytes, inode-table copies, and directory entry
-	 * pages.  Rank 24; the page cache (25) may nest below it for dirty
-	 * marking.  Page fetches, device I/O, and frees must run outside
-	 * this lock (the debug-context allocator gate forbids allocation and
-	 * freeing while a spinlock is held), so callers pin the pages they
-	 * need before locking and sync/put them after unlocking. */
 	spinlock_t s_lock;
 	struct ext2_super_block s_es;
 	struct ext2_group_desc *s_group_desc;

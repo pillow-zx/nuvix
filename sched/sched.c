@@ -129,7 +129,8 @@ void sched_init(void)
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
 		struct runqueue *rq = &runqueues[id];
 
-		spin_lock_init(&rq->lock, LOCK_RANK_RUNQUEUE);
+		spin_lock_init(&rq->lock, LOCK_RANK_RUNQUEUE,
+				LOCK_IRQ_HARDIRQ_REACHABLE);
 		rq->cpu_id = id;
 		INIT_LIST_HEAD(&rq->runnable);
 		rq->nr_running = 0;
@@ -137,7 +138,8 @@ void sched_init(void)
 		 * is prepared. Offline CPUs keep a NULL current until brought up. */
 		rq->idle = cpu_table[id].idle_task;
 		rq->current = cpu_table[id].current_task;
-		spin_lock_init(&retired_queues[id].lock, LOCK_RANK_RETIRED);
+		spin_lock_init(&retired_queues[id].lock, LOCK_RANK_RETIRED,
+				LOCK_IRQ_HARDIRQ_REACHABLE);
 		INIT_LIST_HEAD(&retired_queues[id].tasks);
 		INIT_LIST_HEAD(&retired_pending[id]);
 	}

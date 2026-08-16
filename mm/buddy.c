@@ -12,7 +12,8 @@
 
 struct page *mem_map;
 struct free_area free_area[MAX_ORDER + 1];
-static DEFINE_SPINLOCK(buddy_lock, LOCK_RANK_ALLOC);
+static DEFINE_SPINLOCK(buddy_lock, LOCK_RANK_ALLOC_BUDDY,
+			   LOCK_IRQ_TASK_ONLY);
 static size_t total_pages;
 static size_t nr_free_pages;
 

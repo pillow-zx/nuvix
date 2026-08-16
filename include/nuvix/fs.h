@@ -253,7 +253,7 @@ struct super_block {
  * - @c i_ctime_sec: Last metadata-change time, seconds.
  * - @c i_rdev: Device id for special files.
  * - @c i_refcount: Lifetime reference count.
- * - @c i_lock: Serializes inode data mutations (rank 23).
+ * - @c i_lock: Serializes inode data mutations (rank 130).
  * - @c i_sb: Owning superblock.
  * - @c i_op: Namespace/metadata operations.
  * - @c i_fop: Default file operations.
@@ -368,7 +368,7 @@ struct path {
  * - @c f_mode: FMODE_* access mode bits.
  * - @c refcount: Open-file reference count.
  * - @c static_file: True for non-freeable built-in file objects.
- * - @c f_lock: Serializes @c f_pos for regular files (rank 22).  A mutex,
+ * - @c f_lock: Serializes @c f_pos for regular files (rank 110).  A mutex,
  *   like Linux's f_pos_lock: the data path allocates page-cache pages,
  *   which the debug-context gate forbids under a spinlock.
  */

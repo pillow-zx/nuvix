@@ -11,8 +11,8 @@
  * acquired explicitly when an object crosses an owner lock.
  *
  * Locking: topology membership and proc lifecycle are guarded by the
- * module-private proc_topology_lock (LOCK_RANK_TOPOLOGY, 20), acquired
- * inside session (10) / TTY (11) and before the proc wait state lock (40).
+ * module-private proc_topology_lock (LOCK_RANK_TOPOLOGY, 60), acquired
+ * inside session (10) / TTY (20) and before the proc wait state lock (310).
  * Lock-held sections detach objects and move references only; release every
  * acquired reference (proc/pgrp/session/task/pid) outside the lock.  The
  * two-phase wait claim (proc_wait_claim/commit/abort) hands out strong

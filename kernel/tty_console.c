@@ -104,9 +104,7 @@ void tty_console_init(void)
 {
 	int ret;
 
-	/* Ranks with the TTY: console lock regions may prepare on the
-	 * readable wait channel (rank 30) while holding this lock. */
-	spin_lock_init(&console_input.lock, LOCK_RANK_TTY);
+	spin_lock_init(&console_input.lock, LOCK_RANK_TTY, LOCK_IRQ_TASK_ONLY);
 	wait_channel_init(&console_input.readable);
 	tty_console_endpoint_init();
 	ret = vfs_register_chrdev(MKDEV(5, 1), &console_fops);

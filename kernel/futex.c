@@ -48,9 +48,8 @@ static void futex_waiter_detach(struct futex_bucket *bucket,
 void futex_init(void)
 {
 	for (int i = 0; i < FUTEX_BUCKETS; i++) {
-		/* Bucket lock ranks with wait channels: wake paths hand a
-		 * target off to wait_wake_event() outside the bucket lock. */
-		spin_lock_init(&futex_buckets[i].lock, LOCK_RANK_WAIT_CHANNEL);
+		spin_lock_init(&futex_buckets[i].lock, LOCK_RANK_FUTEX_BUCKET,
+				LOCK_IRQ_TASK_ONLY);
 		INIT_LIST_HEAD(&futex_buckets[i].waiters);
 	}
 }

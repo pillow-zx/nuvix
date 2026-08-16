@@ -29,7 +29,8 @@ void wait_init(void)
 
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
 		spin_lock_init(&deadline_queues[id].lock,
-					LOCK_RANK_DEADLINE);
+					LOCK_RANK_DEADLINE_QUEUE,
+					LOCK_IRQ_HARDIRQ_REACHABLE);
 		INIT_LIST_HEAD(&deadline_queues[id].entries);
 	}
 	local_irq_restore(flags);
@@ -142,7 +143,8 @@ static void wait_block_current(void)
 
 void wait_channel_init(struct wait_channel *channel)
 {
-	spin_lock_init(&channel->lock, LOCK_RANK_WAIT_CHANNEL);
+	spin_lock_init(&channel->lock, LOCK_RANK_WAIT_CHANNEL,
+			LOCK_IRQ_TASK_ONLY);
 	INIT_LIST_HEAD(&channel->waiters);
 }
 

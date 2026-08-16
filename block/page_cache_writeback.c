@@ -14,11 +14,7 @@ static uint8_t *wb_buf;
 static uint32_t wb_pages;
 static bool wb_ready;
 
-/* Serializes the writeback worker's shared buffer: fill + device submit
- * must be one critical section, since the single wb_buf is the only staging
- * area for multi-page writeback.  The blocking deadline sleep stays outside
- * this lock (it lives in the worker loop, not in pgcache_wb_run). */
-DEFINE_SPINLOCK(wb_buf_lock, LOCK_RANK_WB_BUF);
+DEFINE_SPINLOCK(wb_buf_lock, LOCK_RANK_WB_BUF, LOCK_IRQ_TASK_ONLY);
 
 static bool pgcache_has_mapping_locked(struct pgcache *page,
 					  struct page_mapping *mapping)

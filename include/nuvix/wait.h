@@ -108,13 +108,13 @@ static inline struct wait_deadline wait_deadline_at(uint64_t expires)
 	return (struct wait_deadline){.active = true, .expires = expires};
 }
 
-#define WAIT_CHANNEL_INIT_RANK(name, rank)                                     \
+#define WAIT_CHANNEL_INIT_RANK(name, rank, irq_policy)                         \
 	{                                                                      \
-		.lock = SPINLOCK_INIT(rank),                                   \
+		.lock = SPINLOCK_INIT(rank, irq_policy),                       \
 		.waiters = LIST_HEAD_INIT((name).waiters),                     \
 	}
 #define WAIT_CHANNEL_INIT(name)                                                \
-	WAIT_CHANNEL_INIT_RANK(name, LOCK_RANK_WAIT_CHANNEL)
+	WAIT_CHANNEL_INIT_RANK(name, LOCK_RANK_WAIT_CHANNEL, LOCK_IRQ_TASK_ONLY)
 
 __always_inline __must_check __pure
 static inline bool wait_context_can_sleep(void)

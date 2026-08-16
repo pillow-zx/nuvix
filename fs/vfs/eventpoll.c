@@ -308,7 +308,7 @@ struct file *eventpoll_file_alloc(void)
 	if (!ep)
 		return NULL;
 
-	spin_lock_init(&ep->lock, LOCK_RANK_WAIT_CHANNEL);
+	spin_lock_init(&ep->lock, LOCK_RANK_EVENTPOLL, LOCK_IRQ_TASK_ONLY);
 	INIT_LIST_HEAD(&ep->items);
 	wait_channel_init(&ep->waitq);
 	ep->generation = 0;

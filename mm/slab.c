@@ -51,7 +51,8 @@ static_assert(sizeof(struct kmalloc_header) % alignof(struct list_head) == 0,
 	      "slab free-list nodes must be naturally aligned");
 
 static struct kmem_cache caches[NR_CACHES];
-static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC);
+static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC_SLAB,
+			   LOCK_IRQ_TASK_ONLY);
 
 static int find_cache(size_t size)
 {

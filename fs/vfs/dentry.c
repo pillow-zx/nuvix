@@ -14,12 +14,7 @@
 
 HASH_TABLE_DECLARE_STATIC(dentry_hashtable, DCACHE_HASH_BITS);
 
-/*
- * One global lock serializes the dentry and inode hash tables, each
- * superblock's inode list, and each dentry's child list.  All VFS cache
- * mutations run under it; frees and eviction run after it is released.
- */
-DEFINE_SPINLOCK(vfs_cache_lock, LOCK_RANK_VFS_CACHE);
+DEFINE_SPINLOCK(vfs_cache_lock, LOCK_RANK_VFS_CACHE, LOCK_IRQ_TASK_ONLY);
 
 static uint32_t dentry_hash(struct dentry *parent, const char *name,
 			    size_t namelen)

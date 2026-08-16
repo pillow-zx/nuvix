@@ -32,12 +32,14 @@ struct printk_ring {
 
 static void (*console_putc)(int ch);
 static bool printk_panic_mode;
-static DEFINE_SPINLOCK(console_lock, LOCK_RANK_CONSOLE_EMIT);
+static DEFINE_SPINLOCK(console_lock, LOCK_RANK_CONSOLE_EMIT,
+			       LOCK_IRQ_TASK_ONLY);
 
 static struct printk_ring printk_ring = {
-	.lock = SPINLOCK_INIT(LOCK_RANK_PRINTK_RING),
+	.lock = SPINLOCK_INIT(LOCK_RANK_PRINTK_RING, LOCK_IRQ_TASK_ONLY),
 	.read_wait = WAIT_CHANNEL_INIT(printk_ring.read_wait),
-	.read_lock = MUTEX_INIT(printk_ring.read_lock, LOCK_RANK_PRINTK_READ),
+	.read_lock = MUTEX_INIT(printk_ring.read_lock, LOCK_RANK_PRINTK_READ,
+				LOCK_IRQ_TASK_ONLY),
 };
 
 static size_t printk_ring_normalize_locked(uint64_t *sequence)

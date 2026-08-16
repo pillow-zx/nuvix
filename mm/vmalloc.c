@@ -27,7 +27,8 @@ static uintptr_t vmalloc_start;
 static uintptr_t vmalloc_end;
 static bool vmalloc_ready;
 static LIST_HEAD(vmalloc_areas);
-static DEFINE_SPINLOCK(vmalloc_lock, LOCK_RANK_ALLOC);
+static DEFINE_SPINLOCK(vmalloc_lock, LOCK_RANK_ALLOC_VMALLOC,
+			   LOCK_IRQ_TASK_ONLY);
 
 /* Clears PTEs and frees pages. Must never be called under vmalloc_lock:
  * free_page() rejects a held spinlock, and the PTE slots of a reserved span

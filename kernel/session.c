@@ -14,7 +14,7 @@
 
 #include "tty_internal.h"
 
-static DEFINE_MUTEX(session_lock, LOCK_RANK_SESSION);
+static DEFINE_MUTEX(session_lock, LOCK_RANK_SESSION, LOCK_IRQ_TASK_ONLY);
 
 struct session_process_identity {
 	pid_t pgid;

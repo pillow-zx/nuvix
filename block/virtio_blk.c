@@ -56,12 +56,8 @@ static struct vblk_used vblk_used __aligned(VRING_USED_ALIGN_SIZE);
 static struct virtio_blk_req vblk_req;
 static struct virtio_blk_dev vblk_dev;
 
-/* The whole build+submit+wait transaction is one critical section: the
- * vring, the single request slot, and the avail index are shared global
- * state and the busy-poll loop must see a consistent used index.  Interrupt-
- * driven virtio (a later phase) must replace this lock with an IRQ-safe
- * completion protocol, not nest interrupts under it. */
-DEFINE_SPINLOCK(vblk_submit_lock, LOCK_RANK_VIRTIO_SUBMIT);
+DEFINE_SPINLOCK(vblk_submit_lock, LOCK_RANK_VIRTIO_SUBMIT,
+		LOCK_IRQ_TASK_ONLY);
 
 static int virtio_blk_read_sectors(struct blkdev *bdev, void *buf,
 				   uint64_t sector, uint32_t nsec);

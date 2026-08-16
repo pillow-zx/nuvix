@@ -163,7 +163,7 @@ static struct pipe_buffer *pipe_buffer_alloc(void)
 		return NULL;
 
 	memset(pipe, 0, sizeof(*pipe));
-	spin_lock_init(&pipe->lock, LOCK_RANK_WAIT_CHANNEL);
+	spin_lock_init(&pipe->lock, LOCK_RANK_PIPE, LOCK_IRQ_TASK_ONLY);
 	pipe->data = get_free_page(0, ALLOC_NOWAIT);
 	if (!pipe->data) {
 		kfree(pipe);

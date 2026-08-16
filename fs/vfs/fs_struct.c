@@ -31,7 +31,7 @@ struct fs_struct *fs_alloc(void)
 
 	memset(fs, 0, sizeof(*fs));
 	refcount_set(&fs->refcount, 1);
-	mutex_init(&fs->lock, LOCK_RANK_FILES);
+	mutex_init(&fs->lock, LOCK_RANK_FILES_FS, LOCK_IRQ_TASK_ONLY);
 	fs->umask = 0022;
 	fs_set_initial_root(fs);
 	return fs;

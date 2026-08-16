@@ -9,7 +9,7 @@
 #include <nuvix/spinlock.h>
 #include <nuvix/task.h>
 
-static DEFINE_SPINLOCK(pid_lock, LOCK_RANK_PID);
+static DEFINE_SPINLOCK(pid_lock, LOCK_RANK_PID, LOCK_IRQ_TASK_ONLY);
 static bool pid_used[PID_COUNT];
 static struct pid_identity *pid_table[PID_COUNT];
 

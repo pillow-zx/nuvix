@@ -3,16 +3,6 @@
 
 /*
  * include/nuvix/session.h - process session and controlling-TTY policy
- *
- * Locking: every exported entry point serializes on the module-private
- * session mutex (LOCK_RANK_SESSION, 10).  Callers must not hold any other
- * lock when calling in; the module acquires session -> TTY (11) ->
- * topology/PID (20) in increasing rank.  Reference moves: the module only
- * detaches TTY/pgrp/session state inside the lock; released references are
- * returned to the caller through tty_ctty_state snapshots and must be
- * dropped with tty_ctty_state_release() / proc_orphan_event_release()
- * outside the session lock.  No final put, signal, wake, or hangup runs
- * while the session lock is held.
  */
 
 #include <nuvix/compiler.h>

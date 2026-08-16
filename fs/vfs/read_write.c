@@ -10,12 +10,6 @@
 #define SEEK_END 2
 #define VFS_COPY_BUF_SIZE 256
 
-/* f_pos is serialized by f_lock (a mutex, like Linux's f_pos_lock) for
- * regular files only: the data path allocates page-cache pages, which the
- * debug-context gate forbids under a spinlock, and pipes/character devices
- * must not take the lock at all because their ops can block on the wait
- * module.  pread/pwrite pass the caller-provided offset straight into the
- * core and never take f_lock for it. */
 static bool vfs_pos_locked(const struct file *file)
 {
 	return file && file->f_inode && S_ISREG(file->f_inode->i_mode);

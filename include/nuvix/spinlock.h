@@ -7,77 +7,67 @@
 #include <nuvix/printk.h>
 #include <nuvix/types.h>
 
+enum spinlock_irq_policy {
+	LOCK_IRQ_TASK_ONLY,
+	LOCK_IRQ_HARDIRQ_REACHABLE,
+};
+
 typedef struct spinlock {
 	atomic_t locked;
-	IFDEF(CONFIG_DEBUG_CONTEXT, uint16_t rank;)
+	IFDEF(CONFIG_DEBUG_CONTEXT,
+	      uint16_t rank;
+	      enum spinlock_irq_policy irq_policy;)
 } spinlock_t;
 
-#ifdef CONFIG_DEBUG_CONTEXT
-__must_check bool lock_equal_rank_order_ok(const spinlock_t *prev,
-					   const spinlock_t *next);
-#endif
+#define LOCK_RANK_SESSION          10
+#define LOCK_RANK_TTY              20
+#define LOCK_RANK_SIGNAL_HAND      30
+#define LOCK_RANK_SIGNAL_SHARED    40
+#define LOCK_RANK_REALTIME_CLOCK   50
+#define LOCK_RANK_VFORK            55
+#define LOCK_RANK_TOPOLOGY         60
+#define LOCK_RANK_PROC             65
+#define LOCK_RANK_PID              70
+#define LOCK_RANK_PRINTK_READ      80
+#define LOCK_RANK_FILES_FDTABLE    90
+#define LOCK_RANK_FILES_FS         100
+#define LOCK_RANK_FILE_POSITION    110
+#define LOCK_RANK_VFS_CACHE        120
+#define LOCK_RANK_INODE            130
+#define LOCK_RANK_EXT2_SB          140
+#define LOCK_RANK_MM_MMAP          150
+#define LOCK_RANK_PRINTK_RING      160
+#define LOCK_RANK_VFS_MOUNT        170
+#define LOCK_RANK_PAGE_CACHE       180
+#define LOCK_RANK_CONSOLE_EMIT     190
+#define LOCK_RANK_WB_BUF           200
+#define LOCK_RANK_VIRTIO_SUBMIT    210
+#define LOCK_RANK_EVENTPOLL        220
+#define LOCK_RANK_PIPE             230
+#define LOCK_RANK_FUTEX_BUCKET     240
+#define LOCK_RANK_WAIT_CHANNEL     250
+#define LOCK_RANK_ALLOC_BUDDY      260
+#define LOCK_RANK_ALLOC_SLAB       270
+#define LOCK_RANK_ALLOC_VMALLOC    280
+#define LOCK_RANK_DEADLINE_QUEUE   290
+#define LOCK_RANK_CLOCKEVENT       300
+#define LOCK_RANK_WAIT             310
+#define LOCK_RANK_RUNQUEUE         320
+#define LOCK_RANK_RETIRED          330
 
-/*
- * Lock ordering rules (must hold in every acquisition sequence):
- *
- *  1. Task context acquires locks in non-decreasing rank.  Strictly
- *     increasing acquisition makes the kernel-wide hold-wait graph a total
- *     order, so no deadlock cycle can exist; equal-rank nesting is allowed
- *     only for pairs with a globally fixed acquisition order, which debug
- *     builds check against the registered ordered pairs.
- *  2. Task context and interrupt handlers on the same CPU share one lock
- *     stack (cpu->locks): the rank check below therefore also validates
- *     cross-context ordering.  Any lock acquired in hardirq context must
- *     rank at least as high as every lock that task context may hold with
- *     IRQs enabled.
- *  3. Consequently, task-context locks that hardirq handlers can reach
- *     (WAIT class and below) must be held with interrupts disabled via
- *     spin_lock_irqsave; DEADLINE and above form the "IRQ-safe" block.
- *  4. rank 0 = unranked, exempt from the check (gradual migration).
- *
- * Lock-held sections only detach objects and move references; they must not
- * execute a final put (refcount to zero), free, signal delivery, wake,
- * TTY hangup, user memory access, schedule, or any blocking operation.
- * Side effects run after the lock is released on a stable reference or
- * snapshot acquired inside the lock.
- */
-#define LOCK_RANK_SESSION      10
-#define LOCK_RANK_TTY	       11
-#define LOCK_RANK_SIGNAL       15
-#define LOCK_RANK_TOPOLOGY     20
-#define LOCK_RANK_PID	       20
-#define LOCK_RANK_PRINTK_READ  20
-#define LOCK_RANK_FILES        22
-#define LOCK_RANK_VFS_CACHE    23
-/* Per-inode data mutation mutex; never acquired under vfs_cache_lock. */
-#define LOCK_RANK_INODE        23
-#define LOCK_RANK_EXT2_SB      24
-#define LOCK_RANK_MM_MMAP      24
-#define LOCK_RANK_PRINTK_RING  25
-#define LOCK_RANK_VFS_MOUNT    25
-#define LOCK_RANK_PAGE_CACHE   25
-#define LOCK_RANK_CONSOLE_EMIT 26
-#define LOCK_RANK_VIRTIO_SUBMIT 26
-#define LOCK_RANK_WB_BUF       26
-#define LOCK_RANK_WAIT_CHANNEL 30
-#define LOCK_RANK_ALLOC	       35
-#define LOCK_RANK_WAIT	       40
-#define LOCK_RANK_DEADLINE     45
-#define LOCK_RANK_RUNQUEUE     50
-#define LOCK_RANK_RETIRED      60
-
-#define SPINLOCK_INIT(...)                                                     \
+#define SPINLOCK_INIT(rank_value, irq_policy_value)                            \
 	{.locked = ATOMIC_INIT(0),                                             \
-	 IFDEF(CONFIG_DEBUG_CONTEXT, __VA_OPT__(.rank = __VA_ARGS__, ))}
-#define DEFINE_SPINLOCK(name, ...)                                             \
-	spinlock_t name = SPINLOCK_INIT(__VA_ARGS__);
+	 IFDEF(CONFIG_DEBUG_CONTEXT, .rank = (rank_value),                       \
+	       .irq_policy = (irq_policy_value),)}
+#define DEFINE_SPINLOCK(name, rank_value, irq_policy_value)                    \
+	spinlock_t name = SPINLOCK_INIT(rank_value, irq_policy_value);
 
-#define spin_lock_init(lock, ...)                                              \
+#define spin_lock_init(lock, rank_value, irq_policy_value)                     \
 	do {                                                                   \
 		BUG_ON(!lock);                                                 \
 		atomic_set(&(lock)->locked, 0);                                \
-		IFDEF(CONFIG_DEBUG_CONTEXT, (lock)->rank = 0;                  \
-		      __VA_OPT__((lock)->rank = __VA_ARGS__;))                 \
+		IFDEF(CONFIG_DEBUG_CONTEXT, (lock)->rank = (rank_value);        \
+		      (lock)->irq_policy = (irq_policy_value);)                \
 	} while (0)
 
 /**
@@ -117,20 +107,24 @@ __always_inline __nonnull(1)
 static inline void spinlock_track_acquire(spinlock_t *lock, irq_flags_t flags, bool irqsave)
 {
 	struct cpu *cpu = current_cpu();
+	bool hardirq = in_irq();
+	bool irq_disabled = irqs_disabled();
 	irq_flags_t track_flags = local_irq_save();
 
 	uint32_t depth = cpu_lock_depth(cpu);
 
 	BUG_ON(depth >= CPU_LOCK_MAX);
+	if (lock->irq_policy == LOCK_IRQ_TASK_ONLY && hardirq)
+		panic("task-only spinlock in hardirq: lock=%p rank=%u",
+		      lock, lock->rank);
+	if (lock->irq_policy == LOCK_IRQ_HARDIRQ_REACHABLE && !hardirq &&
+	    !irq_disabled)
+		panic("hardirq-reachable spinlock with IRQs enabled: lock=%p "
+		      "rank=%u",
+		      lock, lock->rank);
 	if (depth && lock->rank && cpu->locks[depth - 1]->rank &&
-	    lock->rank < cpu->locks[depth - 1]->rank)
-		panic("spinlock rank inversion: lock=%p rank=%u top=%p rank=%u",
-		      lock, lock->rank, cpu->locks[depth - 1],
-		      cpu->locks[depth - 1]->rank);
-	if (depth && lock->rank && cpu->locks[depth - 1]->rank &&
-	    lock->rank == cpu->locks[depth - 1]->rank &&
-	    !lock_equal_rank_order_ok(cpu->locks[depth - 1], lock))
-		panic("spinlock equal-rank order violation: lock=%p rank=%u "
+	    lock->rank <= cpu->locks[depth - 1]->rank)
+		panic("spinlock rank not strictly increasing: lock=%p rank=%u "
 		      "top=%p rank=%u",
 		      lock, lock->rank, cpu->locks[depth - 1],
 		      cpu->locks[depth - 1]->rank);
@@ -179,10 +173,8 @@ static inline void spin_lock_irqsave(spinlock_t *lock, irq_flags_t *flags)
 	BUG_ON(!lock);
 	BUG_ON(!flags);
 
-#ifdef CONFIG_DEBUG_CONTEXT
-	BUG_ON(spinlock_held_by_current(lock));
-	BUG_ON(lock_depth() >= CPU_LOCK_MAX);
-#endif
+	IFDEF(CONFIG_DEBUG_CONTEXT, BUG_ON(spinlock_held_by_current(lock));)
+	IFDEF(CONFIG_DEBUG_CONTEXT, BUG_ON(lock_depth() >= CPU_LOCK_MAX);)
 
 	cpu_inc_preempt_count(current_cpu());
 	*flags = local_irq_save();
@@ -226,10 +218,11 @@ static inline void spin_lock(spinlock_t *lock)
 	int expected;
 
 	BUG_ON(!lock);
-#ifdef CONFIG_DEBUG_CONTEXT
-	BUG_ON(spinlock_held_by_current(lock));
-	BUG_ON(lock_depth() >= CPU_LOCK_MAX);
-#endif
+
+	IFDEF(CONFIG_DEBUG_CONTEXT, BUG_ON(spinlock_held_by_current(lock));)
+	IFDEF(CONFIG_DEBUG_CONTEXT, BUG_ON(lock_depth() >= CPU_LOCK_MAX);)
+
+
 	cpu_inc_preempt_count(current_cpu());
 	do {
 		expected = 0;

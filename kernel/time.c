@@ -27,9 +27,7 @@ struct clockevent_cpu {
 };
 
 static struct realtime_clock realtime_clock = {
-	/* Task-context only, never nested with another lock; keep it ranked
-	 * below the IRQ-safe block so a timer interrupt can preempt it. */
-	.lock = SPINLOCK_INIT(LOCK_RANK_TOPOLOGY),
+	.lock = SPINLOCK_INIT(LOCK_RANK_REALTIME_CLOCK, LOCK_IRQ_TASK_ONLY),
 };
 
 static struct clockevent_cpu clockevents[NR_CPUS];
@@ -46,9 +44,8 @@ void clockevent_init(void)
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
 		struct clockevent_cpu *event = &clockevents[id];
 
-		/* Ranks with the deadline queue: the clockevent is programmed
-		 * from deadline changes and consulted from the timer IRQ. */
-		spin_lock_init(&event->lock, LOCK_RANK_DEADLINE);
+		spin_lock_init(&event->lock, LOCK_RANK_CLOCKEVENT,
+				LOCK_IRQ_HARDIRQ_REACHABLE);
 		event->next_tick = UINT64_MAX;
 		event->programmed = UINT64_MAX;
 		event->initialized = false;

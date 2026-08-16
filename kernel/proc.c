@@ -15,7 +15,8 @@
 #include <nuvix/task.h>
 #include <uapi/signal.h>
 
-static DEFINE_SPINLOCK(proc_topology_lock, LOCK_RANK_TOPOLOGY);
+static DEFINE_SPINLOCK(proc_topology_lock, LOCK_RANK_TOPOLOGY,
+		       LOCK_IRQ_TASK_ONLY);
 
 void proc_parent_event_release(struct proc_parent_event *event)
 {
@@ -123,7 +124,7 @@ static struct session_struct *session_alloc(struct pid_identity *sid)
 	if (!session)
 		return NULL;
 	refcount_set(&session->refs, 1);
-	spin_lock_init(&session->lock, LOCK_RANK_TOPOLOGY);
+	spin_lock_init(&session->lock, LOCK_RANK_TOPOLOGY, LOCK_IRQ_TASK_ONLY);
 	INIT_LIST_HEAD(&session->pgrps);
 	session->ctty = NULL;
 	session->sid = sid;
@@ -145,7 +146,7 @@ static struct pgrp_struct *pgrp_alloc(struct pid_identity *pgid,
 	if (!pgrp)
 		return NULL;
 	refcount_set(&pgrp->refs, 1);
-	spin_lock_init(&pgrp->lock, LOCK_RANK_TOPOLOGY);
+	spin_lock_init(&pgrp->lock, LOCK_RANK_TOPOLOGY, LOCK_IRQ_TASK_ONLY);
 	INIT_LIST_HEAD(&pgrp->members);
 	INIT_LIST_HEAD(&pgrp->session_node);
 	pgrp->orphaned = true;
@@ -232,7 +233,7 @@ static void proc_update_pgrp_orphaned_locked(struct pgrp_struct *pgrp,
 
 static void proc_wait_init(struct proc_wait_state *wait)
 {
-	spin_lock_init(&wait->lock, LOCK_RANK_WAIT);
+	spin_lock_init(&wait->lock, LOCK_RANK_WAIT, LOCK_IRQ_HARDIRQ_REACHABLE);
 	wait_channel_init(&wait->channel);
 	wait->generation = 0;
 	wait->exit_generation = 0;
@@ -251,7 +252,7 @@ static void proc_wait_init(struct proc_wait_state *wait)
 
 static void proc_vfork_init(struct proc_vfork_state *vfork)
 {
-	spin_lock_init(&vfork->lock, LOCK_RANK_TOPOLOGY);
+	spin_lock_init(&vfork->lock, LOCK_RANK_VFORK, LOCK_IRQ_TASK_ONLY);
 	wait_channel_init(&vfork->channel);
 	vfork->active = false;
 	vfork->completed = false;
@@ -270,7 +271,7 @@ struct proc_struct *proc_alloc(struct proc_struct *parent,
 	if (!proc)
 		return NULL;
 	refcount_set(&proc->refs, 1);
-	spin_lock_init(&proc->lock, LOCK_RANK_TOPOLOGY);
+	spin_lock_init(&proc->lock, LOCK_RANK_PROC, LOCK_IRQ_TASK_ONLY);
 	proc->pid = pid;
 	pid_get(pid);
 	proc->lifecycle = PROC_NEW;
@@ -1182,8 +1183,6 @@ size_t proc_publish_exit(struct proc_struct *proc,
 				      parent_event);
 	spin_unlock(&proc_topology_lock);
 	orphan_count = proc_reparent_children(proc, events, capacity);
-	/* Lifecycle is topology-owned; wait state is updated in the same
-	 * lock order used by proc_wait_claim (topology, then wait state). */
 	spin_lock(&proc_topology_lock);
 	spin_lock_irqsave(&proc->wait_state.lock, &flags);
 	proc->wait_state.exit_status = status;
@@ -1619,7 +1618,7 @@ struct session_struct *proc_lookup_session(pid_t sid)
  * @brief Report whether a session has any pgrp with remaining members.
  *
  * Callers that hold the TTY lock may call this: the check runs under the
- * topology lock (rank 20), which orders after session (10) and TTY (11).
+ * topology lock (rank 60), which orders after session (10) and TTY (20).
  * No references are taken or released.  @p exclude is ignored for the
  * emptiness verdict (typically the exiting last member of the session).
  */

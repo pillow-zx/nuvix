@@ -153,7 +153,8 @@ int task_set_groups(struct task_struct *task, const gid_t *groups,
 
 static void task_init_wait(struct task_struct *task)
 {
-	spin_lock_init(&task->wait.lock, LOCK_RANK_WAIT);
+	spin_lock_init(&task->wait.lock, LOCK_RANK_WAIT,
+			LOCK_IRQ_HARDIRQ_REACHABLE);
 	task->wait.policy = TASK_WAIT_UNINTERRUPTIBLE;
 	task->wait.reason = TASK_WAKE_NONE;
 	task->wait.generation = 0;
@@ -517,9 +518,6 @@ bool task_try_get_live(struct task_struct *task)
 		return true;
 	if (!task_try_get(task))
 		return false;
-	/* Lifecycle transitions (task_begin_exit, task_mark_dead) happen
-	 * under task->wait.lock; read it under the same lock. Lock order:
-	 * pid_lock (20) then wait.lock (40), ascending. */
 	spin_lock_irqsave(&task->wait.lock, &flags);
 	live = task->lifecycle == TASK_LIVE;
 	spin_unlock_irqrestore(&task->wait.lock, flags);

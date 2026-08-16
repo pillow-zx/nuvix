@@ -40,7 +40,7 @@ struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
 	inode->i_ino = ino;
 	inode->i_sb = sb;
 	refcount_set(&inode->i_refcount, 1);
-	mutex_init(&inode->i_lock, LOCK_RANK_INODE);
+	mutex_init(&inode->i_lock, LOCK_RANK_INODE, LOCK_IRQ_TASK_ONLY);
 	page_mapping_init(&inode->i_pages, inode, 0, NULL);
 	INIT_LIST_HEAD(&inode->i_hash);
 	INIT_LIST_HEAD(&inode->i_sb_list);

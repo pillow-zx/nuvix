@@ -11,7 +11,7 @@
  * task-local signal state, credentials, and accounting.
  *
  * Locking and lifetime: lifecycle transitions run under the task's own
- * wait lock (LOCK_RANK_WAIT, 40); run state, on_rq, and CPU assignment are
+ * wait lock (LOCK_RANK_WAIT, 310); run state, on_rq, and CPU assignment are
  * scheduler-owned.  task_get()/task_put() are plain refcount operations, but
  * a final put destroys storage (kernel stack, TID role): never call
  * task_put() while holding any lock.  task_try_get_live() pairs a refcount
@@ -96,13 +96,6 @@ struct cred {
 	gid_t groups[NGROUPS_MAX];
 };
 
-/* Task-directed pending state (pending, forced_pending, pending_info) is
- * protected by the task's wait lock (LOCK_RANK_WAIT, 40) against remote
- * writers and consistent takes; the owning task's own self-context mask
- * reads of pending/forced_pending are lockless hints, re-validated under
- * the lock before consumption.  shared pending stays under the signal
- * mutex (LOCK_RANK_SIGNAL, 15), which must never nest under the wait lock.
- * blocked is a lockless hint written only by the task itself. */
 struct task_signal_context {
 	uint64_t blocked;
 	uint64_t pending;

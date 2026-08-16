@@ -203,7 +203,8 @@ struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 	file->f_mode = mode;
 	file->private_data = private_data;
 	refcount_set(&file->refcount, 1);
-	mutex_init(&file->f_lock, LOCK_RANK_FILES);
+	mutex_init(&file->f_lock, LOCK_RANK_FILE_POSITION,
+		   LOCK_IRQ_TASK_ONLY);
 
 	return file;
 }

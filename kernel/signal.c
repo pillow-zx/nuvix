@@ -217,7 +217,8 @@ static struct sighand_struct *sighand_alloc(void)
 
 	memset(sighand, 0, sizeof(*sighand));
 	refcount_set(&sighand->refcount, 1);
-	mutex_init(&sighand->lock, LOCK_RANK_SIGNAL);
+	mutex_init(&sighand->lock, LOCK_RANK_SIGNAL_HAND,
+		   LOCK_IRQ_TASK_ONLY);
 	return sighand;
 }
 
@@ -261,7 +262,8 @@ static struct signal_struct *signal_state_alloc(void)
 
 	memset(signal, 0, sizeof(*signal));
 	refcount_set(&signal->refcount, 1);
-	mutex_init(&signal->lock, LOCK_RANK_SIGNAL);
+	mutex_init(&signal->lock, LOCK_RANK_SIGNAL_SHARED,
+		   LOCK_IRQ_TASK_ONLY);
 	return signal;
 }
 
@@ -760,8 +762,6 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 	if (task_signal_target_dead(task))
 		return -ESRCH;
 
-	/* Shared pending first: the signal mutex (rank 15) must never nest
-	 * under the target wait lock (rank 40). */
 	signal_clear_task_shared_opposite_pending(task, sig);
 	mask = signal_mask(sig);
 	spin_lock_irqsave(&task->wait.lock, &flags);

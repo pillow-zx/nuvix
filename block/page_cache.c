@@ -15,7 +15,7 @@ HASH_TABLE_DECLARE_STATIC(pgcache_hashtable, PGCACHE_HASH_BITS);
 LIST_HEAD_STATIC(pgcache_lru);
 LIST_HEAD(pgcache_dirty_list);
 LIST_HEAD(pgcache_associations);
-DEFINE_SPINLOCK(pgcache_lock, LOCK_RANK_PAGE_CACHE);
+DEFINE_SPINLOCK(pgcache_lock, LOCK_RANK_PAGE_CACHE, LOCK_IRQ_TASK_ONLY);
 static uint32_t page_cache_pages;
 static bool page_cache_ready;
 
