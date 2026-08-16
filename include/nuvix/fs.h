@@ -171,8 +171,8 @@ struct inode_operations {
  * @brief Open-file operations used by VFS read/write/poll/ioctl paths.
  *
  * @par Fields
- * - @c read: Read from current file position into a kernel buffer.
- * - @c write: Write from a kernel buffer at the current file position.
+ * - @c read: Read from an explicit file position into a kernel buffer.
+ * - @c write: Write from a kernel buffer at an explicit file position.
  * - @c llseek: Implement SEEK_* repositioning for this file type.
  * - @c open: Finish opening @p file for @p inode.
  * - @c readdir: Emit directory entries through @p filldir.
@@ -181,8 +181,9 @@ struct inode_operations {
  * - @c release: Release file-private resources at final close.
  */
 struct file_operations {
-	ssize_t (*read)(struct file *file, char *buf, size_t count);
-	ssize_t (*write)(struct file *file, const char *buf, size_t count);
+	ssize_t (*read)(struct file *file, char *buf, size_t count, loff_t pos);
+	ssize_t (*write)(struct file *file, const char *buf, size_t count,
+			 loff_t pos);
 	loff_t (*llseek)(struct file *file, loff_t offset, int whence);
 	int (*open)(struct inode *inode, struct file *file);
 	int (*readdir)(struct file *file, void *ctx, filldir_t filldir);

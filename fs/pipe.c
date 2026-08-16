@@ -35,8 +35,9 @@ struct pipe_write_wait {
 	size_t min_space;
 };
 
-static ssize_t pipe_read(struct file *file, char *buf, size_t count);
-static ssize_t pipe_write(struct file *file, const char *buf, size_t count);
+static ssize_t pipe_read(struct file *file, char *buf, size_t count, loff_t pos);
+static ssize_t pipe_write(struct file *file, const char *buf, size_t count,
+			  loff_t pos);
 static int pipe_poll(struct file *file, uint32_t events,
 		     struct task_wait *wait);
 static int pipe_release(struct file *file);
@@ -186,12 +187,13 @@ static void pipe_buffer_free(struct pipe_buffer *pipe)
 	kfree(pipe);
 }
 
-static ssize_t pipe_read(struct file *file, char *buf, size_t count)
+static ssize_t pipe_read(struct file *file, char *buf, size_t count, loff_t pos)
 {
 	struct pipe_buffer *pipe = file->private_data;
 	size_t done = 0;
 	irq_flags_t flags;
 
+	(void)pos;
 	if (!pipe)
 		return -EINVAL;
 
@@ -233,7 +235,8 @@ static ssize_t pipe_read(struct file *file, char *buf, size_t count)
 	return (ssize_t)done;
 }
 
-static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
+static ssize_t pipe_write(struct file *file, const char *buf, size_t count,
+			  loff_t pos)
 {
 	struct pipe_buffer *pipe = file->private_data;
 	struct pipe_write_wait wait = {
@@ -244,6 +247,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count)
 	size_t done = 0;
 	irq_flags_t flags;
 
+	(void)pos;
 	if (!pipe)
 		return -EINVAL;
 	if (count == 0)

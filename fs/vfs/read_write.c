@@ -18,7 +18,7 @@ static bool vfs_pos_locked(const struct file *file)
 static ssize_t vfs_read_core(struct file *file, char *buf, size_t count,
 			     loff_t *pos)
 {
-	ssize_t ret = file->f_op->read(file, buf, count);
+	ssize_t ret = file->f_op->read(file, buf, count, *pos);
 
 	if (ret > 0)
 		*pos += ret;
@@ -50,7 +50,7 @@ static ssize_t vfs_write_core(struct file *file, const char *buf, size_t count,
 	if ((file->f_flags & O_APPEND) && file->f_inode)
 		*pos = (loff_t)file->f_inode->i_size;
 
-	ret = file->f_op->write(file, buf, count);
+	ret = file->f_op->write(file, buf, count, *pos);
 	if (ret > 0)
 		*pos += ret;
 

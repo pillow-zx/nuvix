@@ -286,7 +286,7 @@ static void smp_alloc_self_test(uint32_t logical_id)
 	memset(region, 0, PAGE_SIZE);
 	vfree(region);
 
-	pr_info("smp: cpu %u allocator/console self-test ok\n", logical_id);
+	pr_debug("smp: cpu %u allocator/console self-test ok\n", logical_id);
 }
 
 __noreturn

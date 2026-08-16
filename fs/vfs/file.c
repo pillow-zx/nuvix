@@ -17,8 +17,9 @@
 #define FILE_SETFL_UNSUPPORTED_FLAGS                                           \
 	(O_DSYNC | FASYNC | O_DIRECT | O_NOATIME | __O_SYNC)
 
-static ssize_t null_read(struct file *file, char *buf, size_t count);
-static ssize_t null_write(struct file *file, const char *buf, size_t count);
+static ssize_t null_read(struct file *file, char *buf, size_t count, loff_t pos);
+static ssize_t null_write(struct file *file, const char *buf, size_t count,
+			  loff_t pos);
 static int null_poll(struct file *file, uint32_t events,
 		     struct task_wait *wait);
 
@@ -375,19 +376,22 @@ void file_put(struct file *file)
 	kfree(file);
 }
 
-static ssize_t null_read(struct file *file, char *buf, size_t count)
+static ssize_t null_read(struct file *file, char *buf, size_t count, loff_t pos)
 {
 	(void)file;
 	(void)buf;
 	(void)count;
+	(void)pos;
 
 	return 0;
 }
 
-static ssize_t null_write(struct file *file, const char *buf, size_t count)
+static ssize_t null_write(struct file *file, const char *buf, size_t count,
+			  loff_t pos)
 {
 	(void)file;
 	(void)buf;
+	(void)pos;
 
 	return (ssize_t)count;
 }

@@ -51,8 +51,10 @@ struct console_read_wait {
 	size_t count;
 };
 
-static ssize_t console_read(struct file *file, char *buf, size_t count);
-static ssize_t console_write(struct file *file, const char *buf, size_t count);
+static ssize_t console_read(struct file *file, char *buf, size_t count,
+			    loff_t pos);
+static ssize_t console_write(struct file *file, const char *buf, size_t count,
+			     loff_t pos);
 static int console_poll(struct file *file, uint32_t events,
 			struct task_wait *wait);
 static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
@@ -445,13 +447,15 @@ static void console_input_thread(void *arg)
 	}
 }
 
-static ssize_t console_read(struct file *file, char *buf, size_t count)
+static ssize_t console_read(struct file *file, char *buf, size_t count,
+			    loff_t pos)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
 	struct task_wait *wait = &current_task()->wait;
 	irq_flags_t flags;
 
 	(void)file;
+	(void)pos;
 	if (count == 0)
 		return 0;
 
@@ -504,12 +508,14 @@ static ssize_t console_read(struct file *file, char *buf, size_t count)
 	}
 }
 
-static ssize_t console_write(struct file *file, const char *buf, size_t count)
+static ssize_t console_write(struct file *file, const char *buf, size_t count,
+			     loff_t pos)
 {
 	struct termios termios;
 	irq_flags_t flags;
 
 	(void)file;
+	(void)pos;
 
 	spin_lock_irqsave(&console_input.lock, &flags);
 	termios = console_input.termios;

@@ -144,14 +144,16 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 	return (ssize_t)done;
 }
 
-static ssize_t ext2_file_read(struct file *file, char *buf, size_t count)
+static ssize_t ext2_file_read(struct file *file, char *buf, size_t count,
+			      loff_t pos)
 {
-	return ext2_read_file(file->f_inode, buf, count, file->f_pos);
+	return ext2_read_file(file->f_inode, buf, count, pos);
 }
 
-static ssize_t ext2_file_write(struct file *file, const char *buf, size_t count)
+static ssize_t ext2_file_write(struct file *file, const char *buf, size_t count,
+			       loff_t pos)
 {
-	return ext2_write_file(file->f_inode, buf, count, file->f_pos);
+	return ext2_write_file(file->f_inode, buf, count, pos);
 }
 
 const struct file_operations ext2_file_operations = {
