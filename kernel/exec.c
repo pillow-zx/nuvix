@@ -628,6 +628,14 @@ static void flush_old_exec(struct mm_struct *oldmm)
 	mm_put(oldmm);
 }
 
+/* The old mm is freed here (flush_old_exec -> mm_put) only after the owner is
+ * the sole remaining task: proc_exec_wait and proc_exec_adopt_pid both require
+ * nr_tasks == 1, so every EXEC_KILL sibling has already left proc membership and
+ * is never scheduled again.  switch_to activates only the incoming task's pgroot
+ * (kernel fallback when 0), so no stale clone-time sibling pgroot can switch in
+ * on the freed user pgd, and no sibling pgroot reset is needed.  If a future
+ * change lets an exiting task block after nr_tasks--, this invariant breaks and
+ * the reset must be reintroduced. */
 static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 			    vaddr_t entry, vaddr_t sp)
 {

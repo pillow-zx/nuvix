@@ -98,6 +98,9 @@ struct cred {
 
 struct task_signal_context {
 	uint64_t blocked;
+	/* Task-directed pending (pending/forced_pending/pending_info) is guarded
+	 * by the owning task's wait.lock: senders write under it, the consumer
+	 * drains under it. */
 	uint64_t pending;
 	uint64_t forced_pending;
 	siginfo_t pending_info[NSIG + 1];

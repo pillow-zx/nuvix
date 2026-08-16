@@ -263,6 +263,9 @@ static pte_t mm_private_child_pte(pte_t entry)
 			pgprot_make_readonly(pte_leaf_prot(entry)));
 }
 
+/* Reference transfer only: the mapping ref moves from the old PTE to the new
+ * one, so this deliberately bypasses mm_pte_mapping_get/put.  Any future change
+ * that drops or retains a PTE here must route through mm_pte_mapping_put. */
 int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 			      uintptr_t new_start, size_t len)
 {
