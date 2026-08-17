@@ -14,6 +14,9 @@
 #include "internal.h"
 
 static struct runqueue runqueues[NR_CPUS];
+/* Per-CPU active mm (scheduler-owned); NULL for idle or kernel-only. */
+static struct mm_struct *cpu_active_mm[NR_CPUS];
+
 struct retired_queue {
 	spinlock_t lock;
 	struct list_head tasks;
@@ -52,6 +55,13 @@ void task_switch(struct task_struct *prev, struct task_struct *next)
 
 	set_current_task(next);
 	arch_task_switch(prev, next);
+}
+
+static struct mm_struct *sched_task_mm(const struct task_struct *task)
+{
+	return (task && !task_is_idle(task) && task->proc)
+		       ? task->proc->mm
+		       : NULL;
 }
 
 static void sched_handoff(struct task_struct *prev, struct task_struct *next)
@@ -179,6 +189,7 @@ void sched_init(void)
 		INIT_LIST_HEAD(&retired_queues[id].tasks);
 		INIT_LIST_HEAD(&retired_pending[id]);
 		atomic_isize_set_relaxed(&dispatch_seen[id], 0);
+		cpu_active_mm[id] = NULL;
 	}
 }
 
@@ -292,7 +303,6 @@ int sched_set_affinity(struct task_struct *task, uint64_t mask)
 	uint64_t allowed = mask & online;
 	struct runqueue *rq;
 	struct cpu *target;
-	struct cpu *source;
 	irq_flags_t wait_flags;
 	irq_flags_t rq_flags;
 	int ret = 0;
@@ -303,16 +313,9 @@ int sched_set_affinity(struct task_struct *task, uint64_t mask)
 	BUG_ON(!target);
 	spin_lock_irqsave(&task->wait.lock, &wait_flags);
 	rq = sched_rq_for_task(task);
-	source = task->cpu ? task->cpu : current_cpu();
 	spin_lock_irqsave(&rq->lock, &rq_flags);
 	if (task->on_rq || task->on_cpu)
 		ret = -EBUSY;
-	else if (task->proc && task->proc->mm &&
-		 (task->proc->nr_tasks > 1 ||
-		  mm_refcount_read(task->proc->mm) > 1) &&
-		 target != source)
-		/* Cross-CPU shared-mm placement waits for active-mm ownership. */
-		ret = -EINVAL;
 	else {
 		task->allowed_cpus = allowed;
 		task->cpu = target;
@@ -479,6 +482,7 @@ static void sched_switch_core(void)
 	struct runqueue *rq = sched_rq_for_cpu(current_cpu());
 	struct task_struct *prev = current_task();
 	struct task_struct *next;
+	struct mm_struct *prev_mm, *next_mm;
 	irq_flags_t flags;
 	bool first_dispatch;
 
@@ -492,6 +496,20 @@ static void sched_switch_core(void)
 	if (!next)
 		next = rq->idle;
 	first_dispatch = sched_switch_locked(rq, prev, next);
+	/* Record the active mm for this CPU and hold a reference. The recorded
+	 * prev_mm is authoritative even if the outgoing task's proc->mm changed
+	 * (exec) or became NULL (exit) — the record was installed when the task
+	 * switched in, and the reference keeps that mm alive until this switch-out.
+	 * The per-switch full sfence.vma in switch.S guarantees no TLB entries of
+	 * the old mm survive on this CPU after the switch, so the deferred mm_put
+	 * can destroy the pgd safely. */
+	prev_mm = cpu_active_mm[rq->cpu_id];
+	next_mm = sched_task_mm(next);
+	if (next_mm != prev_mm) {
+		cpu_active_mm[rq->cpu_id] = next_mm;
+		if (next_mm)
+			mm_get(next_mm);	/* inc only: never frees under lock */
+	}
 	spin_unlock(&rq->lock);
 	if (next == prev) {
 		if (first_dispatch)
@@ -500,6 +518,8 @@ static void sched_switch_core(void)
 		return;
 	}
 	sched_handoff(prev, next);
+	if (prev_mm && prev_mm != next_mm)
+		mm_put(prev_mm);		/* may destroy: outside locks */
 	if (first_dispatch)
 		pr_info("sched: cpu %u first task dispatch\n", rq->cpu_id);
 	/* After an exit handoff this runs in the next task's context and
@@ -537,6 +557,7 @@ void sched_exit_current(void)
 	struct runqueue *rq;
 	struct task_struct *prev;
 	struct task_struct *next;
+	struct mm_struct *prev_mm, *next_mm;
 	irq_flags_t flags;
 	bool first_dispatch;
 
@@ -554,6 +575,13 @@ void sched_exit_current(void)
 	if (!next)
 		next = rq->idle;
 	first_dispatch = sched_switch_locked(rq, prev, next);
+	prev_mm = cpu_active_mm[rq->cpu_id];
+	next_mm = sched_task_mm(next);
+	if (next_mm != prev_mm) {
+		cpu_active_mm[rq->cpu_id] = next_mm;
+		if (next_mm)
+			mm_get(next_mm);
+	}
 	spin_unlock_irqrestore(&rq->lock, flags);
 	BUG_ON(next == prev);
 	/* Publish tasks abandoned by earlier switches before this one. */
@@ -564,6 +592,8 @@ void sched_exit_current(void)
 	 * so the reaper can never free a stack still in use. */
 	list_add_tail(&prev->retired_node, &retired_pending[current_cpu()->id]);
 	sched_handoff(prev, next);
+	if (prev_mm && prev_mm != next_mm)
+		mm_put(prev_mm);
 	if (first_dispatch)
 		pr_info("sched: cpu %u first task dispatch\n", rq->cpu_id);
 	panic("sched: exited task resumed");
