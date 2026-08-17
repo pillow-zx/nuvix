@@ -262,8 +262,8 @@ static struct signal_struct *signal_state_alloc(void)
 
 	memset(signal, 0, sizeof(*signal));
 	refcount_set(&signal->refcount, 1);
-	mutex_init(&signal->lock, LOCK_RANK_SIGNAL_SHARED,
-		   LOCK_IRQ_TASK_ONLY);
+	spin_lock_init(&signal->lock, LOCK_RANK_SIGNAL_SHARED,
+		       LOCK_IRQ_TASK_ONLY);
 	return signal;
 }
 
@@ -343,6 +343,31 @@ static bool signal_init_default_ignored(struct task_struct *task, int sig)
 
 	return (signal_is_fatal_default(sig) || sig == SIGTSTP) &&
 	       signal_handler_for_task(task, sig) == SIG_DFL;
+}
+
+/* A pending signal is "inert" when do_signal() will discard it without ever
+ * invoking a handler or taking a visible default action: explicit SIG_IGN,
+ * or SIG_DFL whose default action has no effect on the target (SIGCHLD,
+ * SIGCONT) or is suppressed for init. An interruptible wait must not treat
+ * an inert pending signal as a reason to abort with WAIT_OUTCOME_SIGNAL:
+ * Linux's equivalent (-ERESTARTSYS) is silently retried when nothing was
+ * actually delivered, and SIGCHLD in particular is the routine wakeup for
+ * wait4() itself, not an interrupt. Callers must take sighand->lock, so
+ * this must only run from a context that is not already inside
+ * wait_block() for the target task (send/notify paths, never the generic
+ * wait check itself). */
+static bool signal_pending_would_be_inert(struct task_struct *task, int sig,
+					  bool forced)
+{
+	__sighandler_t handler = signal_handler_for_task(task, sig);
+
+	if (handler == SIG_IGN)
+		return true;
+	if (handler != SIG_DFL)
+		return false;
+	if (!forced && signal_init_default_ignored(task, sig))
+		return true;
+	return !signal_is_fatal_default(sig) && !signal_is_stop_signal(sig);
 }
 
 void signal_reset_altstack(struct task_struct *task)
@@ -541,15 +566,34 @@ void signals_abort_exec(struct sighand_struct *prepared)
 	sighand_put(prepared);
 }
 
-bool signal_pending(struct task_struct *task)
+/* Used only by wait_block() for the TASK_WAIT_INTERRUPTIBLE abort check.
+ * Unlike signal_pending_mask() (the disposition-blind view sigpending(2)
+ * reports), this excludes signals snapshotted as inert when they were
+ * marked pending, so a routine SIGCHLD cannot masquerade as an interrupt
+ * and short-circuit the wait before its real event is observed. */
+bool signal_pending_interruptible(struct task_struct *task)
 {
 	uint64_t blocked;
+	uint64_t pending;
+	uint64_t inert;
+	struct signal_struct *signal;
 
 	if (!task)
 		return false;
 
 	blocked = task_blocked_mask(task) & ~unblockable_mask();
-	return (signal_pending_mask(task) & ~blocked) != 0;
+	pending = task_pending_mask(task);
+	inert = task->signal.pending_inert;
+	signal = task_signal_state(task);
+	if (signal) {
+		irq_flags_t flags;
+
+		spin_lock_irqsave(&signal->lock, &flags);
+		pending |= signal->shared_pending;
+		inert |= signal->shared_pending_inert;
+		spin_unlock_irqrestore(&signal->lock, flags);
+	}
+	return (pending & ~blocked & ~inert) != 0;
 }
 
 uint64_t signal_pending_mask(const struct task_struct *task)
@@ -563,9 +607,11 @@ uint64_t signal_pending_mask(const struct task_struct *task)
 	pending = task_pending_mask(task);
 	signal = task_signal_state(task);
 	if (signal) {
-		mutex_lock(&signal->lock);
+		irq_flags_t flags;
+
+		spin_lock_irqsave(&signal->lock, &flags);
 		pending |= signal->shared_pending;
-		mutex_unlock(&signal->lock);
+		spin_unlock_irqrestore(&signal->lock, flags);
 	}
 	return pending;
 }
@@ -583,10 +629,11 @@ bool signal_fatal_pending(struct task_struct *task)
 	forced = task->signal.forced_pending;
 	if (task_signal_state(task)) {
 		struct signal_struct *signal = task_signal_state(task);
+		irq_flags_t flags;
 
-		mutex_lock(&signal->lock);
+		spin_lock_irqsave(&signal->lock, &flags);
 		pending |= signal->shared_pending;
-		mutex_unlock(&signal->lock);
+		spin_unlock_irqrestore(&signal->lock, flags);
 	}
 	return (pending & kill_mask) != 0 &&
 	       ((forced & kill_mask) != 0 ||
@@ -633,6 +680,7 @@ static void signal_clear_pending_locked(struct task_struct *task,
 	}
 	task_and_pending_mask(task, ~mask);
 	task->signal.forced_pending &= ~mask;
+	task->signal.pending_inert &= ~mask;
 }
 
 void signal_clear_pending(struct task_struct *task, uint64_t mask)
@@ -656,7 +704,7 @@ static void signal_clear_opposite_pending_locked(struct task_struct *task,
 }
 
 static void signal_clear_shared_opposite_pending(struct signal_struct *signal,
-						 int sig)
+					 int sig)
 {
 	uint64_t mask = 0;
 
@@ -666,19 +714,21 @@ static void signal_clear_shared_opposite_pending(struct signal_struct *signal,
 		mask = signal_mask(SIGCONT);
 
 	signal->shared_pending &= ~mask;
+	signal->shared_pending_inert &= ~mask;
 }
 
 static void signal_clear_task_shared_opposite_pending(struct task_struct *task,
-						      int sig)
+					      int sig)
 {
 	struct signal_struct *signal = task_signal_state(task);
+	irq_flags_t flags;
 
 	if (!signal)
 		return;
 
-	mutex_lock(&signal->lock);
+	spin_lock_irqsave(&signal->lock, &flags);
 	signal_clear_shared_opposite_pending(signal, sig);
-	mutex_unlock(&signal->lock);
+	spin_unlock_irqrestore(&signal->lock, flags);
 }
 
 void signal_defer_mask_restore(struct task_struct *task, uint64_t mask)
@@ -754,6 +804,7 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 {
 	uint64_t mask;
 	irq_flags_t flags;
+	bool inert;
 
 	if (!signal_is_valid(sig))
 		return -EINVAL;
@@ -764,6 +815,11 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 
 	signal_clear_task_shared_opposite_pending(task, sig);
 	mask = signal_mask(sig);
+	/* Classify disposition before taking wait.lock: signal_handler_for_task()
+	 * takes sighand->lock, and this path never runs from inside the target's
+	 * own wait_block(), so a mutex here is safe (unlike inside wait_block()
+	 * itself, see signal_pending_interruptible()). */
+	inert = signal_pending_would_be_inert(task, sig, force);
 	spin_lock_irqsave(&task->wait.lock, &flags);
 	if (task_is_exiting(task)) {
 		spin_unlock_irqrestore(&task->wait.lock, flags);
@@ -775,6 +831,10 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 		task->signal.pending_info[sig].si_signo = sig;
 		signal_mark_pending(task, mask);
 	}
+	if (inert)
+		task->signal.pending_inert |= mask;
+	else
+		task->signal.pending_inert &= ~mask;
 	if (force)
 		task->signal.forced_pending |= mask;
 	spin_unlock_irqrestore(&task->wait.lock, flags);
@@ -828,12 +888,19 @@ int send_group_signal_info(int sig, const siginfo_t *info,
 		return send_signal_info(sig, info, leader);
 
 	struct signal_struct *signal = task_signal_state(leader);
+	irq_flags_t signal_flags;
+	bool inert;
 
 	targets = kmalloc_array(PID_COUNT, sizeof(*targets), ALLOC_NOWAIT);
 	if (!targets)
 		return -ENOMEM;
 
-	mutex_lock(&signal->lock);
+	/* Classify disposition before taking signal->lock: this path never runs
+	 * from inside a target's own wait_block(), so sighand->lock is safe to
+	 * take here (see signal_pending_would_be_inert()). The leader's sighand
+	 * is the thread group's shared handler table. */
+	inert = signal_pending_would_be_inert(leader, sig, false);
+	spin_lock_irqsave(&signal->lock, &signal_flags);
 	mask = signal_mask(sig);
 	signal_clear_shared_opposite_pending(signal, sig);
 	if (!(signal->shared_pending & mask)) {
@@ -841,7 +908,11 @@ int send_group_signal_info(int sig, const siginfo_t *info,
 		signal->shared_pending_info[sig].si_signo = sig;
 		signal->shared_pending |= mask;
 	}
-	mutex_unlock(&signal->lock);
+	if (inert)
+		signal->shared_pending_inert |= mask;
+	else
+		signal->shared_pending_inert &= ~mask;
+	spin_unlock_irqrestore(&signal->lock, signal_flags);
 
 	if (leader->proc) {
 		count = proc_task_snapshot(leader->proc, NULL, targets,
@@ -1253,13 +1324,14 @@ static uint64_t current_shared_pending(void)
 {
 	struct signal_struct *signal = task_signal_state(current_task());
 	uint64_t pending = 0;
+	irq_flags_t flags;
 
 	if (!signal)
 		return 0;
 
-	mutex_lock(&signal->lock);
+	spin_lock_irqsave(&signal->lock, &flags);
 	pending = signal->shared_pending;
-	mutex_unlock(&signal->lock);
+	spin_unlock_irqrestore(&signal->lock, flags);
 	return pending;
 }
 
@@ -1267,11 +1339,12 @@ static int take_shared_pending_from_set(uint64_t set, siginfo_t *info)
 {
 	struct signal_struct *signal = task_signal_state(current_task());
 	int selected = 0;
+	irq_flags_t flags;
 
 	if (!signal || !info)
 		return 0;
 
-	mutex_lock(&signal->lock);
+	spin_lock_irqsave(&signal->lock, &flags);
 	for (int sig = 1; sig <= NSIG; sig++) {
 		uint64_t mask = signal_mask(sig);
 
@@ -1279,12 +1352,13 @@ static int take_shared_pending_from_set(uint64_t set, siginfo_t *info)
 			continue;
 		*info = signal->shared_pending_info[sig];
 		signal->shared_pending &= ~mask;
+		signal->shared_pending_inert &= ~mask;
 		memset(&signal->shared_pending_info[sig], 0,
 		       sizeof(signal->shared_pending_info[sig]));
 		selected = sig;
 		break;
 	}
-	mutex_unlock(&signal->lock);
+	spin_unlock_irqrestore(&signal->lock, flags);
 	return selected;
 }
 

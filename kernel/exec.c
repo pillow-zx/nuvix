@@ -557,6 +557,7 @@ static int finish_exec_mm(struct mm_struct *mm,
 	int ret;
 
 	flush_icache();
+	mm_flush_remote(mm, true);
 
 	ret = mm_finalize(mm, layout->first_vaddr, layout->last_end);
 	if (ret < 0)

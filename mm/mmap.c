@@ -512,8 +512,10 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 			}
 		}
 	}
-	if (parent_downgraded)
+	if (parent_downgraded) {
 		flush_tlb_all();
+		mm_flush_remote(oldmm, false);
+	}
 	mm_unlock(oldmm);
 
 	return newmm;

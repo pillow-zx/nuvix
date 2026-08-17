@@ -57,9 +57,20 @@ struct sighand_struct {
  */
 struct signal_struct {
 	refcount_t refcount;
-	mutex_t lock;
+	/* A spinlock, not a mutex: signal_pending_interruptible() reads
+	 * shared_pending from inside wait_block() while the caller's own
+	 * task->wait is already WAIT_ACTIVE.  A mutex here would let a
+	 * contended acquisition recurse into wait_start() on that same,
+	 * already-active wait and hit its -EBUSY guard. */
+	spinlock_t lock;
 	uint64_t shared_pending;
 	siginfo_t shared_pending_info[NSIG + 1];
+	/* Subset of shared_pending whose disposition, snapshotted when it was
+	 * last marked pending, makes do_signal() discard it silently (SIG_IGN,
+	 * or SIG_DFL with no visible default action).  signal_pending_interruptible()
+	 * excludes these bits so an inert signal (e.g. SIGCHLD) cannot abort an
+	 * interruptible wait the way a deliverable one does. */
+	uint64_t shared_pending_inert;
 };
 
 /**
@@ -219,7 +230,7 @@ void signal_notify_proc_parent(const struct proc_parent_event *event);
 int send_current_signal(int sig);
 int force_signal(int sig, struct task_struct *task);
 int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
-bool signal_pending(struct task_struct *task);
+bool signal_pending_interruptible(struct task_struct *task);
 bool signal_fatal_pending(struct task_struct *task);
 int signals_init(struct task_struct *task);
 void signal_write_child_tid(struct task_struct *task);

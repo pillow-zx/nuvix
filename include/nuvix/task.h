@@ -102,6 +102,11 @@ struct task_signal_context {
 	 * by the owning task's wait.lock: senders write under it, the consumer
 	 * drains under it. */
 	uint64_t pending;
+	/* Subset of pending whose disposition, snapshotted when it was last
+	 * marked pending, makes do_signal() discard it silently (SIG_IGN, or
+	 * SIG_DFL with no visible default action, e.g. SIGCHLD/SIGCONT).
+	 * signal_pending_interruptible() excludes these bits. */
+	uint64_t pending_inert;
 	uint64_t forced_pending;
 	siginfo_t pending_info[NSIG + 1];
 	struct signal_frame_state *signal_frames;

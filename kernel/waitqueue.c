@@ -261,7 +261,7 @@ int wait_block(struct task_wait *wait, wait_outcome_t *outcome)
 			return 0;
 		}
 		if ((wait->policy == TASK_WAIT_INTERRUPTIBLE &&
-		     signal_pending(task)) ||
+		     signal_pending_interruptible(task)) ||
 		    (wait->policy == TASK_WAIT_KILLABLE &&
 		     signal_fatal_pending(task))) {
 			if (wait_reason_set(wait, TASK_WAKE_SIGNAL, generation))
