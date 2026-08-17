@@ -640,3 +640,16 @@ void sched_yield(void)
 	sched_request();
 	sched_switch_current();
 }
+
+struct mm_struct *sched_cpu_active_mm(uint32_t cpu_id)
+{
+	struct runqueue *rq = &runqueues[cpu_id];
+	struct mm_struct *mm;
+	irq_flags_t flags;
+
+	spin_lock_irqsave(&rq->lock, &flags);
+	mm = cpu_active_mm[cpu_id];
+	spin_unlock_irqrestore(&rq->lock, flags);
+	return mm;
+}
+

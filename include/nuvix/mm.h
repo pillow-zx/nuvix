@@ -249,4 +249,22 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen);
 __nonnull(1)
 void do_page_fault(struct trap_frame *tf);
 
+/**
+ * @brief Flush remote TLBs (and optionally icache) of CPUs running @p mm.
+ * @param mm Address space to flush on remote CPUs. Caller holds mm->mmap_lock.
+ * @param flush_icache Also shoot down instruction caches if true.
+ *
+ * For each online non-self CPU whose active mm is @p mm, send a synchronous
+ * shootdown IPI and wait for its ack. The caller's local TLB is NOT flushed.
+ */
+void mm_flush_remote(struct mm_struct *mm, bool flush_icache);
+
+/**
+ * @brief Flush the whole TLB on every other online CPU (kernel mappings).
+ *
+ * Sends a synchronous TLB shootdown IPI to all online non-self CPUs and waits
+ * for their acks. Used for kernel-range (vmalloc) PTE updates.
+ */
+void mm_flush_kernel_all(void);
+
 #endif

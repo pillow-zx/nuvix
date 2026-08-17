@@ -60,6 +60,7 @@ MM_OBJS = \
 	mm/user_map.o   \
 	mm/vma.o        \
 	mm/mmap.o       \
+	mm/mmap_flush.o \
 	mm/page_fault.o \
 	mm/uaccess.o
 

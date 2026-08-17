@@ -145,4 +145,12 @@ static inline void preempt_enable(void)
 		schedule();
 }
 
+/**
+ * @brief Returns the target CPU's active mm, read under its runqueue lock.
+ * @param cpu_id Target CPU id.
+ * @return The active mm pointer (may be NULL). Caller must not dereference
+ *         without its own reference; identity-only comparison is safe.
+ */
+struct mm_struct *sched_cpu_active_mm(uint32_t cpu_id);
+
 #endif
