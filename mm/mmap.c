@@ -396,6 +396,11 @@ void mm_put(struct mm_struct *mm)
 		mm_destroy(mm);
 }
 
+int mm_refcount_read(const struct mm_struct *mm)
+{
+	return refcount_read(&mm->refcount);
+}
+
 void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd)
 {
 	BUG_ON(!mm);

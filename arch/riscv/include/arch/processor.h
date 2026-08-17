@@ -13,12 +13,6 @@ static inline void wait_for_interrupt(void)
 	wfi();
 }
 
-__always_inline
-static inline void arch_sched_remote_wake(struct cpu *cpu)
-{
-	(void)cpu;
-}
-
 __always_inline __must_check
 static inline uintptr_t trap_pc(void)
 {

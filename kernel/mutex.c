@@ -1,4 +1,6 @@
+#include <nuvix/errno.h>
 #include <nuvix/mutex.h>
+#include <nuvix/printk.h>
 #include <nuvix/sched.h>
 #include <nuvix/task.h>
 

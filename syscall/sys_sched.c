@@ -23,11 +23,10 @@ static struct task_struct *affinity_target_task(pid_t pid, bool *put_task)
 
 /*
  * SYSCALL_SUPPORT(C): sched_setaffinity
-	 * Current: stores the requested mask intersected with online CPUs.
+	 * Current: stores the requested mask intersected with schedulable CPUs.
  * Unsupported errno: empty CPU set returns -EINVAL; missing target returns
  * -ESRCH; unauthorized cross-user target returns -EPERM.
-	 * The scheduler owns the stored affinity and rejects changes while queued or
-	 * running; the current single-CPU adapter therefore accepts only bit 0.
+	 * The scheduler owns placement and rejects changes while queued or running.
  */
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
@@ -75,7 +74,7 @@ out:
 	 * Current: reports the scheduler-owned mask for any existing target task.
  * Unsupported errno: too-small cpusetsize returns -EINVAL; missing target
  * returns -ESRCH.
-	 * The returned mask is intersected with the currently online CPUs.
+ * The returned mask is intersected with the currently schedulable CPUs.
  */
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {

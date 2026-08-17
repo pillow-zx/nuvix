@@ -86,7 +86,7 @@ bool sched_wake_external(struct task_struct *task);
 
 int sched_set_affinity(struct task_struct *task, uint64_t mask);
 
-uint64_t sched_get_affinity(const struct task_struct *task);
+uint64_t sched_get_affinity(struct task_struct *task);
 
 /** Transfer one retired task to the independent reaper. */
 __must_check

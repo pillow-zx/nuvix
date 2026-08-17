@@ -47,10 +47,10 @@ ssize_t sys_membarrier(struct trap_frame *tf)
 	case MEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ:
 		if (flags && flags != MEMBARRIER_CMD_FLAG_CPU)
 			return -EINVAL;
-		/* FLAG_CPU targets a schedulable CPU: ordinary tasks must never
-		 * address a CPU that exists but is not available to them. */
+		/* Keep single-CPU barrier semantics until remote barriers exist; do
+		 * not advertise a remote barrier by accepting another CPU here. */
 		if (flags == MEMBARRIER_CMD_FLAG_CPU &&
-		    !cpu_is_schedulable((uint32_t)cpu_id))
+		    (!cpu_is_schedulable((uint32_t)cpu_id) || cpu_id != 0))
 			return -EINVAL;
 		break;
 	default:

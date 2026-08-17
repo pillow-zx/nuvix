@@ -20,6 +20,10 @@
 #define UT_FIXTURE_DIRECTORY "/tmp/nuvix-tests"
 #define UT_POLL_INTERVAL_MS 5
 
+#ifndef UT_RUNNER_DEFAULT_PIN
+#define UT_RUNNER_DEFAULT_PIN (-1)
+#endif
+
 extern const struct ut_case __start_ut_cases[];
 extern const struct ut_case __stop_ut_cases[];
 
@@ -377,7 +381,8 @@ static bool ut_case_selected(const struct ut_case *test_case, const char *filter
 
 static void ut_print_usage(const char *program)
 {
-	fprintf(stderr, "usage: %s [--list] [--case NAME]\n", program);
+	fprintf(stderr, "usage: %s [--list] [--case NAME] [--pin CPU]\n",
+		program);
 }
 
 /* Relay the kernel's ring-only SMP boot record as [SMP] Probe: protocol. The
@@ -414,33 +419,17 @@ static void ut_report_smp_probe(void)
 	printf("[SMP] Probe: %s\n", probe);
 }
 
-int main(int argc, char **argv)
+static int ut_run_suite(const char *filter, bool list_only, bool report_probe)
 {
-	const char *filter = NULL;
-	bool list_only = false;
 	struct ut_summary summary = {};
 	const struct ut_case *test_case;
 	unsigned int ordinal = 0;
-	int argument;
 
-	setvbuf(stdout, NULL, _IOLBF, 0);
-	for (argument = 1; argument < argc; argument++) {
-		if (strcmp(argv[argument], "--list") == 0) {
-			list_only = true;
-			continue;
-		}
-		if (strcmp(argv[argument], "--case") == 0 && argument + 1 < argc) {
-			filter = argv[++argument];
-			continue;
-		}
-		ut_print_usage(argv[0]);
-		return 2;
-	}
 	if (mkdir(UT_FIXTURE_DIRECTORY, 0700) < 0 && errno != EEXIST) {
 		fprintf(stderr, "[UTEST] cannot create fixture root: errno=%d\n", errno);
 		return 1;
 	}
-	if (!list_only)
+	if (!list_only && report_probe)
 		ut_report_smp_probe();
 	for (test_case = __start_ut_cases; test_case < __stop_ut_cases;
 	     test_case++) {
@@ -475,8 +464,111 @@ int main(int argc, char **argv)
 	       summary.xpass, summary.crash, summary.timeout);
 	fflush(NULL);
 	sync();
-	execl("/sbin/poweroff", "poweroff", (char *)NULL);
-	fprintf(stderr, "[UTEST] poweroff failed: errno=%d\n", errno);
+	return summary.fail || summary.xpass || summary.crash || summary.timeout;
+}
+
+static int ut_run_pinned(const char *filter, unsigned int pin)
+{
+	int gate[2];
+	pid_t child;
+	unsigned long mask;
+	char token;
+	int status;
+
+	if (pin >= sizeof(mask) * 8)
+		return 2;
+	if (pipe(gate) < 0) {
+		fprintf(stderr, "[UTEST] pin pipe failed: errno=%d\n", errno);
+		return 1;
+	}
+	child = fork();
+	if (child < 0) {
+		fprintf(stderr, "[UTEST] pin fork failed: errno=%d\n", errno);
+		return 1;
+	}
+	if (child == 0) {
+		ssize_t count;
+
+		close(gate[1]);
+		do {
+			count = read(gate[0], &token, 1);
+		} while (count < 0 && errno == EINTR);
+		close(gate[0]);
+		if (count != 1)
+			return 1;
+		return ut_run_suite(filter, false, false);
+	}
+
+	close(gate[0]);
+	mask = 1UL << pin;
+	for (unsigned int attempt = 0; attempt < 100; attempt++) {
+		errno = 0;
+		if (syscall(SYS_sched_setaffinity, child, sizeof(mask), &mask) == 0)
+			break;
+		if (errno != EBUSY) {
+			fprintf(stderr, "[UTEST] pin affinity failed: errno=%d\n", errno);
+			close(gate[1]);
+			kill(child, SIGKILL);
+			waitpid(child, &status, 0);
+			return 1;
+		}
+		struct timespec delay = {.tv_nsec = 10 * 1000 * 1000L};
+		while (nanosleep(&delay, &delay) < 0 && errno == EINTR)
+			;
+		if (attempt == 99) {
+			fprintf(stderr, "[UTEST] pin affinity stayed busy\n");
+			close(gate[1]);
+			kill(child, SIGKILL);
+			waitpid(child, &status, 0);
+			return 1;
+		}
+	}
+
+	if (write(gate[1], "r", 1) != 1) {
+		fprintf(stderr, "[UTEST] pin release failed: errno=%d\n", errno);
+		close(gate[1]);
+		kill(child, SIGKILL);
+		waitpid(child, &status, 0);
+		return 1;
+	}
+	close(gate[1]);
+	while (waitpid(child, &status, 0) < 0 && errno == EINTR)
+		;
+	if (WIFEXITED(status))
+		return WEXITSTATUS(status);
 	return 1;
 }
 
+int main(int argc, char **argv)
+{
+	const char *filter = NULL;
+	bool list_only = false;
+	int pin = UT_RUNNER_DEFAULT_PIN;
+	int argument;
+
+	setvbuf(stdout, NULL, _IOLBF, 0);
+	for (argument = 1; argument < argc; argument++) {
+		if (strcmp(argv[argument], "--list") == 0) {
+			list_only = true;
+			continue;
+		}
+		if (strcmp(argv[argument], "--case") == 0 && argument + 1 < argc) {
+			filter = argv[++argument];
+			continue;
+		}
+		if (strcmp(argv[argument], "--pin") == 0 && argument + 1 < argc) {
+			char *end;
+			long value = strtol(argv[++argument], &end, 10);
+
+			if (*argv[argument] == '\0' || *end != '\0' || value < 0)
+				return 2;
+			pin = (int)value;
+			continue;
+		}
+		ut_print_usage(argv[0]);
+		return 2;
+	}
+	if (list_only || pin < 0)
+		return ut_run_suite(filter, list_only, true);
+	return ut_run_pinned(filter, (unsigned int)pin);
+}

@@ -41,6 +41,15 @@ void mm_get(struct mm_struct *mm);
  * @param mm Address space to release; may be NULL.
  */
 void mm_put(struct mm_struct *mm);
+
+/**
+ * @brief Return the current number of references to an address space.
+ * @param mm Address space to inspect.
+ * @return Current reference count.
+ */
+__must_check __nonnull(1)
+int mm_refcount_read(const struct mm_struct *mm);
+
 void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd);
 
 __must_check

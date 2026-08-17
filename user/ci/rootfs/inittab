@@ -1,1 +1,3 @@
 ::wait:/usr/lib/nuvix-tests/utest-runner
+::wait:/usr/lib/nuvix-tests/utest-runner-pin1
+::wait:/sbin/poweroff -f

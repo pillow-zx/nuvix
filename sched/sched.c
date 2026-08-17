@@ -1,7 +1,11 @@
 /* sched/sched.c - generic scheduler mechanism */
 
+#include <nuvix/bitops.h>
 #include <nuvix/errno.h>
+#include <nuvix/ipi.h>
+#include <nuvix/mm.h>
 #include <nuvix/printk.h>
+#include <nuvix/proc.h>
 #include <nuvix/rseq.h>
 #include <nuvix/sched.h>
 #include <nuvix/task.h>
@@ -21,6 +25,7 @@ static struct retired_queue retired_queues[NR_CPUS];
  * the tick drain this list into the retired queue, so the reaper only ever
  * pops tasks whose stack is provably abandoned. */
 static struct list_head retired_pending[NR_CPUS];
+static atomic_isize_t dispatch_seen[NR_CPUS];
 static const struct sched_ops *policy = &rr_ops;
 
 static void sched_switch_current(void)
@@ -70,6 +75,31 @@ static struct runqueue *sched_rq_for_task(struct task_struct *task)
 	return sched_rq_for_cpu(cpu);
 }
 
+static struct cpu *sched_select_cpu(uint64_t mask)
+{
+	uint64_t allowed = mask & cpu_schedulable_mask();
+
+	if (!allowed)
+		return NULL;
+	return cpu_by_id((uint32_t)ctzll(allowed));
+}
+
+static struct runqueue *sched_rq_for_task_locked(struct task_struct *task)
+{
+	struct cpu *cpu = task->cpu;
+
+	if (!cpu || !(task->allowed_cpus & (1ULL << cpu->id)))
+		cpu = sched_select_cpu(task->allowed_cpus);
+	BUG_ON(!cpu);
+	return sched_rq_for_cpu(cpu);
+}
+
+static void sched_notify_remote(uint32_t cpu_id)
+{
+	if (cpu_id != current_cpu()->id)
+		BUG_ON(ipi_send(cpu_id, IPI_RESCHEDULE) != 0);
+}
+
 static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
 				 enum sched_enqueue_reason reason)
 {
@@ -104,17 +134,23 @@ static struct task_struct *sched_pick_locked(struct runqueue *rq)
 	return next;
 }
 
-static void sched_switch_locked(struct runqueue *rq, struct task_struct *prev,
+static bool sched_switch_locked(struct runqueue *rq, struct task_struct *prev,
 				struct task_struct *next)
 {
+	bool first_dispatch = false;
+
 	if (prev && prev != rq->idle)
 		prev->on_cpu = false;
 	if (next) {
 		next->cpu = &cpu_table[(uint32_t)(rq - runqueues)];
 		next->on_cpu = true;
 		next->run_state = TASK_RUNNING;
+		if (next != rq->idle &&
+		    atomic_isize_xchg_relaxed(&dispatch_seen[rq->cpu_id], 1) == 0)
+			first_dispatch = true;
 	}
 	rq->current = next;
+	return first_dispatch;
 }
 
 void sched_task_init(struct task_struct *task)
@@ -142,38 +178,57 @@ void sched_init(void)
 				LOCK_IRQ_HARDIRQ_REACHABLE);
 		INIT_LIST_HEAD(&retired_queues[id].tasks);
 		INIT_LIST_HEAD(&retired_pending[id]);
+		atomic_isize_set_relaxed(&dispatch_seen[id], 0);
 	}
 }
 
 void sched_enqueue_new(struct task_struct *task)
 {
 	struct runqueue *rq;
-	irq_flags_t flags;
+	struct cpu *cpu;
+	irq_flags_t wait_flags;
+	irq_flags_t rq_flags;
+	bool enqueued = false;
 
-	if (!task || task->lifecycle != TASK_LIVE || task->on_rq ||
-	    task->on_cpu || task_is_exiting(task))
+	if (!task)
 		return;
-	rq = sched_rq_for_task(task);
-	if (!(task->allowed_cpus & (1ULL << rq->cpu_id)))
-		return;
-	spin_lock_irqsave(&rq->lock, &flags);
-	task->run_state = TASK_RUNNABLE;
-	sched_enqueue_locked(rq, task, SCHED_ENQUEUE_NEW);
-	spin_unlock_irqrestore(&rq->lock, flags);
+	spin_lock_irqsave(&task->wait.lock, &wait_flags);
+	if (task->lifecycle == TASK_LIVE && !task->on_rq && !task->on_cpu &&
+	    !task_is_exiting(task)) {
+		cpu = task->cpu;
+		if (!cpu || !(task->allowed_cpus & (1ULL << cpu->id))) {
+			cpu = current_cpu();
+			if (!(task->allowed_cpus & (1ULL << cpu->id)))
+				cpu = sched_select_cpu(task->allowed_cpus);
+		}
+		BUG_ON(!cpu);
+		rq = sched_rq_for_cpu(cpu);
+		spin_lock_irqsave(&rq->lock, &rq_flags);
+		task->run_state = TASK_RUNNABLE;
+		sched_enqueue_locked(rq, task, SCHED_ENQUEUE_NEW);
+		spin_unlock_irqrestore(&rq->lock, rq_flags);
+		enqueued = true;
+	}
+	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
+	if (enqueued)
+		sched_notify_remote(rq->cpu_id);
 }
 
 void sched_dequeue(struct task_struct *task)
 {
 	struct runqueue *rq;
-	irq_flags_t flags;
+	irq_flags_t wait_flags;
+	irq_flags_t rq_flags;
 
-	if (!task || !task->on_rq)
+	if (!task)
 		return;
-	rq = sched_rq_for_task(task);
-	spin_lock_irqsave(&rq->lock, &flags);
+	spin_lock_irqsave(&task->wait.lock, &wait_flags);
+	rq = sched_rq_for_task_locked(task);
+	spin_lock_irqsave(&rq->lock, &rq_flags);
 	if (task->on_rq)
 		sched_dequeue_locked(rq, task);
-	spin_unlock_irqrestore(&rq->lock, flags);
+	spin_unlock_irqrestore(&rq->lock, rq_flags);
+	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
 }
 
 int sched_block_current(struct task_wait *wait)
@@ -206,75 +261,104 @@ bool sched_wake(struct task_struct *task, uint64_t generation)
 	struct runqueue *rq;
 	irq_flags_t wait_flags;
 	irq_flags_t rq_flags;
+	uint32_t cpu_id = 0;
 	bool woke = false;
 
 	if (!task || task_is_idle(task))
-		return false;
-	rq = sched_rq_for_task(task);
-	/* The affinity check guards the enqueue target, not the waker's CPU:
-	 * on SMP a remote wake would otherwise pass a local-only check. */
-	if (!(task->allowed_cpus & (1ULL << rq->cpu_id)))
 		return false;
 	spin_lock_irqsave(&task->wait.lock, &wait_flags);
 	if (task->wait.status == WAIT_ACTIVE &&
 	    task->wait.generation == generation &&
 	    task->lifecycle == TASK_LIVE && task->run_state == TASK_BLOCKED) {
+		rq = sched_rq_for_task_locked(task);
+		BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
 		spin_lock_irqsave(&rq->lock, &rq_flags);
 		task->run_state = TASK_RUNNABLE;
 		if (!task->on_rq)
 			sched_enqueue_locked(rq, task, SCHED_ENQUEUE_WAKE);
 		woke = true;
+		cpu_id = rq->cpu_id;
 		spin_unlock_irqrestore(&rq->lock, rq_flags);
 	}
 	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
-	if (woke && task->cpu != current_cpu())
-		arch_sched_remote_wake(task->cpu);
+	if (woke)
+		sched_notify_remote(cpu_id);
 	return woke;
 }
 
 int sched_set_affinity(struct task_struct *task, uint64_t mask)
 {
 	uint64_t online = cpu_schedulable_mask();
+	uint64_t allowed = mask & online;
 	struct runqueue *rq;
-	irq_flags_t flags;
+	struct cpu *target;
+	struct cpu *source;
+	irq_flags_t wait_flags;
+	irq_flags_t rq_flags;
 	int ret = 0;
 
-	if (!task || !mask || !(mask & online))
+	if (!task || !mask || !allowed)
 		return -EINVAL;
-	/* The on_rq/on_cpu check must race with no enqueue: hold the task's
-	 * runqueue lock around re-check and store (no migration on SMP
-	 * until a migration path exists, so the owning rq is fixed). */
+	target = sched_select_cpu(allowed);
+	BUG_ON(!target);
+	spin_lock_irqsave(&task->wait.lock, &wait_flags);
 	rq = sched_rq_for_task(task);
-	spin_lock_irqsave(&rq->lock, &flags);
+	source = task->cpu ? task->cpu : current_cpu();
+	spin_lock_irqsave(&rq->lock, &rq_flags);
 	if (task->on_rq || task->on_cpu)
 		ret = -EBUSY;
-	else
-		task->allowed_cpus = mask & online;
-	spin_unlock_irqrestore(&rq->lock, flags);
+	else if (task->proc && task->proc->mm &&
+		 (task->proc->nr_tasks > 1 ||
+		  mm_refcount_read(task->proc->mm) > 1) &&
+		 target != source)
+		/* Cross-CPU shared-mm placement waits for active-mm ownership. */
+		ret = -EINVAL;
+	else {
+		task->allowed_cpus = allowed;
+		task->cpu = target;
+	}
+	spin_unlock_irqrestore(&rq->lock, rq_flags);
+	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
 	return ret;
 }
 
-uint64_t sched_get_affinity(const struct task_struct *task)
+uint64_t sched_get_affinity(struct task_struct *task)
 {
-	return task ? task->allowed_cpus & cpu_schedulable_mask() : 0;
+	irq_flags_t flags;
+	uint64_t mask;
+
+	if (!task)
+		return 0;
+	spin_lock_irqsave(&task->wait.lock, &flags);
+	mask = task->allowed_cpus & cpu_schedulable_mask();
+	spin_unlock_irqrestore(&task->wait.lock, flags);
+	return mask;
 }
 
 bool sched_wake_external(struct task_struct *task)
 {
 	struct runqueue *rq;
-	irq_flags_t flags;
+	irq_flags_t wait_flags;
+	irq_flags_t rq_flags;
+	uint32_t cpu_id = 0;
 	bool woke = false;
 
-	if (!task || task_is_idle(task) || task->lifecycle != TASK_LIVE)
+	if (!task || task_is_idle(task))
 		return false;
-	rq = sched_rq_for_task(task);
-	spin_lock_irqsave(&rq->lock, &flags);
-	if (!task->on_rq && !task->on_cpu) {
+	spin_lock_irqsave(&task->wait.lock, &wait_flags);
+	if (task->lifecycle == TASK_LIVE && !task->on_rq && !task->on_cpu) {
+		rq = sched_rq_for_task_locked(task);
+		BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
+		spin_lock_irqsave(&rq->lock, &rq_flags);
 		task->run_state = TASK_RUNNABLE;
 		sched_enqueue_locked(rq, task, SCHED_ENQUEUE_WAKE);
 		woke = true;
+		cpu_id = rq->cpu_id;
+		spin_unlock_irqrestore(&rq->lock, rq_flags);
 	}
-	spin_unlock_irqrestore(&rq->lock, flags);
+	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
+	if (woke)
+		sched_notify_remote(cpu_id);
 	return woke;
 }
 
@@ -328,40 +412,53 @@ static void sched_retired_drain(void)
 bool sched_stop(struct task_struct *task)
 {
 	struct runqueue *rq;
-	irq_flags_t flags;
+	irq_flags_t wait_flags;
+	irq_flags_t rq_flags;
 	bool stopped = false;
 
-	if (!task || task_is_idle(task) || task->lifecycle != TASK_LIVE)
+	if (!task || task_is_idle(task))
 		return false;
-	rq = sched_rq_for_task(task);
-	spin_lock_irqsave(&rq->lock, &flags);
-	if (task->run_state != TASK_STOPPED) {
-		if (task->on_rq)
-			sched_dequeue_locked(rq, task);
-		task->run_state = TASK_STOPPED;
-		stopped = true;
+	spin_lock_irqsave(&task->wait.lock, &wait_flags);
+	if (task->lifecycle == TASK_LIVE) {
+		rq = sched_rq_for_task_locked(task);
+		spin_lock_irqsave(&rq->lock, &rq_flags);
+		if (task->run_state != TASK_STOPPED) {
+			if (task->on_rq)
+				sched_dequeue_locked(rq, task);
+			task->run_state = TASK_STOPPED;
+			stopped = true;
+		}
+		spin_unlock_irqrestore(&rq->lock, rq_flags);
 	}
-	spin_unlock_irqrestore(&rq->lock, flags);
+	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
 	return stopped;
 }
 
 bool sched_resume(struct task_struct *task)
 {
 	struct runqueue *rq;
-	irq_flags_t flags;
+	irq_flags_t wait_flags;
+	irq_flags_t rq_flags;
+	uint32_t cpu_id = 0;
 	bool resumed = false;
 
-	if (!task || task_is_idle(task) || task->lifecycle != TASK_LIVE)
+	if (!task || task_is_idle(task))
 		return false;
-	rq = sched_rq_for_task(task);
-	spin_lock_irqsave(&rq->lock, &flags);
-	if (task->run_state == TASK_STOPPED) {
+	spin_lock_irqsave(&task->wait.lock, &wait_flags);
+	if (task->lifecycle == TASK_LIVE && task->run_state == TASK_STOPPED) {
+		rq = sched_rq_for_task_locked(task);
+		BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
+		spin_lock_irqsave(&rq->lock, &rq_flags);
 		task->run_state = TASK_RUNNABLE;
 		if (!task->on_rq)
 			sched_enqueue_locked(rq, task, SCHED_ENQUEUE_WAKE);
 		resumed = true;
+		cpu_id = rq->cpu_id;
+		spin_unlock_irqrestore(&rq->lock, rq_flags);
 	}
-	spin_unlock_irqrestore(&rq->lock, flags);
+	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
+	if (resumed)
+		sched_notify_remote(cpu_id);
 	return resumed;
 }
 
@@ -383,6 +480,7 @@ static void sched_switch_core(void)
 	struct task_struct *prev = current_task();
 	struct task_struct *next;
 	irq_flags_t flags;
+	bool first_dispatch;
 
 	flags = local_irq_save();
 	spin_lock(&rq->lock);
@@ -393,13 +491,17 @@ static void sched_switch_core(void)
 	next = sched_pick_locked(rq);
 	if (!next)
 		next = rq->idle;
-	sched_switch_locked(rq, prev, next);
+	first_dispatch = sched_switch_locked(rq, prev, next);
 	spin_unlock(&rq->lock);
 	if (next == prev) {
+		if (first_dispatch)
+			pr_info("sched: cpu %u first task dispatch\n", rq->cpu_id);
 		local_irq_restore(flags);
 		return;
 	}
 	sched_handoff(prev, next);
+	if (first_dispatch)
+		pr_info("sched: cpu %u first task dispatch\n", rq->cpu_id);
 	/* After an exit handoff this runs in the next task's context and
 	 * publishes the exiting tasks whose stacks were abandoned by it. */
 	sched_retired_drain();
@@ -436,6 +538,7 @@ void sched_exit_current(void)
 	struct task_struct *prev;
 	struct task_struct *next;
 	irq_flags_t flags;
+	bool first_dispatch;
 
 	BUG_ON(!current_task() || task_is_idle(current_task()));
 	BUG_ON(current_task()->lifecycle != TASK_DEAD);
@@ -450,7 +553,7 @@ void sched_exit_current(void)
 	next = sched_pick_locked(rq);
 	if (!next)
 		next = rq->idle;
-	sched_switch_locked(rq, prev, next);
+	first_dispatch = sched_switch_locked(rq, prev, next);
 	spin_unlock_irqrestore(&rq->lock, flags);
 	BUG_ON(next == prev);
 	/* Publish tasks abandoned by earlier switches before this one. */
@@ -461,6 +564,8 @@ void sched_exit_current(void)
 	 * so the reaper can never free a stack still in use. */
 	list_add_tail(&prev->retired_node, &retired_pending[current_cpu()->id]);
 	sched_handoff(prev, next);
+	if (first_dispatch)
+		pr_info("sched: cpu %u first task dispatch\n", rq->cpu_id);
 	panic("sched: exited task resumed");
 	unreachable();
 }

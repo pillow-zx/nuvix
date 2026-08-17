@@ -198,7 +198,7 @@ int wait_prepare(struct task_wait *wait, struct wait_channel *channel,
 		return -EINVAL;
 	spin_lock_irqsave(&channel->lock, &channel_flags);
 	spin_lock_irqsave(&wait->lock, &wait_flags);
-	if (!wait_active(wait) || wait->owner != task || task_is_exiting(task)) {
+	if (!wait_active(wait) || wait->owner != task) {
 		spin_unlock_irqrestore(&wait->lock, wait_flags);
 		spin_unlock_irqrestore(&channel->lock, channel_flags);
 		return -ECANCELED;

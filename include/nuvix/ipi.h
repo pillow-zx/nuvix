@@ -16,9 +16,10 @@
 #define IPI_REASON_MASK	 IPI_RESCHEDULE
 
 /*
- * Deliver one or more reasons to an online, non-self CPU. Returns a
- * negative errno for null/self/offline/invalid targets, or the SBI error
- * when notification fails; the reason bits stay pending either way.
+ * Deliver one or more reasons to an online, non-self CPU. The scheduler uses
+ * this for remote wakeups as well as the boot-health gate. Returns a negative
+ * errno for null/self/offline/invalid targets, or the SBI error when
+ * notification fails; the reason bits stay pending either way.
  */
 int ipi_send(uint32_t cpu_id, int reasons);
 

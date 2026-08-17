@@ -92,7 +92,9 @@ if [ "$cpus" -gt 1 ]; then
 	expected_online=$(( (1 << cpus) - 1 ))
 	[ "$online" -eq "$expected_online" ] || \
 		fail "online=0x$(printf %x "$online") != expected 0x$(printf %x "$expected_online")"
-	[ "$schedulable" -eq 1 ] || fail "schedulable=0x$(printf %x "$schedulable") != 0x1"
+	expected_schedulable=$(( (1 << cpus) - 1 ))
+	[ "$schedulable" -eq "$expected_schedulable" ] || \
+		fail "schedulable=0x$(printf %x "$schedulable") != expected 0x$(printf %x "$expected_schedulable")"
 	secondary=$(( expected_online & ~1 ))
 	[ $(( timer_seen & secondary )) -eq "$secondary" ] || \
 		fail "timer_seen=0x$(printf %x "$timer_seen") missing secondary bits 0x$(printf %x "$secondary")"
@@ -114,21 +116,29 @@ if [ "$cpus" -gt 1 ]; then
 	[ "${#seen_harts[@]}" -eq "$cpus" ] || fail "incomplete logical/hart mapping"
 fi
 
-sentinel=$(grep -E '\[UTEST\] done ' "$log" | tail -n 1)
-if [ -z "$sentinel" ]; then
-	fail "missing user-test sentinel"
+mapfile -t sentinels < <(grep -E '^\[UTEST\] done ' "$log")
+if [ "${#sentinels[@]}" -ne 2 ]; then
+	if [ "${#sentinels[@]}" -lt 2 ]; then
+		fail "second user-test pass missing (found ${#sentinels[@]} sentinel(s))"
+	fi
+	fail "expected exactly two user-test sentinels, got ${#sentinels[@]}"
 fi
 
-if [[ ! "$sentinel" =~ pass=([0-9]+)[[:space:]]+fail=([0-9]+)[[:space:]]+skip=([0-9]+)[[:space:]]+xfail=([0-9]+)[[:space:]]+xpass=([0-9]+)[[:space:]]+crash=([0-9]+)[[:space:]]+timeout=([0-9]+) ]]; then
-	fail "malformed user-test sentinel: $sentinel"
-fi
+for sentinel in "${sentinels[@]}"; do
+	if [[ ! "$sentinel" =~ pass=([0-9]+)[[:space:]]+fail=([0-9]+)[[:space:]]+skip=([0-9]+)[[:space:]]+xfail=([0-9]+)[[:space:]]+xpass=([0-9]+)[[:space:]]+crash=([0-9]+)[[:space:]]+timeout=([0-9]+) ]]; then
+		fail "malformed user-test sentinel: $sentinel"
+	fi
 
-failed=${BASH_REMATCH[2]}
-xpass=${BASH_REMATCH[5]}
-crash=${BASH_REMATCH[6]}
-timeout_cases=${BASH_REMATCH[7]}
+	failed=${BASH_REMATCH[2]}
+	xpass=${BASH_REMATCH[5]}
+	crash=${BASH_REMATCH[6]}
+	timeout_cases=${BASH_REMATCH[7]}
+	if [ "$failed" -ne 0 ] || [ "$xpass" -ne 0 ] || [ "$crash" -ne 0 ] || \
+		[ "$timeout_cases" -ne 0 ]; then
+		fail "user-space regression failures: $sentinel"
+	fi
+done
 
-if [ "$failed" -ne 0 ] || [ "$xpass" -ne 0 ] || [ "$crash" -ne 0 ] || \
-	[ "$timeout_cases" -ne 0 ]; then
-	fail "user-space regression failures: $sentinel"
-fi
+dispatch_count=$(tr -d '\r' < "$log" | grep -Ec '^sched: cpu 1 first task dispatch$' || true)
+[ "$dispatch_count" -eq 1 ] || \
+	fail "expected exactly one CPU-1 first-dispatch sentinel, got $dispatch_count"

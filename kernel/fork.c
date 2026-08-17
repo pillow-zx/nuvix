@@ -263,6 +263,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 	child = task_alloc();
 	if (!child)
 		return -ENOMEM;
+	child->allowed_cpus = task->allowed_cpus;
 	ret = clone_prepare_proc(child, flags, &new_proc);
 	if (ret < 0)
 		goto fail;

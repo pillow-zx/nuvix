@@ -15,6 +15,7 @@
 #include <nuvix/pgtable.h>
 #include <nuvix/processor.h>
 #include <nuvix/printk.h>
+#include <nuvix/sched.h>
 #include <nuvix/slab.h>
 #include <nuvix/vmalloc.h>
 #include <nuvix/task.h>
@@ -78,13 +79,16 @@ static void smp_gate_fail(uint64_t secondary_mask,
 
 static void smp_probe_record(uint64_t timer_seen, uint64_t ipi_seen);
 
-static void smp_boot_gate(uint32_t boot_id)
+static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
+			  uint64_t *ipi_seen_out)
 {
 	uint64_t secondary_mask = 0;
 	uint64_t timer_seen = 0;
 	uint64_t ipi_observed = 0;
 	uint64_t deadline;
 	uint32_t id;
+
+	BUG_ON(!timer_seen_out || !ipi_seen_out);
 
 	for (id = 0; id < nr_cpu_ids; id++)
 		if (id != boot_id)
@@ -94,8 +98,7 @@ static void smp_boot_gate(uint32_t boot_id)
 
 	if (nr_cpu_ids == 1) {
 		/* UP: validate state only; no secondaries to prove. */
-		smp_probe_record(0, 0);
-		return;
+		goto out;
 	}
 
 	/* Every secondary must prove one local timer tick within one
@@ -132,7 +135,9 @@ static void smp_boot_gate(uint32_t boot_id)
 				      ipi_observed, "ipi-seen");
 	}
 
-	smp_probe_record(timer_seen, ipi_observed);
+out:
+	*timer_seen_out = timer_seen;
+	*ipi_seen_out = ipi_observed;
 }
 
 /*
@@ -200,6 +205,8 @@ void smp_boot_cpus(void)
 {
 	uint32_t boot_id;
 	uint32_t id;
+	uint64_t timer_seen;
+	uint64_t ipi_seen;
 
 	BUG_ON(nr_cpu_ids == 0);
 	/* The kernel page table must be published and valid before any
@@ -234,7 +241,10 @@ void smp_boot_cpus(void)
 	/* Mandatory boot gate: timer and IPI proof from every secondary,
 	 * plus online/schedulable assertions, before any syscall/VFS/device
 	 * or thread initialization proceeds. */
-	smp_boot_gate(boot_id);
+	smp_boot_gate(boot_id, &timer_seen, &ipi_seen);
+	for (id = 0; id < nr_cpu_ids; id++)
+		cpu_set_schedulable(id);
+	smp_probe_record(timer_seen, ipi_seen);
 }
 
 /*
@@ -327,9 +337,9 @@ void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 	/* Publish ONLINE only after all local state is complete. */
 	cpu_state_store_release(cpu, CPU_ONLINE);
 
-	/* Dedicated idle loop: timer interrupts keep flowing (sched_tick()
-	 * no-ops for the idle task) but schedule() is never called here. */
 	for (;;) {
+		local_irq_enable();
+		schedule();
 		local_irq_enable();
 		wait_for_interrupt();
 	}
