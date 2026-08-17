@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/vmalloc.h>
+#include <nuvix/mm.h>
 #include <nuvix/bootinfo.h>
 #include <nuvix/bitops.h>
 #include <nuvix/buddy.h>
@@ -49,6 +50,7 @@ static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 		flush_tlb_page(va);
 		free_page(__va(pa), 0);
 	}
+	mm_flush_kernel_all();
 }
 
 static struct vmalloc_area *vmalloc_find_area(uintptr_t start)

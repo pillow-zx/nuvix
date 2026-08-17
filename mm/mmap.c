@@ -16,6 +16,7 @@
 #include <nuvix/page.h>
 #include <nuvix/pgtable.h>
 #include <nuvix/processor.h>
+#include <asm/csr.h>
 
 #include "internal.h"
 
@@ -231,6 +232,7 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 		flush_tlb_page(va);
 		mm_pte_mapping_put(vma, pa);
 	}
+	mm_flush_remote(mm, false);
 }
 
 __must_check __nonnull(1)
@@ -328,6 +330,7 @@ int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start,
 	}
 
 	flush_tlb_all();
+	mm_flush_remote(mm, false);
 	return 0;
 }
 
@@ -1550,6 +1553,11 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 	}
 
 	flush_tlb_all();
+	mm_flush_remote(mm, false);
+	if (prot & PROT_EXEC) {
+		icache_flush();
+		mm_flush_remote(mm, true);
+	}
 	vma_merge_all(mm);
 
 out:
