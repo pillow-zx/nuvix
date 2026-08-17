@@ -10,6 +10,19 @@
 #include <nuvix/types.h>
 #include <nuvix/fs.h>
 
+enum mm_mapping_kind {
+	MM_MAPPING_PRIVATE,
+	MM_MAPPING_SHARED_FILE,
+	MM_MAPPING_SHARED_ANON,
+};
+
+struct mm_mapping_identity {
+	enum mm_mapping_kind kind;
+	struct page_mapping *mapping;
+	uint64_t pgoff;
+	struct file *file;
+};
+
 /**
  * @brief Create an empty user address space.
  * @return New mm with a user page table, or NULL on allocation failure.
@@ -54,6 +67,27 @@ uintptr_t mm_pgroot(const struct mm_struct *mm);
 
 __must_check
 int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident);
+
+/**
+ * @brief Snapshot the backing identity of a user mapping.
+ * @param mm Address space containing @p addr.
+ * @param addr User virtual address to resolve.
+ * @param identity Receives the mapping kind and, for a file mapping, a held
+ *                  file reference that keeps @c mapping valid.
+ * @return 0 on success, or a negative errno.
+ *
+ * The helper serializes the VMA lookup with @c mmap_lock. Callers must release
+ * a successful file-backed result with mm_mapping_identity_put().
+ */
+__must_check __nonnull(3)
+int mm_mapping_identity_get(struct mm_struct *mm, uintptr_t addr,
+			    struct mm_mapping_identity *identity);
+
+/**
+ * @brief Release a mapping identity acquired by mm_mapping_identity_get().
+ * @param identity Mapping identity to release; may be NULL.
+ */
+void mm_mapping_identity_put(struct mm_mapping_identity *identity);
 
 __must_check
 int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot);

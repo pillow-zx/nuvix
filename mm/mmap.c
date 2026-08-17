@@ -565,6 +565,55 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr)
 	return NULL;
 }
 
+int mm_mapping_identity_get(struct mm_struct *mm, uintptr_t addr,
+			    struct mm_mapping_identity *identity)
+{
+	struct vm_area_struct *vma;
+	int ret = 0;
+
+	if (!mm)
+		return -EFAULT;
+
+	memset(identity, 0, sizeof(*identity));
+	mm_lock(mm);
+	vma = find_vma(mm, addr);
+	if (!vma) {
+		ret = -EFAULT;
+		goto out;
+	}
+	if (!vma->vm_shared) {
+		identity->kind = MM_MAPPING_PRIVATE;
+		goto out;
+	}
+	if (!vma->vm_file) {
+		identity->kind = MM_MAPPING_SHARED_ANON;
+		goto out;
+	}
+	if (!vma->vm_file->f_inode) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	identity->kind = MM_MAPPING_SHARED_FILE;
+	identity->mapping = &vma->vm_file->f_inode->i_pages;
+	identity->pgoff = vma_page_index(vma, addr);
+	identity->file = vma->vm_file;
+	file_get(identity->file);
+
+out:
+	mm_unlock(mm);
+	return ret;
+}
+
+void mm_mapping_identity_put(struct mm_mapping_identity *identity)
+{
+	if (!identity)
+		return;
+
+	file_put(identity->file);
+	memset(identity, 0, sizeof(*identity));
+}
+
 int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident)
 {
 	pte_t *pte;

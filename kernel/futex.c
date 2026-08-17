@@ -12,8 +12,14 @@
 #define ROBUST_LIST_LIMIT	2048
 
 struct futex_key {
-	struct mm_struct *mm;
-	uintptr_t uaddr;
+	bool shared;
+	union {
+		struct {
+			struct mm_struct *mm;
+			uintptr_t uaddr;
+		} priv;
+		struct mm_mapping_identity shared_file;
+	};
 };
 
 struct futex_waiter {
@@ -57,26 +63,70 @@ void futex_init(void)
 static bool futex_key_equal(const struct futex_key *a,
 			    const struct futex_key *b)
 {
-	return a->mm == b->mm && a->uaddr == b->uaddr;
+	if (a->shared != b->shared)
+		return false;
+	if (a->shared)
+		return a->shared_file.mapping == b->shared_file.mapping &&
+		       a->shared_file.pgoff == b->shared_file.pgoff;
+	return a->priv.mm == b->priv.mm &&
+	       a->priv.uaddr == b->priv.uaddr;
 }
 
 static struct futex_bucket *futex_bucket_for(const struct futex_key *key)
 {
-	uintptr_t hash = ((uintptr_t)key->mm >> 3) ^ (key->uaddr >> 2);
+	uintptr_t hash;
+
+	if (key->shared)
+		hash = ((uintptr_t)key->shared_file.mapping >> 3) ^
+		       key->shared_file.pgoff;
+	else
+		hash = ((uintptr_t)key->priv.mm >> 3) ^
+		       (key->priv.uaddr >> 2);
 
 	return &futex_buckets[hash & (FUTEX_BUCKETS - 1)];
+}
+
+static void futex_key_put(struct futex_key *key)
+{
+	if (!key)
+		return;
+	if (key->shared)
+		mm_mapping_identity_put(&key->shared_file);
+	memset(key, 0, sizeof(*key));
 }
 
 static int futex_make_key(struct mm_struct *mm, int *uaddr,
 			  struct futex_key *key)
 {
-	if (!mm || !uaddr)
+	struct mm_mapping_identity identity;
+	int ret;
+
+	if (!mm || !uaddr || !key)
 		return -EFAULT;
 	if ((uintptr_t)uaddr & (sizeof(int) - 1))
 		return -EINVAL;
 
-	key->mm = mm;
-	key->uaddr = (uintptr_t)uaddr;
+	memset(key, 0, sizeof(*key));
+	ret = mm_mapping_identity_get(mm, (uintptr_t)uaddr, &identity);
+	if (ret < 0)
+		return ret;
+
+	switch (identity.kind) {
+	case MM_MAPPING_PRIVATE:
+		key->priv.mm = mm;
+		key->priv.uaddr = (uintptr_t)uaddr;
+		break;
+	case MM_MAPPING_SHARED_FILE:
+		key->shared = true;
+		/* The key takes ownership of identity's held file reference. */
+		key->shared_file = identity;
+		break;
+	case MM_MAPPING_SHARED_ANON:
+		return -ENOSYS;
+	default:
+		return -EFAULT;
+	}
+
 	return 0;
 }
 
@@ -108,15 +158,20 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 			    uaddr, &key);
 	if (ret < 0)
 		return ret;
-	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0)
+	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0) {
+		futex_key_put(&key);
 		return -EFAULT;
+	}
 
 	bucket = futex_bucket_for(&key);
 	ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, deadline);
-	if (ret < 0)
+	if (ret < 0) {
+		futex_key_put(&key);
 		return ret;
+	}
 	memset(&waiter, 0, sizeof(waiter));
 	waiter.key = key;
+	memset(&key, 0, sizeof(key));
 	waiter.bitset = bitset;
 	waiter.task = current_task();
 	waiter.generation = wait->generation;
@@ -146,6 +201,7 @@ detach_waiter:
 
 finish_wait:
 	wait_finish(wait);
+	futex_key_put(&waiter.key);
 
 	if (ret < 0)
 		return ret;
@@ -158,13 +214,11 @@ finish_wait:
 	return -EINVAL;
 }
 
-static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
-				uint32_t bitset)
+static int futex_wake_key_bitset(const struct futex_key *key, int nr,
+				 uint32_t bitset)
 {
-	struct futex_key key;
 	struct futex_bucket *bucket;
 	irq_flags_t flags;
-	int ret;
 	int woken = 0;
 
 	if (bitset == 0)
@@ -172,11 +226,7 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 	if (nr <= 0)
 		return 0;
 
-	ret = futex_make_key(mm, uaddr, &key);
-	if (ret < 0)
-		return ret;
-
-	bucket = futex_bucket_for(&key);
+	bucket = futex_bucket_for(key);
 
 	while (woken < nr) {
 		struct task_struct *target = NULL;
@@ -188,7 +238,7 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 			struct futex_waiter *waiter =
 				list_entry(pos, struct futex_waiter, node);
 
-			if (!futex_key_equal(&waiter->key, &key))
+			if (!futex_key_equal(&waiter->key, key))
 				continue;
 			if ((waiter->bitset & bitset) == 0)
 				continue;
@@ -214,6 +264,27 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 	return woken;
 }
 
+static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
+				uint32_t bitset)
+{
+	struct futex_key key;
+	int ret;
+
+	if (bitset == 0)
+		return -EINVAL;
+
+	ret = futex_make_key(mm, uaddr, &key);
+	if (ret < 0)
+		return ret;
+	if (nr <= 0) {
+		futex_key_put(&key);
+		return 0;
+	}
+	ret = futex_wake_key_bitset(&key, nr, bitset);
+	futex_key_put(&key);
+	return ret;
+}
+
 int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
 {
 	return futex_wake_mm_bitset(mm, uaddr, nr, FUTEX_BITSET_MATCH_ANY);
@@ -221,19 +292,14 @@ int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
 
 static int futex_wake(int *uaddr, int nr, uint32_t bitset)
 {
-	struct futex_key key;
-	int ret;
-
 	if (bitset == 0)
 		return -EINVAL;
-	ret = futex_make_key(current_task()->proc ? current_task()->proc->mm : NULL,
-			    uaddr, &key);
-	if (ret < 0)
-		return ret;
 	if (!access_ok(uaddr, sizeof(*uaddr)))
 		return -EFAULT;
 
-	return futex_wake_mm_bitset(key.mm, uaddr, nr, bitset);
+	return futex_wake_mm_bitset(
+		current_task()->proc ? current_task()->proc->mm : NULL, uaddr,
+		nr, bitset);
 }
 
 static void robust_wake_owner(struct task_struct *task,
