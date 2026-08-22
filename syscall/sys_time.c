@@ -212,49 +212,6 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	return -EINTR;
 }
 
-/* Interval and POSIX timers are intentionally postponed. */
-ssize_t sys_getitimer(struct trap_frame *tf)
-{
-	(void)tf;
-	return -ENOSYS;
-}
-
-ssize_t sys_setitimer(struct trap_frame *tf)
-{
-	(void)tf;
-	return -ENOSYS;
-}
-
-ssize_t sys_timer_create(struct trap_frame *tf)
-{
-	(void)tf;
-	return -ENOSYS;
-}
-
-ssize_t sys_timer_gettime(struct trap_frame *tf)
-{
-	(void)tf;
-	return -ENOSYS;
-}
-
-ssize_t sys_timer_getoverrun(struct trap_frame *tf)
-{
-	(void)tf;
-	return -ENOSYS;
-}
-
-ssize_t sys_timer_settime(struct trap_frame *tf)
-{
-	(void)tf;
-	return -ENOSYS;
-}
-
-ssize_t sys_timer_delete(struct trap_frame *tf)
-{
-	(void)tf;
-	return -ENOSYS;
-}
-
 ssize_t sys_clock_settime(struct trap_frame *tf)
 {
 	int clock_id = (int)syscall_arg(tf, 0);

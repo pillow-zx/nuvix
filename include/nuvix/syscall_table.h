@@ -72,13 +72,6 @@
 	X(SYS_set_robust_list, "set_robust_list", sys_set_robust_list)         \
 	X(SYS_get_robust_list, "get_robust_list", sys_get_robust_list)         \
 	X(SYS_nanosleep, "nanosleep", sys_nanosleep)                           \
-	X(SYS_getitimer, "getitimer", sys_getitimer)                           \
-	X(SYS_setitimer, "setitimer", sys_setitimer)                           \
-	X(SYS_timer_create, "timer_create", sys_timer_create)                  \
-	X(SYS_timer_gettime, "timer_gettime", sys_timer_gettime)               \
-	X(SYS_timer_getoverrun, "timer_getoverrun", sys_timer_getoverrun)      \
-	X(SYS_timer_settime, "timer_settime", sys_timer_settime)               \
-	X(SYS_timer_delete, "timer_delete", sys_timer_delete)                  \
 	X(SYS_clock_settime, "clock_settime", sys_clock_settime)               \
 	X(SYS_clock_gettime, "clock_gettime", sys_clock_gettime)               \
 	X(SYS_clock_getres, "clock_getres", sys_clock_getres)                  \
