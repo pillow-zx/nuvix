@@ -31,13 +31,9 @@ enum task_wait_policy {
 	TASK_WAIT_KILLABLE,
 };
 
-enum task_wake_reason {
-	TASK_WAKE_NONE,
-	TASK_WAKE_EVENT,
-	TASK_WAKE_SIGNAL,
-	TASK_WAKE_TIMEOUT,
-	TASK_WAKE_EXIT,
-	TASK_WAKE_CLOSED,
+enum task_wait_signal_mode {
+	TASK_WAIT_SIGNAL_DEFAULT,
+	TASK_WAIT_SIGNAL_SET,
 };
 
 enum wait_status {
@@ -81,7 +77,15 @@ struct task_wait {
 	spinlock_t lock;
 	enum wait_status status;
 	enum task_wait_policy policy;
-	enum task_wake_reason reason;
+	enum task_wait_signal_mode signal_mode;
+	uint64_t signal_set;
+	/* Wakes are hints: this flag is set by an event (source channel /
+	 * wait_wake_event / exit) wake and consumed by wait_block, which returns
+	 * WAIT_OUTCOME_EVENT so the caller rechecks its own condition.  Signal
+	 * and deadline wakes do not set it — those outcomes are derived by
+	 * wait_block rechecking the fact bits / deadline.  There is no
+	 * multi-valued stored reason to race. */
+	bool event_fired;
 	uint64_t generation;
 	uint32_t status_value;
 	struct list_head registrations;
@@ -129,6 +133,21 @@ void wait_init(void);
 /** Start one wait generation. The caller must finish it before returning. */
 __must_check
 int wait_start(struct task_wait *wait, wait_flags_t flags, const struct wait_deadline *deadline);
+
+/** Start an interruptible wait whose signal outcome is tied to a set. */
+__must_check
+int wait_start_signal_set(struct task_wait *wait, wait_flags_t flags,
+			  const struct wait_deadline *deadline, uint64_t signal_set);
+
+/**
+ * Start an accepted-signal wait while the caller holds the owning siglock.
+ * This is the signal entrance seam; the generic wait API must reject callers
+ * that hold unrelated locks.
+ */
+__must_check
+int wait_start_signal_set_locked(struct task_wait *wait, wait_flags_t flags,
+				 const struct wait_deadline *deadline,
+				 uint64_t signal_set);
 
 /**
  * Register the current task wait with a source channel. The caller holds the

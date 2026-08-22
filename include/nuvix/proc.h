@@ -304,6 +304,16 @@ uint32_t proc_child_count(const struct proc_struct *proc);
 size_t proc_task_snapshot(struct proc_struct *proc,  const struct task_struct *ignored,
 			  struct task_struct **tasks, size_t capacity);
 
+/**
+ * Visit every task currently attached to @p proc under the topology lock.
+ * The callback must not modify process membership or sleep, and task
+ * references are not acquired for the duration of the callback.
+ */
+typedef void (*proc_task_callback_t)(struct task_struct *task, void *arg);
+
+void proc_for_each_task(struct proc_struct *proc, proc_task_callback_t callback,
+			void *arg);
+
 size_t proc_pgrp_task_snapshot(struct pgrp_struct *pgrp, struct session_struct *session,
 			       struct task_struct **tasks, size_t capacity);
 

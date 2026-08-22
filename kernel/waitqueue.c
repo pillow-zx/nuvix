@@ -41,29 +41,6 @@ static bool wait_active(const struct task_wait *wait)
 	return wait->status == WAIT_ACTIVE;
 }
 
-static bool wait_reason_ready(enum task_wake_reason reason)
-{
-	return reason != TASK_WAKE_NONE;
-}
-
-static wait_outcome_t wait_outcome_for_reason(enum task_wake_reason reason)
-{
-	switch (reason) {
-	case TASK_WAKE_EVENT:
-	case TASK_WAKE_CLOSED:
-		return WAIT_OUTCOME_EVENT;
-	case TASK_WAKE_SIGNAL:
-		return WAIT_OUTCOME_SIGNAL;
-	case TASK_WAKE_TIMEOUT:
-		return WAIT_OUTCOME_TIMEOUT;
-	case TASK_WAKE_EXIT:
-		return WAIT_OUTCOME_SIGNAL;
-	case TASK_WAKE_NONE:
-		return 0;
-	}
-	return 0;
-}
-
 static void wait_deadline_remove(struct task_wait *wait)
 {
 	struct wait_deadline_queue *queue;
@@ -118,17 +95,18 @@ static void wait_deadline_insert(struct task_wait *wait)
 	clockevent_deadline_changed(wait->deadline.expires);
 }
 
-static bool wait_reason_set(struct task_wait *wait,
-				    enum task_wake_reason reason,
-				    uint64_t generation)
+/* Mark that an event fired for the given wait generation.  Wakes are hints:
+ * wait_block returns WAIT_OUTCOME_EVENT and the caller rechecks its own
+ * condition, looping back if no event is actually satisfiable. */
+static bool wait_event_fired(struct task_wait *wait, uint64_t generation)
 {
 	bool wake = false;
 	irq_flags_t flags;
 
 	spin_lock_irqsave(&wait->lock, &flags);
 	if (wait_active(wait) && wait->generation == generation &&
-	    !wait_reason_ready(wait->reason)) {
-		wait->reason = reason;
+	    !wait->event_fired) {
+		wait->event_fired = true;
 		wake = true;
 	}
 	spin_unlock_irqrestore(&wait->lock, flags);
@@ -148,15 +126,17 @@ void wait_channel_init(struct wait_channel *channel)
 	INIT_LIST_HEAD(&channel->waiters);
 }
 
-int wait_start(struct task_wait *wait, wait_flags_t flags,
-		       const struct wait_deadline *deadline)
+static int wait_start_mode(struct task_wait *wait, wait_flags_t flags,
+				   const struct wait_deadline *deadline,
+				   enum task_wait_signal_mode signal_mode,
+				   uint64_t signal_set, bool signal_lock_held)
 {
 	struct task_struct *task = current_task();
 	irq_flags_t irq_flags;
 
 	if (!wait || !deadline || !task || wait != &task->wait)
 		return -EINVAL;
-	if (!wait_context_can_sleep())
+	if (!signal_lock_held && !wait_context_can_sleep())
 		return -EINVAL;
 	if (flags & ~WAIT_FLAG_MASK ||
 	    (flags & WAIT_FLAG_MASK) == WAIT_FLAG_MASK)
@@ -174,7 +154,9 @@ int wait_start(struct task_wait *wait, wait_flags_t flags,
 			: (flags & WAIT_FLAG_INTERRUPTIBLE)
 				? TASK_WAIT_INTERRUPTIBLE
 				: TASK_WAIT_UNINTERRUPTIBLE;
-	wait->reason = TASK_WAKE_NONE;
+	wait->signal_mode = signal_mode;
+	wait->signal_set = signal_set;
+	wait->event_fired = false;
 	wait->status_value = 0;
 	wait->generation++;
 	wait->deadline = *deadline;
@@ -184,6 +166,28 @@ int wait_start(struct task_wait *wait, wait_flags_t flags,
 
 	wait_deadline_insert(wait);
 	return 0;
+}
+
+int wait_start(struct task_wait *wait, wait_flags_t flags,
+		       const struct wait_deadline *deadline)
+{
+	return wait_start_mode(wait, flags, deadline,
+				       TASK_WAIT_SIGNAL_DEFAULT, 0, false);
+}
+
+int wait_start_signal_set(struct task_wait *wait, wait_flags_t flags,
+			  const struct wait_deadline *deadline, uint64_t signal_set)
+{
+	return wait_start_mode(wait, flags, deadline, TASK_WAIT_SIGNAL_SET,
+				       signal_set, false);
+}
+
+int wait_start_signal_set_locked(struct task_wait *wait, wait_flags_t flags,
+				 const struct wait_deadline *deadline, uint64_t signal_set)
+{
+	BUG_ON(!spinlock_held());
+	return wait_start_mode(wait, flags, deadline, TASK_WAIT_SIGNAL_SET,
+				       signal_set, true);
 }
 
 int wait_prepare(struct task_wait *wait, struct wait_channel *channel,
@@ -243,8 +247,7 @@ int wait_block(struct task_wait *wait, wait_outcome_t *outcome)
 	*outcome = 0;
 
 	for (;;) {
-		enum task_wake_reason reason;
-		uint64_t generation;
+		bool event_fired;
 		irq_flags_t flags;
 
 		spin_lock_irqsave(&wait->lock, &flags);
@@ -252,25 +255,28 @@ int wait_block(struct task_wait *wait, wait_outcome_t *outcome)
 			spin_unlock_irqrestore(&wait->lock, flags);
 			return -EINVAL;
 		}
-		reason = wait->reason;
-		generation = wait->generation;
+		event_fired = wait->event_fired;
+		if (event_fired)
+			wait->event_fired = false;
 		spin_unlock_irqrestore(&wait->lock, flags);
 
-		if (wait_reason_ready(reason)) {
-			*outcome = wait_outcome_for_reason(reason);
-			return 0;
-		}
-		if ((wait->policy == TASK_WAIT_INTERRUPTIBLE &&
-		     signal_pending_interruptible(task)) ||
-		    (wait->policy == TASK_WAIT_KILLABLE &&
-		     signal_fatal_pending(task))) {
-			if (wait_reason_set(wait, TASK_WAKE_SIGNAL, generation))
-				continue;
-		}
-		if (wait->deadline.active && timer_now() >= wait->deadline.expires) {
-			if (wait_reason_set(wait, TASK_WAKE_TIMEOUT, generation))
-				continue;
-		}
+		/* Recheck order: fatal -> event -> signal predicate (per policy
+		 * class) -> deadline.  Every check is re-derived, never read from
+		 * a stored wake reason; wakes are only hints that poll these. */
+		if ((wait->policy == TASK_WAIT_INTERRUPTIBLE ||
+		     wait->policy == TASK_WAIT_KILLABLE) &&
+		    sig_fatal_pending(task))
+			return (*outcome = WAIT_OUTCOME_SIGNAL), 0;
+
+		if (event_fired)
+			return (*outcome = WAIT_OUTCOME_EVENT), 0;
+
+		if (wait->policy == TASK_WAIT_INTERRUPTIBLE &&
+		    sig_wait_ready(task, wait))
+			return (*outcome = WAIT_OUTCOME_SIGNAL), 0;
+
+		if (wait->deadline.active && timer_now() >= wait->deadline.expires)
+			return (*outcome = WAIT_OUTCOME_TIMEOUT), 0;
 
 		wait_block_current();
 	}
@@ -309,9 +315,11 @@ void wait_finish(struct task_wait *wait)
 			wait->registration_count = 0;
 			wait->owner = NULL;
 			wait->deadline_task = NULL;
-			wait->status = WAIT_IDLE;
-			wait->reason = TASK_WAKE_NONE;
-			wait->deadline = wait_deadline_none();
+				wait->status = WAIT_IDLE;
+				wait->event_fired = false;
+				wait->signal_mode = TASK_WAIT_SIGNAL_DEFAULT;
+				wait->signal_set = 0;
+				wait->deadline = wait_deadline_none();
 			spin_unlock_irqrestore(&wait->lock, wait_flags);
 			if (deadline_task)
 				task_put(deadline_task);
@@ -366,7 +374,7 @@ static bool wait_channel_wake_match(struct wait_channel *channel,
 		if (!wait || !entry->task || entry->channel != channel)
 			continue;
 		spin_lock_irqsave(&wait->lock, &wait_flags);
-		if (wait->status != WAIT_ACTIVE || wait->reason != TASK_WAKE_NONE ||
+		if (wait->status != WAIT_ACTIVE || wait->event_fired ||
 		    entry->wait != wait || entry->channel != channel) {
 			spin_unlock_irqrestore(&wait->lock, wait_flags);
 			continue;
@@ -381,7 +389,7 @@ static bool wait_channel_wake_match(struct wait_channel *channel,
 		}
 		task = entry->task;
 		generation = wait->generation;
-		wait->reason = TASK_WAKE_EVENT;
+		wait->event_fired = true;
 		list_del_init(&entry->channel_node);
 		entry->channel = NULL;
 		spin_unlock_irqrestore(&wait->lock, wait_flags);
@@ -422,16 +430,12 @@ bool wait_wake_signal(struct task_struct *task, bool fatal)
 	spin_lock_irqsave(&wait->lock, &flags);
 	eligible = wait_active(wait) &&
 		((wait->policy == TASK_WAIT_INTERRUPTIBLE) || fatal);
-	if (eligible && wait->reason == TASK_WAKE_NONE) {
+	if (eligible)
 		generation = wait->generation;
-		wait->reason = TASK_WAKE_SIGNAL;
-	} else {
+	else
 		generation = 0;
-	}
 	spin_unlock_irqrestore(&wait->lock, flags);
-	if (!eligible)
-		return false;
-	if (!generation)
+	if (!eligible || !generation)
 		return false;
 	(void)sched_wake(task, generation);
 	return true;
@@ -439,7 +443,7 @@ bool wait_wake_signal(struct task_struct *task, bool fatal)
 
 bool wait_wake_event(struct task_struct *task, uint64_t generation)
 {
-	if (!task || !wait_reason_set(&task->wait, TASK_WAKE_EVENT, generation))
+	if (!task || !wait_event_fired(&task->wait, generation))
 		return false;
 	(void)sched_wake(task, generation);
 	return true;
@@ -455,16 +459,12 @@ bool wait_wake_exit(struct task_struct *task)
 		return false;
 	wait = &task->wait;
 	spin_lock_irqsave(&wait->lock, &flags);
-	if (!wait_active(wait)) {
+	if (!wait_active(wait) || wait->event_fired) {
 		spin_unlock_irqrestore(&wait->lock, flags);
 		return false;
 	}
 	generation = wait->generation;
-	if (wait->reason != TASK_WAKE_NONE) {
-		spin_unlock_irqrestore(&wait->lock, flags);
-		return false;
-	}
-	wait->reason = TASK_WAKE_EXIT;
+	wait->event_fired = true;
 	spin_unlock_irqrestore(&wait->lock, flags);
 	(void)sched_wake(task, generation);
 	return true;
@@ -496,7 +496,7 @@ void wait_expire_deadlines(uint64_t now)
 		task = wait->deadline_task;
 		generation = wait->deadline_generation;
 		spin_unlock_irqrestore(&queue->lock, flags);
-		if (wait_reason_set(wait, TASK_WAKE_TIMEOUT, generation) && task)
+		if (task)
 			(void)sched_wake(task, generation);
 	}
 }

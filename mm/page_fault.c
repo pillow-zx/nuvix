@@ -59,7 +59,7 @@ static void signal_or_panic_segv(struct trap_frame *tf, int code)
 		info.si_signo = SIGSEGV;
 		info.si_code = code;
 		info.si_addr = (void *)trap_fault_addr(tf);
-		if (force_signal_info(SIGSEGV, &info, current_task()) < 0)
+		if (sig_force_info(SIGSEGV, &info, current_task()) < 0)
 			do_exit_signal(SIGSEGV);
 		return;
 	}

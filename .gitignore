@@ -6,9 +6,9 @@
 !arch/riscv/include/asm/
 !arch/riscv/kernel.ld
 !include/
-!include/compiler/
 !include/uapi/
 !include/nuvix/
+!include/nuvix/compiler/
 !drivers/
 !syscall/
 !kernel/
@@ -27,19 +27,6 @@
 !tools/
 !tools/kconfig/
 !tools/kconfig/lxdialog/
-!user/
-!user/busybox
-!user/libc/
-!user/libc/musl
-!user/linux-uapi
-!user/linux-uapi/include/linux
-!user/rootfs/
-!user/rootfs/busybox/
-!user/rootfs/busybox/inittab
-!user/runtime/
-!user/runtime/**
-!user/ci/
-!user/ci/**/
 
 
 
@@ -73,21 +60,12 @@
 !syscall/*.c
 !sched/*.c
 !sched/*.h
-!user/**/*.c
-!user/**/*.h
-!user/**/*.in
-!user/**/*.zig
-!user/ci/**/*.md
-!user/ci/rootfs/inittab
-!user/Makefile
 !.clang-format
 !.clangd
 !.editorconfig
-!.gdbinit.tmpl-riscv
 !.gitignore
 !Makefile
 !README.md
-!SYSCALL.md
 !LICENSE
 !Doxyfile
 !.agents/skills/**/*

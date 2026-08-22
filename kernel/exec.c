@@ -716,7 +716,7 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	ret = files_prepare_exec(proc, &prepared_files);
 	if (ret < 0)
 		goto abort_exec;
-	ret = signals_prepare_exec(task, &prepared_sighand);
+	ret = sig_exec_prepare(task, &prepared_sighand);
 	if (ret < 0)
 		goto abort_exec;
 	ret = proc_exec_request_siblings(proc, task);
@@ -751,13 +751,11 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	files_close_on_exec(prepared_files);
 	files_commit_exec(proc, prepared_files);
 	prepared_files = NULL;
-	signals_commit_exec(task, prepared_sighand);
+	sig_exec_commit(task, prepared_sighand);
 	prepared_sighand = NULL;
 
 	install_exec_mm(mm, tf, entry, sp);
 	proc_mark_user_process(proc);
-	signal_clear_frames(task);
-	signal_reset_altstack(task);
 	restart_clear(task);
 	rseq_execve(task);
 	/* Thread-local registrations point into the old address space: drop
@@ -778,7 +776,7 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 	return 0;
 
 abort_exec:
-	signals_abort_exec(prepared_sighand);
+	sig_exec_abort(prepared_sighand);
 	files_abort_exec(prepared_files);
 	if (exec_started)
 		proc_exec_end(proc, task);

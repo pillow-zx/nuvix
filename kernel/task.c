@@ -156,7 +156,9 @@ static void task_init_wait(struct task_struct *task)
 	spin_lock_init(&task->wait.lock, LOCK_RANK_WAIT,
 			LOCK_IRQ_HARDIRQ_REACHABLE);
 	task->wait.policy = TASK_WAIT_UNINTERRUPTIBLE;
-	task->wait.reason = TASK_WAKE_NONE;
+	task->wait.signal_mode = TASK_WAIT_SIGNAL_DEFAULT;
+	task->wait.signal_set = 0;
+	task->wait.event_fired = false;
 	task->wait.generation = 0;
 	task->wait.status = WAIT_IDLE;
 	task->wait.status_value = 0;
@@ -249,7 +251,7 @@ int task_prepare_user_proc(struct task_struct *task, struct proc_struct *proc)
 		proc_detach_task(proc, task);
 		return ret;
 	}
-	ret = signals_init(task);
+	ret = sig_task_init(task);
 	if (ret < 0) {
 		proc_detach_task(proc, task);
 		return ret;
@@ -273,7 +275,7 @@ int task_create_initial_proc(struct task_struct *task)
 	ret = proc_init_resources(proc);
 	if (ret < 0)
 		goto fail_task;
-	ret = signals_init(task);
+	ret = sig_task_init(task);
 	if (ret < 0)
 		goto fail_resources;
 	ret = proc_publish(proc);
@@ -304,14 +306,14 @@ int task_init_resources(struct task_struct *task)
 		if (ret < 0)
 			return ret;
 	}
-	return signals_init(task);
+	return sig_task_init(task);
 }
 
 void task_release_resources(struct task_struct *task)
 {
 	if (!task)
 		return;
-	signals_release(task);
+	sig_task_release(task);
 	cred_put(task->cred);
 	task->cred = NULL;
 }

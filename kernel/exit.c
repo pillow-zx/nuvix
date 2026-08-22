@@ -116,7 +116,7 @@ static void finish_task_exit(struct task_struct *task, int status)
 		release_proc_mm(proc, current);
 		proc_release_resources(proc);
 	}
-	signals_release(task);
+	sig_task_release(task);
 	if (last_task)
 		kernel_clone_complete_vfork(task);
 	/* Session/TTY cleanup runs when the proc dies, even if the exiting
@@ -132,7 +132,7 @@ static void finish_task_exit(struct task_struct *task, int status)
 					     : status;
 		struct proc_struct *parent = proc_parent_get(proc);
 		struct sigchld_exit_policy policy =
-			parent ? signal_sigchld_exit_policy(parent)
+			parent ? sigchld_exit_policy(parent)
 			       : (struct sigchld_exit_policy){0};
 		bool sigchld_exit = proc->wait_state.exit_signal == SIGCHLD;
 		bool auto_reap = sigchld_exit && policy.auto_reap;
@@ -271,10 +271,10 @@ void release_task(struct task_struct *task)
 		orphan_count =
 			proc_publish_exit(proc, orphan_events, PID_COUNT,
 					  &parent_event);
-		signal_notify_proc_parent(&parent_event);
+		sig_notify_parent(&parent_event);
 		proc_parent_event_release(&parent_event);
 		for (size_t index = 0; index < orphan_count; index++)
-			signal_orphaned_pgrp_event(&orphan_events[index]);
+			sig_orphan_pgrp(&orphan_events[index]);
 		for (size_t index = 0; index < orphan_count; index++)
 			proc_orphan_event_release(&orphan_events[index]);
 		kfree(orphan_events);
@@ -409,7 +409,7 @@ void kernel_wait4_finish(struct wait4_result *result)
 	if (!committed)
 		return;
 	for (size_t index = 0; index < claim.orphan_count; index++)
-		signal_orphaned_pgrp_event(&claim.orphan_events[index]);
+		sig_orphan_pgrp(&claim.orphan_events[index]);
 	for (size_t index = 0; index < claim.orphan_count; index++)
 		proc_orphan_event_release(&claim.orphan_events[index]);
 	if (event == PROC_WAIT_EXIT && current_task()->proc)

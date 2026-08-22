@@ -24,7 +24,6 @@ INIT_OBJS = \
 
 KERNEL_OBJS = \
 	kernel/printk.o         \
-	kernel/ksyms.o          \
 	kernel/smp.o            \
 	kernel/ipi.o            \
 	kernel/stacktrace.o     \
@@ -84,17 +83,10 @@ EXT2_OBJS = \
 	fs/ext2/file.o  \
 	fs/ext2/balloc.o
 
-ifeq ($(CONFIG_EXT2_FS),y)
-FS_EXT2_OBJS = $(EXT2_OBJS)
-else
-FS_EXT2_OBJS =
-endif
-
 FS_OBJS = \
 	fs/filesystems.o \
 	fs/pipe.o        \
-	$(VFS_OBJS)      \
-	$(FS_EXT2_OBJS)
+	$(VFS_OBJS)
 
 BLOCK_OBJS = \
 	block/blkdev.o               \
@@ -129,3 +121,21 @@ SYSCALL_OBJS = \
 
 LIB_OBJS = \
 	lib/vsprintf.o
+
+OBJ-y = \
+	$(ARCH_OBJS)    \
+	$(INIT_OBJS)    \
+	$(KERNEL_OBJS)  \
+	$(MM_OBJS)      \
+	$(FS_OBJS)      \
+	$(BLOCK_OBJS)   \
+	$(DRIVER_OBJS)  \
+	$(SCHED_OBJS)   \
+	$(SYSCALL_OBJS) \
+	$(LIB_OBJS)
+
+OBJ-$(CONFIG_EXT2_FS) += $(EXT2_OBJS)
+
+# Keep disabled-option artifacts in the clean set after a configuration flip.
+ALL_OBJ_REL = $(sort $(OBJ-y) $(EXT2_OBJS))
+OBJ_REL = $(OBJ-y)

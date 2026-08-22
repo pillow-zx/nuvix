@@ -6,6 +6,7 @@
 #include <nuvix/mm.h>
 #include <nuvix/signal.h>
 #include <nuvix/syscall.h>
+#include <nuvix/time.h>
 #include <nuvix/types.h>
 #include <nuvix/trap.h>
 
@@ -13,22 +14,21 @@
  * SYSCALL_SUPPORT(B): kill
  * Current: delivers to a positive pid, the caller's process group for pid 0,
  * a selected process group for pid < -1, or all eligible processes for -1.
- * Unsupported errno: a missing target set returns -ESRCH.
- * Future: add credential-based permission semantics.
+ * Permission follows the caller's real/effective UID, the target's real/saved
+ * UID, root privilege, and the same-session SIGCONT exception.
  */
 ssize_t sys_kill(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	int sig = (int)syscall_arg(tf, 1);
 
-	return do_kill(pid, sig);
+	return sig_kill(pid, sig);
 }
 
 /*
  * SYSCALL_SUPPORT(B): tkill
- * Current: delivers to a positive tid.
- * Unsupported errno: tid <= 0 returns -EINVAL; missing target returns -ESRCH.
- * Future: add credential checks with the permission model.
+ * Current: delivers to a positive tid with the same permission policy as
+ * kill().  tid <= 0 returns -EINVAL; missing targets return -ESRCH.
  */
 ssize_t sys_tkill(struct trap_frame *tf)
 {
@@ -38,15 +38,13 @@ ssize_t sys_tkill(struct trap_frame *tf)
 	if (tid <= 0)
 		return -EINVAL;
 
-	return do_tkill(tid, sig);
+	return sig_tkill(tid, sig);
 }
 
 /*
  * SYSCALL_SUPPORT(B): tgkill
- * Current: delivers to a positive tgid/tid pair.
- * Unsupported errno: non-positive ids return -EINVAL; missing or mismatched
- * target returns -ESRCH.
- * Future: add credential checks with tkill.
+ * Current: delivers to a positive tgid/tid pair with the same permission
+ * policy as kill().  Non-positive, missing, or mismatched targets fail.
  */
 ssize_t sys_tgkill(struct trap_frame *tf)
 {
@@ -57,7 +55,7 @@ ssize_t sys_tgkill(struct trap_frame *tf)
 	if (tgid <= 0 || tid <= 0)
 		return -EINVAL;
 
-	return do_tgkill(tgid, tid, sig);
+	return sig_tgkill(tgid, tid, sig);
 }
 
 /*
@@ -76,7 +74,7 @@ ssize_t sys_sigaltstack(struct trap_frame *tf)
 	int ret;
 
 	if (old_ss) {
-		ret = do_sigaltstack(NULL, &old);
+		ret = sig_altstack(NULL, &old);
 		if (ret < 0)
 			return ret;
 		if (copy_to_user(old_ss, &old, sizeof(old)) != 0)
@@ -88,15 +86,15 @@ ssize_t sys_sigaltstack(struct trap_frame *tf)
 
 	if (copy_from_user(&kss, ss, sizeof(kss)) != 0)
 		return -EFAULT;
-	return do_sigaltstack(&kss, NULL);
+	return sig_altstack(&kss, NULL);
 }
 
 /*
  * SYSCALL_SUPPORT(B): rt_sigaction
- * Current: installs/query handlers and masks with a fixed unsigned long sigset.
+ * Current: atomically snapshots and replaces the shared action table entry
+ * with a fixed unsigned-long sigset.  Real-time signals 32..64 are rejected.
  * Unsupported errno: bad sigset size, uncatchable signals with act, or SIG_ERR
- * handler returns -EINVAL; SA_* semantics are shallow.
- * Future: build a signal action flag matrix.
+ * handlers return -EINVAL; SA_* semantics are shallow.
  */
 ssize_t sys_sigaction(struct trap_frame *tf)
 {
@@ -109,27 +107,23 @@ ssize_t sys_sigaction(struct trap_frame *tf)
 	struct sigaction old;
 	int ret;
 
-	if (!signal_is_valid(sig))
+	if (!sig_valid(sig))
 		return -EINVAL;
-	if (!signal_is_catchable(sig) && act)
+	if (!sig_catchable(sig) && act)
 		return -EINVAL;
 	if (sigsetsize != sizeof(unsigned long))
 		return -EINVAL;
 
-	if (oldact) {
-		ret = do_sigaction(sig, NULL, &old);
-		if (ret < 0)
-			return ret;
-		if (copy_to_user(oldact, &old, sizeof(old)) != 0)
-			return -EFAULT;
-	}
-
-	if (!act)
-		return 0;
-
-	if (copy_from_user(&kact, act, sizeof(kact)) != 0)
+	if (oldact && user_range_probe(oldact, sizeof(old), true) < 0)
 		return -EFAULT;
-	return do_sigaction(sig, &kact, NULL);
+	if (act && copy_from_user(&kact, act, sizeof(kact)) != 0)
+		return -EFAULT;
+	ret = sig_action(sig, act ? &kact : NULL, oldact ? &old : NULL);
+	if (ret < 0)
+		return ret;
+	if (oldact && copy_to_user(oldact, &old, sizeof(old)) != 0)
+		return -EFAULT;
+	return 0;
 }
 
 /*
@@ -152,7 +146,7 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 		return -EINVAL;
 
 	if (oldset) {
-		ret = do_sigprocmask(how, NULL, &old);
+		ret = sig_procmask(how, NULL, &old);
 		if (ret < 0)
 			return ret;
 		if (copy_to_user(oldset, &old, sizeof(old)) != 0)
@@ -164,13 +158,13 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
 
 	if (copy_from_user(&newset, set, sizeof(newset)) != 0)
 		return -EFAULT;
-	return do_sigprocmask(how, &newset, NULL);
+	return sig_procmask(how, &newset, NULL);
 }
 
 /*
  * SYSCALL_SUPPORT(B): rt_sigpending
- * Current: snapshots the calling thread's private and thread-group pending
- * masks using the Linux riscv64 unsigned-long sigset ABI.
+ * Current: snapshots pending private and thread-group signals that are blocked
+ * in the calling thread, using the Linux riscv64 unsigned-long sigset ABI.
  * Unsupported errno: a bad sigset size returns -EINVAL; an invalid userspace
  * destination returns -EFAULT.
  */
@@ -182,7 +176,7 @@ ssize_t sys_sigpending(struct trap_frame *tf)
 
 	if (sigsetsize != sizeof(unsigned long))
 		return -EINVAL;
-	pending = signal_pending_mask(current_task());
+	pending = sig_pending(current_task());
 	if (copy_to_user(set, &pending, sizeof(pending)) != 0)
 		return -EFAULT;
 	return 0;
@@ -192,8 +186,7 @@ ssize_t sys_sigpending(struct trap_frame *tf)
  * SYSCALL_SUPPORT(B): rt_sigsuspend
  * Current: replaces the calling mask while waiting for an unblocked signal,
  * then returns -EINTR and restores the prior mask after handler return.
- * Unsupported: real-time signals 32..64 and queued duplicate instances.
- * Future: extend the signal model only when a real workload needs RT signals.
+ * Unsupported: real-time signals 32..64 return -EINVAL.
  */
 ssize_t sys_sigsuspend(struct trap_frame *tf)
 {
@@ -205,7 +198,7 @@ ssize_t sys_sigsuspend(struct trap_frame *tf)
 		return -EINVAL;
 	if (copy_from_user(&set, uset, sizeof(set)) != 0)
 		return -EFAULT;
-	return signal_sigsuspend(set);
+	return sig_suspend(set);
 }
 
 /*
@@ -213,8 +206,7 @@ ssize_t sys_sigsuspend(struct trap_frame *tf)
  * Current: consumes thread-private or shared standard signals, waits with an
  * optional relative timeout, returns siginfo, and is interrupted by an
  * unrelated deliverable signal.
- * Unsupported: real-time signals 32..64 and queued duplicate instances.
- * Future: extend the signal model only when a real workload needs RT signals.
+ * Unsupported: real-time signals 32..64 return -EINVAL.
  */
 ssize_t sys_sigtimedwait(struct trap_frame *tf)
 {
@@ -236,7 +228,7 @@ ssize_t sys_sigtimedwait(struct trap_frame *tf)
 	    copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
 		return -EFAULT;
 
-	ret = signal_wait_pending(set, utimeout ? &timeout : NULL, &info);
+	ret = sig_wait(set, utimeout ? &timeout : NULL, &info);
 	if (ret > 0 && uinfo && copy_to_user(uinfo, &info, sizeof(info)) != 0)
 		return -EFAULT;
 	return ret;
@@ -253,5 +245,5 @@ ssize_t sys_sigreturn(struct trap_frame *tf)
 {
 	uintptr_t sp = trap_user_sp(tf);
 
-	return do_sigreturn(tf, sp);
+	return sig_return(tf, sp);
 }

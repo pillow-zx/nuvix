@@ -24,7 +24,8 @@ static int sys_write_tid(int *uaddr, pid_t tid)
 /*
  * SYSCALL_SUPPORT(B): clone
  * Current: supports fork-like clone, a thread subset, and non-thread vfork
- * through kernel_clone; see SYSCALL.md for the clone flag support table.
+ * through kernel_clone; external compatibility documentation defines the
+ * supported clone flag set.
  * Unsupported errno: namespace, parent, io, CLONE_VFORK | CLONE_THREAD, and
  * invalid flag combinations return -EINVAL.
  * Future: extend only when a concrete runtime needs a rejected flag.

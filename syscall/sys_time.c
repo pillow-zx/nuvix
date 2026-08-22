@@ -212,7 +212,7 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 	return -EINTR;
 }
 
-/* Interval and POSIX timers are intentionally postponed (see SYSCALL.md). */
+/* Interval and POSIX timers are intentionally postponed. */
 ssize_t sys_getitimer(struct trap_frame *tf)
 {
 	(void)tf;

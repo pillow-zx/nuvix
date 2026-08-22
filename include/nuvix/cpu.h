@@ -111,7 +111,7 @@ uint64_t cpu_schedulable_mask(void);
 void cpu_set_online(uint32_t id);
 void cpu_set_schedulable(uint32_t id);
 
-__always_inline __must_check __pure __returns_nonnull
+__always_inline __must_check __pure __returns_nonnull __hot
 static inline struct cpu *current_cpu(void)
 {
 	return arch_current_cpu();
@@ -134,7 +134,7 @@ static inline bool cpu_is_schedulable(uint32_t id)
 	return id < nr_cpu_ids && (cpu_schedulable_mask() & (1ULL << id));
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__always_inline __must_check __pure __nonnull(1) __hot
 static inline struct task_struct *cpu_current_task(const struct cpu *cpu)
 {
 	return cpu->current_task;
@@ -146,7 +146,7 @@ static inline void cpu_set_task(struct cpu *cpu, struct task_struct *task)
 	cpu->current_task = task;
 }
 
-__always_inline __must_check __pure
+__always_inline __must_check __pure __hot
 static inline struct task_struct *current_task(void)
 {
 	return cpu_current_task(current_cpu());

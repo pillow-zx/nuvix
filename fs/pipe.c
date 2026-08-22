@@ -260,7 +260,7 @@ static ssize_t pipe_write(struct file *file, const char *buf, size_t count,
 		if (pipe->readers == 0) {
 			spin_unlock_irqrestore(&pipe->lock, flags);
 			if (done == 0)
-				(void)send_current_signal(SIGPIPE);
+				(void)sig_send_self(SIGPIPE);
 			return done ? (ssize_t)done : -EPIPE;
 		}
 

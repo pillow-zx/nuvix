@@ -168,7 +168,7 @@ void trap_handler(struct trap_frame *tf)
 					(void *)trap_user_pc(tf),
 					(void *)trap_fault_addr(tf),
 					task->proc ? task->proc->pid->nr : 0);
-			if (force_signal_info(exception.info.si_signo,
+			if (sig_force_info(exception.info.si_signo,
 					      &exception.info, task) < 0)
 				do_exit_signal(exception.info.si_signo);
 			trap_user_return(tf);

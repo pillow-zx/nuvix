@@ -8,6 +8,7 @@
 #include <nuvix/proc.h>
 #include <nuvix/rseq.h>
 #include <nuvix/sched.h>
+#include <nuvix/signal.h>
 #include <nuvix/task.h>
 #include <nuvix/trap.h>
 
@@ -254,7 +255,15 @@ int sched_block_current(struct task_wait *wait)
 		return -EINVAL;
 	rq = sched_rq_for_cpu(current_cpu());
 	spin_lock_irqsave(&wait->lock, &wait_flags);
-	if (wait->status == WAIT_ACTIVE && wait->reason == TASK_WAKE_NONE &&
+	/* Block only if nothing has already woken us: an event wake clears the
+	 * event_fired hint, and a signal must not block once its predicate is
+	 * true.  This mirrors wait_block(), preserving the wake-then-block race
+	 * guard. */
+	if (wait->status == WAIT_ACTIVE && !wait->event_fired &&
+	    !(wait->policy == TASK_WAIT_INTERRUPTIBLE &&
+	      sig_wait_ready(task, wait)) &&
+	    !(wait->policy == TASK_WAIT_KILLABLE &&
+	      sig_fatal_pending(task)) &&
 	    task->lifecycle == TASK_LIVE && task->run_state == TASK_RUNNING) {
 		spin_lock_irqsave(&rq->lock, &rq_flags);
 		task->run_state = TASK_BLOCKED;
@@ -652,4 +661,3 @@ struct mm_struct *sched_cpu_active_mm(uint32_t cpu_id)
 	spin_unlock_irqrestore(&rq->lock, flags);
 	return mm;
 }
-

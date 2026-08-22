@@ -402,7 +402,7 @@ int proc_init_resources(struct proc_struct *proc)
 	fs = fs_alloc();
 	if (!fs)
 		goto fail_files;
-	if (signal_proc_init(proc) < 0)
+	if (sig_proc_init(proc) < 0)
 		goto fail_fs;
 	old_files = proc_replace_files(proc, files);
 	old_fs = proc_replace_fs(proc, fs);
@@ -445,7 +445,7 @@ void proc_release_resources(struct proc_struct *proc)
 	mm_put(mm);
 	files_put(files);
 	fs_put(fs);
-	signal_proc_release(proc);
+	sig_proc_release(proc);
 }
 
 struct mm_struct *proc_replace_mm(struct proc_struct *proc,
@@ -813,6 +813,19 @@ size_t proc_task_snapshot(struct proc_struct *proc,
 	return count;
 }
 
+void proc_for_each_task(struct proc_struct *proc, proc_task_callback_t callback,
+			void *arg)
+{
+	struct task_struct *task;
+
+	if (!proc || !callback)
+		return;
+	spin_lock(&proc_topology_lock);
+	list_for_each_entry (task, &proc->tasks, proc_node)
+		callback(task, arg);
+	spin_unlock(&proc_topology_lock);
+}
+
 size_t proc_pgrp_task_snapshot(struct pgrp_struct *pgrp,
 			       struct session_struct *session,
 			       struct task_struct **tasks, size_t capacity)
@@ -1067,8 +1080,8 @@ void proc_publish_stop(struct proc_struct *proc, int sig,
 	proc_parent_event_init(event);
 	if (!proc)
 		return;
-	/* Stop is per-task; the wait-visible event only fires once the whole
-	 * proc is stopped (an exiting task counts as stopped). */
+	/* Task stop transitions are aggregated: the wait-visible event only fires
+	 * once the whole Proc is stopped (an exiting task counts as stopped). */
 	spin_lock(&proc_topology_lock);
 	if (!proc->job_stopped && proc_all_tasks_stopped_locked(proc)) {
 		irq_flags_t flags;

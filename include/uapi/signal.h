@@ -81,9 +81,9 @@ typedef union sigval {
  *
  * Matches the riscv64 Linux uapi (asm-generic/signal.h; riscv64 does not
  * define SA_RESTORER, so the sigset follows sa_flags at offset 16).
- * Userspace musl defines its own struct (sa_mask first, then sa_flags) and
- * converts in the libc wrapper; this kernel struct matches the converted
- * syscall layout. The Linux riscv64 signal set has one unsigned-long word.
+ * A userspace libc may use a distinct in-memory struct and convert it in its
+ * wrapper; this kernel struct matches the syscall layout. The Linux riscv64
+ * signal set has one unsigned-long word.
  *
  * @par Fields
  * - @c sa_handler: Handler, SIG_DFL, or SIG_IGN.

@@ -49,7 +49,7 @@ struct poll_sigmask_guard {
 };
 
 CLEANUP_DEFINE(poll_sigmask_restore, struct poll_sigmask_guard,
-	       if (_T.active) signal_set_blocked_mask(_T.task, _T.old_blocked);)
+	       if (_T.active) sig_set_mask(_T.task, _T.old_blocked);)
 
 static_assert(NR_OPEN <= __FD_SETSIZE, "NR_OPEN exceeds fd_set ABI limit");
 static_assert(EPOLL_CLOEXEC == O_CLOEXEC, "epoll cloexec flag ABI mismatch");
@@ -167,8 +167,8 @@ static int poll_apply_sigmask(const unsigned long *usigmask, size_t sigsetsize,
 	if (copy_from_user(&new_mask, usigmask, sizeof(new_mask)) != 0)
 		return -EFAULT;
 
-	guard->old_blocked = signal_blocked_mask(current_task());
-	signal_set_blocked_mask(current_task(), new_mask);
+	guard->old_blocked = sig_blocked_mask(current_task());
+	sig_set_mask(current_task(), new_mask);
 	guard->active = true;
 	return 0;
 }
@@ -178,7 +178,7 @@ static void poll_defer_sigmask_restore(struct poll_sigmask_guard *guard)
 	if (!guard || !guard->active)
 		return;
 
-	signal_defer_mask_restore(guard->task, guard->old_blocked);
+	sig_defer_mask_restore(guard->task, guard->old_blocked);
 	guard->active = false;
 }
 

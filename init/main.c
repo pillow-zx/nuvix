@@ -54,7 +54,7 @@ void kernel_main(uint64_t hartid)
 	user_map_init();
 	BUG_ON(user_map_reserve("stack_guard", USER_STACK_GUARD_BASE,
 				USER_STACK_BASE) < 0);
-	signal_user_map_init();
+	sig_init();
 	bootinfo_mm();
 
 	/* Platform enumeration validates the boot hart and fills the

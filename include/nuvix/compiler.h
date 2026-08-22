@@ -6,8 +6,8 @@
  * @brief Compiler extension aliases used by kernel headers.
  */
 
-#include <compiler/compiler_attribute.h>
-#include <compiler/compiler_builtin.h>
+#include <nuvix/compiler/compiler_attribute.h>
+#include <nuvix/compiler/compiler_builtin.h>
 
 /** @def statement_expr Wrap GNU statement-expression syntax. */
 #define statement_expr(...)	 __extension__({__VA_ARGS__})

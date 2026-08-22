@@ -1,9 +1,9 @@
 # nuvix
 
 nuvix 是一个面向实验和内核机制验证的 Unix-like 宏内核，当前运行在
-QEMU `virt` 的 RISC-V 64 平台上，经 OpenSBI 启动。项目以运行真实的静态
-riscv64 ELF 程序为验证目标，并以 Linux riscv64 ABI 作为已声明用户可见语义
-的兼容边界。
+QEMU `virt` 的 RISC-V 64 平台上，经 OpenSBI 启动。内核保留静态 riscv64 ELF
+执行与 Linux riscv64 ABI 机制；仓库不再发布用户态、根文件系统镜像或用户态
+回归套件。
 
 nuvix 的长期目标不是实现一个微内核，也不是复制 Linux 的全部功能，而是：
 
@@ -39,18 +39,16 @@ I/O 和 ABI 契约应当闭合，并不意味着当前项目承诺完整 Linux �
 当前系统具备以下主要能力：
 
 - OpenSBI 启动、QEMU `virt`、RISC-V `rv64gc`、Sv39、S-mode 和高半区内核映射；
-- 静态、非 PIE、soft-float `lp64` ELF64 RISC-V 用户程序；
-- 构建时生成的 ext2 根文件系统，VFS 通过 virtio-blk 接入；
+- 静态、非 PIE、soft-float `lp64` ELF64 RISC-V 程序加载；
+- ext2 文件系统和 VFS 的 virtio-blk 接入；
 - 进程和线程的部分 clone/fork、exec、exit、wait4、PID 和任务生命周期语义；
 - 信号、信号帧、sigreturn、futex、rseq、定时器和时间接口的已声明子集；
 - 匿名和文件映射、缺页处理、uaccess、poll/epoll 兼容入口；
 - 文件、fdtable、路径、挂载、dentry、inode、pipe、page cache 和 ext2 操作；
-- 静态 musl BusyBox 用户态，以及独立的用户态回归测试 rootfs；
 - Linux 数值 errno、Linux riscv64 syscall 号和已声明 ABI 布局。
 
-入口数量不等于完整 Linux 兼容。当前 syscall 的成熟度、最小语义、明确失败和
-后续优先级以 [SYSCALL.md](SYSCALL.md) 为准。架构文档记录实现边界，代码头文件
-记录精确的类型和接口。
+入口数量不等于完整 Linux 兼容。架构文档记录实现边界，代码头文件记录精确的
+类型和接口。
 
 这些边界不应被误解为可以跳过 SMP、抢占所需的基础机制。真实 spinlock、内存
 序、per-CPU 状态、任务所有权、wait/wakeup、uaccess 生命周期、页表一致性、
@@ -58,22 +56,20 @@ timer callback 和设备请求生命周期属于确定目标的一部分。
 
 ## 快速开始
 
-需要 RISC-V GCC 15+、QEMU 7.2+、`e2fsprogs`、`bc` 和 Zig 0.16+。Zig 用于
-生成严格 `lp64` 的 compiler-rt builtins。可通过 `TOOLPREFIX=<prefix>` 指定
-交叉工具链。
+构建内核需要 RISC-V GCC 15+。`NUVIX_HOME` 必须指向仓库根目录；可通过
+`TOOLPREFIX=<prefix>` 指定交叉工具链。
 
 ```sh
-make defconfig
-make qemu
+make -C "$NUVIX_HOME" defconfig
+make -C "$NUVIX_HOME"
 ```
 
-用户态固定为静态 musl BusyBox：`/sbin/init` 作为 PID 1，读取
-`/etc/inittab`，启动并监管交互式 `/bin/sh`，并提供 `kill`、`halt`、`poweroff`
-和 `reboot` 以驱动完整 init 关机链路。用户态 ISA 固定为
-`rv64imac_zicsr_zifencei`，禁止生成 F/D 指令；浮点需求由 Zig compiler-rt 的
-soft-float builtins 处理。动态链接、PIE 和用户 FPU 上下文不属于当前运行时路线。
+内核采用原地构建：目标文件和依赖文件位于各自源文件旁，内核 ELF、反汇编和符号
+表位于仓库根目录，分别名为 `nuvix`、`nuvix.asm` 和 `nuvix.sym`。`make clean`
+只删除这些内核产物和索引文件，保留 `.config` 及 Kconfig 生成的配置文件。
 
-QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验证命令：
+常用构建命令（从仓库目录运行，或将下列 `make` 替换为
+`make -C "$NUVIX_HOME"`）：
 
 | 命令 | 作用 |
 | --- | --- |
@@ -82,13 +78,6 @@ QEMU 启动后进入串口 shell；使用 `Ctrl-a x` 退出。常用构建和验
 | `make DEFCONFIG=xxx defconfig` | 加载 `configs/xxx` 作为 `.config` |
 | `make savedefconfig` | 将当前 `.config` 写回 `configs/nuvix_defconfig` |
 | `make menuconfig` | 修改配置 |
-| `make user` | 构建用户态 ELF |
-| `make user-rootfs` | 构建交互式用户态 rootfs |
-| `make user-image` | 构建包含用户态 rootfs 的 ext2 镜像 |
-| `make qemu` | 构建镜像并启动 QEMU |
-| `make utest-build` | 构建用户态测试 ELF 和专用 rootfs 镜像 |
-| `make utest` | 从测试 rootfs 启动八核启动门禁和用户态回归套件，验证真实存储栈 |
-| `make qemu-gdb` | 启动带 GDB stub 的暂停 QEMU |
 | `make analyze` | 运行 GCC analyzer 和额外诊断 |
 | `make clean` | 删除构建产物 |
 
@@ -97,18 +86,15 @@ QEMU `-smp` 和内核要求的 CPU 数。SBI 实际 boot hart 始终映射为 lo
 
 ### 测试边界
 
-内核不再内置 kernel self-test。ext2 磁盘格式、路径树、挂载以及驱动与文件
-系统的底层集成由 `make utest` 中的用户程序验证，普通 `make qemu` 使用 ext2
-rootfs 和 virtio-blk 启动。module interface 的 host 单元测试计划在不启动内核
-的前提下运行。
+仓库不附带用户态回归测试或文件系统镜像。用户可见 ABI、ext2 磁盘格式、路径树、
+挂载及 virtio-blk 集成需要通过外部测试程序验证。
 
 ## 代码与文档导航
 
-- [SYSCALL.md](SYSCALL.md)：syscall 成熟度、语义边界、已知缺口和优先级。
 - `include/nuvix/`：通用内核接口、对象契约和跨子系统类型。
 - `include/uapi/`：用户可见的 syscall、结构、常量和 ABI 定义。
 - `scripts/filelist.mk`：内核源文件对象清单；新增源文件必须同步更新。
 
 修改用户可见 ABI 时，必须同时检查 Linux riscv64/asm-generic 头文件、
-`include/uapi/`、用户态镜像和相关测试。修改跨子系统行为时，先确认对象所有权、
-锁序、IRQ/preempt 状态、睡眠规则、引用生命周期和唤醒条件，再修改调用者。
+`include/uapi/` 和外部兼容性测试。修改跨子系统行为时，先确认对象所有权、锁序、
+IRQ/preempt 状态、睡眠规则、引用生命周期和唤醒条件，再修改调用者。

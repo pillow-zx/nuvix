@@ -1,105 +1,25 @@
 #ifndef _NUVIX_SIGNAL_H
 #define _NUVIX_SIGNAL_H
 
-#include <nuvix/types.h>
-
-struct trap_frame;
-struct task_struct;
-
-/* Syscall-restart context: task-owned signal state. The
- * dispatcher saves through restart_save(); the signal module owns the
- * restartable policy and the signal-delivery decision. */
-void restart_save(struct task_struct *task, const struct trap_frame *tf,
-		  size_t nr);
-void restart_finish(struct task_struct *task, ssize_t ret);
-void restart_clear(struct task_struct *task);
-bool restart_for_signal(struct task_struct *task, struct trap_frame *tf,
-			bool sa_restart);
-
 /**
  * @file signal.h
- * @brief 内核信号状态、投递、用户返回与 sigaltstack 接口。
+ * @brief Cross-subsystem signal contracts.
  */
 
+#include <nuvix/compiler.h>
 #include <nuvix/types.h>
-#include <nuvix/refcount.h>
-#include <nuvix/mutex.h>
-#include <nuvix/resource.h>
-#include <nuvix/task.h>
-#include <nuvix/page.h>
-#include <nuvix/pgtable.h>
-#include <nuvix/trap.h>
 #include <uapi/signal.h>
 
-/**
- * @struct sighand_struct
- * @brief Shared signal-handler table referenced by a thread group.
- *
- * @par Fields
- * - @c refcount: References from tasks sharing handlers.
- * - @c lock: Serializes sigaction updates.
- * - @c sigactions: Linux signal action table.
- */
-struct sighand_struct {
-	refcount_t refcount;
-	mutex_t lock;
-	struct sigaction sigactions[NSIG + 1];
-};
-
-/**
- * @struct signal_struct
- * @brief Thread-group shared signal and resource-limit state.
- *
- * @par Fields
- * - @c refcount: References from tasks in the group.
- * - @c lock: Serializes shared signal-state updates.
- * - @c shared_pending: Pending process-directed signal mask.
- */
-struct signal_struct {
-	refcount_t refcount;
-	/* A spinlock, not a mutex: signal_pending_interruptible() reads
-	 * shared_pending from inside wait_block() while the caller's own
-	 * task->wait is already WAIT_ACTIVE.  A mutex here would let a
-	 * contended acquisition recurse into wait_start() on that same,
-	 * already-active wait and hit its -EBUSY guard. */
-	spinlock_t lock;
-	uint64_t shared_pending;
-	siginfo_t shared_pending_info[NSIG + 1];
-	/* Subset of shared_pending whose disposition, snapshotted when it was
-	 * last marked pending, makes do_signal() discard it silently (SIG_IGN,
-	 * or SIG_DFL with no visible default action).  signal_pending_interruptible()
-	 * excludes these bits so an inert signal (e.g. SIGCHLD) cannot abort an
-	 * interruptible wait the way a deliverable one does. */
-	uint64_t shared_pending_inert;
-};
-
-/**
- * @def SIGNAL_TRAMPOLINE_ADDR
- * @brief Fixed user virtual address of the signal trampoline mapping.
- */
-#define SIGNAL_TRAMPOLINE_ADDR (USER_STACK_GUARD_BASE - PAGE_SIZE)
-
-/**
- * @struct signal_frame
- * @brief Kernel-built user stack frame consumed by rt_sigreturn.
- *
- * @par Fields
- * The signal module records only this frame's user stack address and signal
- * number in a kernel-owned LIFO chain.  The user frame remains the source of
- * restored registers, mask, and alternate-stack state.
- */
-struct rt_sigframe {
-	siginfo_t info;
-	struct ucontext uc;
-};
-
-static_assert(sizeof(struct rt_sigframe) == 1088,
-	      "Linux riscv64 rt_sigframe size mismatch");
-
+struct trap_frame;
 struct task_struct;
 struct proc_struct;
 struct pgrp_struct;
 struct session_struct;
+struct sighand_struct;
+struct task_wait;
+struct timespec;
+struct proc_orphan_event;
+struct proc_parent_event;
 
 /**
  * @struct sigchld_exit_policy
@@ -110,106 +30,30 @@ struct sigchld_exit_policy {
 	bool notify;
 };
 
-__must_check __pure
-static inline struct signal_struct *task_signal_state(const struct task_struct *task)
-{
-	return task && task->proc ? task->proc->signal : NULL;
-}
+__must_check __const
+bool sig_valid(int sig);
 
-__must_check __pure
-static inline struct sighand_struct *task_sighand(const struct task_struct *task)
-{
-	return task && task->proc ? task->proc->sighand : NULL;
-}
+__must_check __const
+bool sig_catchable(int sig);
 
-__must_check __pure
-static inline uint64_t task_blocked_mask(const struct task_struct *task)
-{
-	return task ? task->signal.blocked : 0;
-}
+__must_check __access_no_size(read_only, 1)
+uint64_t sig_blocked_mask(struct task_struct *task);
 
-static inline void task_set_blocked_mask(struct task_struct *task,
-						  uint64_t mask)
-{
-	if (task)
-		task->signal.blocked = mask;
-}
+__access_no_size(read_write, 1)
+void sig_set_mask(struct task_struct *task, uint64_t mask);
 
-static inline void task_or_blocked_mask(struct task_struct *task,
-						 uint64_t mask)
-{
-	if (task)
-		task->signal.blocked |= mask;
-}
+/** Return the pending signals that are currently blocked for @p task. */
+__must_check __access_no_size(read_only, 1)
+uint64_t sig_pending(const struct task_struct *task);
 
-static inline void task_and_blocked_mask(struct task_struct *task,
-						  uint64_t mask)
-{
-	if (task)
-		task->signal.blocked &= mask;
-}
-
-__must_check __pure
-static inline uint64_t task_pending_mask(const struct task_struct *task)
-{
-	return task ? task->signal.pending : 0;
-}
-
-static inline void task_set_pending_mask(struct task_struct *task,
-						  uint64_t mask)
-{
-	if (task)
-		task->signal.pending = mask;
-}
-
-static inline void task_or_pending_mask(struct task_struct *task,
-						 uint64_t mask)
-{
-	if (task)
-		task->signal.pending |= mask;
-}
-
-static inline void task_and_pending_mask(struct task_struct *task,
-						  uint64_t mask)
-{
-	if (task)
-		task->signal.pending &= mask;
-}
-
-__must_check __pure __nonnull(1) __returns_nonnull
-static inline struct stack_t *task_altstack(struct task_struct *task)
-{
-	return &task->signal.sas;
-}
-
-__must_check __pure
-static inline struct stack_t *task_altstack_safe(struct task_struct *task)
-{
-	return task ? task_altstack(task) : NULL;
-}
-
-bool signal_is_valid(int sig);
-uint64_t signal_mask(int sig);
-bool signal_is_catchable(int sig);
-uint64_t unblockable_mask(void);
-uint64_t signal_blocked_mask(struct task_struct *task);
-void signal_block_mask(struct task_struct *task, uint64_t mask);
-void signal_unblock_mask(struct task_struct *task, uint64_t mask);
-void signal_set_blocked_mask(struct task_struct *task, uint64_t mask);
-void signal_mark_pending(struct task_struct *task, uint64_t mask);
-void signal_clear_pending(struct task_struct *task, uint64_t mask);
-uint64_t signal_pending_mask(const struct task_struct *task);
 /**
  * @brief Restore a temporary wait mask after the next user signal delivery.
  * @param task Task returning from an interruptible masked wait.
  * @param mask Signal mask active before the temporary wait mask.
  */
-void signal_defer_mask_restore(struct task_struct *task, uint64_t mask);
-int send_signal(int sig, struct task_struct *task);
-int send_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
-int send_group_signal(int sig, struct task_struct *leader);
-int send_group_signal_info(int sig, const siginfo_t *info,
-			   struct task_struct *leader);
+__access_no_size(read_write, 1)
+void sig_defer_mask_restore(struct task_struct *task, uint64_t mask);
+
 /**
  * @brief Deliver one signal to every task of an already-snapshot pgrp.
  * @param sig Signal number, or 0 for an existence probe.
@@ -222,25 +66,40 @@ int send_group_signal_info(int sig, const siginfo_t *info,
  * The caller must hold strong references to @p pgrp and @p session.  IDs are
  * never re-resolved from their numeric values inside or after this call.
  */
-int signal_send_pgrp_snapshot(int sig, const siginfo_t *info,
-			      struct pgrp_struct *pgrp,
-			      struct session_struct *session);
-void signal_orphaned_pgrp_event(const struct proc_orphan_event *event);
-void signal_notify_proc_parent(const struct proc_parent_event *event);
-int send_current_signal(int sig);
-int force_signal(int sig, struct task_struct *task);
-int force_signal_info(int sig, const siginfo_t *info, struct task_struct *task);
-bool signal_pending_interruptible(struct task_struct *task);
-bool signal_fatal_pending(struct task_struct *task);
-int signals_init(struct task_struct *task);
-void signal_write_child_tid(struct task_struct *task);
-int signal_proc_init(struct proc_struct *proc);
-struct sigchld_exit_policy signal_sigchld_exit_policy(
-	const struct proc_struct *proc);
-bool signal_sigchld_stop_suppressed(const struct proc_struct *proc);
-bool signal_sigchld_ignored(const struct proc_struct *proc);
-int signals_clone(struct task_struct *child, bool share_sighand,
-			  bool disable_altstack);
+__access_no_size(read_only, 2)
+__access_no_size(read_only, 3) __access_no_size(read_only, 4)
+int sig_send_pgrp(int sig, const siginfo_t *info, struct pgrp_struct *pgrp,
+		struct session_struct *session);
+
+__access_no_size(read_only, 1)
+void sig_orphan_pgrp(const struct proc_orphan_event *event);
+
+__access_no_size(read_only, 1)
+void sig_notify_parent(const struct proc_parent_event *event);
+
+int sig_send_self(int sig);
+
+__must_check
+__access_no_size(read_only, 2) __access_no_size(read_write, 3)
+int sig_force_info(int sig, const siginfo_t *info, struct task_struct *task);
+
+__must_check __access_no_size(read_only, 1)
+bool sig_fatal_pending(struct task_struct *task);
+
+__must_check __access_no_size(read_only, 1)
+bool sig_wait_ready(const struct task_struct *task, const struct task_wait *wait);
+
+__must_check __access_no_size(read_write, 1)
+int sig_task_init(struct task_struct *task);
+
+__must_check __access_no_size(read_write, 1)
+int sig_proc_init(struct proc_struct *proc);
+
+__must_check __access_no_size(read_only, 1)
+struct sigchld_exit_policy sigchld_exit_policy(const struct proc_struct *proc);
+
+__must_check __access_no_size(read_write, 1)
+int sig_task_clone(struct task_struct *child, bool share_sighand, bool disable_altstack);
 
 /**
  * @brief Prepare the private signal-handler table required by exec.
@@ -251,36 +110,34 @@ int signals_clone(struct task_struct *child, bool share_sighand,
  * The current proc handler table is not modified.  The caller must either
  * commit or abort the returned table.
  */
-int signals_prepare_exec(const struct task_struct *task,
-			 struct sighand_struct **prepared);
-void signals_commit_exec(struct task_struct *task,
-			 struct sighand_struct *prepared);
-void signals_abort_exec(struct sighand_struct *prepared);
-void signals_release(struct task_struct *task);
-void signal_proc_release(struct proc_struct *proc);
-/**
- * @brief Discard all active signal-frame validation records for a task.
- * @param task Task whose signal-frame chain is cleared.
- *
- * This is used when an address space is replaced and during signal teardown.
- */
-void signal_clear_frames(struct task_struct *task);
-/**
- * @brief Reset the alternate signal stack to SS_DISABLE.
- *
- * Used when an address space is replaced (exec) and during task teardown.
- */
-void signal_reset_altstack(struct task_struct *task);
+__must_check
+__access_no_size(read_only, 1) __access_no_size( write_only, 2)
+int sig_exec_prepare(const struct task_struct *task, struct sighand_struct **prepared);
+
+__nonnull(1, 2) __access_no_size(read_write, 1)
+void sig_exec_commit(struct task_struct *task, struct sighand_struct *prepared);
+
+__access_no_size(read_write, 1)
+void sig_exec_abort(struct sighand_struct *prepared);
+
+__access_no_size(read_write, 1)
+void sig_task_release(struct task_struct *task);
+
+__access_no_size(read_write, 1)
+void sig_proc_release(struct proc_struct *proc);
+
 /**
  * @brief Deliver one pending signal before returning to userspace.
  * @param tf User trap frame to rewrite for handler entry.
  */
-void do_signal(struct trap_frame *tf);
+__hot __nonnull(1) __access_no_size(read_write, 1)
+void sig_deliver(struct trap_frame *tf);
 
 /**
  * @brief Register the fixed signal trampoline user mapping.
  */
-void signal_user_map_init(void);
+__cold
+void sig_init(void);
 
 /**
  * @brief Implement Linux kill() process and process-group signal semantics.
@@ -289,7 +146,8 @@ void signal_user_map_init(void);
  * @param sig Signal number, or 0 for permission/existence probe.
  * @return 0 on success, or a negative errno.
  */
-int do_kill(pid_t pid, int sig);
+__must_check
+int sig_kill(pid_t pid, int sig);
 
 /**
  * @brief Implement tkill() thread-directed signal semantics.
@@ -297,7 +155,8 @@ int do_kill(pid_t pid, int sig);
  * @param sig Signal number.
  * @return 0 on success, or a negative errno.
  */
-int do_tkill(pid_t tid, int sig);
+__must_check
+int sig_tkill(pid_t tid, int sig);
 
 /**
  * @brief Implement tgkill() thread-group-qualified signal semantics.
@@ -306,7 +165,8 @@ int do_tkill(pid_t tid, int sig);
  * @param sig Signal number.
  * @return 0 on success, or a negative errno.
  */
-int do_tgkill(pid_t tgid, pid_t tid, int sig);
+__must_check
+int sig_tgkill(pid_t tgid, pid_t tid, int sig);
 
 /**
  * @brief Register or query the current task alternate signal stack.
@@ -314,17 +174,20 @@ int do_tgkill(pid_t tgid, pid_t tid, int sig);
  * @param old_ss Optional output for previous stack_t.
  * @return 0 on success, or a negative errno.
  */
-int do_sigaltstack(const struct stack_t *ss, struct stack_t *old_ss);
+__must_check
+__access_no_size(read_only, 1) __access_no_size(write_only, 2)
+int sig_altstack(const struct stack_t *ss, struct stack_t *old_ss);
 
 /**
  * @brief Install or query one signal action.
  * @param sig Signal number.
  * @param act Optional new action.
- * @param oldact Optional output for previous action.
+ * @param oldact Optional output for the action atomically replaced by @p act.
  * @return 0 on success, or a negative errno.
  */
-int do_sigaction(int sig, const struct sigaction *act,
-		 struct sigaction *oldact);
+__must_check
+__access_no_size(read_only, 2) __access_no_size(write_only, 3)
+int sig_action(int sig, const struct sigaction *act, struct sigaction *oldact);
 
 /**
  * @brief Apply Linux rt_sigprocmask operation to the current task.
@@ -333,7 +196,9 @@ int do_sigaction(int sig, const struct sigaction *act,
  * @param oldset Optional output for previous mask.
  * @return 0 on success, or a negative errno.
  */
-int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset);
+__must_check
+__access_no_size(read_only, 2) __access_no_size(write_only, 3)
+int sig_procmask(int how, const uint64_t *set, uint64_t *oldset);
 
 /**
  * @brief Temporarily replace the signal mask and wait for interruption.
@@ -344,7 +209,8 @@ int do_sigprocmask(int how, const uint64_t *set, uint64_t *oldset);
  * The previous mask is restored through the signal-frame path after a caught
  * signal handler returns to userspace.
  */
-int signal_sigsuspend(uint64_t mask);
+__must_check
+int sig_suspend(uint64_t mask);
 
 /**
  * @brief Synchronously consume or wait for a pending signal in a set.
@@ -355,8 +221,7 @@ int signal_sigsuspend(uint64_t mask);
  */
 __must_check __nonnull(3)
 __access_no_size(read_only, 2) __access_no_size(write_only, 3)
-int signal_wait_pending(uint64_t set, const struct timespec *timeout,
-		siginfo_t *info);
+int sig_wait(uint64_t set, const struct timespec *timeout, siginfo_t *info);
 
 /**
  * @brief Restore a userspace context from a signal frame.
@@ -364,6 +229,24 @@ int signal_wait_pending(uint64_t set, const struct timespec *timeout,
  * @param sp User stack pointer pointing at the current frame-stack top.
  * @return The restored a0 value for syscall dispatch to write back.
  */
-ssize_t do_sigreturn(struct trap_frame *tf, uintptr_t sp);
+__must_check __nonnull(1) __access_no_size(read_write, 1)
+ssize_t sig_return(struct trap_frame *tf, uintptr_t sp);
+
+/* Syscall-restart context: task-owned signal state. The dispatcher saves
+ * through restart_save(); the signal module owns the restartable policy and
+ * the signal-delivery decision. */
+__nonnull(1, 2)
+__access_no_size(read_write, 1) __access_no_size(read_only, 2)
+void restart_save(struct task_struct *task, const struct trap_frame *tf, size_t nr);
+
+__nonnull(1) __access_no_size(read_write, 1)
+void restart_finish(struct task_struct *task, ssize_t ret);
+
+__access_no_size(read_write, 1)
+void restart_clear(struct task_struct *task);
+
+__nonnull(2)
+__access_no_size(read_write, 1) __access_no_size(read_write, 2)
+bool restart_for_signal(struct task_struct *task, struct trap_frame *tf, bool sa_restart);
 
 #endif

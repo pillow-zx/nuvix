@@ -87,16 +87,19 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 	uint64_t ipi_observed = 0;
 	uint64_t deadline;
 	uint32_t id;
+	uint32_t nr_cpus;
 
 	BUG_ON(!timer_seen_out || !ipi_seen_out);
+	nr_cpus = nr_cpu_ids;
+	BUG_ON(!nr_cpus || nr_cpus > NR_CPUS || boot_id >= nr_cpus);
 
-	for (id = 0; id < nr_cpu_ids; id++)
+	for (id = 0; id < nr_cpus; id++)
 		if (id != boot_id)
 			secondary_mask |= (1ULL << id);
 	BUG_ON((cpu_online_mask() & ~(1ULL << boot_id)) != secondary_mask);
 	BUG_ON(cpu_schedulable_mask() != (1ULL << boot_id));
 
-	if (nr_cpu_ids == 1) {
+	if (nr_cpus == 1) {
 		/* UP: validate state only; no secondaries to prove. */
 		goto out;
 	}
@@ -106,7 +109,7 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 	deadline = timer_now() + MTIME_FREQ;
 	while (timer_seen != secondary_mask) {
 		timer_seen = 0;
-		for (id = 0; id < nr_cpu_ids; id++)
+		for (id = 0; id < nr_cpus; id++)
 			if (id != boot_id && cpu_timer_seen(id))
 				timer_seen |= (1ULL << id);
 		if ((int64_t)(deadline - timer_now()) < 0)
@@ -115,7 +118,7 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 	}
 
 	/* One reschedule IPI per secondary; SBI failure is fatal. */
-	for (id = 0; id < nr_cpu_ids; id++) {
+	for (id = 0; id < nr_cpus; id++) {
 		if (id == boot_id)
 			continue;
 		if (ipi_send(id, IPI_RESCHEDULE) != 0)
@@ -127,7 +130,7 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 	deadline = timer_now() + MTIME_FREQ;
 	while (ipi_observed != secondary_mask) {
 		ipi_observed = 0;
-		for (id = 0; id < nr_cpu_ids; id++)
+		for (id = 0; id < nr_cpus; id++)
 			if (id != boot_id && ipi_seen(id))
 				ipi_observed |= (1ULL << id);
 		if ((int64_t)(deadline - timer_now()) < 0)
@@ -141,9 +144,8 @@ out:
 }
 
 /*
- * Ring-only SMP boot record consumed by user space via syslog(READ_ALL); the
- * utest runner relays it as [UTEST] test protocol so the host harness can
- * audit the gate without parsing the human banner.
+ * Ring-only SMP boot record for external observers that need to audit the
+ * gate without parsing the human banner.
  */
 static void smp_probe_record(uint64_t timer_seen, uint64_t ipi_seen)
 {
@@ -208,7 +210,7 @@ void smp_boot_cpus(void)
 	uint64_t timer_seen;
 	uint64_t ipi_seen;
 
-	BUG_ON(nr_cpu_ids == 0);
+	BUG_ON(!nr_cpu_ids || nr_cpu_ids > NR_CPUS);
 	/* The kernel page table must be published and valid before any
 	 * secondary can switch to it. */
 	BUG_ON(!pgtable_boot_token_valid());

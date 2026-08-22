@@ -56,7 +56,7 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 	if ((flags & CLONE_VM) && child_stack == 0)
 		return -EINVAL;
 	if (!clone_wants_thread(flags) && exit_signal != 0 &&
-	    !signal_is_valid((int)exit_signal))
+	    !sig_valid((int)exit_signal))
 		return -EINVAL;
 	if ((flags & CLONE_PARENT) && current_task()->proc &&
 	    current_task()->proc->pid && current_task()->proc->pid->nr == 1)
@@ -193,7 +193,7 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags,
 		      (flags & CLONE_FS) != 0);
 	if (ret < 0)
 		return ret;
-	ret = signals_clone(child, (flags & CLONE_SIGHAND) != 0, false);
+	ret = sig_task_clone(child, (flags & CLONE_SIGHAND) != 0, false);
 	if (ret < 0)
 		return ret;
 	return 0;

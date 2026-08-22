@@ -29,7 +29,7 @@ static int session_send_foreground_signal(int sig,
 
 	info.si_signo = sig;
 	info.si_code = SI_KERNEL;
-	return signal_send_pgrp_snapshot(sig, &info, foreground, session);
+	return sig_send_pgrp(sig, &info, foreground, session);
 }
 
 static void session_signal_hangup(struct tty_ctty_state *detached)
@@ -111,7 +111,7 @@ int session_process_setsid(struct task_struct *task)
 	}
 	mutex_unlock(&session_lock);
 	for (size_t index = 0; index < orphan_count; index++)
-		signal_orphaned_pgrp_event(&orphan_events[index]);
+		sig_orphan_pgrp(&orphan_events[index]);
 	for (size_t index = 0; index < orphan_count; index++)
 		proc_orphan_event_release(&orphan_events[index]);
 	tty_ctty_state_release(&detached);
@@ -178,7 +178,7 @@ out_locked:
 	if (put_target)
 		proc_put(target);
 	if (orphan.pgid > 0)
-		signal_orphaned_pgrp_event(&orphan);
+		sig_orphan_pgrp(&orphan);
 	proc_orphan_event_release(&orphan);
 	tty_ctty_state_release(&detached);
 	return ret;
@@ -458,7 +458,7 @@ int session_console_deliver_foreground_signal(int sig)
 	struct tty_ctty_state foreground = {0};
 	int ret;
 
-	if (!signal_is_valid(sig))
+	if (!sig_valid(sig))
 		return -EINVAL;
 
 	mutex_lock(&session_lock);

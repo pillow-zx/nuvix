@@ -1,4 +1,4 @@
-# nuvix build bootstrap: toolchain, configuration, output layout, and modules.
+# nuvix build bootstrap: toolchain, configuration, and modules.
 
 ifndef TOOLPREFIX
 TOOLPREFIX := $(shell if riscv64-linux-gnu-objdump -i 2>&1 | grep 'elf64-big' >/dev/null 2>&1; \
@@ -22,12 +22,6 @@ LD       = $(TOOLPREFIX)ld
 OBJCOPY  = $(TOOLPREFIX)objcopy
 OBJDUMP  = $(TOOLPREFIX)objdump
 AR       = $(TOOLPREFIX)ar
-QEMU     = qemu-system-riscv64
-MKIMG    = scripts/tools/mkimg.sh
-ZIG      ?= zig
-
-OUTROOT ?= build
-OUTDIR  = $(OUTROOT)/kernel
 
 V ?= 0
 
@@ -36,58 +30,35 @@ Q :=
 QUIET_CC :=
 QUIET_AS :=
 QUIET_LD :=
-QUIET_LD_STAGE1 :=
 QUIET_OBJDUMP_S :=
 QUIET_OBJDUMP_T :=
-QUIET_FSIMG :=
-QUIET_MUSL :=
-QUIET_BUSYBOX :=
-QUIET_ROOTFS :=
-QUIET_UTEST :=
 QUIET_ANALYZE :=
 else
 Q := @
 QUIET_CC = @echo '  CC      $@'
 QUIET_AS = @echo '  AS      $@'
 QUIET_LD = @echo '  LD      $@'
-QUIET_LD_STAGE1 = @echo '  LD-SYM  $@'
 QUIET_OBJDUMP_S = @echo '  OBJDUMP $@'
 QUIET_OBJDUMP_T = @echo '  OBJDUMP $@'
-QUIET_FSIMG = @echo '  FSIMG   $@'
-QUIET_MUSL = @echo '  MUSL    $@'
-QUIET_BUSYBOX = @echo '  BUSYBOX $@'
-QUIET_ROOTFS = @echo '  ROOTFS  $@'
-QUIET_UTEST = @echo '  UTEST   $@'
 QUIET_ANALYZE = @echo '  ANALYZE $<'
 endif
 
 KCONFIG       := Kconfig
-# Config/output paths are overridable so an isolated tree can build a second
-# configuration without touching the active .config.
-# DEFCONFIG is a bare filename, resolved only under configs/.
 DEFCONFIG     ?= nuvix_defconfig
-DOT_CONFIG    ?= .config
-AUTO_CONF     ?= include/config/auto.conf
-AUTO_CONF_CMD ?= include/config/auto.conf.cmd
-AUTOCONF_H    ?= include/generated/autoconf.h
+DOT_CONFIG    := .config
+AUTO_CONF     := include/config/auto.conf
+AUTO_CONF_CMD := include/config/auto.conf.cmd
+AUTOCONF_H    := include/generated/autoconf.h
 
 KCONFIG_DIR    := tools/kconfig
 CONF           := $(KCONFIG_DIR)/build/conf
 MCONF          := $(KCONFIG_DIR)/build/mconf
-KCONFIG_SRCS   := $(KCONFIG) arch/riscv/Kconfig fs/Kconfig kernel/Kconfig
 KCONFIG_SILENT := -s
 
-KCONFIG_SKIP_GOALS := clean clean-user help print-gdbport print-toolprefix format \
-	defconfig savedefconfig test-cputime
-ifneq ($(strip $(MAKECMDGOALS)),)
-ifneq ($(filter-out $(KCONFIG_SKIP_GOALS),$(MAKECMDGOALS)),)
-KCONFIG_NEED_CONFIG := 1
-else
-KCONFIG_NEED_CONFIG := 0
-endif
-else
-KCONFIG_NEED_CONFIG := 1
-endif
+KCONFIG_SKIP_GOALS := clean help print-toolprefix tags gtags defconfig \
+	savedefconfig
+KCONFIG_GOALS := $(if $(MAKECMDGOALS),\
+	$(filter-out $(KCONFIG_SKIP_GOALS),$(MAKECMDGOALS)),all)
 
 $(CONF):
 	$(Q)$(MAKE) -s -C $(KCONFIG_DIR) NAME=conf
@@ -95,36 +66,27 @@ $(CONF):
 $(MCONF):
 	$(Q)$(MAKE) -s -C $(KCONFIG_DIR) NAME=mconf
 
-# Kconfig resolves its output paths from the environment; pass the
-# parameterized locations so an isolated tree never touches the root
-# .config. Default values keep the classic layout identical.
-KCONFIG_ENV := KCONFIG_CONFIG=$(DOT_CONFIG) \
-	KCONFIG_AUTOCONFIG=$(AUTO_CONF) \
-	KCONFIG_AUTOHEADER=$(AUTOCONF_H)
-
-$(DOT_CONFIG): $(CONF) configs/$(DEFCONFIG) $(KCONFIG_SRCS)
-	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) \
+$(DOT_CONFIG): $(CONF) configs/$(DEFCONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) \
 		--defconfig=configs/$(DEFCONFIG) $(KCONFIG)
 
-$(AUTO_CONF) $(AUTOCONF_H): $(DOT_CONFIG) $(CONF) $(KCONFIG_SRCS)
-	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
+$(AUTO_CONF) $(AUTOCONF_H): $(DOT_CONFIG) $(CONF)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
 
-ifeq ($(KCONFIG_NEED_CONFIG),1)
+ifneq ($(KCONFIG_GOALS),)
 include $(AUTO_CONF)
 -include $(AUTO_CONF_CMD)
 endif
 
 syncconfig: $(AUTO_CONF)
 
-# configs/$(DEFCONFIG) is a plain file prerequisite (never rebuilt), so a
-# defconfig edit triggers .config regeneration through the normal chain.
-defconfig: $(CONF) $(KCONFIG_SRCS)
+defconfig: $(CONF)
 	$(Q)cp configs/$(DEFCONFIG) $(DOT_CONFIG)
-	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --olddefconfig $(KCONFIG)
-	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --olddefconfig $(KCONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
 
 savedefconfig: $(CONF) $(DOT_CONFIG)
-	$(Q)$(KCONFIG_ENV) $(CONF) $(KCONFIG_SILENT) \
+	$(Q)$(CONF) $(KCONFIG_SILENT) \
 		--savedefconfig=configs/$(DEFCONFIG) $(KCONFIG)
 
 menuconfig: $(MCONF) $(CONF) $(DOT_CONFIG)
@@ -144,8 +106,7 @@ check-gcc-version:
 		exit 1; \
 	fi
 
-include scripts/kernel.mk
-include scripts/userspace.mk
-include scripts/workflows.mk
+include $(NUVIX_HOME)/scripts/kernel.mk
+include $(NUVIX_HOME)/scripts/workflows.mk
 
 .PHONY: syncconfig defconfig savedefconfig menuconfig check-gcc-version

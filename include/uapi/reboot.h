@@ -8,7 +8,7 @@
 #define LINUX_REBOOT_MAGIC2B 369367448
 #define LINUX_REBOOT_MAGIC2C 537993216
 
-/* Linux reboot(2) commands used by static musl BusyBox. */
+/* Linux reboot(2) command values. */
 #define LINUX_REBOOT_CMD_RESTART    0x01234567
 #define LINUX_REBOOT_CMD_HALT	    0xcdef0123
 #define LINUX_REBOOT_CMD_CAD_ON	    0x89abcdef

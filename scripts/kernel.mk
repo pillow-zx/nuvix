@@ -35,99 +35,56 @@ CFLAGS += $(COMMON_FLAGS)
 ASFLAGS = -MD
 ASFLAGS += $(COMMON_FLAGS)
 
-LDFLAGS = -z max-page-size=4096 --no-relax
-
 LINKER_SCRIPT = arch/riscv/kernel.ld
-LD_SCRIPT = -T $(LINKER_SCRIPT)
-LINK_WITH_CC = 0
 
-# CONFIG_CC_OPT is a derived string from the optimization choice in
-# kernel/Kconfig; the make side consumes it directly.
-CFLAGS += $(call remove_quote,$(CONFIG_CC_OPT))
+CFLAGS-y += $(call remove_quote,$(CONFIG_CC_OPT))
+CFLAGS-$(CONFIG_GC_SECTIONS) += -ffunction-sections -fdata-sections
+CFLAGS-$(CONFIG_DEBUG_INFO) += -g3 -ggdb -gdwarf-4
+CFLAGS-$(CONFIG_FRAME_POINTER) += -fno-omit-frame-pointer
+CFLAGS-$(CONFIG_LTO) += -flto=auto
+CFLAGS-$(CONFIG_UBSAN) += -fsanitize=undefined
+CFLAGS-$(CONFIG_UBSAN) += -fsanitize-trap=undefined
+CFLAGS-$(CONFIG_UBSAN) += -fno-sanitize-recover=all
+ASFLAGS-$(CONFIG_DEBUG_INFO) += -g
 
-ifeq ($(CONFIG_GC_SECTIONS),y)
-CFLAGS += -ffunction-sections -fdata-sections
-LDFLAGS += --gc-sections
-endif
+CFLAGS += $(CFLAGS-y)
+ASFLAGS += $(ASFLAGS-y)
 
-ifeq ($(CONFIG_DEBUG_INFO),y)
-CFLAGS += -g3 -ggdb -gdwarf-4
-ASFLAGS += -g
-endif
+ld_LD = $(TOOLPREFIX)ld
+ld_LD_SCRIPT = -T $(LINKER_SCRIPT)
+ld_LDFLAGS = -z max-page-size=4096 --no-relax
+ld_LDFLAGS-$(CONFIG_GC_SECTIONS) += --gc-sections
 
-ifeq ($(CONFIG_FRAME_POINTER),y)
-CFLAGS += -fno-omit-frame-pointer
-endif
+cc_LD = $(CC)
+cc_LD_SCRIPT = -Wl,-T,$(LINKER_SCRIPT)
+cc_LDFLAGS = $(ARCH_FLAGS)
+cc_LDFLAGS += -nostdlib -nostartfiles -fno-pie -no-pie
+cc_LDFLAGS += -flto=auto
+cc_LDFLAGS += -Wl,-z,max-page-size=4096
+cc_LDFLAGS += -Wl,--no-relax
+cc_LDFLAGS += -Wl,--build-id=none
+cc_LDFLAGS-$(CONFIG_GC_SECTIONS) += -Wl,--gc-sections
+cc_LDFLAGS-$(CONFIG_UBSAN) += -fsanitize=undefined
+cc_LDFLAGS-$(CONFIG_UBSAN) += -fsanitize-trap=undefined
+cc_LDFLAGS-$(CONFIG_UBSAN) += -fno-sanitize-recover=all
 
-ifeq ($(CONFIG_LTO),y)
-CFLAGS += -flto=auto
-LD = $(CC)
-LINK_WITH_CC = 1
-LD_SCRIPT = -Wl,-T,$(LINKER_SCRIPT)
-LDFLAGS = $(ARCH_FLAGS)
-LDFLAGS += -nostdlib -nostartfiles -fno-pie -no-pie
-LDFLAGS += -flto=auto
-LDFLAGS += -Wl,-z,max-page-size=4096
-LDFLAGS += -Wl,--no-relax
-ifeq ($(CONFIG_GC_SECTIONS),y)
-LDFLAGS += -Wl,--gc-sections
-endif
-LDFLAGS += -Wl,--build-id=none
-endif
+LINK_MODE = $(if $(filter y,$(CONFIG_LTO)),cc,ld)
+LD = $($(LINK_MODE)_LD)
+LD_SCRIPT = $($(LINK_MODE)_LD_SCRIPT)
+LDFLAGS = $($(LINK_MODE)_LDFLAGS)
+LDFLAGS += $($(LINK_MODE)_LDFLAGS-y)
 
-SANITIZE_CFLAGS =
+include $(NUVIX_HOME)/scripts/filelist.mk
 
-ifeq ($(CONFIG_UBSAN),y)
-SANITIZE_CFLAGS += -fsanitize=undefined
-SANITIZE_CFLAGS += -fsanitize-trap=undefined
-SANITIZE_CFLAGS += -fno-sanitize-recover=all
-endif
-
-CFLAGS += $(SANITIZE_CFLAGS)
-
-ifeq ($(LINK_WITH_CC),1)
-LDFLAGS += $(SANITIZE_CFLAGS)
-endif
-
-include scripts/filelist.mk
-
-OBJ_REL = \
-	$(ARCH_OBJS)        \
-	$(INIT_OBJS)        \
-	$(KERNEL_OBJS)      \
-	$(MM_OBJS)          \
-	$(FS_OBJS)          \
-	$(BLOCK_OBJS)       \
-	$(DRIVER_OBJS)      \
-	$(SCHED_OBJS)       \
-	$(SYSCALL_OBJS)     \
-	$(LIB_OBJS)
-
-KERNEL_NAME = nuvix
-KERNEL = $(OUTDIR)/$(KERNEL_NAME)
-KERNEL_STAGE1 = $(OUTDIR)/$(KERNEL_NAME).stage1
-KERNEL_IMG = $(KERNEL).img
-OBJS_NOKSYMS = $(addprefix $(OUTDIR)/,$(OBJ_REL))
-
-ifeq ($(CONFIG_KSYMS),y)
-KSYMS_GEN_C = $(OUTDIR)/kernel/ksyms.generated.c
-KSYMS_OBJ = $(OUTDIR)/kernel/ksyms.generated.o
-OBJS = $(OBJS_NOKSYMS) $(KSYMS_OBJ)
-else
-KSYMS_GEN_C =
-KSYMS_OBJ =
-OBJS = $(OBJS_NOKSYMS)
-endif
+KERNEL = nuvix
+OBJS = $(OBJ_REL)
 
 # check-gcc-version is phony, so it must not be a prerequisite of $(KERNEL)
 # (the link would rerun on every make). It stays on all, which is itself
 # phony and reruns the cheap version check every invocation.
 all: check-gcc-version $(KERNEL)
 
-$(KERNEL_NAME): $(KERNEL)
-
 $(KERNEL): $(OBJS) $(LINKER_SCRIPT)
-	$(Q)mkdir -p $(dir $@)
 	$(QUIET_LD)
 	$(Q)$(LD) $(LDFLAGS) $(LD_SCRIPT) -o $@ $(OBJS)
 	$(QUIET_OBJDUMP_S)
@@ -135,36 +92,16 @@ $(KERNEL): $(OBJS) $(LINKER_SCRIPT)
 	$(QUIET_OBJDUMP_T)
 	$(Q)$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
 
-ifeq ($(CONFIG_KSYMS),y)
-$(KERNEL_STAGE1): $(OBJS_NOKSYMS) $(LINKER_SCRIPT)
-	$(Q)mkdir -p $(dir $@)
-	$(QUIET_LD_STAGE1)
-	$(Q)$(LD) $(LDFLAGS) $(LD_SCRIPT) -o $@ $(OBJS_NOKSYMS)
-	$(QUIET_OBJDUMP_T)
-	$(Q)$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $@.sym
-
-$(KSYMS_GEN_C): $(KERNEL_STAGE1) scripts/tools/gen-ksyms.sh
-	$(Q)sh scripts/tools/gen-ksyms.sh $(KERNEL_STAGE1).sym $@
-
-$(KSYMS_OBJ): $(KSYMS_GEN_C)
-	$(Q)mkdir -p $(dir $@)
-	$(QUIET_CC)
-	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
-endif
-
-$(OUTDIR)/%.o: %.c $(AUTOCONF_H)
-	$(Q)mkdir -p $(dir $@)
+%.o: %.c $(AUTOCONF_H)
 	$(QUIET_CC)
 	$(Q)$(CC) $(CFLAGS) -c -o $@ $<
 
-$(OUTDIR)/%.o: %.S $(AUTOCONF_H)
-	$(Q)mkdir -p $(dir $@)
+%.o: %.S $(AUTOCONF_H)
 	$(QUIET_AS)
 	$(Q)$(CC) $(ASFLAGS) -c -o $@ $<
 
 -include $(OBJS:.o=.d)
 
-ANALYZE_OUT = $(OUTROOT)/analyze
 ANALYZE_KERNEL_SRCS = $(wildcard $(OBJ_REL:.o=.c))
 ANALYZE_WARN_CFLAGS = -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes
 ANALYZE_WARN_CFLAGS += -Wmissing-declarations -Wold-style-definition
@@ -200,18 +137,15 @@ ANALYZE_CFLAGS += -Wanalyzer-undefined-behavior-ptrdiff
 ANALYZE_CFLAGS += -Wanalyzer-va-arg-type-mismatch $(ANALYZE_WARN_CFLAGS)
 
 ANALYZE_WERROR ?= 0
-ifeq ($(ANALYZE_WERROR),1)
-ANALYZE_CFLAGS += -Werror
-endif
+ANALYZE_CFLAGS += $(if $(filter 1,$(ANALYZE_WERROR)),-Werror)
 
-ANALYZE_KERNEL_TARGETS = $(addprefix $(ANALYZE_OUT)/kernel/, \
-	$(ANALYZE_KERNEL_SRCS:.c=.analyze))
+ANALYZE_KERNEL_TARGETS = $(ANALYZE_KERNEL_SRCS:.c=.analyze)
 
 analyze: check-gcc-version analyze-kernel
 
 analyze-kernel: $(ANALYZE_KERNEL_TARGETS)
 
-$(ANALYZE_OUT)/kernel/%.analyze: %.c $(AUTOCONF_H) FORCE
+%.analyze: %.c $(AUTOCONF_H) FORCE
 	$(QUIET_ANALYZE)
 	$(Q)$(CC) $(ANALYZE_CFLAGS) -c -o /dev/null $<
 
@@ -232,9 +166,10 @@ sym: $(KERNEL)
 	$(Q)$(OBJDUMP) -t $(KERNEL) | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $(KERNEL).sym
 
 clean-kernel:
-	$(Q)rm -rf $(OUTDIR)
+	$(Q)rm -f $(ALL_OBJ_REL) $(ALL_OBJ_REL:.o=.d) \
+		$(ALL_OBJ_REL:.o=.analyze) $(KERNEL) $(KERNEL).asm $(KERNEL).sym
 
 
-.PRECIOUS: $(OUTDIR)/%.o
+.PRECIOUS: %.o
 
-.PHONY: all analyze analyze-kernel asm sym $(KERNEL_NAME) clean-kernel
+.PHONY: all analyze analyze-kernel asm sym clean-kernel

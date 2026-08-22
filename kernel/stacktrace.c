@@ -1,4 +1,3 @@
-#include <nuvix/ksyms.h>
 #include <nuvix/printk.h>
 #include <nuvix/stacktrace.h>
 #include <nuvix/task.h>
@@ -39,8 +38,6 @@ void dump_stack(void)
 	for (uint32_t depth = 0; depth < STACKTRACE_MAX_DEPTH; depth++) {
 		uintptr_t ra;
 		uintptr_t next_fp;
-		uintptr_t offset = 0;
-		const char *name;
 
 		if (!frame_pointer_valid(fp, low, high))
 			break;
@@ -50,12 +47,7 @@ void dump_stack(void)
 		if (!ra)
 			break;
 
-		name = ksym_lookup(ra, &offset);
-		if (name)
-			pr_err("  [%d] %p <%s+0x%lx>\n", (int)depth, (void *)ra,
-			       name, (size_t)offset);
-		else
-			pr_err("  [%d] %p\n", (int)depth, (void *)ra);
+		pr_err("  [%d] %p\n", (int)depth, (void *)ra);
 
 		if (next_fp <= fp)
 			break;

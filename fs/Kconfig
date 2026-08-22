@@ -4,9 +4,4 @@ config EXT2_FS
 	bool
 	default y
 
-config ROOTFS_IMAGE_SIZE_MB
-	int "Root filesystem image size (MiB)"
-	range 8 256
-	default 16
-
 endmenu

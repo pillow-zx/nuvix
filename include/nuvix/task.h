@@ -74,7 +74,7 @@ struct trap_frame;
 
 /*
  * Maximum number of supplementary groups. The Linux ABI allows NGROUPS_MAX
- * (65536); nuvix caps the per-task list at the musl user-space NGROUPS_MAX.
+ * (65536); nuvix caps the per-task list at 32 entries.
  */
 #define NGROUPS_MAX 32
 
@@ -98,17 +98,20 @@ struct cred {
 
 struct task_signal_context {
 	uint64_t blocked;
-	/* Task-directed pending (pending/forced_pending/pending_info) is guarded
-	 * by the owning task's wait.lock: senders write under it, the consumer
-	 * drains under it. */
+	/* Task-directed signal state (blocked/pending/forced_pending/
+	 * pending_info) is guarded by the owning thread group's
+	 * signal_struct.siglock, not by wait.lock.  wait.lock remains owned by
+	 * the wait subsystem.  Consumers that read the fact bits lock-free must
+	 * treat them as hints validated under siglock. */
 	uint64_t pending;
-	/* Subset of pending whose disposition, snapshotted when it was last
-	 * marked pending, makes do_signal() discard it silently (SIG_IGN, or
-	 * SIG_DFL with no visible default action, e.g. SIGCHLD/SIGCONT).
-	 * signal_pending_interruptible() excludes these bits. */
-	uint64_t pending_inert;
 	uint64_t forced_pending;
 	siginfo_t pending_info[NSIG + 1];
+	/* Fact bits maintained by one centralized recalc under the thread-group
+	 * siglock and read atomically by wait predicates.  The interruptible bit
+	 * means a pending signal is currently deliverable to this Task; blocked
+	 * pending signals do not interrupt ordinary waits. */
+	atomic_t has_pending_signal;
+	atomic_t has_fatal_pending;
 	struct signal_frame_state *signal_frames;
 	uint64_t restore_mask;
 	bool restore_mask_pending;

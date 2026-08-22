@@ -17,7 +17,7 @@
  * and `handler` is the kernel implementation installed in the dispatch table.
  * An entry in this list means the syscall has a handler, not that nuvix
  * implements complete Linux semantics; the maturity matrix lives in
- * SYSCALL.md.
+ * external compatibility documentation.
  */
 #define SYSCALL_TABLE(X)                                                       \
 	X(SYS_getcwd, "getcwd", sys_getcwd)                                    \

@@ -4,11 +4,30 @@
 
 #include <nuvix/user_return.h>
 #include <nuvix/exit.h>
+#include <nuvix/mm.h>
+#include <nuvix/printk.h>
 #include <nuvix/rseq.h>
 #include <nuvix/proc.h>
 #include <nuvix/signal.h>
 #include <nuvix/trap.h>
 #include <uapi/signal.h>
+
+static void write_child_tid(struct task_struct *task)
+{
+	int *child_tid;
+	int tid;
+
+	if (!task)
+		return;
+	child_tid = task->signal.set_child_tid;
+	if (!child_tid)
+		return;
+	tid = task->tid ? task->tid->nr : 0;
+	if (copy_to_user(child_tid, &tid, sizeof(tid)) != 0)
+		pr_debug("signal: CLONE_CHILD_SETTID write failed for tid=%d\n",
+			 tid);
+	task->signal.set_child_tid = NULL;
+}
 
 void user_return_work(struct trap_frame *tf)
 {
@@ -27,9 +46,9 @@ void user_return_work(struct trap_frame *tf)
 	if (rseq_resume_user(tf) < 0)
 		do_exit_signal(SIGSEGV);
 
-	signal_write_child_tid(current_task());
+	write_child_tid(current_task());
 
-	do_signal(tf);
+	sig_deliver(tf);
 	trap_disable_user_fpu(tf);
 	/* Future syscall restart handling belongs here. */
 	/* Future generic pending user-return work belongs here. */
