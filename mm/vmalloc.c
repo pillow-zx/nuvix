@@ -29,14 +29,25 @@ static uintptr_t vmalloc_end;
 static bool vmalloc_ready;
 static LIST_HEAD(vmalloc_areas);
 static DEFINE_SPINLOCK(vmalloc_lock, LOCK_RANK_ALLOC_VMALLOC,
-			   LOCK_IRQ_TASK_ONLY);
+			       LOCK_IRQ_TASK_ONLY);
+/* Serializes leaf PTE updates.  It is never held while area metadata is
+ * changed, so mapping teardown can wait for remote TLB acknowledgements. */
+static DEFINE_SPINLOCK(vmalloc_pt_lock, LOCK_RANK_ALLOC_VMALLOC,
+			       LOCK_IRQ_TASK_ONLY);
 
-/* Clears PTEs and frees pages. Must never be called under vmalloc_lock:
- * free_page() rejects a held spinlock, and the PTE slots of a reserved span
- * are disjoint, so concurrent unmaps cannot collide. */
+/* Clear the PTEs and complete the global shootdown before freeing any page.
+ * The caller keeps the virtual span reserved through this operation. */
 static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 {
 	pte_t *root = kernel_pt();
+	size_t capacity = (end - start) / PAGE_SIZE;
+	void **pages;
+	size_t nr_pages = 0;
+
+	pages = kmalloc_array(capacity, sizeof(*pages), ALLOC_NOWAIT);
+	BUG_ON(!pages);
+
+	spin_lock(&vmalloc_pt_lock);
 
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
 		pte_t *pte = pgtable_lookup(root, va);
@@ -47,10 +58,16 @@ static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 
 		pa = pte_phys_addr(*pte);
 		*pte = 0;
-		flush_tlb_page(va);
-		free_page(__va(pa), 0);
+		BUG_ON(nr_pages >= capacity);
+		pages[nr_pages++] = __va(pa);
 	}
+	flush_tlb_all();
 	mm_flush_kernel_all();
+	spin_unlock(&vmalloc_pt_lock);
+
+	for (size_t i = 0; i < nr_pages; i++)
+		free_page(pages[i], 0);
+	kfree(pages);
 }
 
 static struct vmalloc_area *vmalloc_find_area(uintptr_t start)
@@ -65,7 +82,8 @@ static struct vmalloc_area *vmalloc_find_area(uintptr_t start)
 	return NULL;
 }
 
-static size_t vmalloc_area_size(const struct vmalloc_area *area)
+__always_inline __pure
+static inline size_t vmalloc_area_size(const struct vmalloc_area *area)
 {
 	return area->end - area->start;
 }
@@ -117,14 +135,16 @@ static void vmalloc_prepopulate_tables(void)
 	flush_tlb_all();
 }
 
-static struct vmalloc_area *vmalloc_prev_area(struct vmalloc_area *area)
+__always_inline
+static inline struct vmalloc_area *vmalloc_prev_area(struct vmalloc_area *area)
 {
 	if (area->node.prev == &vmalloc_areas)
 		return NULL;
 	return list_entry(area->node.prev, struct vmalloc_area, node);
 }
 
-static struct vmalloc_area *vmalloc_next_area(struct vmalloc_area *area)
+__always_inline
+static inline struct vmalloc_area *vmalloc_next_area(struct vmalloc_area *area)
 {
 	if (area->node.next == &vmalloc_areas)
 		return NULL;
@@ -263,13 +283,19 @@ void *vmalloc(size_t size, enum alloc_mode mode)
 			goto fail;
 
 		memset(page, 0, PAGE_SIZE);
+		spin_lock(&vmalloc_pt_lock);
 		ret = map_page(kernel_pt(), va, __pa((uintptr_t)page),
 			       pgprot_kernel(true, true, false));
+		spin_unlock(&vmalloc_pt_lock);
 		if (ret < 0) {
 			free_page(page, 0);
 			goto fail;
 		}
 	}
+	spin_lock(&vmalloc_pt_lock);
+	flush_tlb_all();
+	mm_flush_kernel_all();
+	spin_unlock(&vmalloc_pt_lock);
 
 	return (void *)start;
 
