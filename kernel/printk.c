@@ -190,6 +190,7 @@ ssize_t printk_log_read(void *buffer, size_t size)
 	irq_flags_t flags;
 	uint64_t sequence;
 	size_t copied;
+	size_t left = 0;
 	int ret;
 
 	if (!buffer)
@@ -215,9 +216,9 @@ ssize_t printk_log_read(void *buffer, size_t size)
 	printk_ring_copy_locked(snapshot, sequence, copied);
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
 
-	if (copied != 0 && copy_to_user(buffer, snapshot, copied) != 0) {
-		ret = -EFAULT;
-		goto unlock;
+	if (copied != 0) {
+		left = copy_to_user(buffer, snapshot, copied);
+		copied -= left;
 	}
 
 	spin_lock_irqsave(&printk_ring.lock, &flags);
@@ -225,7 +226,7 @@ ssize_t printk_log_read(void *buffer, size_t size)
 		printk_ring.read_seq = sequence + copied;
 	(void)printk_ring_normalize_locked(&printk_ring.read_seq);
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
-	ret = (int)copied;
+	ret = copied ? (int)copied : (left ? -EFAULT : 0);
 unlock:
 	mutex_unlock(&printk_ring.read_lock);
 	return ret;

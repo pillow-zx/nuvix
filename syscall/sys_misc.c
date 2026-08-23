@@ -403,9 +403,12 @@ ssize_t sys_getrandom(struct trap_frame *tf)
 		if (n > sizeof(chunk))
 			n = sizeof(chunk);
 		weak_random_bytes(chunk, n);
-		if (copy_to_user(ubuf + done, chunk, n) != 0)
+		size_t left = copy_to_user(ubuf + done, chunk, n);
+		size_t copied = n - left;
+
+		done += copied;
+		if (left != 0)
 			return done ? (ssize_t)done : -EFAULT;
-		done += n;
 	}
 
 	return (ssize_t)done;

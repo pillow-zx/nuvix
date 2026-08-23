@@ -4,11 +4,31 @@
 
 #include <nuvix/mm.h>
 #include <nuvix/errno.h>
+#include <nuvix/proc.h>
 #include <nuvix/task.h>
 #include <nuvix/page.h>
 #include <nuvix/uaccess_arch.h>
 
 #include "internal.h"
+
+__always_inline __const
+static inline size_t user_copy_width(uintptr_t user_addr, uintptr_t kernel_addr,
+				     size_t remaining)
+{
+	if (remaining >= sizeof(u64) &&
+	    (user_addr & (sizeof(u64) - 1)) == 0 &&
+	    (kernel_addr & (sizeof(u64) - 1)) == 0)
+		return sizeof(u64);
+	if (remaining >= sizeof(u32) &&
+	    (user_addr & (sizeof(u32) - 1)) == 0 &&
+	    (kernel_addr & (sizeof(u32) - 1)) == 0)
+		return sizeof(u32);
+	if (remaining >= sizeof(u16) &&
+	    (user_addr & (sizeof(u16) - 1)) == 0 &&
+	    (kernel_addr & (sizeof(u16) - 1)) == 0)
+		return sizeof(u16);
+	return sizeof(u8);
+}
 
 bool access_ok(const void *addr, size_t size)
 {
@@ -44,32 +64,178 @@ int user_range_probe(const void *addr, size_t size, bool write)
 	return fault_in_user_range(mm, (uintptr_t)addr, size, access);
 }
 
-size_t copy_to_user(void *to, const void *from, size_t n)
+int uaccess_txn_begin(struct uaccess_txn *txn)
 {
-	if (user_range_probe(to, n, true) < 0)
-		return n;
+	struct task_struct *task = current_task();
+	struct mm_struct *mm;
 
-	bool had_sum = user_access_begin();
-	memcpy(to, from, n);
-	user_access_end(had_sum);
+	memset(txn, 0, sizeof(*txn));
+	if (!task || !task->proc)
+		return -EFAULT;
 
+	/* The reference is taken under the proc lock only; mmap_lock is
+	 * acquired after it is dropped.  Every later access in this
+	 * transaction uses txn->mm, never current_task()->proc->mm. */
+	mm = proc_mm_get(task->proc);
+	if (!mm)
+		return -EFAULT;
+
+	txn->mm = mm;
+	mm_lock(mm);
 	return 0;
 }
 
-size_t copy_from_user(void *to, const void *from, size_t n)
+void uaccess_txn_end(struct uaccess_txn *txn)
 {
-	if (user_range_probe(from, n, false) < 0)
+	struct mm_struct *mm = txn->mm;
+
+	if (!mm)
+		return;
+
+	txn->mm = NULL;
+	/* Order is fixed: stop user access, drop mmap_lock, release
+	 * mapping references outside the lock, then drop the MM
+	 * reference so the final mm_put() cannot destroy under it. */
+	mm_unlock(mm);
+	mm_teardown_release(&txn->teardown);
+	mm_put(mm);
+}
+
+__hot
+size_t copy_to_user(void *to, const void *from, size_t n)
+{
+	struct uaccess_txn txn;
+	uintptr_t user_addr = (uintptr_t)to;
+	uintptr_t kernel_addr = (uintptr_t)from;
+	size_t remaining = n;
+	int ret;
+
+	if (n == 0)
+		return 0;
+	if (!access_ok(to, n))
+		return n;
+	if (uaccess_txn_begin(&txn) < 0)
 		return n;
 
-	bool had_sum = user_access_begin();
-	memcpy(to, from, n);
-	user_access_end(had_sum);
+	/* Fault-in (including COW splits) happens under the same
+	 * mmap_lock as the copy itself, so concurrent munmap/mprotect
+	 * cannot invalidate the range between probe and access. */
+	ret = fault_in_user_range_locked(txn.mm, user_addr, n,
+					 USER_FAULT_WRITE, &txn.teardown);
+	if (ret == 0) {
+		while (remaining != 0) {
+			size_t width = user_copy_width(user_addr, kernel_addr,
+						       remaining);
 
-	return 0;
+			switch (width) {
+			case sizeof(u64):
+				ret = put_user_u64(*(const u64 *)kernel_addr,
+						   (volatile u64 *)user_addr);
+				break;
+			case sizeof(u32):
+				ret = put_user_u32(*(const u32 *)kernel_addr,
+						   (volatile u32 *)user_addr);
+				break;
+			case sizeof(u16):
+				ret = put_user_u16(*(const u16 *)kernel_addr,
+						   (volatile u16 *)user_addr);
+				break;
+			default:
+				ret = put_user_u8(*(const u8 *)kernel_addr,
+						  (volatile u8 *)user_addr);
+				break;
+			}
+			if (ret < 0)
+				break;
+
+			user_addr += width;
+			kernel_addr += width;
+			remaining -= width;
+		}
+	}
+
+	uaccess_txn_end(&txn);
+	return remaining;
+}
+
+__hot
+size_t copy_from_user(void *to, const void *from, size_t n)
+{
+	struct uaccess_txn txn;
+	uintptr_t kernel_addr = (uintptr_t)to;
+	uintptr_t user_addr = (uintptr_t)from;
+	size_t remaining = n;
+	int ret;
+
+	if (n == 0)
+		return 0;
+	if (!access_ok(from, n))
+		return n;
+	if (uaccess_txn_begin(&txn) < 0)
+		return n;
+
+	ret = fault_in_user_range_locked(txn.mm, user_addr, n,
+					 USER_FAULT_READ, &txn.teardown);
+	if (ret == 0) {
+		while (remaining != 0) {
+			size_t width = user_copy_width(user_addr, kernel_addr,
+						       remaining);
+
+			switch (width) {
+			case sizeof(u64): {
+				u64 value;
+
+				ret = get_user_u64(value,
+						   (const volatile u64 *)user_addr);
+				if (ret == 0)
+					*(u64 *)kernel_addr = value;
+				break;
+			}
+			case sizeof(u32): {
+				u32 value;
+
+				ret = get_user_u32(value,
+						   (const volatile u32 *)user_addr);
+				if (ret == 0)
+					*(u32 *)kernel_addr = value;
+				break;
+			}
+			case sizeof(u16): {
+				u16 value;
+
+				ret = get_user_u16(value,
+						   (const volatile u16 *)user_addr);
+				if (ret == 0)
+					*(u16 *)kernel_addr = value;
+				break;
+			}
+			default: {
+				u8 value;
+
+				ret = get_user_u8(value,
+						  (const volatile u8 *)user_addr);
+				if (ret == 0)
+					*(u8 *)kernel_addr = value;
+				break;
+			}
+			}
+			if (ret < 0)
+				break;
+
+			user_addr += width;
+			kernel_addr += width;
+			remaining -= width;
+		}
+	}
+
+	uaccess_txn_end(&txn);
+	return remaining;
 }
 
 ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 {
+	struct uaccess_txn txn;
+	uintptr_t addr = (uintptr_t)src;
 	size_t done = 0;
 
 	if (!dst)
@@ -78,47 +244,43 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 		return -EFAULT;
 	if (maxlen == 0)
 		return -ENAMETOOLONG;
+	if (!access_ok(src, maxlen))
+		return -EFAULT;
+	if (uaccess_txn_begin(&txn) < 0)
+		return -EFAULT;
 
+	/* One mmap_lock hold covers every page, so the scan cannot race
+	 * with munmap()/mprotect() between pages.  Only pages actually
+	 * reached by the scan are faulted in: a NUL inside the first
+	 * page succeeds even when later pages are unmapped. */
 	while (done < maxlen) {
-		uintptr_t addr = (uintptr_t)src + done;
-		struct vm_area_struct *vma;
-		size_t chunk = MIN(maxlen - done,
-				   PAGE_SIZE - (addr & (PAGE_SIZE - 1)));
-		struct mm_struct *mm;
+		uintptr_t page = (addr + done) & PAGE_MASK;
+		size_t offset = (addr + done) & (PAGE_SIZE - 1);
+		size_t chunk = MIN(PAGE_SIZE - offset, maxlen - done);
 
-		if (!access_ok((const void *)addr, 1))
-			return -EFAULT;
-		mm = current_task()->proc ? current_task()->proc->mm : NULL;
-		if (!mm)
-			return -EFAULT;
-		with_guard(mm_guard, mm)
-		{
-			vma = find_vma(mm, addr);
-			if (!vma || !(vma->vm_flags & VM_READ))
-				return -EFAULT;
+		if (fault_in_user_range_locked(txn.mm, page, 1,
+					       USER_FAULT_READ,
+					       &txn.teardown) < 0)
+			goto fail;
 
-			chunk = MIN(chunk, vma->vm_end - addr);
-		}
-		if (chunk == 0)
-			return -EFAULT;
-
-		if (user_range_probe((const void *)addr, chunk, false) < 0)
-			return -EFAULT;
-
-		bool had_sum = user_access_begin();
 		for (size_t i = 0; i < chunk; i++) {
-			char c = ((const char *)addr)[i];
+			u8 value;
 
-			dst[done + i] = c;
-			if (c == '\0') {
-				user_access_end(had_sum);
-				return (ssize_t)(done + i);
+			if (get_user_u8(value, (const volatile u8 *)(addr + done)) < 0)
+				goto fail;
+			dst[done++] = (char)value;
+			if (value == '\0') {
+				uaccess_txn_end(&txn);
+				return (ssize_t)(done - 1);
 			}
 		}
-		user_access_end(had_sum);
-		done += chunk;
 	}
 
+	uaccess_txn_end(&txn);
 	dst[maxlen - 1] = '\0';
 	return -ENAMETOOLONG;
+
+fail:
+	uaccess_txn_end(&txn);
+	return -EFAULT;
 }

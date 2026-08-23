@@ -298,11 +298,14 @@ static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
 	return 0;
 }
 
-__hot int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
-			      int access)
+/* Caller holds mm->mmap_lock and owns @teardown release after unlocking.
+ * The whole range must be covered: VMA segments are checked for coverage
+ * and permission, then faulted in page by page. */
+__hot int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr,
+				     size_t size, int access,
+				     struct mm_teardown *teardown)
 {
 	uintptr_t range_end;
-	struct mm_teardown teardown = {0};
 
 	if (size == 0)
 		return 0;
@@ -315,51 +318,47 @@ __hot int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 		uintptr_t segment_end;
 		uintptr_t va;
 		uintptr_t page_end;
-		int ret = 0;
 
-		mm_lock(mm);
 		vma = find_vma(mm, cursor);
-		if (unlikely(!vma)) {
-			mm_unlock(mm);
-			mm_teardown_release(&teardown);
+		if (unlikely(!vma))
 			return -EFAULT;
-		}
-		if (unlikely(!check_vma_permission(access, vma))) {
-			mm_unlock(mm);
-			mm_teardown_release(&teardown);
+		if (unlikely(!check_vma_permission(access, vma)))
 			return -EFAULT;
-		}
 
 		segment_end = vma->vm_end < range_end ? vma->vm_end : range_end;
-		if (unlikely(segment_end <= cursor)) {
-			mm_unlock(mm);
-			mm_teardown_release(&teardown);
+		if (unlikely(segment_end <= cursor))
 			return -EFAULT;
-		}
 
 		va = cursor & PAGE_MASK;
 		page_end = mm_page_align_up(segment_end);
 		while (va < page_end) {
 			uintptr_t fault_addr = va < cursor ? cursor : va;
+			int ret = fault_in_user_page_locked(mm, fault_addr,
+							    access, NULL,
+							    teardown);
 
-			ret = fault_in_user_page_locked(mm, fault_addr, access,
-							NULL, &teardown);
 			if (ret < 0)
-				break;
+				return ret;
 			va += PAGE_SIZE;
-		}
-		mm_unlock(mm);
-
-		if (ret < 0) {
-			mm_teardown_release(&teardown);
-			return ret;
 		}
 
 		cursor = segment_end;
 	}
 
-	mm_teardown_release(&teardown);
 	return 0;
+}
+
+__hot int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
+			      int access)
+{
+	struct mm_teardown teardown = {0};
+	int ret;
+
+	mm_lock(mm);
+	ret = fault_in_user_range_locked(mm, addr, size, access, &teardown);
+	mm_unlock(mm);
+	mm_teardown_release(&teardown);
+	return ret;
 }
 
 __hot void do_page_fault(struct trap_frame *tf)
