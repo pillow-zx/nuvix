@@ -52,23 +52,34 @@ struct mm_struct {
 	struct vm_area_struct vma[NR_VMA];
 };
 
+struct mm_mapping_release {
+	paddr_t pa;
+	bool dirty;
+};
+
+struct mm_teardown {
+	struct mm_mapping_release *release;
+	size_t nr_release;
+	size_t release_capacity;
+};
+
 static_assert(NR_VMA > 0, "NR_VMA must stay positive");
 
 __always_inline __must_check __const
-static  inline uintptr_t mm_page_align_up(uintptr_t addr)
+static inline uintptr_t mm_page_align_up(uintptr_t addr)
 {
 	return ALIGN_UP(addr, PAGE_SIZE);
 }
 
 __always_inline __must_check __pure __nonnull(1)
-static  inline uint64_t vma_offset_at(const struct vm_area_struct *vma,
+static inline uint64_t vma_offset_at(const struct vm_area_struct *vma,
 				const uintptr_t va)
 {
 	return vma->vm_offset + (va - vma->vm_start);
 }
 
 __always_inline __must_check __pure __nonnull(1)
-static  inline uint64_t vma_page_index(const struct vm_area_struct *vma,
+static inline uint64_t vma_page_index(const struct vm_area_struct *vma,
 		const uintptr_t page_addr)
 {
 	uintptr_t base = vma->vm_start & PAGE_MASK;
@@ -124,6 +135,7 @@ static inline pgprot_t mm_prot_to_pte_flags(int prot)
 	return pgprot_user((prot & PROT_READ) != 0, (prot & PROT_WRITE) != 0,
 			   (prot & PROT_EXEC) != 0);
 }
+
 __always_inline __must_check __const
 static inline pgprot_t vma_flags_to_pte(uint32_t vm_flags)
 {
@@ -141,15 +153,18 @@ static inline pgprot_t pgprot_make_readonly(pgprot_t prot)
 
 void mm_pte_mapping_get(paddr_t pa);
 void mm_pte_mapping_put(const struct vm_area_struct *vma, paddr_t pa);
+void mm_pte_mapping_put_dirty(paddr_t pa, bool dirty);
 
 __always_inline __must_check __pure __nonnull(1)
-static inline bool vma_overlaps(const struct vm_area_struct *vma, const uintptr_t start, const uintptr_t end)
+static inline bool vma_overlaps(const struct vm_area_struct *vma,
+		const uintptr_t start, const uintptr_t end)
 {
 	return vma->used && start < vma->vm_end && end > vma->vm_start;
 }
 
 __always_inline __must_check __pure __nonnull(1)
-static inline bool vma_contains_split_addr(const struct vm_area_struct *vma, const uintptr_t addr)
+static inline bool vma_contains_split_addr(const struct vm_area_struct *vma,
+		const uintptr_t addr)
 {
 	return vma->used && addr > vma->vm_start && addr < vma->vm_end;
 }
@@ -163,7 +178,8 @@ static inline bool vma_is_anonymous(const struct vm_area_struct *vma)
 }
 
 __always_inline __must_check __pure
-static inline bool vma_covers_range(const struct vm_area_struct *vma, const uintptr_t start, const uintptr_t end)
+static inline bool vma_covers_range(const struct vm_area_struct *vma,
+		const uintptr_t start, const uintptr_t end)
 {
 	return vma && vma->used && start >= vma->vm_start && end <= vma->vm_end;
 }
@@ -171,6 +187,7 @@ static inline bool vma_covers_range(const struct vm_area_struct *vma, const uint
 __must_check
 struct mm_struct *mm_alloc(void);
 
+__cold
 void mm_destroy(struct mm_struct *mm);
 
 __must_check
@@ -182,46 +199,64 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr);
 __must_check
 int mm_range_end_page_aligned(uintptr_t start, size_t length, uintptr_t *end);
 
-__must_check
+__must_check __nonnull(1)
 int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size, int access);
 
-__must_check
+__must_check __nonnull(1)
 struct vm_area_struct *vma_alloc_slot(struct mm_struct *mm);
 
 void vma_free_slot(struct vm_area_struct *vma);
 
-__must_check
+__must_check __pure __nonnull(1)
 int vma_free_slot_count(struct mm_struct *mm);
 
-__must_check
+__must_check __pure __nonnull(1)
 bool vma_range_overlaps(struct mm_struct *mm, uintptr_t start, uintptr_t end);
 
-__must_check
-bool vma_range_overlaps_other(struct mm_struct *mm, const struct vm_area_struct *skip, uintptr_t start, uintptr_t end);
+__must_check __pure __nonnull(1, 2)
+bool vma_range_overlaps_other(struct mm_struct *mm, const struct vm_area_struct *skip,
+		uintptr_t start, uintptr_t end);
 
-__must_check
+__must_check __nonnull(1, 2)
 int vma_split_at(struct mm_struct *mm, struct vm_area_struct *vma, uintptr_t addr);
 
+__nonnull(1)
 void vma_merge_all(struct mm_struct *mm);
 
-__must_check
+__must_check __pure __nonnull(1)
 int vma_munmap_slots_needed(struct mm_struct *mm, uintptr_t start, uintptr_t end);
 
-__must_check
+__must_check __pure __nonnull(1)
 int vma_mprotect_slots_needed(struct mm_struct *mm, uintptr_t start, uintptr_t end);
 
-__must_check
+__must_check __pure __nonnull(1)
 bool vma_range_is_mapped(struct mm_struct *mm, uintptr_t start, uintptr_t end);
 
-__must_check
+__must_check __nonnull(1)
 int vma_split_range(struct mm_struct *mm, uintptr_t start, uintptr_t end);
 
+__nonnull(1)
 void vma_update_flags_range(struct mm_struct *mm, uintptr_t start, uintptr_t end, uint32_t vm_flags);
 
-__must_check
-int vma_unmap_range(struct mm_struct *mm, struct vm_area_struct *vma, uintptr_t start, uintptr_t end, uintptr_t *unmap_start, uintptr_t *unmap_end);
+__must_check __nonnull(1, 2)
+int vma_unmap_range(struct mm_struct *mm, struct vm_area_struct *vma, uintptr_t start,
+		uintptr_t end, uintptr_t *unmap_start, uintptr_t *unmap_end);
 
-void mm_unmap_user_pages_locked(struct mm_struct *mm, const struct vm_area_struct *vma, uintptr_t start, uintptr_t end);
+__nonnull(1, 2, 5)
+void mm_unmap_user_pages_locked(struct mm_struct *mm, const struct vm_area_struct *vma,
+		uintptr_t start, uintptr_t end, struct mm_teardown *teardown);
+
+__must_check
+int mm_teardown_reserve_range(struct mm_struct *mm, uintptr_t start, uintptr_t end, struct mm_teardown *teardown);
+
+__nonnull(1)
+void mm_teardown_sync(struct mm_struct *mm, struct mm_teardown *teardown, bool flush_icache);
+
+void mm_teardown_release(struct mm_teardown *teardown);
+
+__nonnull(1, 4)
+void mm_replace_user_pte_locked(struct mm_struct *mm, const struct vm_area_struct *vma,
+		uintptr_t va, pte_t *pte, pte_t new_entry, paddr_t old_pa, struct mm_teardown *teardown);
 
 __must_check
 int mm_move_user_pages_locked(struct mm_struct *mm, uintptr_t old_start, uintptr_t new_start, size_t len);

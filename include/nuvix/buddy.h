@@ -82,7 +82,7 @@ void page_put(struct page *page);
 
 CLEANUP_DEFINE(page0, char *, if (_T) free_page(_T, 0));
 
-__must_check __pure
+__must_check
 size_t buddy_free_pages(void);
 
 __must_check __pure

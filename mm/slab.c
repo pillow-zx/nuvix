@@ -16,9 +16,6 @@
 #define KMALLOC_SLAB  0x51abU
 #define KMALLOC_LARGE 0x1a9eU
 
-static const size_t cache_sizes[NR_CACHES] = {16,  32,	64,   128,
-					      256, 512, 1024, 2048};
-
 struct kmem_cache {
 	size_t obj_size;
 	struct list_head free_list;
@@ -50,11 +47,15 @@ struct kmalloc_header {
 static_assert(sizeof(struct kmalloc_header) % alignof(struct list_head) == 0,
 	      "slab free-list nodes must be naturally aligned");
 
+static const size_t cache_sizes[NR_CACHES] = {16,  32,	64,   128,
+					      256, 512, 1024, 2048};
+
 static struct kmem_cache caches[NR_CACHES];
 static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC_SLAB,
 			   LOCK_IRQ_TASK_ONLY);
 
-static int find_cache(size_t size)
+__always_inline __pure
+static inline int find_cache(size_t size)
 {
 	if (size == 0)
 		return -1;
@@ -89,7 +90,7 @@ static void refill_cache_alloc(struct kmem_cache *cache, uint32_t cache_idx,
 	cursor = ALIGN_UP((uintptr_t)page + sizeof(*slab),
 			  alignof(struct kmalloc_header));
 	nr_objs = ((uintptr_t)page + PAGE_SIZE - cursor) / slot_size;
-	if (nr_objs == 0) {
+	if (unlikely(nr_objs == 0)) {
 		page_clear_flag(meta, PG_SLAB);
 		free_page(page, 0);
 		return;
@@ -120,6 +121,7 @@ static void refill_cache_alloc(struct kmem_cache *cache, uint32_t cache_idx,
 /* Under slab_lock: detach every free object node of the slab from its cache
  * free list and clear PG_SLAB. The caller free_page()s the page after the
  * lock is released. */
+__cold
 static void slab_reclaim_detach_locked(struct slab_page_header *slab)
 {
 	struct kmem_cache *cache;
@@ -149,7 +151,8 @@ static void slab_reclaim_detach_locked(struct slab_page_header *slab)
 	page_clear_flag(meta, PG_SLAB);
 }
 
-static uint32_t kmalloc_large_order(size_t size)
+__always_inline __const
+static inline uint32_t kmalloc_large_order(size_t size)
 {
 	if (size > UINT64_MAX - sizeof(struct kmalloc_header))
 		return MAX_ORDER + 1;
@@ -199,19 +202,19 @@ BOOTINFO_BLOCK(slab, void,
 	     (unsigned)cache_sizes[NR_CACHES - 1]);
 )
 
-void *kmalloc(size_t size, enum alloc_mode mode)
+__hot void *kmalloc(size_t size, enum alloc_mode mode)
 {
 	alloc_check(mode);
 	int idx = find_cache(size);
-	if (size == 0)
+	if (unlikely(size == 0))
 		return NULL;
-	if (idx < 0)
+	if (unlikely(idx < 0))
 		return kmalloc_large(size, mode);
 
 	struct kmem_cache *cache = &caches[idx];
 
 	spin_lock(&slab_lock);
-	if (list_empty(&cache->free_list)) {
+	if (unlikely(list_empty(&cache->free_list))) {
 		struct list_head batch;
 
 		/* Refill lock-free (get_free_page may allocate), then splice
@@ -229,7 +232,7 @@ void *kmalloc(size_t size, enum alloc_mode mode)
 			list_add_tail(bnode, &cache->free_list);
 		}
 	}
-	if (list_empty(&cache->free_list)) {
+	if (unlikely(list_empty(&cache->free_list))) {
 		spin_unlock(&slab_lock);
 		return NULL;
 	}
@@ -249,7 +252,7 @@ void *kmalloc(size_t size, enum alloc_mode mode)
 	return (void *)node;
 }
 
-void kfree(void *ptr)
+__hot void kfree(void *ptr)
 {
 	alloc_free_check();
 	if (!ptr)
@@ -258,35 +261,35 @@ void kfree(void *ptr)
 	struct kmalloc_header *hdr =
 		(struct kmalloc_header *)(uintptr_t)((char *)ptr -
 						     sizeof(*hdr));
-	if (hdr->magic != KMALLOC_MAGIC)
+	if (unlikely(hdr->magic != KMALLOC_MAGIC))
 		panic("kfree: invalid object");
 	if (hdr->kind == KMALLOC_LARGE) {
-		if (hdr->large.free)
+		if (unlikely(hdr->large.free))
 			panic("kfree: double free");
 		hdr->large.free = true;
 		free_page(hdr, hdr->order);
 		return;
 	}
-	if (hdr->kind != KMALLOC_SLAB)
+	if (unlikely(hdr->kind != KMALLOC_SLAB))
 		panic("kfree: invalid object kind %u", hdr->kind);
 
 	struct slab_page_header *slab = hdr->slab.slab;
 	uint32_t cache_idx = slab->cache_idx;
 
-	if (cache_idx >= NR_CACHES)
+	if (unlikely(cache_idx >= NR_CACHES))
 		panic("kfree: invalid cache index %d", (int)cache_idx);
 
 	struct list_head *node = (struct list_head *)(uintptr_t)ptr;
 	bool reclaim = false;
 
 	spin_lock(&slab_lock);
-	if (hdr->slab.free)
+	if (unlikely(hdr->slab.free))
 		panic("kfree: double free");
 	hdr->slab.free = true;
 	slab->free_objs++;
 	list_add(node, &caches[cache_idx].free_list);
 
-	if (slab->free_objs == slab->total_objs) {
+	if (unlikely(slab->free_objs == slab->total_objs)) {
 		slab_reclaim_detach_locked(slab);
 		reclaim = true;
 	}

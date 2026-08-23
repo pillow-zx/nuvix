@@ -2,12 +2,34 @@
  * mm/vma.c - 固定数组 VMA 操作
  */
 
-#include "internal.h"
-
 #include <nuvix/errno.h>
 #include <nuvix/fdtable.h>
 #include <nuvix/printk.h>
 #include <nuvix/page.h>
+
+#include "internal.h"
+
+__always_inline __pure
+static inline bool vma_can_merge(const struct vm_area_struct *a,
+				 const struct vm_area_struct *b)
+{
+	if (!a || !b || a == b)
+		return false;
+	if (!a->used || !b->used)
+		return false;
+	if (a->vm_flags != b->vm_flags || a->vm_type != b->vm_type)
+		return false;
+	if (a->vm_file != b->vm_file || a->vm_shared != b->vm_shared)
+		return false;
+	if (a->vm_file) {
+		if (a->vm_end == b->vm_start)
+			return vma_offset_at(a, a->vm_end) == b->vm_offset;
+		if (b->vm_end == a->vm_start)
+			return vma_offset_at(b, b->vm_end) == a->vm_offset;
+		return false;
+	}
+	return a->vm_end == b->vm_start || b->vm_end == a->vm_start;
+}
 
 int mm_range_end_page_aligned(uintptr_t start, size_t length, uintptr_t *end)
 {
@@ -79,26 +101,6 @@ bool vma_range_overlaps_other(struct mm_struct *mm,
 	}
 
 	return false;
-}
-static bool vma_can_merge(const struct vm_area_struct *a,
-			  const struct vm_area_struct *b)
-{
-	if (!a || !b || a == b)
-		return false;
-	if (!a->used || !b->used)
-		return false;
-	if (a->vm_flags != b->vm_flags || a->vm_type != b->vm_type)
-		return false;
-	if (a->vm_file != b->vm_file || a->vm_shared != b->vm_shared)
-		return false;
-	if (a->vm_file) {
-		if (a->vm_end == b->vm_start)
-			return vma_offset_at(a, a->vm_end) == b->vm_offset;
-		if (b->vm_end == a->vm_start)
-			return vma_offset_at(b, b->vm_end) == a->vm_offset;
-		return false;
-	}
-	return a->vm_end == b->vm_start || b->vm_end == a->vm_start;
 }
 
 void vma_merge_all(struct mm_struct *mm)

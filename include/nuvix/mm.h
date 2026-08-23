@@ -47,12 +47,12 @@ void mm_put(struct mm_struct *mm);
  * @param mm Address space to inspect.
  * @return Current reference count.
  */
-__must_check __nonnull(1)
+__must_check __pure __nonnull(1)
 int mm_refcount_read(const struct mm_struct *mm);
 
 void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd);
 
-__must_check
+__must_check __pure
 uint32_t mm_membarrier_registrations(const struct mm_struct *mm);
 
 /**
@@ -194,7 +194,7 @@ int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags);
  * @param size Number of bytes in the range.
  * @return true when the range is a valid user address interval.
  */
-__must_check
+__must_check __pure
 bool access_ok(const void *addr, size_t size);
 
 /**

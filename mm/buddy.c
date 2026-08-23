@@ -8,7 +8,6 @@
 #include <nuvix/printk.h>
 #include <nuvix/bitops.h>
 #include <nuvix/tools.h>
-#include <nuvix/page.h>
 
 struct page *mem_map;
 struct free_area free_area[MAX_ORDER + 1];
@@ -17,21 +16,25 @@ static DEFINE_SPINLOCK(buddy_lock, LOCK_RANK_ALLOC_BUDDY,
 static size_t total_pages;
 static size_t nr_free_pages;
 
+__always_inline __pure __nonnull(1)
 static inline size_t page_to_pfn(const struct page *page)
 {
 	return (size_t)(page - mem_map);
 }
 
+__always_inline __pure
 static inline struct page *pfn_to_page(size_t pfn)
 {
 	return &mem_map[pfn];
 }
 
+__always_inline __const
 static inline void *pfn_to_virt(size_t pfn)
 {
 	return __va(DRAM_BASE + pfn * PAGE_SIZE);
 }
 
+__always_inline __const
 static inline size_t virt_to_pfn(void *addr)
 {
 	return (__pa((uintptr_t)addr) - DRAM_BASE) / PAGE_SIZE;
@@ -56,9 +59,9 @@ static void buddy_add_free_block(size_t pfn, uint32_t order, bool tail)
 {
 	struct page *page = pfn_to_page(pfn);
 
-	if (pfn >= total_pages)
+	if (unlikely(pfn >= total_pages))
 		panic("buddy: add free pfn %zu out of range", pfn);
-	if (order > MAX_ORDER)
+	if (unlikely(order > MAX_ORDER))
 		panic("buddy: add free order %u out of range", order);
 
 	page->flags = BIT(PG_BUDDY);
@@ -172,32 +175,32 @@ BOOTINFO_BLOCK(buddy, void,
 	     (unsigned long)nr_free_pages);
 )
 
-void *get_free_page(uint32_t order, enum alloc_mode mode)
+__hot void *get_free_page(uint32_t order, enum alloc_mode mode)
 {
 	struct list_head *node;
 	struct page *page;
 
 	alloc_check(mode);
 	spin_lock(&buddy_lock);
-	if (order > MAX_ORDER)
+	if (unlikely(order > MAX_ORDER))
 		goto out;
 
 	uint32_t cur = order;
 	while (cur <= MAX_ORDER && list_empty(&free_area[cur].free_list))
 		cur++;
 
-	if (cur > MAX_ORDER)
+	if (unlikely(cur > MAX_ORDER))
 		goto out;
 
 	node = free_area[cur].free_list.next;
 	page = list_entry(node, struct page, lru);
-	if (page < mem_map || page >= mem_map + total_pages)
+	if (unlikely(page < mem_map || page >= mem_map + total_pages))
 		panic("buddy: corrupt free list order %u node=%p page=%p",
 		      cur, node, page);
-	if (!page_test_flag(page, PG_BUDDY))
+	if (unlikely(!page_test_flag(page, PG_BUDDY)))
 		panic("buddy: non-free page on free list order %u pfn=%lu",
 		      cur, (unsigned long)page_to_pfn(page));
-	if (page->order != cur)
+	if (unlikely(page->order != cur))
 		panic("buddy: free list order %u contains pfn=%lu order=%u",
 		      cur, (unsigned long)page_to_pfn(page), page->order);
 	buddy_remove_free_block(page);
@@ -222,33 +225,33 @@ out:
 	return NULL;
 }
 
-void free_page(void *addr, uint32_t order)
+__hot void free_page(void *addr, uint32_t order)
 {
 	size_t pfn;
 	struct page *page;
 
 	alloc_free_check();
 	spin_lock(&buddy_lock);
-	if (order > MAX_ORDER)
+	if (unlikely(order > MAX_ORDER))
 		panic("free_page: order %d > MAX_ORDER", order);
 
-	if (!virt_to_pfn_checked(addr, &pfn))
+	if (unlikely(!virt_to_pfn_checked(addr, &pfn)))
 		panic("free_page: invalid page address %p", addr);
-	if (pfn + (1UL << order) > total_pages)
+	if (unlikely(pfn + (1UL << order) > total_pages))
 		panic("free_page: pfn %zu order %u out of range", pfn, order);
-	if (pfn & ((1UL << order) - 1))
+	if (unlikely(pfn & ((1UL << order) - 1)))
 		panic("free_page: pfn %zu is not order %u aligned", pfn, order);
 
 	page = pfn_to_page(pfn);
-	if (page_test_flag(page, PG_BUDDY))
+	if (unlikely(page_test_flag(page, PG_BUDDY)))
 		panic("free_page: double free pfn %zu", pfn);
-	if (page_test_flag(page, PG_RESERVED))
+	if (unlikely(page_test_flag(page, PG_RESERVED)))
 		panic("free_page: reserved pfn %zu", pfn);
-	if (page_test_flag(page, PG_SLAB))
+	if (unlikely(page_test_flag(page, PG_SLAB)))
 		panic("free_page: slab pfn %zu", pfn);
-	if (refcount_read(&page->refcount) != 1)
+	if (unlikely(refcount_read(&page->refcount) != 1))
 		panic("free_page: pfn %zu still referenced", pfn);
-	if (page->order != order)
+	if (unlikely(page->order != order))
 		panic("free_page: pfn %zu order %u != %u", pfn, page->order,
 		      order);
 
@@ -258,13 +261,13 @@ void free_page(void *addr, uint32_t order)
 	spin_unlock(&buddy_lock);
 }
 
-void page_get(struct page *page)
+__hot void page_get(struct page *page)
 {
 	page_ref_check(page);
 	refcount_inc(&page->refcount);
 }
 
-void page_put(struct page *page)
+__hot void page_put(struct page *page)
 {
 	page_ref_check(page);
 	if (!refcount_dec_and_test(&page->refcount))

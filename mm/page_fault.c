@@ -17,7 +17,8 @@
 
 #include "internal.h"
 
-static bool check_vma_permission(int access, struct vm_area_struct *vma)
+__always_inline __pure
+static inline bool check_vma_permission(int access, struct vm_area_struct *vma)
 {
 	switch (access) {
 	case USER_FAULT_EXEC:
@@ -31,7 +32,8 @@ static bool check_vma_permission(int access, struct vm_area_struct *vma)
 	}
 }
 
-static bool pte_allows_fault(int access, pte_t pte)
+__always_inline __pure
+static inline bool pte_allows_fault(int access, pte_t pte)
 {
 	if (!pte_is_user_page(pte))
 		return false;
@@ -48,9 +50,12 @@ static bool pte_allows_fault(int access, pte_t pte)
 	}
 }
 
-static int cow_split_page(uintptr_t page_addr, pte_t *existing,
-			  const struct vm_area_struct *vma);
+static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
+				  pte_t *existing,
+				  const struct vm_area_struct *vma,
+				  struct mm_teardown *teardown);
 
+__cold
 static void signal_or_panic_segv(struct trap_frame *tf, int code)
 {
 	if (trap_frame_from_user(tf)) {
@@ -70,14 +75,16 @@ static void signal_or_panic_segv(struct trap_frame *tf, int code)
 	      current_task()->proc ? current_task()->proc->pid->nr : 0);
 }
 
+__hot
 static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
-				     int access, pte_t *fault_pte)
+				     int access, pte_t *fault_pte,
+				     struct mm_teardown *teardown)
 {
 	struct vm_area_struct *vma = find_vma(mm, fault_addr);
 	uintptr_t page_addr;
 	pte_t *existing;
 
-	if (!vma)
+	if (unlikely(!vma))
 		return -EFAULT;
 	if (!check_vma_permission(access, vma))
 		return -EFAULT;
@@ -93,7 +100,8 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 
 		if (access == USER_FAULT_WRITE && (vma->vm_flags & VM_WRITE) &&
 		    pte_allows_user_read(*existing)) {
-			int cow_ret = cow_split_page(page_addr, existing, vma);
+			int cow_ret = cow_split_page(mm, page_addr, existing, vma,
+						     teardown);
 
 			if (cow_ret == 0)
 				return 0;
@@ -119,14 +127,14 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			((vma->vm_shared && (vma->vm_flags & VM_WRITE)) ?
 				 PAGE_CACHE_CREATE : 0),
 			&mapping_error);
-		if (!file_page && mapping_error != -ENODATA)
+		if (!file_page && unlikely(mapping_error != -ENODATA))
 			return mapping_error ? mapping_error : -EIO;
 
 		if (!file_page) {
 			void *zero_page = get_free_page(0, ALLOC_NOWAIT);
 			int ret;
 
-			if (!zero_page)
+			if (unlikely(!zero_page))
 				return -ENOMEM;
 			memset(zero_page, 0, PAGE_SIZE);
 			if (page_addr < vma->vm_start)
@@ -185,7 +193,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		}
 
 		void *page = get_free_page(0, ALLOC_NOWAIT);
-		if (!page) {
+		if (unlikely(!page)) {
 			pgcache_put_page(file_page);
 			return -ENOMEM;
 		}
@@ -210,7 +218,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 	}
 
 	void *page = get_free_page(0, ALLOC_NOWAIT);
-	if (!page)
+	if (unlikely(!page))
 		return -ENOMEM;
 
 	memset(page, 0, PAGE_SIZE);
@@ -227,74 +235,78 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 /* Write fault on a present read-only PTE of a writable vma: split the
  * page. Returns 0 on success (PTE rewritten), -ENOMEM, or -EFAULT when
  * the split is not possible. Caller holds mm->mmap_lock. */
-static int cow_split_page(uintptr_t page_addr, pte_t *existing,
-			  const struct vm_area_struct *vma)
+static int cow_split_page(struct mm_struct *mm, uintptr_t page_addr,
+				  pte_t *existing,
+				  const struct vm_area_struct *vma,
+				  struct mm_teardown *teardown)
 {
 	paddr_t pa = pte_phys_addr(*existing);
 	pgprot_t writable_prot = pte_leaf_prot(*existing) | PTE_W;
 	struct pgcache *cache_page = NULL;
 	struct page *page = NULL;
+	const void *source;
+	bool must_copy;
+	int reserve_ret;
 	void *new_page;
 
 	if (vma->vm_file && !vma->vm_shared) {
 		cache_page = pgcache_get_data(__va(pa));
+		if (cache_page)
+			source = page_cache_data(cache_page);
+		else
+			source = __va(pa);
+	} else {
+		source = __va(pa);
+	}
 
-		if (cache_page) {
-			/* Clean cache page: MAP_PRIVATE must never make it
-			 * writable. Always copy. */
-			new_page = get_free_page(0, ALLOC_NOWAIT);
-			if (!new_page) {
-				pgcache_put_page(cache_page);
-				return -ENOMEM;
-			}
-			memcpy(new_page, page_cache_data(cache_page),
-			       PAGE_SIZE);
-			pgcache_put_page(cache_page);
-			cache_page = NULL;
-		} else {
-			/* mm-owned copy: fall through to the anonymous rules. */
-			page = virt_to_page(__va(pa));
-			BUG_ON(!page);
-			if (refcount_read(&page->refcount) == 1) {
-				*existing = pte_make(pa, writable_prot);
-				flush_tlb_page(page_addr);
-				return 0;
-			}
-			new_page = get_free_page(0, ALLOC_NOWAIT);
-			if (!new_page)
-				return -ENOMEM;
-			memcpy(new_page, __va(pa), PAGE_SIZE);
-		}
+	if (cache_page) {
+		/* A private file mapping must copy cache-backed pages. */
+		must_copy = true;
 	} else {
 		page = virt_to_page(__va(pa));
 		BUG_ON(!page);
-		if (refcount_read(&page->refcount) == 1) {
-			*existing = pte_make(pa, writable_prot);
-			flush_tlb_page(page_addr);
-			return 0;
-		}
-		new_page = get_free_page(0, ALLOC_NOWAIT);
-		if (!new_page)
-			return -ENOMEM;
-		memcpy(new_page, __va(pa), PAGE_SIZE);
+		must_copy = refcount_read(&page->refcount) > 1;
 	}
 
-	*existing = pte_make(__pa((uintptr_t)new_page), writable_prot);
-	flush_tlb_page(page_addr);
-	mm_pte_mapping_put(vma, pa);
+	if (!must_copy) {
+		*existing = pte_make(pa, writable_prot);
+		flush_tlb_page(page_addr);
+		mm_flush_remote(mm, false);
+		return 0;
+	}
+
+	reserve_ret = mm_teardown_reserve_range(mm, page_addr,
+						page_addr + PAGE_SIZE, teardown);
+	if (reserve_ret < 0) {
+		if (cache_page)
+			pgcache_put_page(cache_page);
+		return reserve_ret;
+	}
+	new_page = get_free_page(0, ALLOC_NOWAIT);
+	if (!new_page) {
+		if (cache_page)
+			pgcache_put_page(cache_page);
+		return -ENOMEM;
+	}
+	memcpy(new_page, source, PAGE_SIZE);
+	if (cache_page)
+		pgcache_put_page(cache_page);
+
+	mm_replace_user_pte_locked(mm, vma, page_addr, existing,
+					 pte_make(__pa((uintptr_t)new_page),
+						  writable_prot), pa, teardown);
 	return 0;
 }
 
-int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
-			int access)
+__hot int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
+			      int access)
 {
 	uintptr_t range_end;
+	struct mm_teardown teardown = {0};
 
 	if (size == 0)
 		return 0;
-	if (!mm)
-		return -EFAULT;
-	if (!access_ok((const void *)addr, size))
+	if (unlikely(!access_ok((const void *)addr, size)))
 		return -EFAULT;
 
 	range_end = addr + size;
@@ -307,18 +319,21 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 
 		mm_lock(mm);
 		vma = find_vma(mm, cursor);
-		if (!vma) {
+		if (unlikely(!vma)) {
 			mm_unlock(mm);
+			mm_teardown_release(&teardown);
 			return -EFAULT;
 		}
-		if (!check_vma_permission(access, vma)) {
+		if (unlikely(!check_vma_permission(access, vma))) {
 			mm_unlock(mm);
+			mm_teardown_release(&teardown);
 			return -EFAULT;
 		}
 
 		segment_end = vma->vm_end < range_end ? vma->vm_end : range_end;
-		if (segment_end <= cursor) {
+		if (unlikely(segment_end <= cursor)) {
 			mm_unlock(mm);
+			mm_teardown_release(&teardown);
 			return -EFAULT;
 		}
 
@@ -328,23 +343,26 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 			uintptr_t fault_addr = va < cursor ? cursor : va;
 
 			ret = fault_in_user_page_locked(mm, fault_addr, access,
-							NULL);
+							NULL, &teardown);
 			if (ret < 0)
 				break;
 			va += PAGE_SIZE;
 		}
 		mm_unlock(mm);
 
-		if (ret < 0)
+		if (ret < 0) {
+			mm_teardown_release(&teardown);
 			return ret;
+		}
 
 		cursor = segment_end;
 	}
 
+	mm_teardown_release(&teardown);
 	return 0;
 }
 
-void do_page_fault(struct trap_frame *tf)
+__hot void do_page_fault(struct trap_frame *tf)
 {
 	vaddr_t fault_addr = trap_fault_addr(tf);
 	const char *fault_name = trap_fault_name(tf);
@@ -359,6 +377,7 @@ void do_page_fault(struct trap_frame *tf)
 		      TRAP_ACCESS_EXEC == USER_FAULT_EXEC,
 		      "trap_access_type and USER_FAULT_* must agree");
 	pte_t fault_pte = 0;
+	struct mm_teardown teardown = {0};
 	int ret;
 
 	if (!mm) {
@@ -368,8 +387,10 @@ void do_page_fault(struct trap_frame *tf)
 	}
 
 	mm_lock(mm);
-	ret = fault_in_user_page_locked(mm, fault_addr, access, &fault_pte);
+	ret = fault_in_user_page_locked(mm, fault_addr, access, &fault_pte,
+					&teardown);
 	mm_unlock(mm);
+	mm_teardown_release(&teardown);
 
 	if (ret == 0)
 		return;
@@ -386,7 +407,7 @@ void do_page_fault(struct trap_frame *tf)
 
 	mm_lock(mm);
 	vma = find_vma(mm, fault_addr);
-	if (!vma) {
+	if (unlikely(!vma)) {
 		mm_unlock(mm);
 		pr_warn("page fault: illegal access (no VMA) "
 			"type=%s addr=%p sepc=%p origin=%s pid=%d\n",
@@ -398,7 +419,7 @@ void do_page_fault(struct trap_frame *tf)
 		return;
 	}
 
-	if (!check_vma_permission(access, vma)) {
+	if (unlikely(!check_vma_permission(access, vma))) {
 		uint32_t vm_flags = vma->vm_flags;
 
 		mm_unlock(mm);
