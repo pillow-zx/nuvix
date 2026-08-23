@@ -18,6 +18,7 @@
 #include <nuvix/wait.h>
 #include <nuvix/user_return.h>
 #include <nuvix/ipi.h>
+#include <arch/uaccess.h>
 
 static const char *trap_origin(const struct trap_frame *tf)
 {
@@ -146,6 +147,9 @@ void trap_handler(struct trap_frame *tf)
 			      (void *)trap_fault_addr(tf));
 		}
 	} else {
+		if (!user && riscv_uaccess_fixup(tf))
+			return;
+
 		struct trap_exception exception = trap_classify_exception(tf);
 
 		switch (exception.disposition) {

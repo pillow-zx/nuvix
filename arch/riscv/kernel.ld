@@ -30,6 +30,14 @@ SECTIONS
         . = ALIGN(4096);
     } :rodata
 
+    .ex_table : AT(ADDR(.ex_table) - KERNEL_VBASE) {
+        . = ALIGN(8);
+        __start___ex_table = .;
+        KEEP(*(__ex_table))
+        __stop___ex_table = .;
+        . = ALIGN(4096);
+    } :rodata
+
     .data : AT(ADDR(.data) - KERNEL_VBASE) {
         *(.data .data.*)
         *(.sdata .sdata.*)

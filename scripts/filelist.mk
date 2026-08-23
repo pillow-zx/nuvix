@@ -3,6 +3,8 @@
 ARCH_OBJS = \
 	arch/riscv/boot.o              \
 	arch/riscv/entry.o             \
+	arch/riscv/uaccess.o           \
+	arch/riscv/uaccess_fixup.o     \
 	arch/riscv/switch.o            \
 	arch/riscv/trap.o              \
 	arch/riscv/task.o              \
