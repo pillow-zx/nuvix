@@ -28,19 +28,19 @@ void smp_basic_prepare(void)
 
 	ret = sbi_base_spec_version();
 	if (ret.error != 0 || ret.value < 0x20000)
-		panic("sbi: BASE required but unavailable (error=%lld "
-		      "version=0x%llx)\n", ret.error, ret.value);
+		panic("sbi: BASE required but unavailable (error=%ld "
+		      "version=0x%lx)\n", ret.error, ret.value);
 
 	if (nr_cpu_ids > 1) {
 		ret = sbi_probe_extension(SBI_EID_HSM);
 		if (ret.error != 0 || ret.value == 0)
 			panic("sbi: HSM extension required for %u CPUs but "
-			      "not probed (error=%lld value=%lld)\n",
+			      "not probed (error=%ld value=%ld)\n",
 			      nr_cpu_ids, ret.error, ret.value);
 		ret = sbi_probe_extension(SBI_EID_IPI);
 		if (ret.error != 0 || ret.value == 0)
 			panic("sbi: IPI extension required for %u CPUs but "
-			      "not probed (error=%lld value=%lld)\n",
+			      "not probed (error=%ld value=%ld)\n",
 			      nr_cpu_ids, ret.error, ret.value);
 	}
 
@@ -57,7 +57,7 @@ void smp_basic_prepare(void)
 		name = sbi_hsm_status_name((uint64_t)ret.value);
 		if (ret.error != 0 || ret.value != SBI_HSM_STOPPED)
 			panic("sbi: hart %u (logical %u) not HSM STOPPED "
-			      "(error=%lld value=%lld %s)\n",
+			      "(error=%ld value=%ld %s)\n",
 			      hartid, id, ret.error, ret.value,
 			      name ? name : "unknown");
 	}

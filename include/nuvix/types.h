@@ -2,69 +2,92 @@
 #define _NUVIX_TYPES_H
 
 /*
- * include/nuvix/types.h - 定宽整数类型与基础宏
+ * Compiler-provided fundamental types
  */
 
-typedef signed char		int8_t;
-typedef signed short		int16_t;
-typedef signed int		int32_t;
-typedef signed long long	int64_t;
-typedef signed char		i8;
-typedef signed short		i16;
-typedef signed int		i32;
-typedef signed long long	i64;
+typedef __INT8_TYPE__           int8_t;
+typedef __INT16_TYPE__          int16_t;
+typedef __INT32_TYPE__          int32_t;
+typedef __INT64_TYPE__          int64_t;
 
-typedef unsigned char		uint8_t;
-typedef unsigned short		uint16_t;
-typedef unsigned int		uint32_t;
-typedef unsigned long long	uint64_t;
+typedef __UINT8_TYPE__          uint8_t;
+typedef __UINT16_TYPE__         uint16_t;
+typedef __UINT32_TYPE__         uint32_t;
+typedef __UINT64_TYPE__         uint64_t;
 
-typedef unsigned char		u8;
-typedef unsigned short		u16;
-typedef unsigned int		u32;
-typedef unsigned long long	u64;
+typedef __INT8_TYPE__           i8;
+typedef __INT16_TYPE__          i16;
+typedef __INT32_TYPE__          i32;
+typedef __INT64_TYPE__          i64;
 
-typedef unsigned long		uintptr_t;
-typedef signed long		ptrdiff_t;
+typedef __UINT8_TYPE__          u8;
+typedef __UINT16_TYPE__         u16;
+typedef __UINT32_TYPE__         u32;
+typedef __UINT64_TYPE__         u64;
 
-typedef unsigned long		size_t;
-typedef signed long		ssize_t;
-typedef unsigned long           usize;
-typedef signed long             isize;
 
-typedef int64_t			loff_t;
-typedef int32_t			pid_t;
-typedef uint32_t		uid_t;
-typedef uint32_t		gid_t;
-typedef uint32_t		dev_t;
+/*
+ * Pointer-sized types
+ */
 
-typedef uintptr_t		paddr_t;
-typedef uintptr_t		vaddr_t;
+typedef __UINTPTR_TYPE__        uintptr_t;
+typedef __INTPTR_TYPE__         intptr_t;
 
-typedef _Bool                   bool ;
+typedef __SIZE_TYPE__           size_t;
+typedef __PTRDIFF_TYPE__        ptrdiff_t;
 
-#define false                   0
+typedef __PTRDIFF_TYPE__        ssize_t;
+
+typedef size_t                  usize;
+typedef ssize_t                 isize;
+
+
+/*
+ * Limits
+ */
+
+#define INT8_MAX                ((int8_t)(__INT8_MAX__))
+#define INT16_MAX               ((int16_t)(__INT16_MAX__))
+#define INT32_MAX               ((int32_t)(__INT32_MAX__))
+#define INT64_MAX               ((int64_t)(__INT64_MAX__))
+
+#define UINT8_MAX               ((uint8_t)__UINT8_MAX__)
+#define UINT16_MAX              ((uint16_t)__UINT16_MAX__)
+#define UINT32_MAX              ((uint32_t)__UINT32_MAX__)
+#define UINT64_MAX              ((uint64_t)__UINT64_MAX__)
+
+#define SIZE_MAX                ((size_t)-1)
+#define SSIZE_MAX               ((ssize_t)(SIZE_MAX >> 1))
+
+/*
+ * Bool
+ */
+
+typedef _Bool                   bool;
+
 #define true                    1
+#define false                   0
 
-#if __STDC_VERSION__ >= 202311L
-#define NULL			nullptr
-#else
-#define NULL	                ((void *)0)
-#endif
+/*
+ * NULL
+ */
 
-#define INT8_MIN                (-1 - 0x7f)
-#define INT16_MIN               (-1 - 0x7fff)
-#define INT32_MIN               (-1 - 0x7fffffff)
-#define INT64_MIN               (-1 - 0x7fffffffffffffff)
+#define NULL			((void *)0)
 
-#define INT8_MAX                (0x7f)
-#define INT16_MAX               (0x7fff)
-#define INT32_MAX               (0x7fffffff)
-#define INT64_MAX               (0x7fffffffffffffff)
+/*
+ * Physical / virtual address
+ */
+typedef uintptr_t               paddr_t;
+typedef uintptr_t               vaddr_t;
 
-#define UINT8_MAX               (0xff)
-#define UINT16_MAX              (0xffff)
-#define UINT32_MAX              (0xffffffffu)
-#define UINT64_MAX              (0xffffffffffffffffu)
+/*
+ * Kernel / Process types
+ */
+
+typedef int64_t                 loff_t;
+typedef int32_t                 pid_t;
+typedef uint32_t                uid_t;
+typedef uint32_t                gid_t;
+typedef uint32_t                dev_t;
 
 #endif

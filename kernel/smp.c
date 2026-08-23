@@ -55,7 +55,7 @@ static void smp_boot_fail(uint32_t id, const char *reason,
 
 	pr_err("smp: cpu %u (hart %u) boot failed: %s\n"
 	       "smp:   cpu state=%u boot_error=%u\n"
-	       "smp:   hsm status error=%lld value=%lld %s\n",
+	       "smp:   hsm status error=%ld value=%ld %s\n",
 	       id, cpu->hartid, reason, state, smp_boot_errors[id],
 	       status.error, status.value, name ? name : "unknown");
 	panic("smp: cpu %u (hart %u) boot failed\n", id, cpu->hartid);
@@ -68,9 +68,9 @@ static void smp_gate_fail(uint64_t secondary_mask,
 				     const char *what)
 {
 	pr_err("smp: boot gate failed: %s\n"
-	       "smp:   secondary expected=0x%llx online=0x%llx "
-	       "schedulable=0x%llx\n"
-	       "smp:   timer_seen=0x%llx ipi_seen=0x%llx\n",
+	       "smp:   secondary expected=0x%lx online=0x%lx "
+	       "schedulable=0x%lx\n"
+	       "smp:   timer_seen=0x%lx ipi_seen=0x%lx\n",
 	       what, secondary_mask, cpu_online_mask(),
 	       cpu_schedulable_mask(), timer_seen, ipi_observed);
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
