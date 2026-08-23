@@ -11,6 +11,7 @@
 #include <nuvix/list.h>
 #include <nuvix/printk.h>
 #include <nuvix/slab.h>
+#include <nuvix/smp.h>
 #include <nuvix/processor.h>
 #include <nuvix/page.h>
 #include <nuvix/pgtable.h>
@@ -62,7 +63,8 @@ static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 		pages[nr_pages++] = __va(pa);
 	}
 	flush_tlb_all();
-	mm_flush_kernel_all();
+	if (smp_booted())
+		mm_flush_kernel_all();
 	spin_unlock(&vmalloc_pt_lock);
 
 	for (size_t i = 0; i < nr_pages; i++)
@@ -294,7 +296,8 @@ void *vmalloc(size_t size, enum alloc_mode mode)
 	}
 	spin_lock(&vmalloc_pt_lock);
 	flush_tlb_all();
-	mm_flush_kernel_all();
+	if (smp_booted())
+		mm_flush_kernel_all();
 	spin_unlock(&vmalloc_pt_lock);
 
 	return (void *)start;

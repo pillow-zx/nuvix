@@ -15,6 +15,7 @@
 #include <nuvix/proc.h>
 #include <nuvix/random.h>
 #include <nuvix/rseq.h>
+#include <nuvix/sched.h>
 #include <nuvix/signal.h>
 #include <nuvix/slab.h>
 #include <nuvix/task.h>
@@ -620,23 +621,6 @@ fail:
 	return ret;
 }
 
-static void flush_old_exec(struct mm_struct *oldmm)
-{
-	if (!oldmm)
-		return;
-
-	activate_pgroot(kernel_pgroot());
-	mm_put(oldmm);
-}
-
-/* The old mm is freed here (flush_old_exec -> mm_put) only after the owner is
- * the sole remaining task: proc_exec_wait and proc_exec_adopt_pid both require
- * nr_tasks == 1, so every EXEC_KILL sibling has already left proc membership and
- * is never scheduled again.  switch_to activates only the incoming task's pgroot
- * (kernel fallback when 0), so no stale clone-time sibling pgroot can switch in
- * on the freed user pgd, and no sibling pgroot reset is needed.  If a future
- * change lets an exiting task block after nr_tasks--, this invariant breaks and
- * the reset must be reintroduced. */
 static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 			    vaddr_t entry, vaddr_t sp)
 {
@@ -649,8 +633,9 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	task->arch.pgroot = pgroot;
 	task->arch.tf = tf;
 
-	flush_old_exec(oldmm);
 	activate_pgroot(task->arch.pgroot);
+	sched_publish_active_mm(mm);
+	mm_put(oldmm);
 
 	memset(tf, 0, sizeof(*tf));
 	trap_setup_user_return(tf, entry, sp);

@@ -218,6 +218,9 @@ void proc_release_resources(struct proc_struct *proc);
 /** Replace a proc-owned resource and return its previous reference. */
 struct mm_struct *proc_replace_mm(struct proc_struct *proc, struct mm_struct *mm);
 
+/** Take a stable reference to the proc-owned address space, if any. */
+struct mm_struct *proc_mm_get(struct proc_struct *proc);
+
 struct files_struct *proc_replace_files(struct proc_struct *proc,
 					struct files_struct *files);
 

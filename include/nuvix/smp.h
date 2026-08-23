@@ -47,5 +47,10 @@ void smp_secondary_main(uint32_t hartid, uint32_t logical_id);
 /* Per-CPU boot-error slot, writable by the pre-satp trampoline. */
 extern uint32_t smp_boot_errors[];
 
+/* True once smp_boot_cpus() finished the mandatory boot gate.  Before it,
+ * CPU 0 runs with IRQs disabled and cannot acknowledge shootdown IPIs, so
+ * global-flush helpers must skip remote shootdown. */
+bool smp_booted(void);
+
 #endif /* !__ASSEMBLER__ */
 #endif

@@ -449,7 +449,7 @@ void proc_release_resources(struct proc_struct *proc)
 }
 
 struct mm_struct *proc_replace_mm(struct proc_struct *proc,
-				  struct mm_struct *mm)
+					struct mm_struct *mm)
 {
 	struct mm_struct *oldmm;
 
@@ -460,6 +460,19 @@ struct mm_struct *proc_replace_mm(struct proc_struct *proc,
 	proc->mm = mm;
 	spin_unlock(&proc->lock);
 	return oldmm;
+}
+
+struct mm_struct *proc_mm_get(struct proc_struct *proc)
+{
+	struct mm_struct *mm;
+
+	if (!proc)
+		return NULL;
+	spin_lock(&proc->lock);
+	mm = proc->mm;
+	mm_get(mm);
+	spin_unlock(&proc->lock);
+	return mm;
 }
 
 struct files_struct *proc_replace_files(struct proc_struct *proc,

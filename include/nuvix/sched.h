@@ -146,11 +146,15 @@ static inline void preempt_enable(void)
 }
 
 /**
- * @brief Returns the target CPU's active mm, read under its runqueue lock.
- * @param cpu_id Target CPU id.
- * @return The active mm pointer (may be NULL). Caller must not dereference
- *         without its own reference; identity-only comparison is safe.
+ * @brief Test whether a CPU must receive an MM shootdown.
+ *
+ * The identity comparison and the switching state are read while holding the
+ * target runqueue lock.  Callers must not dereference an MM obtained from this
+ * observation.
  */
-struct mm_struct *sched_cpu_active_mm(uint32_t cpu_id);
+bool sched_cpu_mm_targets(uint32_t cpu_id, struct mm_struct *mm);
+
+/** Publish the MM after the current CPU has activated its page table. */
+void sched_publish_active_mm(struct mm_struct *mm);
 
 #endif

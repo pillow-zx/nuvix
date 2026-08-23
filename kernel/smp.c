@@ -29,6 +29,15 @@
  * reads it only for failure diagnostics. */
 uint32_t smp_boot_errors[NR_CPUS];
 
+/* Set after the boot gate; acquire semantics pairs with the release in
+ * smp_boot_cpus(). */
+static atomic_t smp_boot_done;
+
+bool smp_booted(void)
+{
+	return atomic_read_acquire(&smp_boot_done) != 0;
+}
+
 __noreturn
 static void smp_secondary_park(void)
 {
@@ -232,6 +241,7 @@ void smp_boot_cpus(void)
 	/* Secondaries stay online but unschedulable until the migration stage. */
 	BUG_ON(cpu_schedulable_mask() != SCHED_BOOT_AFFINITY_MASK);
 	smp_probe_record(timer_seen, ipi_seen);
+	atomic_set_release(&smp_boot_done, 1);
 }
 
 /* Banner is only meaningful after smp_boot_cpus() published the masks. */

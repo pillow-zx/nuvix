@@ -61,8 +61,10 @@ static void release_proc_mm(struct proc_struct *proc, bool current)
 	mm = proc_replace_mm(proc, NULL);
 	if (!mm)
 		return;
-	if (current)
+	if (current) {
 		activate_pgroot(kernel_pgroot());
+		sched_publish_active_mm(NULL);
+	}
 	mm_put(mm);
 }
 
