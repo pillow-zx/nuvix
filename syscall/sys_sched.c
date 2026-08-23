@@ -23,25 +23,25 @@ static struct task_struct *affinity_target_task(pid_t pid, bool *put_task)
 
 /*
  * SYSCALL_SUPPORT(C): sched_setaffinity
-	 * Current: stores the requested mask intersected with schedulable CPUs.
+ * Current: accepts one 64-bit mask word and intersects it with the
+ * scheduler-owned schedulable mask. A shorter word is rejected.
  * Unsupported errno: empty CPU set returns -EINVAL; missing target returns
  * -ESRCH; unauthorized cross-user target returns -EPERM.
-	 * The scheduler owns placement and rejects changes while queued or running.
+ * The scheduler owns placement and rejects changes while queued or running.
  */
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
-	const unsigned long *umask = (const unsigned long *)syscall_arg(tf, 2);
-	unsigned long mask = 0;
-	size_t copy_size;
+	const uint64_t *umask = (const uint64_t *)syscall_arg(tf, 2);
+	uint64_t mask = 0;
 	struct task_struct *task;
 	bool put_task;
 	ssize_t ret = 0;
 
 	if (pid < 0)
 		return -ESRCH;
-	if (cpusetsize == 0)
+	if (cpusetsize < sizeof(mask))
 		return -EINVAL;
 	if (!umask)
 		return -EFAULT;
@@ -56,8 +56,9 @@ ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 		goto out;
 	}
 
-	copy_size = cpusetsize < sizeof(mask) ? cpusetsize : sizeof(mask);
-	if (copy_from_user(&mask, umask, copy_size) != 0) {
+	/* Larger user buffers are accepted, but this riscv64 kernel's exposed
+	 * affinity word is exactly 64 bits. */
+	if (copy_from_user(&mask, umask, sizeof(mask)) != 0) {
 		ret = -EFAULT;
 		goto out;
 	}
@@ -71,17 +72,17 @@ out:
 
 /*
  * SYSCALL_SUPPORT(C): sched_getaffinity
-	 * Current: reports the scheduler-owned mask for any existing target task.
+ * Current: reports the scheduler-owned mask for any existing target task.
  * Unsupported errno: too-small cpusetsize returns -EINVAL; missing target
  * returns -ESRCH.
- * The returned mask is intersected with the currently schedulable CPUs.
+ * The returned 64-bit word is intersected with the currently schedulable CPUs.
  */
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
-	unsigned long *umask = (unsigned long *)syscall_arg(tf, 2);
-	unsigned long mask;
+	uint64_t *umask = (uint64_t *)syscall_arg(tf, 2);
+	uint64_t mask;
 	struct task_struct *task;
 	bool put_task;
 	ssize_t ret;
@@ -96,7 +97,7 @@ ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 	task = affinity_target_task(pid, &put_task);
 	if (!task)
 		return -ESRCH;
-	mask = (unsigned long)sched_get_affinity(task);
+	mask = sched_get_affinity(task);
 
 	ret = copy_to_user(umask, &mask, sizeof(mask)) != 0
 		      ? -EFAULT

@@ -3,8 +3,8 @@
  *
  * Logical CPU 0 coordinates topology publication, HSM start, and the acquire
  * wait for each secondary's self-published ONLINE state. Secondary harts run
- * only their local idle loop (no scheduler, no I/O); a bounded boot-time
- * allocator/console self-test is their only allocation.
+ * only their local idle loop (no ordinary Task dispatch, no I/O); a bounded
+ * boot-time allocator/console self-test is their only allocation.
  */
 
 #include <nuvix/smp.h>
@@ -41,8 +41,8 @@ static void smp_boot_fail(uint32_t id, const char *reason,
 				     uint32_t state)
 {
 	struct cpu *cpu = &cpu_table[id];
-	struct smp_hart_status status = smp_arch_hart_status(cpu->hartid);
-	const char *name = smp_arch_hart_status_name((uint64_t)status.value);
+	struct smp_hart_status status = smp_hart_status(cpu->hartid);
+	const char *name = smp_hart_status_name((uint64_t)status.value);
 
 	pr_err("smp: cpu %u (hart %u) boot failed: %s\n"
 	       "smp:   cpu state=%u boot_error=%u\n"
@@ -97,15 +97,11 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 		if (id != boot_id)
 			secondary_mask |= (1ULL << id);
 	BUG_ON((cpu_online_mask() & ~(1ULL << boot_id)) != secondary_mask);
-	BUG_ON(cpu_schedulable_mask() != (1ULL << boot_id));
+	BUG_ON(cpu_schedulable_mask() != SCHED_BOOT_AFFINITY_MASK);
 
-	if (nr_cpus == 1) {
-		/* UP: validate state only; no secondaries to prove. */
+	if (nr_cpus == 1)
 		goto out;
-	}
 
-	/* Every secondary must prove one local timer tick within one
-	 * second; the observation is published after reprogramming. */
 	deadline = timer_now() + MTIME_FREQ;
 	while (timer_seen != secondary_mask) {
 		timer_seen = 0;
@@ -117,7 +113,6 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 				      ipi_observed, "timer-seen");
 	}
 
-	/* One reschedule IPI per secondary; SBI failure is fatal. */
 	for (id = 0; id < nr_cpus; id++) {
 		if (id == boot_id)
 			continue;
@@ -126,7 +121,6 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 				      ipi_observed, "ipi-send");
 	}
 
-	/* Every secondary must acknowledge one delivery within one second. */
 	deadline = timer_now() + MTIME_FREQ;
 	while (ipi_observed != secondary_mask) {
 		ipi_observed = 0;
@@ -143,10 +137,6 @@ out:
 	*ipi_seen_out = ipi_observed;
 }
 
-/*
- * Ring-only SMP boot record for external observers that need to audit the
- * gate without parsing the human banner.
- */
 static void smp_probe_record(uint64_t timer_seen, uint64_t ipi_seen)
 {
 	char harts[128];
@@ -197,9 +187,8 @@ int smp_prepare(uint32_t boot_hartid)
 	ret = cpu_topology_init(entries, count);
 	if (ret < 0)
 		return ret;
-	/* Platform contract checks (SBI version, probes, HSM states) are
-	 * fatal and panic here; no reduced-CPU fallback exists. */
-	smp_arch_prepare();
+	/* Platform contract checks panic here; no reduced-CPU fallback exists. */
+	smp_basic_prepare();
 	return 0;
 }
 
@@ -211,15 +200,12 @@ void smp_boot_cpus(void)
 	uint64_t ipi_seen;
 
 	BUG_ON(!nr_cpu_ids || nr_cpu_ids > NR_CPUS);
-	/* The kernel page table must be published and valid before any
-	 * secondary can switch to it. */
+	/* Secondaries switch to the kernel page table, so it must be published. */
 	BUG_ON(!pgtable_boot_token_valid());
 
-	/* platform_cpu_entries() normalizes the SBI boot hart to logical CPU 0. */
 	boot_id = 0;
 
-	/* Publish the boot CPU online/schedulable: its idle/current and local
-	 * state were prepared before smp_boot_cpus() was called. */
+	/* Boot CPU local state (idle/current) was prepared before this call. */
 	cpu_state_store_release(&cpu_table[boot_id], CPU_ONLINE);
 	cpu_set_online(boot_id);
 	cpu_set_schedulable(boot_id);
@@ -231,8 +217,8 @@ void smp_boot_cpus(void)
 			continue;
 		smp_boot_errors[id] = SMP_BOOT_ERR_NONE;
 		cpu_state_store_release(cpu, CPU_BOOTING);
-		if (smp_arch_start_cpu(cpu->hartid,
-				       smp_arch_secondary_entry_pa(),
+		if (smp_start_cpu(cpu->hartid,
+				       smp_secondary_entry_pa(),
 				       id) != 0) {
 			smp_boot_errors[id] = SMP_BOOT_ERR_HSM_START;
 			smp_boot_fail(id, "hsm-start", CPU_BOOTING);
@@ -240,19 +226,15 @@ void smp_boot_cpus(void)
 		smp_wait_online(id);
 	}
 
-	/* Mandatory boot gate: timer and IPI proof from every secondary,
-	 * plus online/schedulable assertions, before any syscall/VFS/device
-	 * or thread initialization proceeds. */
+	/* Mandatory gate: timer/IPI proof from every secondary before any
+	 * syscall/VFS/device or thread initialization proceeds. */
 	smp_boot_gate(boot_id, &timer_seen, &ipi_seen);
-	for (id = 0; id < nr_cpu_ids; id++)
-		cpu_set_schedulable(id);
+	/* Secondaries stay online but unschedulable until the migration stage. */
+	BUG_ON(cpu_schedulable_mask() != SCHED_BOOT_AFFINITY_MASK);
 	smp_probe_record(timer_seen, ipi_seen);
 }
 
-/*
- * Post-bring-up boot banner: online/schedulable masks are only meaningful
- * after smp_boot_cpus() has published them, so this runs after the gate.
- */
+/* Banner is only meaningful after smp_boot_cpus() published the masks. */
 BOOTINFO_BLOCK(cpu, void,
 
 	char table[128];
@@ -271,17 +253,14 @@ BOOTINFO_BLOCK(cpu, void,
 	     schedulable_count);
 )
 
-/* One-shot bounded allocator/console exercise on each secondary, run before
- * ONLINE is published so the CPU0 boot gate only proceeds once every hart has
- * passed it. This is the only secondary execution of the allocator and console
- * locks until ordinary tasks are scheduled on secondary harts. */
+/* Runs before ONLINE so the boot gate proves every secondary passed; the only
+ * secondary execution of the allocator/console locks until migration. */
 static void smp_alloc_self_test(uint32_t logical_id)
 {
 	void *objs[4];
 	const size_t sizes[] = {16, 128, 1024, 4096};
 	void *region;
 
-	/* Slab (small caches) and large (buddy) paths, freed immediately. */
 	for (size_t i = 0; i < 4; i++) {
 		objs[i] = kmalloc(sizes[i], ALLOC_NOWAIT);
 		BUG_ON(!objs[i]);
@@ -290,9 +269,7 @@ static void smp_alloc_self_test(uint32_t logical_id)
 	for (size_t i = 0; i < 4; i++)
 		kfree(objs[i]);
 
-	/* One vmalloc/vfree: reserve/merge under vmalloc_lock, lock-free mapping
-	 * into the pre-populated tables. Concurrent secondaries exercise the
-	 * shared-table concurrent-mapping path directly. */
+	/* Concurrent secondaries exercise the shared-table mapping path. */
 	region = vmalloc(PAGE_SIZE, ALLOC_NOWAIT);
 	BUG_ON(!region);
 	memset(region, 0, PAGE_SIZE);
@@ -332,11 +309,8 @@ void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 	timer_cpu_init();
 	clockevent_cpu_init();
 
-	/* Exercise the allocator and console locks on this hart before ONLINE,
-	 * so the boot gate only proceeds once every secondary has passed. */
 	smp_alloc_self_test(logical_id);
 
-	/* Publish ONLINE only after all local state is complete. */
 	cpu_state_store_release(cpu, CPU_ONLINE);
 
 	for (;;) {

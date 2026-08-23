@@ -99,7 +99,8 @@ static struct runqueue *sched_rq_for_task_locked(struct task_struct *task)
 {
 	struct cpu *cpu = task->cpu;
 
-	if (!cpu || !(task->allowed_cpus & (1ULL << cpu->id)))
+	if (!cpu || !cpu_is_schedulable(cpu->id) ||
+	    !(task->allowed_cpus & (1ULL << cpu->id)))
 		cpu = sched_select_cpu(task->allowed_cpus);
 	BUG_ON(!cpu);
 	return sched_rq_for_cpu(cpu);
@@ -115,6 +116,7 @@ static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
 				 enum sched_enqueue_reason reason)
 {
 	BUG_ON(!rq || !task || task->on_rq);
+	BUG_ON(!cpu_is_schedulable(rq->cpu_id));
 	/* Affinity invariant: a task may only sit on a runqueue whose CPU is
 	 * in its allowed mask. CPU assignment is scheduler-owner state. */
 	BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
@@ -153,6 +155,8 @@ static bool sched_switch_locked(struct runqueue *rq, struct task_struct *prev,
 	if (prev && prev != rq->idle)
 		prev->on_cpu = false;
 	if (next) {
+		if (next != rq->idle)
+			BUG_ON(!cpu_is_schedulable(rq->cpu_id));
 		next->cpu = &cpu_table[(uint32_t)(rq - runqueues)];
 		next->on_cpu = true;
 		next->run_state = TASK_RUNNING;
@@ -208,9 +212,11 @@ void sched_enqueue_new(struct task_struct *task)
 	if (task->lifecycle == TASK_LIVE && !task->on_rq && !task->on_cpu &&
 	    !task_is_exiting(task)) {
 		cpu = task->cpu;
-		if (!cpu || !(task->allowed_cpus & (1ULL << cpu->id))) {
+		if (!cpu || !cpu_is_schedulable(cpu->id) ||
+		    !(task->allowed_cpus & (1ULL << cpu->id))) {
 			cpu = current_cpu();
-			if (!(task->allowed_cpus & (1ULL << cpu->id)))
+			if (!cpu_is_schedulable(cpu->id) ||
+			    !(task->allowed_cpus & (1ULL << cpu->id)))
 				cpu = sched_select_cpu(task->allowed_cpus);
 		}
 		BUG_ON(!cpu);
@@ -308,8 +314,8 @@ bool sched_wake(struct task_struct *task, uint64_t generation)
 
 int sched_set_affinity(struct task_struct *task, uint64_t mask)
 {
-	uint64_t online = cpu_schedulable_mask();
-	uint64_t allowed = mask & online;
+	uint64_t schedulable = cpu_schedulable_mask();
+	uint64_t allowed = mask & schedulable;
 	struct runqueue *rq;
 	struct cpu *target;
 	irq_flags_t wait_flags;
@@ -498,6 +504,15 @@ static void sched_switch_core(void)
 	flags = local_irq_save();
 	spin_lock(&rq->lock);
 	task_set_need_resched(prev, 0);
+	/* Secondary idle services timer/IPI only; a non-empty queue here is an
+	 * invariant violation, not work to dispatch from the idle loop. */
+	if (!cpu_is_schedulable(rq->cpu_id)) {
+		BUG_ON(prev != rq->idle);
+		BUG_ON(rq->nr_running != 0);
+		spin_unlock(&rq->lock);
+		local_irq_restore(flags);
+		return;
+	}
 	if (prev != rq->idle && prev->lifecycle == TASK_LIVE &&
 	    prev->run_state == TASK_RUNNING && !prev->on_rq)
 		sched_enqueue_locked(rq, prev, SCHED_ENQUEUE_PREEMPT);
@@ -575,6 +590,7 @@ void sched_exit_current(void)
 
 	local_irq_disable();
 	rq = sched_rq_for_cpu(current_cpu());
+	BUG_ON(!cpu_is_schedulable(rq->cpu_id));
 	prev = current_task();
 	spin_lock_irqsave(&rq->lock, &flags);
 	BUG_ON(rq->current != prev || prev->on_rq || prev->on_cpu == false);

@@ -11,11 +11,11 @@
  */
 
 /* Boot-error codes. Pure defines so boot.S may include this header. */
-#define SMP_BOOT_ERR_NONE	    0
+#define SMP_BOOT_ERR_NONE	     0
 #define SMP_BOOT_ERR_HARTID_MISMATCH 1
 #define SMP_BOOT_ERR_STATE_MISMATCH  2
-#define SMP_BOOT_ERR_NO_SATP	    3
-#define SMP_BOOT_ERR_HSM_START	    4
+#define SMP_BOOT_ERR_NO_SATP	     3
+#define SMP_BOOT_ERR_HSM_START	     4
 
 #ifndef __ASSEMBLER__
 

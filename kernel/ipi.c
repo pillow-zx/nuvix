@@ -33,7 +33,7 @@ int ipi_send(uint32_t cpu_id, int reasons)
 	if (!cpu || cpu == current_cpu() || !cpu_is_online(cpu_id))
 		return -EINVAL;
 	atomic_isize_or_fetch_release(&ipi_pending[cpu_id], (isize)reasons);
-	return smp_arch_ipi_notify(cpu->hartid);
+	return smp_ipi_notify(cpu->hartid);
 }
 
 void ipi_handle(void)
@@ -43,7 +43,7 @@ void ipi_handle(void)
 
 	/* Acknowledge first so a second send can interrupt again while this
 	 * handler runs. */
-	smp_arch_ipi_ack();
+	smp_ipi_ack();
 	reasons = atomic_isize_xchg_acquire(&ipi_pending[cpu->id], 0);
 	if (!reasons)
 		return;

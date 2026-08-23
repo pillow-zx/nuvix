@@ -17,12 +17,12 @@
 
 extern char secondary_entry[];
 
-uintptr_t smp_arch_secondary_entry_pa(void)
+uintptr_t smp_secondary_entry_pa(void)
 {
 	return __pa((uintptr_t)&secondary_entry);
 }
 
-void smp_arch_prepare(void)
+void smp_basic_prepare(void)
 {
 	struct sbi_ret ret;
 
@@ -44,9 +44,8 @@ void smp_arch_prepare(void)
 			      nr_cpu_ids, ret.error, ret.value);
 	}
 
-	/* Every secondary target must be HSM STOPPED before any start; any
-	 * other state is a fatal platform-contract failure. The boot hart is
-	 * running (STARTED) by definition and is not a target. */
+	/* Every secondary target must be HSM STOPPED before any start; the
+	 * boot hart is STARTED by definition and is not a target. */
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
 		uint32_t hartid = cpu_table[id].hartid;
 		const char *name;
@@ -64,7 +63,7 @@ void smp_arch_prepare(void)
 	}
 }
 
-int smp_arch_start_cpu(uint32_t hartid, uintptr_t entry_pa, uint32_t logical_id)
+int smp_start_cpu(uint32_t hartid, uintptr_t entry_pa, uint32_t logical_id)
 {
 	struct sbi_ret ret;
 
@@ -72,26 +71,26 @@ int smp_arch_start_cpu(uint32_t hartid, uintptr_t entry_pa, uint32_t logical_id)
 	return (int)ret.error;
 }
 
-struct smp_hart_status smp_arch_hart_status(uint32_t hartid)
+struct smp_hart_status smp_hart_status(uint32_t hartid)
 {
 	struct sbi_ret ret = sbi_hsm_hart_get_status(hartid);
 
 	return (struct smp_hart_status){.error = ret.error, .value = ret.value};
 }
 
-const char *smp_arch_hart_status_name(uint64_t value)
+const char *smp_hart_status_name(uint64_t value)
 {
 	return sbi_hsm_status_name(value);
 }
 
-int smp_arch_ipi_notify(uint32_t hartid)
+int smp_ipi_notify(uint32_t hartid)
 {
 	struct sbi_ret ret = sbi_ipi_send(1, hartid);
 
 	return (int)ret.error;
 }
 
-void smp_arch_ipi_ack(void)
+void smp_ipi_ack(void)
 {
 	/* QEMU virt asserts sip.SSIP by writing 1 (not W1C), so the
 	 * acknowledgement writes it to zero. */
