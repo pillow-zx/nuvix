@@ -133,7 +133,9 @@ SYSCALL_OBJS = \
 	syscall/sys_time.o
 
 LIB_OBJS = \
-	lib/vsprintf.o
+	lib/vsprintf.o \
+	lib/rbtree.o   \
+	lib/sort.o
 
 OBJ-y = \
 	$(ARCH_OBJS)    \
