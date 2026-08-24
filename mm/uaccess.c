@@ -13,21 +13,16 @@
 
 #include "internal.h"
 
-__always_inline __const
-static inline size_t user_copy_width(uintptr_t user_addr, uintptr_t kernel_addr,
-				     size_t remaining)
+__always_inline __must_check __const
+static inline size_t user_copy_width(uintptr_t uaddr, uintptr_t kaddr, size_t remaining)
 {
-	if (remaining >= sizeof(u64) &&
-	    (user_addr & (sizeof(u64) - 1)) == 0 &&
-	    (kernel_addr & (sizeof(u64) - 1)) == 0)
+	const size_t width = ALIGNMENT_OF2(uaddr, kaddr);
+
+	if (width >= sizeof(u64) && remaining >= sizeof(u64))
 		return sizeof(u64);
-	if (remaining >= sizeof(u32) &&
-	    (user_addr & (sizeof(u32) - 1)) == 0 &&
-	    (kernel_addr & (sizeof(u32) - 1)) == 0)
+	if (width >= sizeof(u32) && remaining >= sizeof(u32))
 		return sizeof(u32);
-	if (remaining >= sizeof(u16) &&
-	    (user_addr & (sizeof(u16) - 1)) == 0 &&
-	    (kernel_addr & (sizeof(u16) - 1)) == 0)
+	if (width >= sizeof(u16) && remaining >= sizeof(u16))
 		return sizeof(u16);
 	return sizeof(u8);
 }
@@ -122,8 +117,8 @@ size_t copy_to_user(void *to, const void *from, size_t n)
 	/* Fault-in (including COW splits) happens under the same
 	 * mmap_lock as the copy itself, so concurrent munmap/mprotect
 	 * cannot invalidate the range between probe and access. */
-	ret = fault_in_user_range_locked(txn.mm, user_addr, n,
-					 USER_FAULT_WRITE, &txn.teardown);
+	ret = fault_in_user_range_locked(txn.mm, user_addr, n, USER_FAULT_WRITE,
+					 &txn.teardown);
 	if (ret == 0) {
 		while (remaining != 0) {
 			size_t width = user_copy_width(user_addr, kernel_addr,
@@ -176,8 +171,8 @@ size_t copy_from_user(void *to, const void *from, size_t n)
 	if (uaccess_txn_begin(&txn) < 0)
 		return n;
 
-	ret = fault_in_user_range_locked(txn.mm, user_addr, n,
-					 USER_FAULT_READ, &txn.teardown);
+	ret = fault_in_user_range_locked(txn.mm, user_addr, n, USER_FAULT_READ,
+					 &txn.teardown);
 	if (ret == 0) {
 		while (remaining != 0) {
 			size_t width = user_copy_width(user_addr, kernel_addr,
@@ -187,8 +182,8 @@ size_t copy_from_user(void *to, const void *from, size_t n)
 			case sizeof(u64): {
 				u64 value;
 
-				ret = get_user_u64(value,
-						   (const volatile u64 *)user_addr);
+				ret = get_user_u64(
+					value, (const volatile u64 *)user_addr);
 				if (ret == 0)
 					*(u64 *)kernel_addr = value;
 				break;
@@ -196,8 +191,8 @@ size_t copy_from_user(void *to, const void *from, size_t n)
 			case sizeof(u32): {
 				u32 value;
 
-				ret = get_user_u32(value,
-						   (const volatile u32 *)user_addr);
+				ret = get_user_u32(
+					value, (const volatile u32 *)user_addr);
 				if (ret == 0)
 					*(u32 *)kernel_addr = value;
 				break;
@@ -205,8 +200,8 @@ size_t copy_from_user(void *to, const void *from, size_t n)
 			case sizeof(u16): {
 				u16 value;
 
-				ret = get_user_u16(value,
-						   (const volatile u16 *)user_addr);
+				ret = get_user_u16(
+					value, (const volatile u16 *)user_addr);
 				if (ret == 0)
 					*(u16 *)kernel_addr = value;
 				break;
@@ -214,8 +209,8 @@ size_t copy_from_user(void *to, const void *from, size_t n)
 			default: {
 				u8 value;
 
-				ret = get_user_u8(value,
-						  (const volatile u8 *)user_addr);
+				ret = get_user_u8(
+					value, (const volatile u8 *)user_addr);
 				if (ret == 0)
 					*(u8 *)kernel_addr = value;
 				break;
@@ -260,15 +255,15 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 		size_t offset = (addr + done) & (PAGE_SIZE - 1);
 		size_t chunk = MIN(PAGE_SIZE - offset, maxlen - done);
 
-		if (fault_in_user_range_locked(txn.mm, page, 1,
-					       USER_FAULT_READ,
+		if (fault_in_user_range_locked(txn.mm, page, 1, USER_FAULT_READ,
 					       &txn.teardown) < 0)
 			goto fail;
 
 		for (size_t i = 0; i < chunk; i++) {
 			u8 value;
 
-			if (get_user_u8(value, (const volatile u8 *)(addr + done)) < 0)
+			if (get_user_u8(value,
+					(const volatile u8 *)(addr + done)) < 0)
 				goto fail;
 			dst[done++] = (char)value;
 			if (value == '\0') {

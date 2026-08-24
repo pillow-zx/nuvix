@@ -3,6 +3,7 @@
 #include <nuvix/bitops.h>
 #include <nuvix/compiler.h>
 #include <nuvix/sort.h>
+#include <nuvix/string.h>
 
 #define SORT_INSERTION_THRESHOLD 16
 #define SORT_HOLE_MAX		 64
@@ -13,98 +14,8 @@ static inline unsigned char *sort_element(unsigned char *base, size_t index, siz
 	return base + index * size;
 }
 
-static void sort_swap(unsigned char *restrict lhs, unsigned char *restrict rhs, size_t size)
-{
-	if (lhs == rhs)
-		return;
-
-	if (size % sizeof(uint64_t) == 0 &&
-	    !(((uintptr_t)lhs | (uintptr_t)rhs) & (sizeof(uint64_t) - 1))) {
-		uint64_t *restrict left = (uint64_t *)lhs;
-		uint64_t *restrict right = (uint64_t *)rhs;
-
-		for (size_t words = size / sizeof(*left); words; words--) {
-			uint64_t word = *left;
-
-			*left++ = *right;
-			*right++ = word;
-		}
-		return;
-	}
-
-	if (size % sizeof(uint32_t) == 0 &&
-	    !(((uintptr_t)lhs | (uintptr_t)rhs) & (sizeof(uint32_t) - 1))) {
-		uint32_t *restrict left = (uint32_t *)lhs;
-		uint32_t *restrict right = (uint32_t *)rhs;
-
-		for (size_t words = size / sizeof(*left); words; words--) {
-			uint32_t word = *left;
-
-			*left++ = *right;
-			*right++ = word;
-		}
-		return;
-	}
-
-	if (size % sizeof(uint16_t) == 0 &&
-	    !(((uintptr_t)lhs | (uintptr_t)rhs) & (sizeof(uint16_t) - 1))) {
-		uint16_t *restrict left = (uint16_t *)lhs;
-		uint16_t *restrict right = (uint16_t *)rhs;
-
-		for (size_t words = size / sizeof(*left); words; words--) {
-			uint16_t word = *left;
-
-			*left++ = *right;
-			*right++ = word;
-		}
-		return;
-	}
-
-	while (size--) {
-		unsigned char byte = *lhs;
-
-		*lhs++ = *rhs;
-		*rhs++ = byte;
-	}
-}
-
-static void sort_copy(unsigned char *restrict dst, const unsigned char *restrict src, size_t size)
-{
-	if (size % sizeof(uint64_t) == 0 &&
-	    !(((uintptr_t)dst | (uintptr_t)src) & (sizeof(uint64_t) - 1))) {
-		uint64_t *restrict to = (uint64_t *)dst;
-		const uint64_t *restrict from = (const uint64_t *)src;
-
-		for (size_t words = size / sizeof(*to); words; words--)
-			*to++ = *from++;
-		return;
-	}
-
-	if (size % sizeof(uint32_t) == 0 &&
-	    !(((uintptr_t)dst | (uintptr_t)src) & (sizeof(uint32_t) - 1))) {
-		uint32_t *restrict to = (uint32_t *)dst;
-		const uint32_t *restrict from = (const uint32_t *)src;
-
-		for (size_t words = size / sizeof(*to); words; words--)
-			*to++ = *from++;
-		return;
-	}
-
-	if (size % sizeof(uint16_t) == 0 &&
-	    !(((uintptr_t)dst | (uintptr_t)src) & (sizeof(uint16_t) - 1))) {
-		uint16_t *restrict to = (uint16_t *)dst;
-		const uint16_t *restrict from = (const uint16_t *)src;
-
-		for (size_t words = size / sizeof(*to); words; words--)
-			*to++ = *from++;
-		return;
-	}
-
-	while (size--)
-		*dst++ = *src++;
-}
-
-static void sort_insertion(unsigned char *base, size_t nr, size_t size, cmp_t compare)
+static void sort_insertion(unsigned char *base, size_t nr, size_t size,
+			   cmp_t compare)
 {
 	if (nr < 2)
 		return;
@@ -124,16 +35,16 @@ static void sort_insertion(unsigned char *base, size_t nr, size_t size, cmp_t co
 		while (current < end) {
 			unsigned char *scan = current;
 
-			sort_copy(hole, current, size);
+			memcpy(hole, current, size);
 			while (scan != base) {
 				unsigned char *previous = scan - size;
 
 				if (compare(previous, hole) <= 0)
 					break;
-				sort_copy(scan, previous, size);
+				memcpy(scan, previous, size);
 				scan = previous;
 			}
-			sort_copy(scan, hole, size);
+			memcpy(scan, hole, size);
 			current += size;
 		}
 		return;
@@ -147,14 +58,15 @@ static void sort_insertion(unsigned char *base, size_t nr, size_t size, cmp_t co
 
 			if (compare(previous, scan) <= 0)
 				break;
-			sort_swap(previous, scan, size);
+			memswap(previous, scan, size);
 			scan = previous;
 		}
 		current += size;
 	}
 }
 
-static size_t sort_median_of_three(unsigned char *base, size_t nr, size_t size, cmp_t compare)
+static size_t sort_median_of_three(unsigned char *base, size_t nr, size_t size,
+				   cmp_t compare)
 {
 	size_t middle = nr / 2;
 	size_t last = nr - 1;
@@ -179,8 +91,8 @@ static void sort_partition(unsigned char *base, size_t nr, size_t size,
 			   size_t *greater_begin)
 {
 	size_t pivot_index = sort_median_of_three(base, nr, size, compare);
-	sort_swap(sort_element(base, pivot_index, size),
-		  sort_element(base, nr - 1, size), size);
+	memswap(sort_element(base, pivot_index, size),
+		sort_element(base, nr - 1, size), size);
 
 	unsigned char *pivot = sort_element(base, nr - 1, size);
 	unsigned char *less_element = base;
@@ -194,7 +106,7 @@ static void sort_partition(unsigned char *base, size_t nr, size_t size,
 		int order = compare(current_element, pivot);
 
 		if (order < 0) {
-			sort_swap(current_element, less_element, size);
+			memswap(current_element, less_element, size);
 			current_element += size;
 			less_element += size;
 			current++;
@@ -202,14 +114,14 @@ static void sort_partition(unsigned char *base, size_t nr, size_t size,
 		} else if (order > 0) {
 			greater--;
 			greater_element -= size;
-			sort_swap(current_element, greater_element, size);
+			memswap(current_element, greater_element, size);
 		} else {
 			current_element += size;
 			current++;
 		}
 	}
 
-	sort_swap(greater_element, pivot, size);
+	memswap(greater_element, pivot, size);
 	*less_end = less;
 	*greater_begin = greater + 1;
 }
@@ -229,8 +141,8 @@ static void sort_sift_down(unsigned char *base, size_t root, size_t nr,
 			    sort_element(base, child, size)) >= 0)
 			return;
 
-		sort_swap(sort_element(base, root, size),
-			  sort_element(base, child, size), size);
+		memswap(sort_element(base, root, size),
+			sort_element(base, child, size), size);
 		root = child;
 	}
 }
@@ -247,7 +159,7 @@ static void sort_heap(unsigned char *base, size_t nr, size_t size,
 
 	while (nr > 1) {
 		--nr;
-		sort_swap(base, sort_element(base, nr, size), size);
+		memswap(base, sort_element(base, nr, size), size);
 		sort_sift_down(base, 0, nr, size, compare);
 	}
 }

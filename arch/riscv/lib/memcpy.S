@@ -6,9 +6,87 @@
 __memcpy:
 	mv	t6, a0
 
-	/* Small or differently aligned copies stay byte-oriented. */
 	sltiu	a3, a2, 128
-	bnez	a3, .Lmemcpy_byte
+	beqz	a3, .Lmemcpy_large
+
+	/*
+	 * Small copies dominate kernel traffic (struct assignment,
+	 * fdtable moves, signal masks).  Pick the widest access width
+	 * that destination, source, and length jointly allow, staying
+	 * strictly aligned like the bulk path below.
+	 */
+	or	a3, t6, a1
+	or	a3, a3, a2
+	andi	a4, a3, 7
+	beqz	a4, .Lmemcpy_small_dword
+	andi	a4, a3, 3
+	beqz	a4, .Lmemcpy_small_word
+	andi	a4, a3, 1
+	beqz	a4, .Lmemcpy_small_half
+	j	.Lmemcpy_byte
+
+.Lmemcpy_small_dword:
+	sltiu	a3, a2, 32
+	bnez	a3, .Lmemcpy_small_dw1
+.Lmemcpy_small_dw4:
+	ld	a4, 0(a1)
+	ld	a5, 8(a1)
+	ld	a6, 16(a1)
+	ld	a7, 24(a1)
+	addi	a1, a1, 32
+	sd	a4, 0(t6)
+	sd	a5, 8(t6)
+	sd	a6, 16(t6)
+	sd	a7, 24(t6)
+	addi	t6, t6, 32
+	addi	a2, a2, -32
+	sltiu	a3, a2, 32
+	beqz	a3, .Lmemcpy_small_dw4
+.Lmemcpy_small_dw1:
+	beqz	a2, .Lmemcpy_done
+	ld	a4, 0(a1)
+	addi	a1, a1, 8
+	sd	a4, 0(t6)
+	addi	t6, t6, 8
+	addi	a2, a2, -8
+	j	.Lmemcpy_small_dw1
+
+.Lmemcpy_small_word:
+	sltiu	a3, a2, 16
+	bnez	a3, .Lmemcpy_small_w1
+.Lmemcpy_small_w4:
+	lw	a4, 0(a1)
+	lw	a5, 4(a1)
+	lw	a6, 8(a1)
+	lw	a7, 12(a1)
+	addi	a1, a1, 16
+	sw	a4, 0(t6)
+	sw	a5, 4(t6)
+	sw	a6, 8(t6)
+	sw	a7, 12(t6)
+	addi	t6, t6, 16
+	addi	a2, a2, -16
+	sltiu	a3, a2, 16
+	beqz	a3, .Lmemcpy_small_w4
+.Lmemcpy_small_w1:
+	beqz	a2, .Lmemcpy_done
+	lw	a4, 0(a1)
+	addi	a1, a1, 4
+	sw	a4, 0(t6)
+	addi	t6, t6, 4
+	addi	a2, a2, -4
+	j	.Lmemcpy_small_w1
+
+.Lmemcpy_small_half:
+	lhu	a4, 0(a1)
+	addi	a1, a1, 2
+	sh	a4, 0(t6)
+	addi	t6, t6, 2
+	addi	a2, a2, -2
+	bnez	a2, .Lmemcpy_small_half
+	ret
+
+.Lmemcpy_large:
 	andi	a3, t6, 7
 	andi	a4, a1, 7
 	bne	a3, a4, .Lmemcpy_byte

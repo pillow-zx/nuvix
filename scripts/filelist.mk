@@ -135,7 +135,8 @@ SYSCALL_OBJS = \
 LIB_OBJS = \
 	lib/vsprintf.o \
 	lib/rbtree.o   \
-	lib/sort.o
+	lib/sort.o     \
+	lib/memswap.o
 
 OBJ-y = \
 	$(ARCH_OBJS)    \

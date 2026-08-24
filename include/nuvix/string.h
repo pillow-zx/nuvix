@@ -1,6 +1,8 @@
 #ifndef _NUVIX_STRING_H
 #define _NUVIX_STRING_H
 
+#include <nuvix/types.h>
+
 extern void *memcpy(void *restrict dst, const void *restrict src, unsigned long n);
 
 extern void *memset(void *dst, int c, unsigned long n);
@@ -24,5 +26,7 @@ extern char *strncpy(char *restrict dst, const char *restrict src, unsigned long
 extern char *strchr(const char *s, int c);
 
 extern char *strrchr(const char *s, int c);
+
+void memswap(void *restrict lhs, void *restrict rhs, size_t size);
 
 #endif

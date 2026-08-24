@@ -43,6 +43,12 @@
 #define prefetch(x, rw, locality)
 #endif
 
+#if __has_builtin(__builtin_assume_aligned)
+#define assume_aligned(ptr, align) __builtin_assume_aligned(ptr, align)
+#else
+#define assume_aligned(ptr, align) ((void *)(ptr))
+#endif
+
 #if __has_builtin(__builtin_return_address)
 #define __return_address() __builtin_return_address(0)
 #else

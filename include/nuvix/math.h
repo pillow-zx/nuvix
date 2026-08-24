@@ -75,6 +75,19 @@
 		       if (is_constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
 		       ((_x & (_a - 1)) == 0);)
 
+#define IS_ALIGNED2(x) IS_ALIGNED(x, sizeof(uint16_t))
+#define IS_ALIGNED4(x) IS_ALIGNED(x, sizeof(uint32_t))
+#define IS_ALIGNED8(x) IS_ALIGNED(x, sizeof(uint64_t))
+
+#define ALIGNMENT_OF(x)                                                        \
+	(IS_ALIGNED8((x)) ? 8 : IS_ALIGNED4((x)) ? 4 : IS_ALIGNED2((x)) ? 2 : 1)
+
+#define ALIGNMENT_OF2(x, y)                                                    \
+	(IS_ALIGNED8((x)) && IS_ALIGNED8((y))	? 8                            \
+	 : IS_ALIGNED4((x)) && IS_ALIGNED4((y)) ? 4                            \
+	 : IS_ALIGNED2((x)) && IS_ALIGNED2((y)) ? 2                            \
+						: 1)
+
 /**
  * @def DIV_ROUND_UP
  * @brief Divide two positive values and round the result up.
