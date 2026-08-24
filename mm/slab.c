@@ -54,7 +54,7 @@ static struct kmem_cache caches[NR_CACHES];
 static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC_SLAB,
 			   LOCK_IRQ_TASK_ONLY);
 
-__always_inline __pure
+__always_inline __must_check __pure
 static inline int find_cache(size_t size)
 {
 	if (size == 0)
@@ -151,7 +151,7 @@ static void slab_reclaim_detach_locked(struct slab_page_header *slab)
 	page_clear_flag(meta, PG_SLAB);
 }
 
-__always_inline __const
+__always_inline __must_check __const
 static inline uint32_t kmalloc_large_order(size_t size)
 {
 	if (size > UINT64_MAX - sizeof(struct kmalloc_header))
@@ -202,7 +202,8 @@ BOOTINFO_BLOCK(slab, void,
 	     (unsigned)cache_sizes[NR_CACHES - 1]);
 )
 
-__hot void *kmalloc(size_t size, enum alloc_mode mode)
+__hot
+void *kmalloc(size_t size, enum alloc_mode mode)
 {
 	alloc_check(mode);
 	int idx = find_cache(size);
@@ -252,7 +253,8 @@ __hot void *kmalloc(size_t size, enum alloc_mode mode)
 	return (void *)node;
 }
 
-__hot void kfree(void *ptr)
+__hot
+void kfree(void *ptr)
 {
 	alloc_free_check();
 	if (!ptr)
