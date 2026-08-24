@@ -6,6 +6,7 @@
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
 #include <nuvix/tools.h>
+#include <nuvix/string.h>
 #include <nuvix/atomic.h>
 #include <arch/page.h>
 #include <arch/pgtable.h>

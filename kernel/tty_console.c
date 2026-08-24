@@ -6,6 +6,7 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
+#include <nuvix/string.h>
 #include <nuvix/mm.h>
 #include <nuvix/session.h>
 #include <nuvix/task.h>

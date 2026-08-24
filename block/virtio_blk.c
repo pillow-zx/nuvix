@@ -6,6 +6,7 @@
 #include <drivers/virtio.h>
 #include <nuvix/blkdev.h>
 #include <nuvix/bootinfo.h>
+#include <nuvix/string.h>
 #include <nuvix/errno.h>
 #include <nuvix/printk.h>
 #include <nuvix/spinlock.h>

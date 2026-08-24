@@ -1,5 +1,6 @@
 #include <nuvix/errno.h>
 #include <nuvix/page_cache.h>
+#include <nuvix/string.h>
 #include <nuvix/printk.h>
 
 #include "ext2.h"

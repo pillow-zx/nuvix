@@ -4,6 +4,7 @@
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
 #include <nuvix/trap_types.h>
+#include <nuvix/string.h>
 #include <asm/csr.h>
 #include <asm/context.h>
 #include <asm/trap.h>

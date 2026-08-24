@@ -18,7 +18,18 @@ ARCH_OBJS = \
 	arch/riscv/mm/user_map.o       \
 	arch/riscv/mm/tlb.o            \
 	arch/riscv/lib/softfloat.o     \
-	arch/riscv/lib/string.o
+	arch/riscv/lib/memcpy.o        \
+	arch/riscv/lib/memset.o        \
+	arch/riscv/lib/memcmp.o        \
+	arch/riscv/lib/memmove.o       \
+	arch/riscv/lib/strlen.o        \
+	arch/riscv/lib/strnlen.o       \
+	arch/riscv/lib/strcmp.o        \
+	arch/riscv/lib/strncmp.o       \
+	arch/riscv/lib/strcpy.o        \
+	arch/riscv/lib/strncpy.o       \
+	arch/riscv/lib/strchr.o        \
+	arch/riscv/lib/strrchr.o
 
 INIT_OBJS = \
 	init/main.o        \

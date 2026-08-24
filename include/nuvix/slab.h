@@ -10,6 +10,7 @@
 #include <nuvix/types.h>
 #include <nuvix/compiler.h>
 #include <nuvix/cleanup.h>
+#include <nuvix/string.h>
 
 /**
  * @brief Initialize slab caches used by kmalloc.

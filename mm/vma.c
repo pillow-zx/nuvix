@@ -4,6 +4,7 @@
 
 #include <nuvix/errno.h>
 #include <nuvix/fdtable.h>
+#include <nuvix/string.h>
 #include <nuvix/printk.h>
 #include <nuvix/page.h>
 

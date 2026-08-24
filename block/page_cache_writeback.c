@@ -4,6 +4,7 @@
 
 #include <nuvix/blkdev.h>
 #include <nuvix/buddy.h>
+#include <nuvix/string.h>
 #include <nuvix/errno.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/worker.h>

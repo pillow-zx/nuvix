@@ -4,6 +4,7 @@
 
 #include <nuvix/mm.h>
 #include <nuvix/errno.h>
+#include <nuvix/string.h>
 #include <nuvix/proc.h>
 #include <nuvix/task.h>
 #include <nuvix/page.h>

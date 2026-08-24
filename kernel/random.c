@@ -1,5 +1,6 @@
 #include <nuvix/random.h>
 #include <nuvix/task.h>
+#include <nuvix/string.h>
 #include <nuvix/timer.h>
 
 static uint64_t random_state;

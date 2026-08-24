@@ -4,6 +4,7 @@
 
 #include <nuvix/fs.h>
 #include <nuvix/errno.h>
+#include <nuvix/string.h>
 #include <nuvix/buddy.h>
 #include <nuvix/fs_struct.h>
 #include <nuvix/fdtable.h>

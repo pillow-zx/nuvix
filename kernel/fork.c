@@ -2,9 +2,10 @@
  * kernel/fork.c - clone transaction and proc/task construction
  */
 
-#include "nuvix/cpu.h"
+#include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/fdtable.h>
+#include <nuvix/string.h>
 #include <nuvix/fork.h>
 #include <nuvix/fs_struct.h>
 #include <nuvix/mm.h>

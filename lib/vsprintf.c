@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/types.h>
+#include <nuvix/string.h>
 #include <nuvix/printk.h>
 
 static char *emit(char *buf, char *end, char c)
