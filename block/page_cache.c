@@ -4,7 +4,7 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
-#include <nuvix/hash.h>
+#include <nuvix/hashtable.h>
 #include <nuvix/list.h>
 #include <nuvix/slab.h>
 
@@ -38,12 +38,12 @@ void pgcache_init(void)
 
 struct pgcache *pgcache_find(dev_t dev, uint64_t block)
 {
-	struct list_head *pos;
+	struct hlist_node *pos;
 	uint32_t hash = pgcache_hash(dev, block);
 
 	hash_table_for_each_possible (pos, &pgcache_hashtable, hash) {
 		struct pgcache *page =
-			list_entry(pos, struct pgcache, hash_node);
+			hlist_entry(pos, struct pgcache, hash_node);
 		if (page->dev == dev && page->block == block)
 			return page;
 	}
@@ -52,7 +52,7 @@ struct pgcache *pgcache_find(dev_t dev, uint64_t block)
 
 struct pgcache *pgcache_get_data(void *data)
 {
-	struct list_head *pos;
+	struct hlist_node *pos;
 	struct pgcache *page = NULL;
 	irq_flags_t flags;
 
@@ -62,9 +62,9 @@ struct pgcache *pgcache_get_data(void *data)
 	for (uint32_t bucket = 0;
 	     bucket < HASH_TABLE_SIZE(pgcache_hashtable.bits) && !page;
 	     bucket++) {
-		list_for_each (pos, &pgcache_hashtable.buckets[bucket]) {
+		hlist_for_each (pos, &pgcache_hashtable.buckets[bucket]) {
 			struct pgcache *candidate =
-				list_entry(pos, struct pgcache, hash_node);
+				hlist_entry(pos, struct pgcache, hash_node);
 
 			if (candidate->data != data)
 				continue;
@@ -119,8 +119,8 @@ static void pgcache_detach_page_locked(struct pgcache *page,
 		return;
 	pgcache_clear_dirty_locked(page);
 	pgcache_assoc_remove_page_locked(page, removed);
-	if (!list_empty(&page->hash_node))
-		list_del_init(&page->hash_node);
+	if (!hlist_unhashed(&page->hash_node))
+		hlist_del_init(&page->hash_node);
 	if (!list_empty(&page->lru_node))
 		list_del_init(&page->lru_node);
 	page->dropped = true;
@@ -159,7 +159,7 @@ static struct pgcache *pgcache_alloc(dev_t dev, uint64_t block)
 	memset(page->data, 0, BLOCK_SIZE);
 	page->dev = dev;
 	page->block = block;
-	INIT_LIST_HEAD(&page->hash_node);
+	INIT_HLIST_NODE(&page->hash_node);
 	INIT_LIST_HEAD(&page->lru_node);
 	INIT_LIST_HEAD(&page->dirty_node);
 	return page;

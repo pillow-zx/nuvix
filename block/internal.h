@@ -2,6 +2,7 @@
 #define _NUVIX_BLOCK_PAGE_CACHE_INTERNAL_H
 
 #include <nuvix/page_cache.h>
+#include <nuvix/hlist.h>
 #include <nuvix/spinlock.h>
 
 struct pgcache {
@@ -13,7 +14,7 @@ struct pgcache {
 	bool dirty;
 	bool writeback;
 	bool dropped;
-	struct list_head hash_node;
+	struct hlist_node hash_node;
 	struct list_head lru_node;
 	struct list_head dirty_node;
 };

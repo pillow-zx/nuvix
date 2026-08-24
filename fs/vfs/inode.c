@@ -4,7 +4,7 @@
 
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
-#include <nuvix/hash.h>
+#include <nuvix/hashtable.h>
 #include <nuvix/slab.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/stat.h>
@@ -42,7 +42,7 @@ struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
 	refcount_set(&inode->i_refcount, 1);
 	mutex_init(&inode->i_lock, LOCK_RANK_INODE, LOCK_IRQ_TASK_ONLY);
 	page_mapping_init(&inode->i_pages, inode, 0, NULL);
-	INIT_LIST_HEAD(&inode->i_hash);
+	INIT_HLIST_NODE(&inode->i_hash);
 	INIT_LIST_HEAD(&inode->i_sb_list);
 
 	/* The caller links the inode into sb->s_inodes under vfs_cache_lock. */
@@ -60,7 +60,7 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 {
 	struct inode *inode;
 	uint32_t hash;
-	struct list_head *pos;
+	struct hlist_node *pos;
 
 	if (!sb)
 		return NULL;
@@ -69,7 +69,7 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 
 	spin_lock(&vfs_cache_lock);
 	hash_table_for_each_possible (pos, &inode_hashtable, hash) {
-		inode = list_entry(pos, struct inode, i_hash);
+		inode = hlist_entry(pos, struct inode, i_hash);
 
 		if (inode->i_sb == sb && inode->i_ino == ino) {
 			igrab(inode);
@@ -95,7 +95,7 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 
 	spin_lock(&vfs_cache_lock);
 	hash_table_for_each_possible (pos, &inode_hashtable, hash) {
-		struct inode *existing = list_entry(pos, struct inode, i_hash);
+		struct inode *existing = hlist_entry(pos, struct inode, i_hash);
 
 		if (existing->i_sb == sb && existing->i_ino == ino) {
 			igrab(existing);
@@ -346,7 +346,7 @@ void inode_forget(struct inode *inode)
 		return;
 
 	spin_lock(&vfs_cache_lock);
-	if (inode->i_hash.next && inode->i_hash.prev)
+	if (!hlist_unhashed(&inode->i_hash))
 		hash_table_del(&inode->i_hash);
 	if (inode->i_sb_list.next && inode->i_sb_list.prev)
 		list_del(&inode->i_sb_list);

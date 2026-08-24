@@ -7,6 +7,7 @@
  */
 
 #include <nuvix/page_mapping.h>
+#include <nuvix/hlist.h>
 #include <nuvix/list.h>
 #include <nuvix/mutex.h>
 #include <nuvix/refcount.h>
@@ -282,7 +283,7 @@ struct inode {
 	const struct file_operations *i_fop;
 	struct page_mapping i_pages;
 	void *i_private;
-	struct list_head i_hash;
+	struct hlist_node i_hash;
 	struct list_head i_sb_list;
 };
 
@@ -310,7 +311,7 @@ struct dentry {
 	struct dentry *d_parent;
 	struct super_block *d_sb;
 	void *d_fsdata;
-	struct list_head d_hash;
+	struct hlist_node d_hash;
 	struct list_head d_child;
 	struct list_head d_subdirs;
 };

@@ -4,7 +4,7 @@
 
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
-#include <nuvix/hash.h>
+#include <nuvix/hashtable.h>
 #include <nuvix/slab.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/vfs.h>
@@ -29,8 +29,7 @@ static uint32_t dentry_hash(struct dentry *parent, const char *name,
 
 static bool dentry_hashed(struct dentry *dentry)
 {
-	return dentry && dentry->d_hash.next && dentry->d_hash.prev &&
-	       !list_empty(&dentry->d_hash);
+	return dentry && !hlist_unhashed(&dentry->d_hash);
 }
 
 static void dcache_insert_locked(struct dentry *dentry)
@@ -67,7 +66,7 @@ struct dentry *dentry_alloc(struct dentry *parent, const char *name,
 	refcount_set(&dentry->d_refcount, 1);
 	dentry->d_parent = parent ? parent : dentry;
 	dentry->d_sb = parent ? parent->d_sb : NULL;
-	INIT_LIST_HEAD(&dentry->d_hash);
+	INIT_HLIST_NODE(&dentry->d_hash);
 	INIT_LIST_HEAD(&dentry->d_child);
 	INIT_LIST_HEAD(&dentry->d_subdirs);
 
@@ -87,11 +86,11 @@ struct dentry *dcache_lookup(struct dentry *parent, const char *name,
 		return NULL;
 
 	uint32_t hash = dentry_hash(parent, name, namelen);
-	struct list_head *pos;
+	struct hlist_node *pos;
 
 	spin_lock(&vfs_cache_lock);
 	hash_table_for_each_possible (pos, &dentry_hashtable, hash) {
-		struct dentry *dentry = list_entry(pos, struct dentry, d_hash);
+		struct dentry *dentry = hlist_entry(pos, struct dentry, d_hash);
 
 		if (dentry->d_parent != parent || dentry->d_namelen != namelen)
 			continue;
@@ -123,7 +122,7 @@ void dcache_invalidate(struct dentry *dentry)
 	if (dentry_hashed(dentry))
 		hash_table_del(&dentry->d_hash);
 	else
-		INIT_LIST_HEAD(&dentry->d_hash);
+		INIT_HLIST_NODE(&dentry->d_hash);
 
 	dentry->d_inode = NULL;
 	spin_unlock(&vfs_cache_lock);
@@ -139,7 +138,7 @@ void dcache_move(struct dentry *dentry, struct dentry *new_parent,
 	if (dentry_hashed(dentry))
 		hash_table_del(&dentry->d_hash);
 	else
-		INIT_LIST_HEAD(&dentry->d_hash);
+		INIT_HLIST_NODE(&dentry->d_hash);
 
 	if (dentry->d_parent != new_parent)
 		list_move_tail(&dentry->d_child, &new_parent->d_subdirs);
