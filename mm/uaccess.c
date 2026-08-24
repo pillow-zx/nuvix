@@ -241,7 +241,9 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 		return -EFAULT;
 	if (maxlen == 0)
 		return -ENAMETOOLONG;
-	if (!access_ok(src, maxlen))
+	/* maxlen bounds the scan; it is not necessarily the number of bytes
+	 * accessed when the string terminates before the user-space limit. */
+	if (addr >= TASK_SIZE)
 		return -EFAULT;
 	if (uaccess_txn_begin(&txn) < 0)
 		return -EFAULT;
