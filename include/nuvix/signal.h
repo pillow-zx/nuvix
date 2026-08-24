@@ -92,6 +92,14 @@ bool sig_wait_ready(const struct task_struct *task, const struct task_wait *wait
 __must_check __access_no_size(read_write, 1)
 int sig_task_init(struct task_struct *task);
 
+/**
+ * Close task-directed signal admission and enter TASK_EXITING atomically.
+ * The signal-enabled path takes siglock before task->wait.lock; callers do
+ * not take either lock around this seam.
+ */
+__must_check __access_no_size(read_write, 1)
+bool sig_task_begin_exit(struct task_struct *task);
+
 __must_check __access_no_size(read_write, 1)
 int sig_proc_init(struct proc_struct *proc);
 

@@ -187,22 +187,18 @@ static void exit_schedule(void)
 static void exit_group_status(struct proc_struct *proc, int status)
 {
 	struct task_struct *current = current_task();
-	struct task_struct **targets;
+	struct task_struct **targets = NULL;
 	size_t count;
 
 	BUG_ON(!current);
 	if (!proc)
 		return;
+	targets = kmalloc_array(PID_COUNT, sizeof(*targets), ALLOC_NOWAIT);
+	BUG_ON(!targets);
+	count = proc_task_snapshot(proc, current, targets, PID_COUNT);
 	if (!proc_begin_group_exit(proc, status) &&
 	    proc->group_exit_status_valid)
 		status = proc->group_exit_status;
-
-	/* Every live sibling must receive the exit request; the exit path
-	 * cannot fail or truncate, so allocation failure is fatal. */
-	targets = kmalloc_array(PID_COUNT, sizeof(*targets), ALLOC_NOWAIT);
-	BUG_ON(!targets);
-
-	count = proc_task_snapshot(proc, current, targets, PID_COUNT);
 	for (size_t index = 0; index < count; index++) {
 		(void)task_request_group_exit(targets[index]);
 		task_put(targets[index]);
@@ -395,7 +391,6 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 
 void kernel_wait4_finish(struct wait4_result *result)
 {
-	struct proc_wait_claim claim;
 	uint32_t event;
 	bool committed;
 
@@ -403,29 +398,31 @@ void kernel_wait4_finish(struct wait4_result *result)
 		return;
 	if (!result->claim.child) {
 		wait4_release_orphans(result);
+		memset(result, 0, sizeof(*result));
 		return;
 	}
-	claim = result->claim;
-	event = claim.event;
-	committed = proc_wait_commit(&claim);
-	if (!committed)
-		return;
-	for (size_t index = 0; index < claim.orphan_count; index++)
-		sig_orphan_pgrp(&claim.orphan_events[index]);
-	for (size_t index = 0; index < claim.orphan_count; index++)
-		proc_orphan_event_release(&claim.orphan_events[index]);
-	if (event == PROC_WAIT_EXIT && current_task()->proc)
-		proc_account_child_cputime(current_task()->proc,
-					   &result->cputime);
+	event = result->claim.event;
+	committed = proc_wait_commit(&result->claim);
+	if (committed) {
+		for (size_t index = 0; index < result->claim.orphan_count; index++)
+			sig_orphan_pgrp(&result->claim.orphan_events[index]);
+		for (size_t index = 0; index < result->claim.orphan_count; index++)
+			proc_orphan_event_release(
+				&result->claim.orphan_events[index]);
+		if (event == PROC_WAIT_EXIT && current_task()->proc)
+			proc_account_child_cputime(current_task()->proc,
+						   &result->cputime);
+	}
 	wait4_release_orphans(result);
 	memset(result, 0, sizeof(*result));
 }
 
 void kernel_wait4_abort(struct wait4_result *result)
 {
-	if (!result || !result->claim.child)
+	if (!result)
 		return;
-	proc_wait_abort(&result->claim);
+	if (result->claim.child)
+		proc_wait_abort(&result->claim);
 	wait4_release_orphans(result);
 	memset(result, 0, sizeof(*result));
 }

@@ -884,6 +884,7 @@ size_t proc_reparent_children(struct proc_struct *proc,
 	struct list_head *next;
 	size_t old_parent_refs = 0;
 	size_t count = 0;
+	bool wake_reaper = false;
 
 	if (!proc)
 		return 0;
@@ -910,12 +911,21 @@ size_t proc_reparent_children(struct proc_struct *proc,
 			proc_get(reaper);
 			list_add_tail(&child->sibling, &reaper->children);
 		}
+		if (reaper) {
+			irq_flags_t wait_flags;
+
+			spin_lock_irqsave(&child->wait_state.lock, &wait_flags);
+			wake_reaper |= child->wait_state.pending != 0;
+			spin_unlock_irqrestore(&child->wait_state.lock, wait_flags);
+		}
 		proc_update_pgrp_orphaned_locked(child->pgrp, events, capacity,
 						 &count);
 	}
 	spin_unlock(&proc_topology_lock);
 	for (size_t index = 0; index < old_parent_refs; index++)
 		proc_put(proc);
+	if (wake_reaper)
+		wait_channel_wake_all(&reaper->wait_state.channel);
 	if (reaper)
 		proc_put(reaper);
 	return count;
@@ -1581,19 +1591,30 @@ bool proc_wait_commit(struct proc_wait_claim *claim)
 
 void proc_wait_abort(struct proc_wait_claim *claim)
 {
+	struct proc_struct *child;
+	struct proc_struct *old_parent;
+	struct proc_struct *current_parent;
 	irq_flags_t flags;
 
 	if (!claim || !claim->child)
 		return;
-	spin_lock_irqsave(&claim->child->wait_state.lock, &flags);
-	if (proc_wait_claimed_generation(&claim->child->wait_state,
+	child = claim->child;
+	old_parent = claim->parent;
+	spin_lock_irqsave(&child->wait_state.lock, &flags);
+	if (proc_wait_claimed_generation(&child->wait_state,
 					 claim->event) == claim->generation)
-		proc_wait_set_claimed_generation(&claim->child->wait_state,
+		proc_wait_set_claimed_generation(&child->wait_state,
 						 claim->event, 0);
-	spin_unlock_irqrestore(&claim->child->wait_state.lock, flags);
-	wait_channel_wake_one(&claim->parent->wait_state.channel);
-	proc_put(claim->child);
-	proc_put(claim->parent);
+	spin_unlock_irqrestore(&child->wait_state.lock, flags);
+	/* The claim's parent reference is historical. Reparenting may have
+	 * changed the child's current parent while the claim was held. */
+	current_parent = proc_parent_get(child);
+	if (current_parent) {
+		wait_channel_wake_all(&current_parent->wait_state.channel);
+		proc_put(current_parent);
+	}
+	proc_put(child);
+	proc_put(old_parent);
 	memset(claim, 0, sizeof(*claim));
 }
 
@@ -1792,6 +1813,9 @@ int proc_create_session(struct proc_struct *proc, pid_t *sid,
 	bool pgid_match = false;
 	int ret = 0;
 
+	/* Each pgrp owns a distinct PID identity. PID_COUNT therefore bounds
+	 * every distinct orphan transition in this single PID namespace. */
+	BUG_ON(!events || capacity < PID_COUNT);
 	if (event_count)
 		*event_count = 0;
 	if (events && capacity)

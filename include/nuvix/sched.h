@@ -88,7 +88,13 @@ int sched_set_affinity(struct task_struct *task, uint64_t mask);
 
 uint64_t sched_get_affinity(struct task_struct *task);
 
-/** Transfer one retired task to the independent reaper. */
+/**
+ * Transfer one retired Task to the independent reaper.
+ *
+ * Removing a Task from this queue is the scheduler's Retirement witness:
+ * the CPU handoff has completed, so TASK_DEAD is no longer the only proof
+ * needed before the reaper inspects or frees its stack.
+ */
 __must_check
 bool sched_retired_pop(struct task_struct **task);
 

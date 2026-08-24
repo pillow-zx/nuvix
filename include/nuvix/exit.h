@@ -68,14 +68,20 @@ void release_task(struct task_struct *task);
 int kernel_wait4(pid_t pid, int options, struct wait4_result *result);
 
 /**
- * @brief Commit a successful wait4 and release its held child event.
+ * @brief Finish one wait4 result transaction.
  * @param result Result previously filled by kernel_wait4().
+ *
+ * This is terminal: it commits when possible, releases caller-owned orphan
+ * storage on either commit result, and clears @p result. Call at most once.
  */
 void kernel_wait4_finish(struct wait4_result *result);
 
 /**
- * @brief Return a held child event after wait4 userspace-copy failure.
+ * @brief Abort one wait4 result transaction after a userspace-copy failure.
  * @param result Result previously filled by kernel_wait4().
+ *
+ * This is terminal: it aborts a live claim when present, releases orphan
+ * storage even for an empty result, and clears @p result. Call at most once.
  */
 void kernel_wait4_abort(struct wait4_result *result);
 

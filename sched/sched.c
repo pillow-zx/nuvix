@@ -384,6 +384,9 @@ bool sched_retired_pop(struct task_struct **task)
 	if (!task)
 		return false;
 	*task = NULL;
+	/* Removal is the scheduler's Retirement witness: the task was placed on
+	 * this queue only after its CPU handoff completed. TASK_DEAD alone never
+	 * authorizes the reaper to free the task stack. */
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
 		struct retired_queue *queue = &retired_queues[id];
 		irq_flags_t flags;

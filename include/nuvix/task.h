@@ -11,8 +11,10 @@
  * task-local signal state, credentials, and accounting.
  *
  * Locking and lifetime: lifecycle transitions run under the task's own
- * wait lock (LOCK_RANK_WAIT, 310); run state, on_rq, and CPU assignment are
- * scheduler-owned.  task_get()/task_put() are plain refcount operations, but
+ * wait lock (LOCK_RANK_WAIT, 310), except signal-enabled exit admission uses
+ * the signal subsystem's siglock -> wait.lock transaction; run state, on_rq,
+ * and CPU assignment are scheduler-owned.  task_get()/task_put() are plain
+ * refcount operations, but
  * a final put destroys storage (kernel stack, TID role): never call
  * task_put() while holding any lock.  task_try_get_live() pairs a refcount
  * acquire with a wait-lock lifecycle read (pid lock 20 before wait lock 40).
@@ -250,6 +252,7 @@ bool task_exec_exit_requested(struct task_struct *task);
 
 void task_mark_dead(struct task_struct *task);
 
+/** Called only after sched_retired_pop() supplied the Retirement witness. */
 __must_check
 bool task_reap_ready(const struct task_struct *task);
 

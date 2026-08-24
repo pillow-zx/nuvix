@@ -62,8 +62,9 @@ struct signal_struct {
 	refcount_t refcount;
 	/* One per-Proc irq-safe spinlock guards pending, blocked masks, stop
 	 * state, and fact bits. Handler-table accesses use sighand->lock. The
-	 * lock order is sighand->lock -> siglock. Signal code never holds
-	 * wait.lock while taking siglock. */
+	 * lock order is sighand->lock -> siglock -> task.wait.lock for signal
+	 * admission. Other signal paths never take siglock while holding
+	 * wait.lock. */
 	spinlock_t siglock;
 	uint64_t shared_pending;
 	siginfo_t shared_pending_info[NSIG + 1];
@@ -663,22 +664,13 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 	if (signal && (sig == SIGCONT || signal_is_stop_signal(sig)))
 		targets = kmalloc_array(PID_COUNT, sizeof(*targets),
 					ALLOC_NOWAIT);
+	if (targets && task->proc)
+		target_count = proc_task_snapshot(task->proc, NULL, targets,
+						  PID_COUNT);
 	if (sighand)
 		mutex_lock(&sighand->lock);
 	if (signal)
 		spin_lock_irqsave(&signal->siglock, &flags);
-	/* Lifecycle is wait.lock-guarded; reading it under siglock is a
-	 * snapshot.  The task can only clear its pending (sig_task_release)
-	 * under siglock, so a mark here is either consumed before exit begins
-	 * or cleared later with the dying task. */
-	if (task_is_exiting(task)) {
-		if (signal)
-			spin_unlock_irqrestore(&signal->siglock, flags);
-		if (sighand)
-			mutex_unlock(&sighand->lock);
-		kfree(targets);
-		return -ESRCH;
-	}
 	/* Dropped at raise: an unblocked, ignored (SIG_IGN / default-ignore /
 	 * init-suppressed) notification is neither queued nor woken.  Blocked
 	 * signals are never dropped.  Exception/forced and stop/continue
@@ -692,9 +684,41 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 		kfree(targets);
 		return 0;
 	}
-	if (targets && task->proc)
-		target_count = proc_task_snapshot(task->proc, NULL, targets,
-						  PID_COUNT);
+	if (signal)
+		spin_lock(&task->wait.lock);
+	else
+		spin_lock_irqsave(&task->wait.lock, &flags);
+	/* This is the authoritative admission check: exit and task-directed
+	 * queuing hold the same signal -> wait lock pair while changing state. */
+	if (task_is_exiting(task)) {
+		if (signal) {
+			spin_unlock(&task->wait.lock);
+			spin_unlock_irqrestore(&signal->siglock, flags);
+		} else {
+			spin_unlock_irqrestore(&task->wait.lock, flags);
+		}
+		if (sighand)
+			mutex_unlock(&sighand->lock);
+		kfree(targets);
+		return -ESRCH;
+	}
+	/* A failed snapshot uses the topology walk fallback. Keep siglock while
+	 * dropping wait.lock: exit admission takes siglock first, so the check
+	 * remains authoritative without inverting wait.lock -> topology.lock. */
+	if (sig == SIGCONT && signal && task->proc && !targets) {
+		spin_unlock(&task->wait.lock);
+		proc_for_each_task(task->proc,
+				  signal_clear_opposite_pending_task_callback,
+				  &sig);
+		spin_lock(&task->wait.lock);
+		if (task_is_exiting(task)) {
+			spin_unlock(&task->wait.lock);
+			spin_unlock_irqrestore(&signal->siglock, flags);
+			if (sighand)
+				mutex_unlock(&sighand->lock);
+			return -ESRCH;
+		}
+	}
 	if (signal)
 		signal_clear_shared_opposite_pending(signal, sig);
 	if (sig == SIGCONT && signal && task->proc) {
@@ -702,13 +726,8 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 			for (size_t index = 0; index < target_count; index++)
 				signal_clear_opposite_pending_locked(
 					targets[index], sig);
-		} else {
-			proc_for_each_task(
-				task->proc,
-				signal_clear_opposite_pending_task_callback,
-				&sig);
 		}
-	} else {
+	} else if (sig != SIGCONT || !signal || !task->proc) {
 		signal_clear_opposite_pending_locked(task, sig);
 	}
 	if (!(task->signal.pending & mask)) {
@@ -720,10 +739,12 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 		task->signal.forced_pending |= mask;
 	if (signal) {
 		signal_recalc_facts_locked(task, signal);
+		spin_unlock(&task->wait.lock);
 		signal_recalc_targets_locked(signal, task->proc, targets,
 					     target_count);
 		spin_unlock_irqrestore(&signal->siglock, flags);
-	}
+	} else
+		spin_unlock_irqrestore(&task->wait.lock, flags);
 	if (sighand)
 		mutex_unlock(&sighand->lock);
 	signal_task_snapshot_release(targets, target_count);
@@ -1451,6 +1472,28 @@ int sig_task_init(struct task_struct *task)
 	task->signal.restore_mask_pending = false;
 	signal_reset_altstack(task);
 	return 0;
+}
+
+bool sig_task_begin_exit(struct task_struct *task)
+{
+	struct signal_struct *signal;
+	irq_flags_t flags;
+	bool begun = false;
+
+	if (!task || task_is_idle(task))
+		return false;
+	signal = task->proc ? task->proc->signal : NULL;
+	if (!signal)
+		return false;
+	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock(&task->wait.lock);
+	if (task->lifecycle == TASK_LIVE) {
+		task->lifecycle = TASK_EXITING;
+		begun = true;
+	}
+	spin_unlock(&task->wait.lock);
+	spin_unlock_irqrestore(&signal->siglock, flags);
+	return begun;
 }
 
 void sig_proc_release(struct proc_struct *proc)

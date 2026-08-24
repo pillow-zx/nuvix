@@ -17,7 +17,9 @@
  * acquired reference (proc/pgrp/session/task/pid) outside the lock.  The
  * two-phase wait claim (proc_wait_claim/commit/abort) hands out strong
  * parent/child references; the caller must commit or abort exactly once and
- * drop the references outside any lock.  pgrp/session snapshot events
+ * drop the references outside any lock. A claim keeps the old-parent
+ * reference, but reparenting may change the child's current parent; abort
+ * resolves that current parent for wakeup. pgrp/session snapshot events
  * (proc_orphan_event, proc_parent_event) carry their own references and are
  * released with the matching release function outside locks.
  */
@@ -402,9 +404,11 @@ int proc_join_pgrp(struct proc_struct *proc, pid_t pgid, struct proc_orphan_even
 /*
  * Create a new session for @p proc.  The caller leaves the whole old
  * session, so every pgrp of the old session is re-evaluated for an orphan
- * transition; events with pgrp/session references are filled up to
- * @p capacity and counted in @p event_count (may be NULL).  Release each
- * event with proc_orphan_event_release() outside any lock.
+ * transition. The caller must provide a @p PID_COUNT event buffer: one pgrp
+ * consumes one PID identity in the current namespace, so that capacity is
+ * complete. Events with pgrp/session references are counted in @p event_count
+ * (may be NULL). Release each event with proc_orphan_event_release() outside
+ * any lock.
  */
 int proc_create_session(struct proc_struct *proc, pid_t *sid,
 			struct proc_orphan_event *events, size_t capacity,

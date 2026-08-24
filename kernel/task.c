@@ -318,25 +318,17 @@ void task_release_resources(struct task_struct *task)
 	task->cred = NULL;
 }
 
-static bool task_active_on_cpu(const struct task_struct *task)
-{
-	if (!task)
-		return false;
-	/* Diagnostics only, racy by design: CPU current pointers are
-	 * scheduler-owned and this scan takes no runqueue lock. */
-	for (uint32_t id = 0; id < nr_cpu_ids; id++)
-		if (cpu_current_task(cpu_by_id(id)) == task)
-			return true;
-	return false;
-}
-
 bool task_begin_exit(struct task_struct *task)
 {
+	struct signal_struct *signal;
 	bool begun = false;
 	irq_flags_t flags;
 
 	if (!task || task_is_idle(task))
 		return false;
+	signal = task->proc ? task->proc->signal : NULL;
+	if (signal)
+		return sig_task_begin_exit(task);
 	spin_lock_irqsave(&task->wait.lock, &flags);
 	if (task->lifecycle == TASK_LIVE) {
 		task->lifecycle = TASK_EXITING;
@@ -423,7 +415,7 @@ bool task_reap_ready(const struct task_struct *task)
 	 * (lifecycle, on_rq, wait teardown, proc detach) with this read. */
 	return task && !task_is_idle(task) && task != current_task() &&
 	       task->lifecycle == TASK_DEAD && !task->on_rq &&
-	       !task_active_on_cpu(task) && task->wait.status == WAIT_IDLE &&
+	       !task->on_cpu && task->wait.status == WAIT_IDLE &&
 	       list_empty(&task->wait.registrations) &&
 	       !task->wait.deadline_queued && !task->wait.deadline_task &&
 	       list_empty(&task->proc_node);
@@ -437,7 +429,7 @@ static void task_destroy(struct task_struct *task)
 	BUG_ON(task == current_task());
 	BUG_ON(task->published);
 	BUG_ON(task->lifecycle != TASK_DEAD);
-	BUG_ON(task->on_rq || task_active_on_cpu(task));
+	BUG_ON(task->on_rq || task->on_cpu);
 	BUG_ON(!list_empty(&task->wait.registrations));
 	BUG_ON(!list_empty(&task->proc_node));
 	BUG_ON(task->reap_proc);
