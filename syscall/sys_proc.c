@@ -11,10 +11,11 @@
 
 ssize_t sys_getpid(struct trap_frame *tf)
 {
+	struct task_struct *task = current_task();
+	struct proc_struct *proc = task->proc;
+
 	(void)tf;
-	return current_task()->proc && current_task()->proc->pid
-		       ? (ssize_t)current_task()->proc->pid->nr
-		       : 0;
+	return proc && proc->pid ? proc->pid->nr : 0;
 }
 
 ssize_t sys_getppid(struct trap_frame *tf)
