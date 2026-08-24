@@ -7,7 +7,7 @@
 #define _NUVIX_BITMAP_H
 
 #include <nuvix/compiler.h>
-#include <nuvix/tools.h>
+#include <nuvix/math.h>
 #include <nuvix/types.h>
 
 /**

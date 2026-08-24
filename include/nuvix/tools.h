@@ -17,7 +17,7 @@
  * form the internal property token for a boolean configuration macro.
  */
 #define __CONCAT_RAW(a, b) a##b
-#define CONCAT(a, b) __CONCAT_RAW(a, b)
+#define CONCAT(a, b)	   __CONCAT_RAW(a, b)
 
 #define __CHOOSE2ND(a, b, ...)		      b
 #define __MUX_WITH_COMMA(contain_comma, a, b) __CHOOSE2ND(contain_comma a, b)
@@ -51,7 +51,7 @@
  * __IGNORE otherwise. The selected variadic macro either emits or discards
  * the supplied tokens.
  */
-#define IFDEF(macro, ...)  __MUXDEF(macro, __KEEP, __IGNORE)(__VA_ARGS__)
+#define IFDEF(macro, ...) __MUXDEF(macro, __KEEP, __IGNORE)(__VA_ARGS__)
 
 /**
  * @def IFNDEF
@@ -71,7 +71,7 @@
  * @def MMIO_READ
  * @brief Perform a volatile typed load from an MMIO address.
  */
-#define MMIO_READ(type, addr)	    (*(volatile type *)(addr))
+#define MMIO_READ(type, addr) (*(volatile type *)(addr))
 
 /**
  * @def MMIO_WRITE
@@ -102,7 +102,7 @@
  * @def BUILD_BUG_ON
  * @brief Trigger a compile-time error when @p cond is true.
  */
-#define BUILD_BUG_ON(cond)	((void)sizeof(char[1 - 2 * !!(cond)]))
+#define BUILD_BUG_ON(cond) ((void)sizeof(char[1 - 2 * !!(cond)]))
 
 /**
  * @def BUILD_BUG_ON_ZERO
@@ -166,12 +166,6 @@
 #define is_constexpr(expr) constant_p(expr)
 
 /**
- * @def IS_POWER_OF_2
- * @brief Return true when @p x is a non-zero power of two.
- */
-#define IS_POWER_OF_2(x) ((x) != 0 && (((x) & ((x) - 1)) == 0))
-
-/**
  * @def MAX_ERRNO
  * @brief Largest negative errno representable as an encoded pointer.
  */
@@ -200,28 +194,5 @@
  * @brief Test whether a pointer is an encoded negative errno.
  */
 #define IS_ERR(ptr) IS_ERR_VALUE((unsigned long)(ptr))
-
-/**
- * @def MAX
- * @brief Type-checked maximum of two same-typed expressions.
- */
-#define MAX(a, b)                                                              \
-	statement_expr(                                                        \
-		static_assert(                                                 \
-			same_type(a, b),                                       \
-			"MAX requires both arguments to be the same type");    \
-		auto _a = (a); auto _b = (b); _a > _b ? _a : _b;)
-
-/**
- * @def MIN
- * @brief Type-checked minimum of two same-typed expressions.
- */
-#define MIN(a, b)                                                              \
-	statement_expr(                                                        \
-		static_assert(                                                 \
-			same_type(a, b),                                       \
-			"MIN Requires both arguments to be the same type");    \
-		auto _a = (a); auto _b = (b); _a < _b ? _a : _b;)
-
 
 #endif

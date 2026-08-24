@@ -8,7 +8,7 @@
 
 #include <nuvix/types.h>
 #include <nuvix/compiler.h>
-#include <nuvix/tools.h>
+#include <nuvix/math.h>
 
 /** @def BIT Build an unsigned long value with bit @p n set. */
 #define BIT(n)	   (1UL << (n))
@@ -43,35 +43,6 @@
 	statement_expr(static_assert((hi) >= (lo), "BITS: hi must be >= lo");  \
 		       static_assert((lo) >= 0, "BITS: lo must be >= 0");      \
 		       (((x) >> (lo)) & MASK((hi) - (lo) + 1));)
-
-#define __ALIGN_MASK(x, mask) (((x) + (mask)) & ~(mask))
-
-/**
- * @def ALIGN_UP
- * @brief Round @p x up to the next multiple of power-of-two @p a.
- */
-#define ALIGN_UP(x, a)                                                         \
-	statement_expr(auto _x = (x); auto _a = (a);                           \
-		       if (is_constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
-		       __ALIGN_MASK(_x, _a - 1);)
-
-/**
- * @def ALIGN_DOWN
- * @brief Round @p x down to a multiple of power-of-two @p a.
- */
-#define ALIGN_DOWN(x, a)                                                       \
-	statement_expr(auto _x = (x); auto _a = (a);                           \
-		       if (is_constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
-		       _x & ~(_a - 1);)
-
-/**
- * @def IS_ALIGNED
- * @brief Test whether @p x is aligned to power-of-two @p a.
- */
-#define IS_ALIGNED(x, a)                                                       \
-	statement_expr(auto _x = (x); auto _a = (a);                           \
-		       if (is_constexpr(a)) BUILD_BUG_ON(!IS_POWER_OF_2(a));   \
-		       ((_x & (_a - 1)) == 0);)
 
 __always_inline __must_check
 static inline int32_t ffz(uint64_t x)

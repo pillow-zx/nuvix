@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/mm.h>
+#include <nuvix/math.h>
 #include <nuvix/errno.h>
 #include <nuvix/string.h>
 #include <nuvix/proc.h>
