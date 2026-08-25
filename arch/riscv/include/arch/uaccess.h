@@ -278,9 +278,10 @@ static inline int __riscv_user_output_check(const void *out, size_t width)
 			     : "+r"(__a0), "=r"(__a1)                          \
 			     :                                                 \
 			     : "t0", "t1", "t2", "memory");                    \
-		if (__a0 == 0)                                                 \
-			*out = (type)__a1;                                     \
-		return (int)__a0;                                              \
+		if (__a0 != 0)                                                 \
+			return -EFAULT;                                          \
+		*out = (type)__a1;                                           \
+		return 0;                                                      \
 	}
 
 #define __RISCV_DEFINE_USER_PUT(width, type, instruction)                      \
