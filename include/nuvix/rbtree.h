@@ -28,7 +28,7 @@ struct rb_root {
 #define RB_ROOT		    ((struct rb_root){.node = NULL})
 #define RB_EMPTY_ROOT(root) ((root)->node == NULL)
 
-__always_inline __nonnull(1, 2, 3)
+__always_inline __nonnull(1, 3)
 static inline void rb_link_node(struct rb_node *node, struct rb_node *parent,
                                 struct rb_node **link)
 {
