@@ -7,13 +7,27 @@
  */
 
 #include <nuvix/types.h>
+#include <nuvix/cleanup.h>
+#include <nuvix/mm.h>
 #include <nuvix/task.h>
 #include <uapi/futex.h>
 
 struct wait_deadline;
 
+/** Owned identity retained until the corresponding futex wake completes. */
+struct futex_key {
+	bool shared;
+	union {
+		struct {
+			struct mm_struct *mm;
+			uintptr_t uaddr;
+		} priv;
+		struct mm_map_id shared_file;
+	};
+};
+
 /**
- * @struct kernel_futex_args
+ * @struct futex_args
  * @brief Decoded futex syscall arguments passed to the futex module.
  *
  * @par Fields
@@ -24,7 +38,7 @@ struct wait_deadline;
  * - @c uaddr2: Secondary userspace futex word for future operations.
  * - @c val3: Operation-specific third integer argument.
  */
-struct kernel_futex_args {
+struct futex_args {
 	int *uaddr;
 	int op;
 	int val;
@@ -33,13 +47,6 @@ struct kernel_futex_args {
 	int val3;
 };
 
-__must_check __pure
-static inline int *
-task_clear_child_tid(struct task_struct *task)
-{
-	return task ? task->signal.clear_child_tid : NULL;
-}
-
 static inline void task_set_clear_child_tid(struct task_struct *task,
 						     int *uaddr)
 {
@@ -47,22 +54,8 @@ static inline void task_set_clear_child_tid(struct task_struct *task,
 		task->signal.clear_child_tid = uaddr;
 }
 
-__must_check __pure
-static inline struct robust_list_head *
-task_robust_list(struct task_struct *task)
-{
-	return task ? task->signal.robust_list : NULL;
-}
-
-__must_check __pure
-static inline size_t
-task_robust_list_len(struct task_struct *task)
-{
-	return task ? task->signal.robust_list_len : 0;
-}
-
 static inline void task_set_robust_list(struct task_struct *task,
-						 struct robust_list_head *head,
+							 struct robust_list_head *head,
 						 size_t len)
 {
 	if (!task)
@@ -72,6 +65,24 @@ static inline void task_set_robust_list(struct task_struct *task,
 }
 
 void futex_init(void);
+
+/** Construct a key while the caller already holds mm->mmap_lock. */
+__must_check __nonnull(1)
+int futex_key_init_locked(struct futex_key *key, struct mm_struct *mm,
+				  uintptr_t uaddr);
+
+/** Construct a key and acquire the required mapping lifetime. */
+__must_check __nonnull(1)
+int futex_key_init(struct futex_key *key, struct mm_struct *mm,
+			   uintptr_t uaddr);
+
+void futex_key_put(struct futex_key *key);
+
+CLEANUP_DEFINE(futex_key_ref, struct futex_key, futex_key_put(&_T));
+
+/** Wake waiters using an already-owned key. */
+__must_check __nonnull(1)
+int futex_wake_key(const struct futex_key *key, int nr);
 
 /**
  * @brief Wake tasks waiting on a futex word in one address space.
@@ -95,15 +106,10 @@ void futex_exit_robust_list(struct task_struct *task);
  * @return Operation result or a negative errno.
  */
 __must_check __nonnull(1) __access_no_size(read_only, 1)
-int kernel_futex(const struct kernel_futex_args *args);
+int futex(const struct futex_args *args);
 
 __must_check
 int futex_set_robust_list(struct task_struct *task,
 			  struct robust_list_head *head, size_t len);
-
-__must_check __nonnull(1, 2, 3)
-__access_no_size(write_only, 2) __access_no_size(write_only, 3)
-int futex_get_robust_list(struct task_struct *task,
-			  struct robust_list_head **head, size_t *len);
 
 #endif

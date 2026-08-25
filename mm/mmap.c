@@ -890,53 +890,58 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr)
 	return NULL;
 }
 
-int mm_mapping_identity_get(struct mm_struct *mm, uintptr_t addr,
-			    struct mm_mapping_identity *identity)
+int mm_map_id_get_locked(struct mm_struct *mm, uintptr_t addr,
+					 struct mm_map_id *id)
 {
 	struct vm_area_struct *vma;
-	int ret = 0;
 
 	if (!mm)
 		return -EFAULT;
 
-	memset(identity, 0, sizeof(*identity));
-	mm_lock(mm);
+	memset(id, 0, sizeof(*id));
 	vma = find_vma(mm, addr);
 	if (!vma) {
-		ret = -EFAULT;
-		goto out;
+		return -EFAULT;
 	}
 	if (!vma->vm_shared) {
-		identity->kind = MM_MAPPING_PRIVATE;
-		goto out;
+		id->kind = MM_MAPPING_PRIVATE;
+		return 0;
 	}
 	if (!vma->vm_file) {
-		identity->kind = MM_MAPPING_SHARED_ANON;
-		goto out;
+		id->kind = MM_MAPPING_SHARED_ANON;
+		return 0;
 	}
 	if (!vma->vm_file->f_inode) {
-		ret = -EFAULT;
-		goto out;
+		return -EFAULT;
 	}
 
-	identity->kind = MM_MAPPING_SHARED_FILE;
-	identity->mapping = &vma->vm_file->f_inode->i_pages;
-	identity->pgoff = vma_page_index(vma, addr);
-	identity->file = vma->vm_file;
-	file_get(identity->file);
+	id->kind = MM_MAPPING_SHARED_FILE;
+	id->mapping = &vma->vm_file->f_inode->i_pages;
+	id->pgoff = vma_page_index(vma, addr);
+	id->file = vma->vm_file;
+	file_get(id->file);
+	return 0;
+}
 
-out:
+int mm_map_id_get(struct mm_struct *mm, uintptr_t addr, struct mm_map_id *id)
+{
+	int ret;
+
+	if (!mm)
+		return -EFAULT;
+	mm_lock(mm);
+	ret = mm_map_id_get_locked(mm, addr, id);
 	mm_unlock(mm);
 	return ret;
 }
 
-void mm_mapping_identity_put(struct mm_mapping_identity *identity)
+void mm_map_id_put(struct mm_map_id *id)
 {
-	if (!identity)
+	if (!id)
 		return;
 
-	file_put(identity->file);
-	memset(identity, 0, sizeof(*identity));
+	file_put(id->file);
+	memset(id, 0, sizeof(*id));
 }
 
 int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident)

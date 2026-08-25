@@ -62,7 +62,6 @@
 #define SYS_set_tid_addr       96
 #define SYS_futex	       98
 #define SYS_set_robust_list    99
-#define SYS_get_robust_list    100
 #define SYS_nanosleep	       101
 #define SYS_getitimer	       102
 #define SYS_setitimer	       103

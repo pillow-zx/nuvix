@@ -11,17 +11,6 @@
 #define FUTEX_BUCKETS		32
 #define ROBUST_LIST_LIMIT	2048
 
-struct futex_key {
-	bool shared;
-	union {
-		struct {
-			struct mm_struct *mm;
-			uintptr_t uaddr;
-		} priv;
-		struct mm_mapping_identity shared_file;
-	};
-};
-
 struct futex_waiter {
 	struct futex_key key;
 	struct list_head node;
@@ -38,8 +27,7 @@ struct futex_bucket {
 
 static struct futex_bucket futex_buckets[FUTEX_BUCKETS];
 
-static void futex_waiter_detach(struct futex_bucket *bucket,
-				struct futex_waiter *waiter)
+static void futex_waiter_detach(struct futex_bucket *bucket, struct futex_waiter *waiter)
 {
 	irq_flags_t flags;
 
@@ -86,48 +74,76 @@ static struct futex_bucket *futex_bucket_for(const struct futex_key *key)
 	return &futex_buckets[hash & (FUTEX_BUCKETS - 1)];
 }
 
-static void futex_key_put(struct futex_key *key)
+void futex_key_put(struct futex_key *key)
 {
 	if (!key)
 		return;
 	if (key->shared)
-		mm_mapping_identity_put(&key->shared_file);
+		mm_map_id_put(&key->shared_file);
+	else
+		mm_put(key->priv.mm);
 	memset(key, 0, sizeof(*key));
 }
 
-static int futex_make_key(struct mm_struct *mm, int *uaddr,
-			  struct futex_key *key)
+static int futex_key_fill(struct futex_key *key, struct mm_struct *mm,
+			  uintptr_t uaddr, const struct mm_map_id *id,
+			  bool mm_owned)
 {
-	struct mm_mapping_identity identity;
-	int ret;
-
-	if (!mm || !uaddr || !key)
-		return -EFAULT;
-	if ((uintptr_t)uaddr & (sizeof(int) - 1))
-		return -EINVAL;
-
 	memset(key, 0, sizeof(*key));
-	ret = mm_mapping_identity_get(mm, (uintptr_t)uaddr, &identity);
-	if (ret < 0)
-		return ret;
-
-	switch (identity.kind) {
+	switch (id->kind) {
 	case MM_MAPPING_PRIVATE:
+		if (!mm_owned)
+			mm_get(mm);
 		key->priv.mm = mm;
-		key->priv.uaddr = (uintptr_t)uaddr;
-		break;
+		key->priv.uaddr = uaddr;
+		return 0;
 	case MM_MAPPING_SHARED_FILE:
 		key->shared = true;
-		/* The key takes ownership of identity's held file reference. */
-		key->shared_file = identity;
-		break;
+		/* The key takes ownership of the held file reference. */
+		key->shared_file = *id;
+		return 0;
 	case MM_MAPPING_SHARED_ANON:
 		return -ENOSYS;
 	default:
 		return -EFAULT;
 	}
+}
 
-	return 0;
+int futex_key_init_locked(struct futex_key *key, struct mm_struct *mm, uintptr_t uaddr)
+{
+	struct mm_map_id id;
+	int ret;
+
+	if (!mm || !uaddr)
+		return -EFAULT;
+	if (uaddr & (sizeof(int) - 1))
+		return -EINVAL;
+
+	memset(key, 0, sizeof(*key));
+	ret = mm_map_id_get_locked(mm, uaddr, &id);
+	if (ret < 0)
+		return ret;
+	return futex_key_fill(key, mm, uaddr, &id, false);
+}
+
+int futex_key_init(struct futex_key *key, struct mm_struct *mm,
+			   uintptr_t uaddr)
+{
+	struct mm_map_id id;
+	int ret;
+
+	if (!mm)
+		return -EFAULT;
+	mm_get(mm);
+	ret = mm_map_id_get(mm, uaddr, &id);
+	if (ret < 0) {
+		mm_put(mm);
+		return ret;
+	}
+	ret = futex_key_fill(key, mm, uaddr, &id, true);
+	if (ret < 0 || key->shared)
+		mm_put(mm);
+	return ret;
 }
 
 static int futex_read_user_value_checked(int *uaddr, int *value)
@@ -145,7 +161,9 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	struct futex_key key;
 	struct futex_bucket *bucket;
 	struct futex_waiter waiter;
-	struct task_wait *wait = &current_task()->wait;
+	struct task_struct *task = current_task();
+	struct proc_struct *proc = task->proc;
+	struct task_wait *wait = &task->wait;
 	wait_outcome_t outcome;
 	irq_flags_t flags;
 	int value;
@@ -154,8 +172,8 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	if (bitset == 0)
 		return -EINVAL;
 
-	ret = futex_make_key(current_task()->proc ? current_task()->proc->mm : NULL,
-			    uaddr, &key);
+	ret = futex_key_init(&key, proc ? proc->mm : NULL,
+			    (uintptr_t)uaddr);
 	if (ret < 0)
 		return ret;
 	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0) {
@@ -173,7 +191,7 @@ static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 	waiter.key = key;
 	memset(&key, 0, sizeof(key));
 	waiter.bitset = bitset;
-	waiter.task = current_task();
+	waiter.task = task;
 	waiter.generation = wait->generation;
 	INIT_LIST_HEAD(&waiter.node);
 	ret = futex_read_user_value_checked(uaddr, &value);
@@ -273,7 +291,7 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 	if (bitset == 0)
 		return -EINVAL;
 
-	ret = futex_make_key(mm, uaddr, &key);
+	ret = futex_key_init(&key, mm, (uintptr_t)uaddr);
 	if (ret < 0)
 		return ret;
 	if (nr <= 0) {
@@ -283,6 +301,11 @@ static int futex_wake_mm_bitset(struct mm_struct *mm, int *uaddr, int nr,
 	ret = futex_wake_key_bitset(&key, nr, bitset);
 	futex_key_put(&key);
 	return ret;
+}
+
+int futex_wake_key(const struct futex_key *key, int nr)
+{
+	return futex_wake_key_bitset(key, nr, FUTEX_BITSET_MATCH_ANY);
 }
 
 int futex_wake_mm(struct mm_struct *mm, int *uaddr, int nr)
@@ -302,33 +325,80 @@ static int futex_wake(int *uaddr, int nr, uint32_t bitset)
 		nr, bitset);
 }
 
-static void robust_wake_owner(struct task_struct *task,
-			      struct robust_list *node, long futex_offset)
+static int robust_futex_address(const struct robust_list *node,
+				long futex_offset, uintptr_t *address)
 {
-	uintptr_t addr;
-	int old_value;
-	int new_value;
-	int *uaddr;
+	uintptr_t node_addr;
+	uintptr_t offset;
 
-	if (!task || !task->proc || !task->proc->mm || !node)
-		return;
+	if (!node || !address)
+		return -EFAULT;
+	node_addr = (uintptr_t)node;
+	if (node_addr & (sizeof(uintptr_t) - 1))
+		return -EINVAL;
+	if (futex_offset >= 0) {
+		offset = (uintptr_t)futex_offset;
+		if (check_add_overflow(node_addr, offset, address))
+			return -EINVAL;
+	} else {
+		offset = (uintptr_t)(-(futex_offset + 1)) + 1;
+		if (check_sub_overflow(node_addr, offset, address))
+			return -EINVAL;
+	}
+	if (*address & (sizeof(uint32_t) - 1) ||
+	    !access_ok((const void *)*address, sizeof(uint32_t)))
+		return -EINVAL;
+	return 0;
+}
 
-	addr = (uintptr_t)node + (uintptr_t)futex_offset;
-	if (addr & (sizeof(int) - 1))
-		return;
-	uaddr = (int *)addr;
-	if (copy_from_user(&old_value, uaddr, sizeof(old_value)) != 0)
-		return;
-	if (((uint32_t)old_value & FUTEX_TID_MASK) !=
-	    (uint32_t)(task->tid ? task->tid->nr : 0))
-		return;
+static int robust_commit_owner_dead(struct mm_struct *mm, uint32_t dead_tid,
+					uintptr_t address)
+{
+	struct uaccess_txn txn;
+	struct futex_key key __cleanup_with(futex_key_ref) = {};
+	uint32_t old_value;
+	uint32_t observed;
+	uint32_t owner = dead_tid & FUTEX_TID_MASK;
+	uint32_t desired;
+	int ret;
 
-	new_value = (old_value & FUTEX_WAITERS) | FUTEX_OWNER_DIED;
-	if (copy_to_user(uaddr, &new_value, sizeof(new_value)) != 0)
-		return;
+	ret = uaccess_begin_mm(&txn, mm);
+	if (ret < 0)
+		return ret;
+	ret = futex_key_init_locked(&key, mm, address);
+	if (ret < 0) {
+		uaccess_end(&txn);
+		return ret;
+	}
+	ret = uaccess_load_u32(&txn, (const volatile uint32_t *)address,
+					 &old_value);
+	if (ret == 0 && (old_value & FUTEX_TID_MASK) != owner)
+		ret = -EAGAIN;
+	if (ret == 0) {
+		desired = (old_value & FUTEX_WAITERS) | FUTEX_OWNER_DIED;
+		ret = uaccess_cmpxchg_u32(&txn, (volatile uint32_t *)address,
+					     old_value, desired, &observed);
+	}
+	uaccess_end(&txn);
+	if (ret == 0) {
+		int wake_ret = futex_wake_key(&key, 1);
 
-	if (futex_wake_mm(task->proc->mm, uaddr, 1) < 0)
-		return;
+		(void)wake_ret;
+	}
+	return ret;
+}
+
+static int robust_owner_dead(struct mm_struct *mm, uint32_t dead_tid,
+				     const struct robust_list *node,
+				     long futex_offset)
+{
+	uintptr_t address;
+	int ret;
+
+	ret = robust_futex_address(node, futex_offset, &address);
+	if (ret < 0)
+		return ret;
+	return robust_commit_owner_dead(mm, dead_tid, address);
 }
 
 void futex_exit_robust_list(struct task_struct *task)
@@ -337,29 +407,67 @@ void futex_exit_robust_list(struct task_struct *task)
 	struct robust_list_head *head_ptr;
 	struct robust_list *entry;
 	struct robust_list *pending;
+	struct mm_struct *mm __cleanup_with(mm_ref) = NULL;
+	uintptr_t *visited __cleanup_with(kfree) = NULL;
+	uint32_t dead_tid;
+	size_t visited_count = 0;
+	irq_flags_t flags;
 
-	head_ptr = task_robust_list(task);
-	if (!task || !head_ptr)
+	if (!task || task_is_idle(task) || !task->proc)
 		return;
-	if (task_robust_list_len(task) != sizeof(struct robust_list_head))
+	spin_lock_irqsave(&task->wait.lock, &flags);
+	if (task->signal.robust_cleanup_done) {
+		spin_unlock_irqrestore(&task->wait.lock, flags);
 		return;
-	if (copy_from_user(&head, head_ptr, sizeof(head)) != 0)
+	}
+	task->signal.robust_cleanup_done = true;
+	head_ptr = task->signal.robust_list;
+	if (task->signal.robust_list_len != sizeof(struct robust_list_head)) {
+		spin_unlock_irqrestore(&task->wait.lock, flags);
 		return;
+	}
+	spin_unlock_irqrestore(&task->wait.lock, flags);
+	if (!head_ptr || ((uintptr_t)head_ptr & (sizeof(uintptr_t) - 1)) ||
+	    !access_ok(head_ptr, sizeof(head)))
+		return;
+	mm = proc_mm_get(task->proc);
+	if (!mm)
+		return;
+	if (uaccess_copy_from_mm(mm, &head, head_ptr, sizeof(head)) < 0)
+		return;
+	visited = kmalloc_array(ROBUST_LIST_LIMIT, sizeof(*visited),
+				ALLOC_NOWAIT);
+	dead_tid = task->tid ? (uint32_t)task->tid->nr : 0;
 
 	entry = head.list.next;
 	for (int i = 0;
-	     entry && entry != &head_ptr->list && i < ROBUST_LIST_LIMIT; i++) {
-		struct robust_list current_rb;
+	     visited && entry && entry != &head_ptr->list &&
+	     i < ROBUST_LIST_LIMIT; i++) {
+		uintptr_t address = (uintptr_t)entry;
+		struct robust_list *next;
+		bool duplicate = false;
 
-		robust_wake_owner(task, entry, head.futex_offset);
-		if (copy_from_user(&current_rb, entry, sizeof(current_rb)) != 0)
+		if ((address & (sizeof(uintptr_t) - 1)) ||
+		    !access_ok(entry, sizeof(entry->next)))
 			break;
-		entry = current_rb.next;
+		for (size_t j = 0; j < visited_count; j++)
+			if (visited[j] == address) {
+				duplicate = true;
+				break;
+			}
+		if (duplicate)
+			break;
+		visited[visited_count++] = address;
+		(void)robust_owner_dead(mm, dead_tid, entry, head.futex_offset);
+		if (uaccess_copy_from_mm(mm, &next, &entry->next,
+					 sizeof(next)) < 0)
+			break;
+		entry = next;
 	}
 
 	pending = head.list_op_pending;
 	if (pending && pending != &head_ptr->list)
-		robust_wake_owner(task, pending, head.futex_offset);
+		(void)robust_owner_dead(mm, dead_tid, pending, head.futex_offset);
 }
 
 int futex_set_robust_list(struct task_struct *task,
@@ -373,24 +481,16 @@ int futex_set_robust_list(struct task_struct *task,
 		return -EFAULT;
 
 	spin_lock_irqsave(&task->wait.lock, &flags);
+	if (task->lifecycle >= TASK_EXITING) {
+		spin_unlock_irqrestore(&task->wait.lock, flags);
+		return -ESRCH;
+	}
 	task_set_robust_list(task, head, len);
 	spin_unlock_irqrestore(&task->wait.lock, flags);
 	return 0;
 }
 
-int futex_get_robust_list(struct task_struct *task,
-			  struct robust_list_head **head, size_t *len)
-{
-	irq_flags_t flags;
-
-	spin_lock_irqsave(&task->wait.lock, &flags);
-	*head = task_robust_list(task);
-	*len = task_robust_list_len(task);
-	spin_unlock_irqrestore(&task->wait.lock, flags);
-	return 0;
-}
-
-int kernel_futex(const struct kernel_futex_args *args)
+int futex(const struct futex_args *args)
 {
 	int cmd;
 

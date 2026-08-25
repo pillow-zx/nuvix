@@ -5,36 +5,14 @@
 #include <nuvix/errno.h>
 #include <nuvix/futex.h>
 #include <nuvix/mm.h>
-#include <nuvix/pid.h>
 #include <nuvix/syscall.h>
 #include <nuvix/task.h>
 #include <nuvix/time.h>
 #include <nuvix/trap.h>
 #include <nuvix/wait.h>
 
-static int futex_copy_timeout(const struct timespec *utimeout,
-			      struct wait_deadline *deadline)
-{
-	struct timespec timeout;
-	int ret;
-
-	if (!deadline)
-		return -EINVAL;
-
-	deadline->active = false;
-	deadline->expires = 0;
-	if (!utimeout)
-		return 0;
-
-	if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
-		return -EFAULT;
-
-	ret = mtime_deadline_from_timespec(&timeout, deadline);
-	return ret;
-}
-
-static int futex_copy_absolute_timeout(const struct timespec *utimeout,
-				       struct wait_deadline *deadline)
+static int futex_copy_deadline(const struct timespec *utimeout,
+				       struct wait_deadline *deadline, bool absolute)
 {
 	struct timespec timeout;
 	uint64_t expires;
@@ -43,14 +21,15 @@ static int futex_copy_absolute_timeout(const struct timespec *utimeout,
 	if (!deadline)
 		return -EINVAL;
 
-	deadline->active = false;
-	deadline->expires = 0;
+	*deadline = wait_deadline_none();
 	if (!utimeout)
 		return 0;
 
 	if (copy_from_user(&timeout, utimeout, sizeof(timeout)) != 0)
 		return -EFAULT;
 
+	if (!absolute)
+		return mtime_deadline_from_timespec(&timeout, deadline);
 	ret = timespec_to_mtime_delta(&timeout, &expires);
 	if (ret < 0)
 		return ret;
@@ -79,18 +58,16 @@ ssize_t sys_futex(struct trap_frame *tf)
 	int *uaddr2 = (int *)syscall_arg(tf, 4);
 	int val3 = (int)syscall_arg(tf, 5);
 	struct wait_deadline deadline;
-	struct kernel_futex_args args;
+	struct futex_args args;
 	int cmd = op & FUTEX_CMD_MASK;
 	int ret;
 
-	deadline.active = false;
-	deadline.expires = 0;
 	if (cmd == FUTEX_WAIT) {
-		ret = futex_copy_timeout(timeout, &deadline);
+		ret = futex_copy_deadline(timeout, &deadline, false);
 		if (ret < 0)
 			return ret;
 	} else if (cmd == FUTEX_WAIT_BITSET) {
-		ret = futex_copy_absolute_timeout(timeout, &deadline);
+		ret = futex_copy_deadline(timeout, &deadline, true);
 		if (ret < 0)
 			return ret;
 	}
@@ -101,7 +78,7 @@ ssize_t sys_futex(struct trap_frame *tf)
 	args.deadline = &deadline;
 	args.uaddr2 = uaddr2;
 	args.val3 = val3;
-	return kernel_futex(&args);
+	return futex(&args);
 }
 
 /*
@@ -117,58 +94,4 @@ ssize_t sys_set_robust_list(struct trap_frame *tf)
 	size_t len = (size_t)syscall_arg(tf, 1);
 
 	return futex_set_robust_list(current_task(), head, len);
-}
-
-/*
- * SYSCALL_SUPPORT(B): get_robust_list
- * Current: queries pid 0 or an existing thread's robust-list pointer and len.
- * Unsupported errno: negative pid returns -EINVAL; missing task returns -ESRCH;
- * cross-thread permission checks are shallow.
- * Future: add permission behavior when credentials are deepened.
- */
-ssize_t sys_get_robust_list(struct trap_frame *tf)
-{
-	long pid = (long)syscall_arg(tf, 0);
-	struct robust_list_head **uhead = (struct robust_list_head **)syscall_arg(tf, 1);
-	size_t *ulen = (size_t *)syscall_arg(tf, 2);
-	struct task_struct *task;
-	struct robust_list_head *head;
-	size_t len;
-	int ret;
-	bool put_task = false;
-
-	if (!uhead || !ulen)
-		return -EFAULT;
-	if (pid < 0)
-		return -EINVAL;
-
-	if (pid == 0) {
-		task = current_task();
-	} else {
-		task = pid_lookup_task((pid_t)pid);
-		put_task = true;
-	}
-	if (!task)
-		return -ESRCH;
-
-	ret = futex_get_robust_list(task, &head, &len);
-	if (ret < 0) {
-		if (put_task)
-			task_put(task);
-		return ret;
-	}
-	if (copy_to_user(uhead, &head, sizeof(head)) != 0) {
-		if (put_task)
-			task_put(task);
-		return -EFAULT;
-	}
-	if (copy_to_user(ulen, &len, sizeof(len)) != 0) {
-		if (put_task)
-			task_put(task);
-		return -EFAULT;
-	}
-	if (put_task)
-		task_put(task);
-
-	return 0;
 }

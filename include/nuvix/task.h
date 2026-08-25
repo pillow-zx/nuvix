@@ -124,6 +124,7 @@ struct task_signal_context {
 	int *clear_child_tid;
 	struct robust_list_head *robust_list;
 	size_t robust_list_len;
+	bool robust_cleanup_done;
 };
 
 struct restart_context {

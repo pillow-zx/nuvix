@@ -41,7 +41,7 @@ static uint32_t wait4_event_mask(int options)
 
 static void clear_child_tid(struct task_struct *task)
 {
-	int *clear_tid = task_clear_child_tid(task);
+	int *clear_tid = task->signal.clear_child_tid;
 	int zero = 0;
 	struct mm_struct *mm;
 

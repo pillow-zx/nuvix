@@ -70,7 +70,6 @@
 	X(SYS_set_tid_addr, "set_tid_addr", sys_set_tid_addr)                  \
 	X(SYS_futex, "futex", sys_futex)                                       \
 	X(SYS_set_robust_list, "set_robust_list", sys_set_robust_list)         \
-	X(SYS_get_robust_list, "get_robust_list", sys_get_robust_list)         \
 	X(SYS_nanosleep, "nanosleep", sys_nanosleep)                           \
 	X(SYS_clock_settime, "clock_settime", sys_clock_settime)               \
 	X(SYS_clock_gettime, "clock_gettime", sys_clock_gettime)               \

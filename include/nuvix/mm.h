@@ -7,6 +7,7 @@
  */
 
 #include <nuvix/compiler.h>
+#include <nuvix/cleanup.h>
 #include <nuvix/types.h>
 #include <nuvix/fs.h>
 
@@ -16,7 +17,7 @@ enum mm_mapping_kind {
 	MM_MAPPING_SHARED_ANON,
 };
 
-struct mm_mapping_identity {
+struct mm_map_id {
 	enum mm_mapping_kind kind;
 	struct page_mapping *mapping;
 	uint64_t pgoff;
@@ -58,6 +59,8 @@ void mm_get(struct mm_struct *mm);
  * @param mm Address space to release; may be NULL.
  */
 void mm_put(struct mm_struct *mm);
+
+CLEANUP_DEFINE(mm_ref, struct mm_struct *, if (_T) mm_put(_T));
 
 /**
  * @brief Return the current number of references to an address space.
@@ -103,17 +106,22 @@ int mm_user_page_resident(struct mm_struct *mm, uintptr_t addr, bool *resident);
  * @return 0 on success, or a negative errno.
  *
  * The helper serializes the VMA lookup with @c mmap_lock. Callers must release
- * a successful file-backed result with mm_mapping_identity_put().
+ * a successful file-backed result with mm_map_id_put().
  */
 __must_check __nonnull(3)
-int mm_mapping_identity_get(struct mm_struct *mm, uintptr_t addr,
-			    struct mm_mapping_identity *identity);
+int mm_map_id_get(struct mm_struct *mm, uintptr_t addr,
+			  struct mm_map_id *id);
+
+/** Resolve a mapping while the caller already holds mmap_lock. */
+__must_check __nonnull(3)
+int mm_map_id_get_locked(struct mm_struct *mm, uintptr_t addr,
+				 struct mm_map_id *id);
 
 /**
- * @brief Release a mapping identity acquired by mm_mapping_identity_get().
- * @param identity Mapping identity to release; may be NULL.
+ * @brief Release a mapping identity acquired by mm_map_id_get().
+ * @param id Mapping identity to release; may be NULL.
  */
-void mm_mapping_identity_put(struct mm_mapping_identity *identity);
+void mm_map_id_put(struct mm_map_id *id);
 
 __must_check
 int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot);
