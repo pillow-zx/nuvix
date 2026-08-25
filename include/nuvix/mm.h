@@ -23,6 +23,23 @@ struct mm_mapping_identity {
 	struct file *file;
 };
 
+struct mm_mapping_release {
+	paddr_t pa;
+	bool dirty;
+};
+
+struct mm_teardown {
+	struct mm_mapping_release *release;
+	size_t nr_release;
+	size_t release_capacity;
+};
+
+/** One explicit lifetime transaction for accesses to one address space. */
+struct uaccess_txn {
+	struct mm_struct *mm;
+	struct mm_teardown teardown;
+};
+
 /**
  * @brief Create an empty user address space.
  * @return New mm with a user page table, or NULL on allocation failure.
@@ -207,17 +224,54 @@ bool access_ok(const void *addr, size_t size);
 __must_check
 int user_range_probe(const void *addr, size_t size, bool write);
 
+/** Begin a transaction for an explicitly supplied address space. */
+__must_check __nonnull(1, 2)
+int uaccess_begin_mm(struct uaccess_txn *txn, struct mm_struct *mm);
+
+/** End a transaction and release its MM/mapping references. */
+__nonnull(1)
+void uaccess_end(struct uaccess_txn *txn);
+
+/** Copy user memory while @p txn owns its mmap lifetime window. */
+__must_check __nonnull(1, 2, 3)
+int uaccess_copy_from(struct uaccess_txn *txn, void *to,
+				  const void *from, size_t n);
+
+/** Copy to user memory while @p txn owns its mmap lifetime window. */
+__must_check __nonnull(1, 2, 3)
+int uaccess_copy_to(struct uaccess_txn *txn, void *to,
+				const void *from, size_t n);
+
+/** Conditional acquire-release update of one user u32 in @p txn. */
+__must_check __nonnull(1, 2)
+int uaccess_cmpxchg_u32(struct uaccess_txn *txn, volatile uint32_t *addr,
+				    uint32_t expected, uint32_t desired,
+				    uint32_t *observed);
+
+/** Fault-safe acquire load prepared for a following write in @p txn. */
+__must_check __nonnull(1, 2)
+int uaccess_load_u32(struct uaccess_txn *txn,
+				 const volatile uint32_t *addr, uint32_t *value);
+
+/** Copy from an explicitly supplied address space in one transaction. */
+__must_check __nonnull(1, 2, 3)
+int uaccess_copy_from_mm(struct mm_struct *mm, void *to, const void *from,
+				 size_t n);
+
 /**
  * @brief Copy bytes from kernel memory to userspace.
  * @param to Destination user pointer.
  * @param from Source kernel pointer.
  * @param n Number of bytes requested.
- * @return Number of bytes not copied; 0 means complete success.
+ * @return 0 on success, or @p n if the requested range could not be copied.
+ *
+ * The range is validated and faulted in before copying, so this helper has
+ * all-or-nothing semantics.
  *
  * User memory must cross the kernel/userspace boundary through this helper or
  * an equivalent uaccess helper, never through direct dereference.
  */
-__must_check __access(read_write, 1, 3) __access(read_only, 2, 3)
+__must_check __access(read_write, 1, 3) __access(read_only, 2, 3) __hot
 size_t copy_to_user(void *to, const void *from, size_t n);
 
 
@@ -226,9 +280,12 @@ size_t copy_to_user(void *to, const void *from, size_t n);
  * @param to Destination kernel pointer.
  * @param from Source user pointer.
  * @param n Number of bytes requested.
- * @return Number of bytes not copied; 0 means complete success.
+ * @return 0 on success, or @p n if the requested range could not be copied.
+ *
+ * The range is validated and faulted in before copying, so this helper has
+ * all-or-nothing semantics.
  */
-__must_check __access(write_only, 1, 3) __access(read_only, 2, 3)
+__must_check __access(write_only, 1, 3) __access(read_only, 2, 3) __hot
 size_t copy_from_user(void *to, const void *from, size_t n);
 
 

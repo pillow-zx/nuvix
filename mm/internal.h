@@ -52,17 +52,6 @@ struct mm_struct {
 	struct vm_area_struct vma[NR_VMA];
 };
 
-struct mm_mapping_release {
-	paddr_t pa;
-	bool dirty;
-};
-
-struct mm_teardown {
-	struct mm_mapping_release *release;
-	size_t nr_release;
-	size_t release_capacity;
-};
-
 static_assert(NR_VMA > 0, "NR_VMA must stay positive");
 
 __always_inline __must_check __const
@@ -207,27 +196,6 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size, int a
 __must_check __nonnull(1, 5)
 int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr, size_t size,
 			       int access, struct mm_teardown *teardown);
-
-/* One uaccess lifetime transaction: pins the MM with its own reference,
- * holds mmap_lock across fault-in and the actual user accesses, and
- * defers mapping-reference release to transaction end.  The exception
- * table only turns a faulting access into an error; mapping lifetime
- * comes exclusively from the lock held by this transaction. */
-struct uaccess_txn {
-	struct mm_struct *mm;
-	struct mm_teardown teardown;
-};
-
-/* Take the current Task's Proc MM reference and acquire mmap_lock.
- * Returns 0 with the lock held, or a negative errno with the
- * transaction left inert. */
-__must_check __nonnull(1)
-int uaccess_txn_begin(struct uaccess_txn *txn);
-
-/* Release mmap_lock, drop deferred mapping references outside the lock,
- * then drop the MM reference.  Safe on an inert transaction. */
-__nonnull(1)
-void uaccess_txn_end(struct uaccess_txn *txn);
 
 __must_check __nonnull(1)
 struct vm_area_struct *vma_alloc_slot(struct mm_struct *mm);
