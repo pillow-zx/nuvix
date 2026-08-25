@@ -10,63 +10,48 @@
 #include <nuvix/task.h>
 #include <nuvix/trap.h>
 
-static struct task_struct *affinity_target_task(pid_t pid, bool *put_task)
-{
-	if (pid == 0) {
-		*put_task = false;
-		return current_task();
-	}
-
-	*put_task = true;
-	return pid_lookup_task(pid);
-}
-
 /*
  * SYSCALL_SUPPORT(C): sched_setaffinity
- * Current: accepts one 64-bit mask word and intersects it with the
- * scheduler-owned schedulable mask. A shorter word is rejected.
+ * Current: accepts the configured cpumask width and intersects the requested
+ * mask with the scheduler policy. A shorter buffer is rejected.
  * Unsupported errno: empty CPU set returns -EINVAL; missing target returns
  * -ESRCH; unauthorized cross-user target returns -EPERM.
- * The scheduler owns placement and rejects changes while queued or running.
+ * Requested and effective masks are retained separately; queued/running
+ * updates remain valid under the current CPU0-only policy.
  */
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
-	const uint64_t *umask = (const uint64_t *)syscall_arg(tf, 2);
-	uint64_t mask = 0;
+	const cpumask_t *umask = (const cpumask_t *)syscall_arg(tf, 2);
+	cpumask_t mask;
+	struct task_struct *owned __cleanup_with(task_ref) = NULL;
 	struct task_struct *task;
-	bool put_task;
 	ssize_t ret = 0;
 
-	if (pid < 0)
+	if (pid < 0 || pid > PID_MAX)
 		return -ESRCH;
-	if (cpusetsize < sizeof(mask))
+	if (cpusetsize < cpumask_size())
 		return -EINVAL;
 	if (!umask)
 		return -EFAULT;
 
-	task = affinity_target_task(pid, &put_task);
+	task = task_get_target((pid_t)pid, &owned);
 	if (!task)
 		return -ESRCH;
-	if (task != current_task() && current_task() &&
-	    task_uid(current_task()) != 0 &&
-	    task_uid(current_task()) != task_uid(task)) {
-		ret = -EPERM;
+	ret = task_access_check(current_task(), task,
+				TASK_ACCESS_SCHEDULER_WRITE);
+	if (ret < 0)
 		goto out;
-	}
 
-	/* Larger user buffers are accepted, but this riscv64 kernel's exposed
-	 * affinity word is exactly 64 bits. */
-	if (copy_from_user(&mask, umask, sizeof(mask)) != 0) {
+	/* Larger user buffers are accepted; trailing bytes are ignored. */
+	if (copy_from_user(&mask, umask, cpumask_size()) != 0) {
 		ret = -EFAULT;
 		goto out;
 	}
-	ret = sched_set_affinity(task, mask);
+	ret = sched_set_affinity(task, &mask);
 
 out:
-	if (put_task)
-		task_put(task);
 	return ret;
 }
 
@@ -75,36 +60,33 @@ out:
  * Current: reports the scheduler-owned mask for any existing target task.
  * Unsupported errno: too-small cpusetsize returns -EINVAL; missing target
  * returns -ESRCH.
- * The returned 64-bit word is intersected with the currently schedulable CPUs.
+ * The returned configured-width mask is the effective policy intersection.
  */
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {
 	long pid = (long)syscall_arg(tf, 0);
 	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
-	uint64_t *umask = (uint64_t *)syscall_arg(tf, 2);
-	uint64_t mask;
+	cpumask_t *umask = (cpumask_t *)syscall_arg(tf, 2);
+	cpumask_t mask;
+	struct task_struct *owned __cleanup_with(task_ref) = NULL;
 	struct task_struct *task;
-	bool put_task;
 	ssize_t ret;
 
-	if (pid < 0)
+	if (pid < 0 || pid > PID_MAX)
 		return -ESRCH;
-	if (cpusetsize < sizeof(mask))
+	if (cpusetsize < cpumask_size())
 		return -EINVAL;
 	if (!umask)
 		return -EFAULT;
 
-	task = affinity_target_task(pid, &put_task);
+	task = task_get_target((pid_t)pid, &owned);
 	if (!task)
 		return -ESRCH;
 	mask = sched_get_affinity(task);
 
-	ret = copy_to_user(umask, &mask, sizeof(mask)) != 0
+	ret = copy_to_user(umask, &mask, cpumask_size()) != 0
 		      ? -EFAULT
-		      : (ssize_t)sizeof(mask);
-	if (put_task)
-		task_put(task);
-
+		      : (ssize_t)cpumask_size();
 	return ret;
 }
 

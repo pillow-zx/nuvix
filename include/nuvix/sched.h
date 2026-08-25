@@ -12,12 +12,8 @@
 #include <nuvix/spinlock.h>
 #include <arch/processor.h>
 
-/*
- * Boot baseline: every task is affine to logical CPU 0 until
- * sched_set_affinity replaces the mask. The configured CPU count is fixed at
- * boot.
- */
-#define SCHED_BOOT_AFFINITY_MASK BIT(0)
+/* Boot policy keeps ordinary Tasks schedulable on logical CPU 0. */
+#define SCHED_BOOT_AFFINITY_CPU 0u
 
 /**
  * @brief Initialize scheduler queues and policy state.
@@ -84,9 +80,9 @@ bool sched_wake(struct task_struct *task, uint64_t generation);
 /** Wake a task waiting on a scheduler-owned completion channel. */
 bool sched_wake_external(struct task_struct *task);
 
-int sched_set_affinity(struct task_struct *task, uint64_t mask);
+int sched_set_affinity(struct task_struct *task, const cpumask_t *requested);
 
-uint64_t sched_get_affinity(struct task_struct *task);
+cpumask_t sched_get_affinity(struct task_struct *task);
 
 /**
  * Transfer one retired Task to the independent reaper.

@@ -106,7 +106,7 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 		if (id != boot_id)
 			secondary_mask |= (1ULL << id);
 	BUG_ON((cpu_online_mask() & ~(1ULL << boot_id)) != secondary_mask);
-	BUG_ON(cpu_schedulable_mask() != SCHED_BOOT_AFFINITY_MASK);
+	BUG_ON(cpu_schedulable_mask() != (1ULL << SCHED_BOOT_AFFINITY_CPU));
 
 	if (nr_cpus == 1)
 		goto out;
@@ -239,7 +239,7 @@ void smp_boot_cpus(void)
 	 * syscall/VFS/device or thread initialization proceeds. */
 	smp_boot_gate(boot_id, &timer_seen, &ipi_seen);
 	/* Secondaries stay online but unschedulable until the migration stage. */
-	BUG_ON(cpu_schedulable_mask() != SCHED_BOOT_AFFINITY_MASK);
+	BUG_ON(cpu_schedulable_mask() != (1ULL << SCHED_BOOT_AFFINITY_CPU));
 	smp_probe_record(timer_seen, ipi_seen);
 	atomic_set_release(&smp_boot_done, 1);
 }

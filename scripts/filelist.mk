@@ -41,6 +41,7 @@ KERNEL_OBJS = \
 	kernel/ipi.o            \
 	kernel/stacktrace.o     \
 	kernel/mutex.o          \
+	kernel/cpu.o            \
 	kernel/task.o           \
 	kernel/proc.o           \
 	kernel/fork.o           \

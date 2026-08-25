@@ -6,6 +6,7 @@
  */
 
 #include <nuvix/types.h>
+#include <nuvix/bitops.h>
 #include <nuvix/compiler.h>
 #include <nuvix/tools.h>
 #include <nuvix/printk.h>
@@ -13,7 +14,74 @@
 #include <arch/cpu.h>
 #include <arch/irq.h>
 
-#define NR_CPUS CONFIG_QEMU_CPUS
+#define NR_CPUS                 CONFIG_QEMU_CPUS
+#define CPUMASK_WORD_BITS       64u
+#define CPUMASK_WORDS           ((NR_CPUS + CPUMASK_WORD_BITS - 1) / CPUMASK_WORD_BITS)
+
+typedef struct cpumask {
+	uint64_t bits[CPUMASK_WORDS];
+} cpumask_t;
+
+__always_inline __must_check __const
+static inline size_t cpumask_size(void)
+{
+	return sizeof(cpumask_t);
+}
+
+__always_inline __nonnull(1)
+static inline void cpumask_zero(cpumask_t *mask)
+{
+	for (uint32_t word = 0; word < CPUMASK_WORDS; word++)
+		mask->bits[word] = 0;
+}
+
+__always_inline __nonnull(1, 2)
+static inline void cpumask_copy(cpumask_t *to, const cpumask_t *from)
+{
+	for (uint32_t word = 0; word < CPUMASK_WORDS; word++)
+		to->bits[word] = from->bits[word];
+}
+
+__always_inline __nonnull(1)
+static inline void cpumask_set_cpu(cpumask_t *mask, uint32_t cpu)
+{
+	if (cpu < NR_CPUS)
+		mask->bits[cpu / CPUMASK_WORD_BITS] |=
+			BIT_U64(cpu % CPUMASK_WORD_BITS);
+}
+
+__always_inline __must_check __nonnull(1)
+static inline bool cpumask_test_cpu(const cpumask_t *mask, uint32_t cpu)
+{
+	return cpu < NR_CPUS && (mask->bits[cpu / CPUMASK_WORD_BITS] &
+		BIT_U64(cpu % CPUMASK_WORD_BITS));
+}
+
+__always_inline __nonnull(1, 2, 3)
+static inline void cpumask_and(cpumask_t *to, const cpumask_t *left, const cpumask_t *right)
+{
+	for (uint32_t word = 0; word < CPUMASK_WORDS; word++)
+		to->bits[word] = left->bits[word] & right->bits[word];
+}
+
+__always_inline __must_check __nonnull(1)
+static inline bool cpumask_empty(const cpumask_t *mask)
+{
+	for (uint32_t word = 0; word < CPUMASK_WORDS; word++)
+		if (mask->bits[word] != 0)
+			return false;
+	return true;
+}
+
+__always_inline __must_check __nonnull(1)
+static inline uint32_t cpumask_first(const cpumask_t *mask)
+{
+	for (uint32_t word = 0; word < CPUMASK_WORDS; word++) {
+		if (mask->bits[word] != 0)
+			return word * CPUMASK_WORD_BITS + ctzll(mask->bits[word]);
+	}
+	return NR_CPUS;
+}
 
 #define CPU_OFFLINE  0u
 #define CPU_BOOTING  1u

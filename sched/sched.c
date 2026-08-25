@@ -84,13 +84,14 @@ static struct runqueue *sched_rq_for_task(struct task_struct *task)
 	return sched_rq_for_cpu(cpu);
 }
 
-static struct cpu *sched_select_cpu(uint64_t mask)
+static struct cpu *sched_select_cpu(const cpumask_t *mask)
 {
-	uint64_t allowed = mask & cpu_schedulable_mask();
+	uint32_t cpu_id;
 
-	if (!allowed)
+	if (!mask || cpumask_empty(mask))
 		return NULL;
-	return cpu_by_id((uint32_t)ctzll(allowed));
+	cpu_id = cpumask_first(mask);
+	return cpu_by_id(cpu_id);
 }
 
 static struct runqueue *sched_rq_for_task_locked(struct task_struct *task)
@@ -98,8 +99,8 @@ static struct runqueue *sched_rq_for_task_locked(struct task_struct *task)
 	struct cpu *cpu = task->cpu;
 
 	if (!cpu || !cpu_is_schedulable(cpu->id) ||
-	    !(task->allowed_cpus & (1ULL << cpu->id)))
-		cpu = sched_select_cpu(task->allowed_cpus);
+	    !cpumask_test_cpu(&task->effective_affinity, cpu->id))
+		cpu = sched_select_cpu(&task->effective_affinity);
 	BUG_ON(!cpu);
 	return sched_rq_for_cpu(cpu);
 }
@@ -116,8 +117,8 @@ static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
 	BUG_ON(!rq || !task || task->on_rq);
 	BUG_ON(!cpu_is_schedulable(rq->cpu_id));
 	/* Affinity invariant: a task may only sit on a runqueue whose CPU is
-	 * in its allowed mask. CPU assignment is scheduler-owner state. */
-	BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
+	 * in its effective affinity. */
+	BUG_ON(!cpumask_test_cpu(&task->effective_affinity, rq->cpu_id));
 	/* Direct slot indexing: runqueues are indexed 0..NR_CPUS-1 and the
 	 * slot always exists; cpu_by_id() would truncate at nr_cpu_ids. */
 	task->cpu = &cpu_table[(uint32_t)(rq - runqueues)];
@@ -212,11 +213,11 @@ void sched_enqueue_new(struct task_struct *task)
 	    !task_is_exiting(task)) {
 		cpu = task->cpu;
 		if (!cpu || !cpu_is_schedulable(cpu->id) ||
-		    !(task->allowed_cpus & (1ULL << cpu->id))) {
+		    !cpumask_test_cpu(&task->effective_affinity, cpu->id)) {
 			cpu = current_cpu();
 			if (!cpu_is_schedulable(cpu->id) ||
-			    !(task->allowed_cpus & (1ULL << cpu->id)))
-				cpu = sched_select_cpu(task->allowed_cpus);
+			    !cpumask_test_cpu(&task->effective_affinity, cpu->id))
+				cpu = sched_select_cpu(&task->effective_affinity);
 		}
 		BUG_ON(!cpu);
 		rq = sched_rq_for_cpu(cpu);
@@ -296,7 +297,7 @@ bool sched_wake(struct task_struct *task, uint64_t generation)
 	    task->wait.generation == generation &&
 	    task->lifecycle == TASK_LIVE && task->run_state == TASK_BLOCKED) {
 		rq = sched_rq_for_task_locked(task);
-		BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
+		BUG_ON(!cpumask_test_cpu(&task->effective_affinity, rq->cpu_id));
 		spin_lock_irqsave(&rq->lock, &rq_flags);
 		task->run_state = TASK_RUNNABLE;
 		if (!task->on_rq)
@@ -311,43 +312,70 @@ bool sched_wake(struct task_struct *task, uint64_t generation)
 	return woke;
 }
 
-int sched_set_affinity(struct task_struct *task, uint64_t mask)
+static void sched_possible_mask(cpumask_t *mask)
 {
-	uint64_t schedulable = cpu_schedulable_mask();
-	uint64_t allowed = mask & schedulable;
+	cpumask_zero(mask);
+	for (uint32_t id = 0; id < nr_cpu_ids; id++)
+		cpumask_set_cpu(mask, id);
+}
+
+static void sched_policy_mask(cpumask_t *mask)
+{
+	cpumask_zero(mask);
+	for (uint32_t id = 0; id < nr_cpu_ids; id++)
+		if (cpu_is_schedulable(id))
+			cpumask_set_cpu(mask, id);
+}
+
+int sched_set_affinity(struct task_struct *task, const cpumask_t *requested)
+{
+	cpumask_t possible;
+	cpumask_t normalized;
+	cpumask_t policy_mask;
+	cpumask_t effective;
 	struct runqueue *rq;
 	struct cpu *target;
 	irq_flags_t wait_flags;
 	irq_flags_t rq_flags;
-	int ret = 0;
 
-	if (!task || !mask || !allowed)
+	if (!task || !requested)
 		return -EINVAL;
-	target = sched_select_cpu(allowed);
+	sched_possible_mask(&possible);
+	cpumask_and(&normalized, requested, &possible);
+	if (cpumask_empty(&normalized))
+		return -EINVAL;
+	sched_policy_mask(&policy_mask);
+	cpumask_and(&effective, &normalized, &policy_mask);
+	if (cpumask_empty(&effective))
+		return -EINVAL;
+	target = sched_select_cpu(&effective);
 	BUG_ON(!target);
 	spin_lock_irqsave(&task->wait.lock, &wait_flags);
 	rq = sched_rq_for_task(task);
 	spin_lock_irqsave(&rq->lock, &rq_flags);
-	if (task->on_rq || task->on_cpu)
-		ret = -EBUSY;
-	else {
-		task->allowed_cpus = allowed;
+	/* The stable policy has one schedulable CPU, so every successful
+	 * effective mask already contains the CPU on which an ordinary Task can
+	 * be queued or running. Later SMP migration can extend this seam. */
+	cpumask_copy(&task->requested_affinity, &normalized);
+	cpumask_copy(&task->effective_affinity, &effective);
+	if (!task->on_rq && !task->on_cpu)
 		task->cpu = target;
-	}
 	spin_unlock_irqrestore(&rq->lock, rq_flags);
 	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
-	return ret;
+	return 0;
 }
 
-uint64_t sched_get_affinity(struct task_struct *task)
+cpumask_t sched_get_affinity(struct task_struct *task)
 {
+	cpumask_t policy_mask;
+	cpumask_t mask = {0};
 	irq_flags_t flags;
-	uint64_t mask;
 
 	if (!task)
-		return 0;
+		return mask;
+	sched_policy_mask(&policy_mask);
 	spin_lock_irqsave(&task->wait.lock, &flags);
-	mask = task->allowed_cpus & cpu_schedulable_mask();
+	cpumask_and(&mask, &task->requested_affinity, &policy_mask);
 	spin_unlock_irqrestore(&task->wait.lock, flags);
 	return mask;
 }
@@ -365,7 +393,7 @@ bool sched_wake_external(struct task_struct *task)
 	spin_lock_irqsave(&task->wait.lock, &wait_flags);
 	if (task->lifecycle == TASK_LIVE && !task->on_rq && !task->on_cpu) {
 		rq = sched_rq_for_task_locked(task);
-		BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
+		BUG_ON(!cpumask_test_cpu(&task->effective_affinity, rq->cpu_id));
 		spin_lock_irqsave(&rq->lock, &rq_flags);
 		task->run_state = TASK_RUNNABLE;
 		sched_enqueue_locked(rq, task, SCHED_ENQUEUE_WAKE);
@@ -467,7 +495,7 @@ bool sched_resume(struct task_struct *task)
 	spin_lock_irqsave(&task->wait.lock, &wait_flags);
 	if (task->lifecycle == TASK_LIVE && task->run_state == TASK_STOPPED) {
 		rq = sched_rq_for_task_locked(task);
-		BUG_ON(!(task->allowed_cpus & (1ULL << rq->cpu_id)));
+		BUG_ON(!cpumask_test_cpu(&task->effective_affinity, rq->cpu_id));
 		spin_lock_irqsave(&rq->lock, &rq_flags);
 		task->run_state = TASK_RUNNABLE;
 		if (!task->on_rq)

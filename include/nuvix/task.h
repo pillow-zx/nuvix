@@ -22,6 +22,7 @@
  */
 
 #include <nuvix/atomic.h>
+#include <nuvix/cleanup.h>
 #include <nuvix/compiler.h>
 #include <nuvix/cpu.h>
 #include <nuvix/list.h>
@@ -162,7 +163,8 @@ struct task_struct {
 	struct cpu *cpu;
 	bool on_rq;
 	bool on_cpu;
-	uint64_t allowed_cpus;
+	cpumask_t requested_affinity;
+	cpumask_t effective_affinity;
 
 	struct task_sched_entity sched;
 	struct task_wait wait;
@@ -235,6 +237,17 @@ __must_check
 bool task_try_get_live(struct task_struct *task);
 
 void task_put(struct task_struct *task);
+
+CLEANUP_DEFINE(task_ref, struct task_struct *, if (_T) task_put(_T));
+
+/** Look up a target; @p owned receives a cross-task reference, if any. */
+__must_check __nonnull(2)
+static inline struct task_struct *task_get_target(pid_t pid,
+						   struct task_struct **owned)
+{
+	*owned = pid ? pid_lookup_task(pid) : NULL;
+	return pid ? *owned : current_task();
+}
 
 void task_free(struct task_struct *task);
 
