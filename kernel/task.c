@@ -89,65 +89,127 @@ void cred_put(struct cred *cred)
 		kfree(cred);
 }
 
-int task_set_uid(struct task_struct *task, uid_t uid)
+static void cred_replace(struct task_struct *task, struct cred *cred)
 {
 	struct cred *old;
+
+	spin_lock(&task->wait.lock);
+	old = task->cred;
+	task->cred = cred;
+	spin_unlock(&task->wait.lock);
+	cred_put(old);
+}
+
+struct cred *task_cred_get(struct task_struct *task)
+{
+	struct cred *cred;
+	irq_flags_t flags;
+
+	if (!task || task_is_idle(task))
+		return NULL;
+	spin_lock_irqsave(&task->wait.lock, &flags);
+	cred = task->cred;
+	cred_get(cred);
+	spin_unlock_irqrestore(&task->wait.lock, flags);
+	return cred;
+}
+
+static bool cred_uid_match(const struct cred *a, const struct cred *b)
+{
+	return a->ruid == b->ruid || a->ruid == b->euid ||
+	       a->ruid == b->suid || a->euid == b->ruid ||
+	       a->euid == b->euid || a->euid == b->suid ||
+	       a->suid == b->ruid || a->suid == b->euid ||
+	       a->suid == b->suid;
+}
+
+static bool cred_gid_match(const struct cred *a, const struct cred *b)
+{
+	return a->rgid == b->rgid || a->rgid == b->egid ||
+	       a->rgid == b->sgid || a->egid == b->rgid ||
+	       a->egid == b->egid || a->egid == b->sgid ||
+	       a->sgid == b->rgid || a->sgid == b->egid ||
+	       a->sgid == b->sgid;
+}
+
+int task_access_check(struct task_struct *caller, struct task_struct *target,
+			      enum task_access_mode mode)
+{
+	struct cred *caller_cred __cleanup_with(cred_ref) = NULL;
+	struct cred *target_cred __cleanup_with(cred_ref) = NULL;
+	bool allowed;
+
+	if (!caller || !target)
+		return -ESRCH;
+	if (caller == target)
+		return 0;
+	if (mode != TASK_ACCESS_SCHEDULER_WRITE)
+		return -EINVAL;
+	caller_cred = task_cred_get(caller);
+	target_cred = task_cred_get(target);
+	if (!caller_cred || !target_cred) {
+		return -EPERM;
+	}
+	allowed = caller_cred->ruid == 0 || caller_cred->euid == 0 ||
+		  caller_cred->suid == 0 || cred_uid_match(caller_cred, target_cred) ||
+		  cred_gid_match(caller_cred, target_cred);
+	return allowed ? 0 : -EPERM;
+}
+
+int task_set_uid(struct task_struct *task, uid_t uid)
+{
+	struct cred *source __cleanup_with(cred_ref) = task_cred_get(task);
 	struct cred *cred;
 
-	if (!task || !task->cred)
+	if (!source)
 		return -EINVAL;
-	cred = cred_dup(task->cred);
+	cred = cred_dup(source);
 	if (!cred)
 		return -ENOMEM;
 	cred->ruid = uid;
 	cred->euid = uid;
 	cred->suid = uid;
 	cred->fsuid = uid;
-	old = task->cred;
-	task->cred = cred;
-	cred_put(old);
+	cred_replace(task, cred);
 	return 0;
 }
 
 int task_set_gid(struct task_struct *task, gid_t gid)
 {
-	struct cred *old;
+	struct cred *source __cleanup_with(cred_ref) = task_cred_get(task);
 	struct cred *cred;
 
-	if (!task || !task->cred)
+	if (!source)
 		return -EINVAL;
-	cred = cred_dup(task->cred);
+	cred = cred_dup(source);
 	if (!cred)
 		return -ENOMEM;
 	cred->rgid = gid;
 	cred->egid = gid;
 	cred->sgid = gid;
 	cred->fsgid = gid;
-	old = task->cred;
-	task->cred = cred;
-	cred_put(old);
+	cred_replace(task, cred);
 	return 0;
 }
 
 int task_set_groups(struct task_struct *task, const gid_t *groups,
-		    uint32_t ngroups)
+			    uint32_t ngroups)
 {
-	struct cred *old;
+	struct cred *source __cleanup_with(cred_ref) = task_cred_get(task);
 	struct cred *cred;
 
-	if (!task || !task->cred)
+	if (!source)
 		return -EINVAL;
-	if (ngroups > NGROUPS_MAX)
+	if (ngroups > NGROUPS_MAX || (ngroups != 0 && !groups)) {
 		return -EINVAL;
-	cred = cred_dup(task->cred);
+	}
+	cred = cred_dup(source);
 	if (!cred)
 		return -ENOMEM;
 	if (ngroups > 0)
 		memcpy(cred->groups, groups, ngroups * sizeof(gid_t));
 	cred->ngroups = ngroups;
-	old = task->cred;
-	task->cred = cred;
-	cred_put(old);
+	cred_replace(task, cred);
 	return 0;
 }
 
@@ -311,11 +373,17 @@ int task_init_resources(struct task_struct *task)
 
 void task_release_resources(struct task_struct *task)
 {
+	struct cred *cred;
+	irq_flags_t flags;
+
 	if (!task)
 		return;
 	sig_task_release(task);
-	cred_put(task->cred);
+	spin_lock_irqsave(&task->wait.lock, &flags);
+	cred = task->cred;
 	task->cred = NULL;
+	spin_unlock_irqrestore(&task->wait.lock, flags);
+	cred_put(cred);
 }
 
 bool task_begin_exit(struct task_struct *task)

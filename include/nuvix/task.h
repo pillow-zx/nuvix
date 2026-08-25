@@ -29,6 +29,7 @@
 #include <nuvix/proc.h>
 #include <nuvix/refcount.h>
 #include <nuvix/rseq_types.h>
+#include <nuvix/task_access.h>
 #include <nuvix/wait.h>
 #include <nuvix/types.h>
 #include <arch/task.h>
@@ -199,8 +200,6 @@ __must_check
 struct cred *cred_dup(const struct cred *source);
 
 void cred_get(struct cred *cred);
-
-void cred_put(struct cred *cred);
 
 int task_set_uid(struct task_struct *task, uid_t uid);
 

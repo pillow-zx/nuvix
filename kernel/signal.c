@@ -809,22 +809,25 @@ static bool signal_same_session(const struct task_struct *sender,
 	return sender_sid == target_sid;
 }
 
-static bool signal_may_send_to_task(const struct task_struct *target, int sig)
+static bool signal_may_send_to_task(struct task_struct *target, int sig)
 {
-	const struct task_struct *sender = current_task();
-	const struct cred *sender_cred;
-	const struct cred *target_cred;
+	struct task_struct *sender = current_task();
+	struct cred *sender_cred __cleanup_with(cred_ref) = NULL;
+	struct cred *target_cred __cleanup_with(cred_ref) = NULL;
+	bool allowed;
 
-	if (!sender || !target || !sender->cred || !target->cred)
+	if (!sender || !target)
 		return false;
-	sender_cred = sender->cred;
-	target_cred = target->cred;
-	if (sender_cred->euid == 0 || sender_cred->euid == target_cred->ruid ||
-	    sender_cred->euid == target_cred->suid ||
-	    sender_cred->ruid == target_cred->ruid ||
-	    sender_cred->ruid == target_cred->suid)
-		return true;
-	return sig == SIGCONT && signal_same_session(sender, target);
+	sender_cred = task_cred_get(sender);
+	target_cred = task_cred_get(target);
+	if (!sender_cred || !target_cred)
+		return false;
+	allowed = sender_cred->euid == 0 ||
+		  sender_cred->euid == target_cred->ruid ||
+		  sender_cred->euid == target_cred->suid ||
+		  sender_cred->ruid == target_cred->ruid ||
+		  sender_cred->ruid == target_cred->suid;
+	return allowed || (sig == SIGCONT && signal_same_session(sender, target));
 }
 
 static int signal_send_user_pgrp_snapshot(int sig, const siginfo_t *info,

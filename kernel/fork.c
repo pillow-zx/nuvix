@@ -202,8 +202,13 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags,
 
 static int clone_copy_cred(struct task_struct *child)
 {
-	struct cred *cred = cred_dup(current_task()->cred);
+	struct cred *source __cleanup_with(cred_ref) =
+		task_cred_get(current_task());
+	struct cred *cred;
 
+	if (!source)
+		return -EINVAL;
+	cred = cred_dup(source);
 	if (!cred)
 		return -ENOMEM;
 	cred_put(child->cred);
