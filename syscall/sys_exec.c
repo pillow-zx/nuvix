@@ -139,7 +139,7 @@ ssize_t sys_execve(struct trap_frame *tf)
 	if (ret < 0)
 		return ret;
 
-	ret = kernel_execve(path, args, tf);
+	ret = execve(path, args, tf);
 
 	return ret;
 }

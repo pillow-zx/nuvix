@@ -657,15 +657,15 @@ void exec_user_path(const char *path)
 	memcpy(args->argv[0], path, len);
 	args->argv[0][len] = '\0';
 
-	ret = kernel_execve(path, args, &tf_storage);
+	ret = execve(path, args, &tf_storage);
 	if (ret < 0)
 		panic("exec: %s failed (%d)", path, ret);
 
 	trapret_to_user(&tf_storage);
 }
 
-int kernel_execve(const char *path, const struct exec_args_envp *args,
-		  struct trap_frame *tf)
+int execve(const char *path, const struct exec_args_envp *args,
+	   struct trap_frame *tf)
 {
 	struct exec_image image;
 	struct task_struct *task = current_task();
@@ -731,7 +731,8 @@ int kernel_execve(const char *path, const struct exec_args_envp *args,
 		BUG_ON(outcome != WAIT_OUTCOME_EVENT);
 	}
 
-	/* After this point every operation is a non-failing commit operation. */
+	/* After this point every operation is a non-failing commit operation.
+	 */
 	BUG_ON(proc_exec_adopt_pid(proc, task) < 0);
 	files_close_on_exec(prepared_files);
 	files_commit_exec(proc, prepared_files);
