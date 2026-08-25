@@ -26,7 +26,9 @@ static int ext2_resolve_block(struct page_mapping *mapping, uint64_t index,
 		if (ret < 0)
 			return ret;
 	} else {
-		pblock = ext2_bmap_readonly(inode, (uint32_t)index);
+		ret = ext2_bmap_readonly(inode, (uint32_t)index, &pblock);
+		if (ret < 0)
+			return ret;
 	}
 	if (!pblock)
 		return create ? -ENOSPC : -ENODATA;
@@ -69,7 +71,7 @@ ssize_t ext2_read_file(struct inode *inode, char *buf, size_t count, loff_t pos)
 
 		int error;
 		page = pgcache_get_mapping(&inode->i_pages, lblock,
-					      PAGE_CACHE_READ, &error);
+					   PAGE_CACHE_READ, &error);
 		if (!page && error == -ENODATA) {
 			memset(buf + done, 0, chunk);
 			done += chunk;
@@ -114,12 +116,12 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 		if (chunk > count - done)
 			chunk = count - done;
 
-		page = pgcache_get_mapping(
-			&inode->i_pages, lblock,
-			(offset == 0 && chunk == BLOCK_SIZE)
-				? PAGE_CACHE_CREATE
-				: PAGE_CACHE_READ | PAGE_CACHE_CREATE,
-			&error);
+		page = pgcache_get_mapping(&inode->i_pages, lblock,
+					   (offset == 0 && chunk == BLOCK_SIZE)
+						   ? PAGE_CACHE_CREATE
+						   : PAGE_CACHE_READ |
+							     PAGE_CACHE_CREATE,
+					   &error);
 		if (!page) {
 			return done ? (ssize_t)done : (error ? error : -ENOMEM);
 		}

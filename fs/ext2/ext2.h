@@ -7,6 +7,7 @@
 
 #include <nuvix/blkdev.h>
 #include <nuvix/compiler.h>
+#include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/types.h>
@@ -53,7 +54,7 @@
 #define EXT2_S_IFCHR  0x2000
 #define EXT2_S_IFIFO  0x1000
 
-struct __packed ext2_super_block {
+struct ext2_super_block {
 	uint32_t s_inodes_count;
 	uint32_t s_blocks_count;
 	uint32_t s_r_blocks_count;
@@ -103,9 +104,9 @@ struct __packed ext2_super_block {
 	uint32_t s_default_mount_opts;
 	uint32_t s_first_meta_bg;
 	uint32_t s_reserved[190];
-};
+} __packed;
 
-struct __packed ext2_group_desc {
+struct ext2_group_desc {
 	uint32_t bg_block_bitmap;
 	uint32_t bg_inode_bitmap;
 	uint32_t bg_inode_table;
@@ -114,9 +115,9 @@ struct __packed ext2_group_desc {
 	uint16_t bg_used_dirs_count;
 	uint16_t bg_pad;
 	uint32_t bg_reserved[3];
-};
+} __packed;
 
-struct __packed ext2_inode {
+struct ext2_inode {
 	uint16_t i_mode;
 	uint16_t i_uid;
 	uint32_t i_size;
@@ -135,21 +136,22 @@ struct __packed ext2_inode {
 	uint32_t i_dir_acl;
 	uint32_t i_faddr;
 	uint8_t i_osd2[12];
-};
+} __packed;
 
-struct __packed ext2_dir_entry_2 {
+struct ext2_dir_entry_2 {
 	uint32_t inode;
 	uint16_t rec_len;
 	uint8_t name_len;
 	uint8_t file_type;
 	char name[];
-};
+} __packed;
 
 struct ext2_sb_info {
 	spinlock_t s_lock;
 	struct ext2_super_block s_es;
 	struct ext2_group_desc *s_group_desc;
 	uint32_t s_groups_count;
+	uint64_t s_device_blocks;
 	uint32_t s_inode_size;
 	uint32_t s_inodes_per_group;
 	uint32_t s_blocks_per_group;
@@ -186,26 +188,121 @@ static inline uint32_t ext2_super_offset(uint32_t block_size)
 	return EXT2_SUPER_OFFSET % block_size;
 }
 
+static inline bool ext2_block_range_valid(const struct ext2_sb_info *sbi,
+					  uint64_t first, uint64_t count)
+{
+	if (!sbi || !count)
+		return false;
+	if (first >= sbi->s_es.s_blocks_count ||
+	    count > (uint64_t)sbi->s_es.s_blocks_count - first)
+		return false;
+	if (first >= sbi->s_device_blocks ||
+	    count > sbi->s_device_blocks - first)
+		return false;
+	return true;
+}
+
+static inline bool ext2_data_block_valid(const struct ext2_sb_info *sbi,
+					 uint64_t block)
+{
+	return sbi && block != 0 && block >= sbi->s_first_data_block &&
+	       ext2_block_range_valid(sbi, block, 1);
+}
+
+static inline int ext2_group_geometry(const struct ext2_sb_info *sbi,
+				      uint32_t group, uint64_t *first,
+				      uint32_t *blocks, uint32_t *inodes)
+{
+	uint64_t group_first;
+	uint64_t inode_first;
+	uint64_t group_blocks;
+	uint64_t group_inodes;
+
+	if (!sbi || !first || !blocks || !inodes ||
+	    group >= sbi->s_groups_count || !sbi->s_blocks_per_group ||
+	    !sbi->s_inodes_per_group ||
+	    sbi->s_es.s_blocks_count <= sbi->s_first_data_block)
+		return -EIO;
+	if (check_mul_overflow((uint64_t)group, sbi->s_blocks_per_group,
+			       &group_first) ||
+	    check_add_overflow(group_first, sbi->s_first_data_block,
+			       &group_first) ||
+	    group_first >= sbi->s_es.s_blocks_count)
+		return -EIO;
+
+	group_blocks = sbi->s_es.s_blocks_count - group_first;
+	if (group_blocks > sbi->s_blocks_per_group)
+		group_blocks = sbi->s_blocks_per_group;
+	if (!group_blocks || group_blocks > UINT32_MAX)
+		return -EIO;
+	if (!ext2_block_range_valid(sbi, group_first, group_blocks))
+		return -EIO;
+
+	if (check_mul_overflow((uint64_t)group, sbi->s_inodes_per_group,
+			       &inode_first))
+		return -EIO;
+	if (inode_first >= sbi->s_es.s_inodes_count)
+		group_inodes = 0;
+	else {
+		group_inodes = sbi->s_es.s_inodes_count - inode_first;
+		if (group_inodes > sbi->s_inodes_per_group)
+			group_inodes = sbi->s_inodes_per_group;
+	}
+
+	*first = group_first;
+	*blocks = (uint32_t)group_blocks;
+	*inodes = (uint32_t)group_inodes;
+	return 0;
+}
+
+static inline int ext2_require_data_block(const struct ext2_sb_info *sbi,
+					  uint64_t block)
+{
+	return ext2_data_block_valid(sbi, block) ? 0 : -EIO;
+}
+
+static inline int ext2_require_range(const struct ext2_sb_info *sbi,
+				     uint64_t first, uint64_t count)
+{
+	return ext2_block_range_valid(sbi, first, count) ? 0 : -EIO;
+}
+
+static inline int ext2_require_ind_block(const struct ext2_sb_info *sbi,
+					 uint32_t block, uint32_t index)
+{
+	uint32_t ptrs = BLOCK_SIZE / sizeof(uint32_t);
+
+	return sbi && index < ptrs && ext2_data_block_valid(sbi, block) ? 0 : -EIO;
+}
+
 int ext2_init(void);
 
 int ext2_read_inode(struct inode *inode);
+
 int ext2_write_inode(struct inode *inode);
+
 int ext2_datasync_inode(struct inode *inode);
+
 void ext2_init_inode_ops(struct inode *inode);
+
 void ext2_free_inode_blocks(struct inode *inode);
-int ext2_bmap(struct inode *inode, uint32_t block, bool create,
-	      uint32_t *mapped);
-uint32_t ext2_bmap_readonly(struct inode *inode, uint32_t block);
+
+int ext2_bmap(struct inode *inode, uint32_t block, bool create, uint32_t *mapped);
+
+int ext2_bmap_readonly(struct inode *inode, uint32_t block, uint32_t *mapped);
+
 int ext2_truncate_inode(struct inode *inode, uint64_t size);
 
 uint32_t ext2_alloc_block(struct inode *inode);
+
 void ext2_free_block(struct super_block *sb, uint32_t block);
+
 uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode);
+
 void ext2_free_inode(struct super_block *sb, uint32_t ino);
 
-ssize_t ext2_read_file(struct inode *inode, char *buf, size_t count,
-		       loff_t pos);
-ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
-			loff_t pos);
+ssize_t ext2_read_file(struct inode *inode, char *buf, size_t count, loff_t pos);
+
+ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count, loff_t pos);
 
 #endif

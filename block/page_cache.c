@@ -190,6 +190,16 @@ struct pgcache *pgcache_get(dev_t dev, uint64_t block, uint32_t flags,
 
 	if (error)
 		*error = 0;
+	if (!lookup_blkdev(dev)) {
+		if (error)
+			*error = -ENXIO;
+		return NULL;
+	}
+	if (!blkdev_block_valid(dev, block)) {
+		if (error)
+			*error = -EIO;
+		return NULL;
+	}
 	pgcache_init();
 retry: {
 	LIST_HEAD(removed);

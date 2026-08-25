@@ -6,6 +6,7 @@
 #include <nuvix/compiler.h>
 #include <nuvix/page_mapping.h>
 #include <nuvix/bitops.h>
+#include <nuvix/cleanup.h>
 #include <nuvix/types.h>
 #include <nuvix/vfs.h>
 
@@ -18,8 +19,7 @@ __must_check
 struct pgcache *pgcache_get(dev_t dev, uint64_t block, uint32_t flags, int *error);
 
 __must_check
-struct pgcache *pgcache_get_mapping(struct page_mapping *mapping, uint64_t index,
-			       uint32_t flags, int *error);
+struct pgcache *pgcache_get_mapping(struct page_mapping *mapping, uint64_t index, uint32_t flags, int *error);
 
 __must_check
 struct pgcache *pgcache_get_block(dev_t dev, uint64_t block);
@@ -63,5 +63,7 @@ void pgcache_truncate_inode(struct inode *inode, uint64_t size);
 void pgcache_invalidate_inode(struct inode *inode);
 
 void pgcache_wb_thread(void *arg);
+
+CLEANUP_DEFINE(pgcache_put, struct pgcache *, if (_T) pgcache_put_page(_T))
 
 #endif

@@ -94,4 +94,21 @@ struct blkdev *lookup_blkdev(dev_t dev);
 __must_check
 struct page_mapping *blkdev_pages(dev_t dev);
 
+/**
+ * @brief Return the number of complete page-cache blocks on a device.
+ * @param dev Device number.
+ * @return Complete 4 KiB blocks, or zero for an unknown device.
+ */
+__must_check
+uint64_t blkdev_block_count(dev_t dev);
+
+/**
+ * @brief Test whether one complete page-cache block fits on a device.
+ * @param dev Device number.
+ * @param block Zero-based 4 KiB block number.
+ * @return true when the complete block is backed by the device.
+ */
+__must_check
+bool blkdev_block_valid(dev_t dev, uint64_t block);
+
 #endif

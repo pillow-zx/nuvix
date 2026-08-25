@@ -15,6 +15,10 @@ static int blk_mapping_resolve(struct page_mapping *mapping, uint64_t index,
 		return -EINVAL;
 	if (index > UINT32_MAX)
 		return -EFBIG;
+	if (!lookup_blkdev(mapping->dev))
+		return -ENXIO;
+	if (!blkdev_block_valid(mapping->dev, index))
+		return -EIO;
 	*block = index;
 	return 0;
 }
@@ -53,4 +57,16 @@ struct page_mapping *blkdev_pages(dev_t dev)
 	if (!bdev->bd_pages.ops)
 		page_mapping_init(&bdev->bd_pages, bdev, dev, &blk_mapping_ops);
 	return &bdev->bd_pages;
+}
+
+uint64_t blkdev_block_count(dev_t dev)
+{
+	struct blkdev *bdev = lookup_blkdev(dev);
+
+	return bdev ? bdev->bd_sectors / BLOCK_SECTORS : 0;
+}
+
+bool blkdev_block_valid(dev_t dev, uint64_t block)
+{
+	return block < blkdev_block_count(dev);
 }
