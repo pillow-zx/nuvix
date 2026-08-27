@@ -94,11 +94,11 @@ ssize_t sys_mremap(struct trap_frame *tf)
 /*
  * SYSCALL_SUPPORT(B): msync
  * Current: validates mapped ranges, marks resident shared file pages dirty,
- * and syncs through VFS/page cache for MS_SYNC; MS_ASYNC records dirty state
- * without waiting and MS_INVALIDATE is accepted as a no-op.
+ * and synchronizes only the requested shared file ranges through VFS/page
+ * cache for MS_SYNC; MS_ASYNC records dirty state without waiting and
+ * MS_INVALIDATE is accepted as a no-op.
  * Unsupported errno: unknown or conflicting flags return -EINVAL; unmapped
  * ranges return -ENOMEM.
- * Future: add range-limited writeback/invalidation if page cache grows it.
  */
 ssize_t sys_msync(struct trap_frame *tf)
 {

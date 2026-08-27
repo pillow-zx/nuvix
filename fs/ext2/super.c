@@ -17,7 +17,8 @@
 static int ext2_probe(dev_t dev);
 static int ext2_mount(struct file_system_type *fs_type, dev_t dev,
 		      const void *data, struct super_block **out_sb);
-static void ext2_evict_inode(struct inode *inode);
+static int ext2_evict_inode(struct inode *inode);
+static void ext2_put_super(struct super_block *sb);
 static int ext2_statfs(struct super_block *sb, struct statfs64 *buf);
 
 static const struct super_operations ext2_sops = {
@@ -25,6 +26,7 @@ static const struct super_operations ext2_sops = {
 	.write_inode = ext2_write_inode,
 	.datasync_inode = ext2_datasync_inode,
 	.evict_inode = ext2_evict_inode,
+	.put_super = ext2_put_super,
 	.statfs = ext2_statfs,
 };
 
@@ -57,18 +59,29 @@ static bool ext2_range_valid(uint64_t first, uint64_t count, uint64_t limit)
 	return first <= limit && count <= limit - first;
 }
 
-static void ext2_evict_inode(struct inode *inode)
+static int ext2_evict_inode(struct inode *inode)
 {
-	if (!inode)
-		return;
+	int ret;
 
-	pgcache_invalidate_inode(inode);
+	if (!inode)
+		return 0;
+
+	/* Page-cache invalidation may fail while resident PTEs or in-flight
+	 * I/O pin the mapping; the inode object stays intact so retirement
+	 * can be retried after the caller resolves the pins. */
+	ret = pgcache_invalidate_inode(inode);
+	if (ret < 0) {
+		if (inode->i_sb)
+			inode->i_sb->s_error = ret;
+		return ret;
+	}
 	if (inode->i_nlink == 0 && inode->i_private) {
 		ext2_free_inode_blocks(inode);
 		ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
 	}
 	kfree(inode->i_private);
 	inode->i_private = NULL;
+	return 0;
 }
 
 static void ext2_free_sbi(struct ext2_sb_info *sbi)
@@ -81,13 +94,17 @@ static void ext2_free_sbi(struct ext2_sb_info *sbi)
 	kfree(sbi);
 }
 
-static void ext2_free_super(struct super_block *sb)
+static void ext2_put_super(struct super_block *sb)
 {
 	if (!sb)
 		return;
 
 	ext2_free_sbi(EXT2_SB(sb));
-	kfree(sb);
+}
+
+static void ext2_free_super(struct super_block *sb)
+{
+	vfs_super_destroy(sb);
 }
 
 static bool ext2_uuid_is_zero(const uint8_t uuid[16])
@@ -482,18 +499,17 @@ static int ext2_mount(struct file_system_type *fs_type, dev_t dev,
 		ext2_free_super(sb);
 		return -ENOMEM;
 	}
+	root->d_sb = sb;
+	sb->s_root = root;
 
 	root_inode = iget(sb, EXT2_ROOT_INO);
 	if (!root_inode) {
-		kfree(root);
 		ext2_free_super(sb);
 		return -EIO;
 	}
 
 	root->d_inode = root_inode;
-	root->d_sb = sb;
 	root->d_parent = root;
-	sb->s_root = root;
 
 	*out_sb = sb;
 	return 0;

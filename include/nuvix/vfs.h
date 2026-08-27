@@ -22,6 +22,8 @@ struct inode *iget(struct super_block *sb, uint64_t ino);
 void igrab(struct inode *inode);
 void iput(struct inode *inode);
 void inode_forget(struct inode *inode);
+__must_check
+int inode_evict(struct inode *inode);
 void icache_init(void);
 
 __must_check
@@ -31,8 +33,10 @@ struct dentry *dentry_alloc(struct dentry *parent,
 __must_check
 struct dentry *dcache_lookup(struct dentry *parent,
 					  const char *name, size_t namelen);
-void dcache_insert(struct dentry *dentry);
+int dcache_insert(struct dentry *dentry);
 void dcache_invalidate(struct dentry *dentry);
+__must_check
+int dcache_retire_subtree(struct dentry *root);
 void dcache_move(struct dentry *dentry, struct dentry *new_parent,
 		 const char *new_name, size_t new_namelen);
 void dget(struct dentry *dentry);
@@ -152,7 +156,11 @@ struct file_system_type *get_next_filesystem_type(struct file_system_type *prev)
 
 __must_check
 struct super_block *super_alloc(struct file_system_type *fs_type,
-					     dev_t dev);
+						     dev_t dev);
+void vfs_super_destroy(struct super_block *sb);
+__must_check
+int vfs_super_teardown(struct super_block *sb);
+void vfs_super_mark_aborted(struct super_block *sb);
 void vfs_init(void);
 
 __must_check

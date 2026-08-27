@@ -15,7 +15,13 @@
 
 #include "namei_internal.h"
 
+struct mount_device_claim {
+	dev_t dev;
+	struct list_head node;
+};
+
 static LIST_HEAD(mount_list);
+static LIST_HEAD(mount_device_claims);
 static DEFINE_MUTEX(mount_lock, LOCK_RANK_VFS_MOUNT, LOCK_IRQ_TASK_ONLY);
 static struct vfsmount *root_mount;
 
@@ -58,6 +64,25 @@ int vfs_sync_all(void)
 	kfree(mounts);
 
 	return first_error;
+}
+
+static int vfs_sync_mount(struct vfsmount *mnt)
+{
+	const struct super_operations *ops;
+	int ret;
+
+	if (!mnt || !mnt->mnt_sb)
+		return -EINVAL;
+	ret = pgcache_sync_device(mnt->mnt_dev);
+	if (ret < 0)
+		return ret;
+	ops = mnt->mnt_sb->s_op;
+	if (ops && ops->sync_fs) {
+		ret = ops->sync_fs(mnt->mnt_sb);
+		if (ret < 0)
+			return ret;
+	}
+	return mnt->mnt_sb->s_error;
 }
 
 static struct vfsmount *mount_find_by_mountpoint(const struct path *mountpoint)
@@ -106,6 +131,30 @@ static struct vfsmount *mount_find_by_sb(struct super_block *sb)
 	return NULL;
 }
 
+static struct vfsmount *mount_find_by_dev(dev_t dev)
+{
+	struct vfsmount *mnt;
+
+	list_for_each_entry (mnt, &mount_list, mnt_list) {
+		if (mnt->mnt_dev == dev)
+			return mnt;
+	}
+	return NULL;
+}
+
+static bool mount_device_claimed_locked(dev_t dev)
+{
+	struct mount_device_claim *claim;
+
+	if (mount_find_by_dev(dev))
+		return true;
+	list_for_each_entry (claim, &mount_device_claims, node) {
+		if (claim->dev == dev)
+			return true;
+	}
+	return false;
+}
+
 void mntget(struct vfsmount *mnt)
 {
 	if (mnt)
@@ -126,14 +175,23 @@ static void mnt_active_put(struct vfsmount *mnt)
 
 static void mount_free(struct vfsmount *mnt)
 {
+	struct super_block *sb;
+	bool destroy_sb;
+
 	if (!mnt)
 		return;
+	sb = mnt->mnt_sb;
+	destroy_sb = mnt->mnt_state == MNT_DETACHED;
+	mnt->mnt_state = MNT_DEAD;
 
 	if (mnt->mnt_parent)
 		mntput(mnt->mnt_parent);
 	dput(mnt->mnt_root);
 	dput(mnt->mnt_mountpoint);
+	mnt->mnt_sb = NULL;
 	kfree(mnt);
+	if (destroy_sb)
+		vfs_super_destroy(sb);
 }
 
 void mntput(struct vfsmount *mnt)
@@ -197,9 +255,7 @@ int vfs_path_from_dentry(struct dentry *dentry, struct path *path)
 
 	mutex_lock(&mount_lock);
 	mnt = mount_find_by_sb(dentry->d_sb);
-	if (!mnt)
-		mnt = root_mount;
-	if (!mnt) {
+	if (!mnt || mnt->mnt_state != MNT_ATTACHED) {
 		mutex_unlock(&mount_lock);
 		return -ENOENT;
 	}
@@ -230,6 +286,7 @@ static int mount_add(const struct path *mountpoint, struct dentry *root,
 	mnt->mnt_sb = sb;
 	mnt->mnt_dev = dev;
 	mnt->mnt_is_root = is_root;
+	mnt->mnt_state = MNT_UNPUBLISHED;
 	INIT_LIST_HEAD(&mnt->mnt_list);
 	if (mnt->mnt_parent)
 		mntget(mnt->mnt_parent);
@@ -244,6 +301,7 @@ static int mount_add(const struct path *mountpoint, struct dentry *root,
 		return -EBUSY;
 	}
 	list_add_tail(&mnt->mnt_list, &mount_list);
+	mnt->mnt_state = MNT_ATTACHED;
 	if (is_root)
 		root_mount = mnt;
 	mutex_unlock(&mount_lock);
@@ -257,16 +315,33 @@ static int mount_attach(const struct path *mountpoint,
 {
 	struct super_block *sb = NULL;
 	struct path attach_point;
+	struct mount_device_claim *claim;
 	int ret;
 
 	if (!mountpoint || !fs_type || !fs_type->mount)
 		return -EINVAL;
 
+	claim = kmalloc(sizeof(*claim), ALLOC_NOWAIT);
+	if (!claim)
+		return -ENOMEM;
+	claim->dev = dev;
+	INIT_LIST_HEAD(&claim->node);
+	mutex_lock(&mount_lock);
+	if (mount_device_claimed_locked(dev)) {
+		mutex_unlock(&mount_lock);
+		kfree(claim);
+		return -EBUSY;
+	}
+	list_add_tail(&claim->node, &mount_device_claims);
+	mutex_unlock(&mount_lock);
+
 	ret = fs_type->mount(fs_type, dev, data, &sb);
 	if (ret < 0)
-		return ret;
-	if (!sb || !sb->s_root)
-		return -EINVAL;
+		goto out_claim;
+	if (!sb || !sb->s_root) {
+		ret = -EINVAL;
+		goto out_destroy;
+	}
 
 	attach_point = *mountpoint;
 	if (is_root && !attach_point.dentry)
@@ -274,10 +349,20 @@ static int mount_attach(const struct path *mountpoint,
 
 	ret = mount_add(&attach_point, sb->s_root, sb, dev, is_root);
 	if (ret < 0)
-		return ret;
+		goto out_destroy;
 	if (is_root)
 		vfs_set_root_dentry(sb->s_root);
-	return 0;
+	ret = 0;
+	goto out_claim;
+
+out_destroy:
+	vfs_super_destroy(sb);
+out_claim:
+	mutex_lock(&mount_lock);
+	list_del_init(&claim->node);
+	mutex_unlock(&mount_lock);
+	kfree(claim);
+	return ret;
 }
 
 static int vfs_select_rootfs(dev_t dev, struct file_system_type **out_fs)
@@ -358,6 +443,10 @@ int vfs_follow_mount(struct path *path)
 	mutex_lock(&mount_lock);
 	mnt = mount_find_by_mountpoint(path);
 	if (mnt && (mnt != path->mnt || mnt->mnt_root != path->dentry)) {
+		if (mnt->mnt_state != MNT_ATTACHED) {
+			mutex_unlock(&mount_lock);
+			return -EBUSY;
+		}
 		next.mnt = mnt;
 		next.dentry = mnt->mnt_root;
 		path_get(&next);
@@ -448,12 +537,21 @@ int vfs_mount(const char *source, const char *target, const char *type,
 	return ret;
 }
 
-static bool mount_busy(struct vfsmount *mnt)
+static bool mount_busy_locked(struct vfsmount *mnt)
 {
+	struct vfsmount *child;
+
 	if (!mnt || !mnt->mnt_root)
 		return true;
 
-	return atomic_read(&mnt->mnt_active_refs) > 0;
+	if (atomic_read(&mnt->mnt_active_refs) > 0)
+		return true;
+	list_for_each_entry (child, &mount_list, mnt_list) {
+		if (child != mnt && child->mnt_parent == mnt &&
+		    child->mnt_state != MNT_DEAD)
+			return true;
+	}
+	return false;
 }
 
 int vfs_umount(const char *target, int flags)
@@ -483,15 +581,55 @@ int vfs_umount(const char *target, int flags)
 	path_put(&path);
 
 	mutex_lock(&mount_lock);
-	if (mnt->mnt_is_root || mount_busy(mnt)) {
+	if (mnt->mnt_is_root || mnt->mnt_state != MNT_ATTACHED ||
+	    mount_busy_locked(mnt)) {
 		mutex_unlock(&mount_lock);
 		mntput(mnt);
 		return -EBUSY;
 	}
-	list_del(&mnt->mnt_list);
+	mnt->mnt_state = MNT_QUIESCING;
+	mutex_unlock(&mount_lock);
+
+	ret = vfs_sync_mount(mnt);
+	if (ret < 0) {
+		mutex_lock(&mount_lock);
+		if (mnt->mnt_state == MNT_QUIESCING)
+			mnt->mnt_state = MNT_ATTACHED;
+		mutex_unlock(&mount_lock);
+		mntput(mnt);
+		return ret;
+	}
+
+	mutex_lock(&mount_lock);
+	if (mnt->mnt_state != MNT_QUIESCING || mount_busy_locked(mnt)) {
+		mnt->mnt_state = MNT_ATTACHED;
+		mutex_unlock(&mount_lock);
+		mntput(mnt);
+		return -EBUSY;
+	}
+	/* Hold the table lock across the teardown transaction: the mount is
+	 * quiesced and not busily referenced, so the failable dentry/inode
+	 * retirement sees a stable namespace view; nothing else can publish
+	 * a path into this subtree between the busy check and DETACHED. */
+	ret = vfs_super_teardown(mnt->mnt_sb);
+	if (ret < 0)
+		goto out_restore;
+	ret = pgcache_discard_device(mnt->mnt_dev);
+	if (ret < 0) {
+		vfs_super_mark_aborted(mnt->mnt_sb);
+		goto out_restore;
+	}
+	mnt->mnt_state = MNT_DETACHED;
+	list_del_init(&mnt->mnt_list);
 	mutex_unlock(&mount_lock);
 
 	mntput(mnt);
 	mntput(mnt);
 	return 0;
+
+out_restore:
+	mnt->mnt_state = MNT_ATTACHED;
+	mutex_unlock(&mount_lock);
+	mntput(mnt);
+	return ret;
 }

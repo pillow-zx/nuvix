@@ -142,7 +142,7 @@ static inline pgprot_t pgprot_make_readonly(pgprot_t prot)
 
 void mm_pte_mapping_get(paddr_t pa);
 void mm_pte_mapping_put(const struct vm_area_struct *vma, paddr_t pa);
-void mm_pte_mapping_put_dirty(paddr_t pa, bool dirty);
+void mm_pte_mapping_put_dirty(paddr_t pa, bool dirty, bool shared);
 
 __always_inline __must_check __pure __nonnull(1)
 static inline bool vma_overlaps(const struct vm_area_struct *vma,

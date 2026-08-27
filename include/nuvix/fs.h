@@ -118,6 +118,12 @@ typedef int (*filldir_t)(void *ctx, const char *name, size_t namelen,
  * - @c datasync_inode: Write metadata required to retrieve file data after
  * `fdatasync`; when omitted, VFS falls back to @c write_inode.
  * - @c evict_inode: Release filesystem-private inode state at final eviction.
+ *   May fail (negative errno) while the object stays intact; on success the
+ *   object must be releasable without further I/O.  Called only when the
+ *   caller has decided to retire the inode.
+ * - @c put_super: Release only filesystem-private superblock data
+ *   (@c s_private); it must not touch inodes, dentries, or the page cache,
+ *   and must never run I/O or fail.
  * - @c sync_fs: Flush filesystem-wide dirty state.
  * - @c statfs: Fill Linux statfs64-compatible filesystem statistics.
  */
@@ -125,7 +131,8 @@ struct super_operations {
 	int (*read_inode)(struct inode *inode);
 	int (*write_inode)(struct inode *inode);
 	int (*datasync_inode)(struct inode *inode);
-	void (*evict_inode)(struct inode *inode);
+	int (*evict_inode)(struct inode *inode);
+	void (*put_super)(struct super_block *sb);
 	int (*sync_fs)(struct super_block *sb);
 	int (*statfs)(struct super_block *sb, struct statfs64 *buf);
 };
@@ -221,11 +228,25 @@ struct file_system_type {
  * - @c s_dev: Device id backing this superblock.
  * - @c s_blocksize: Filesystem block size in bytes.
  * - @c s_flags: Mount/superblock flags.
- * - @c s_root: Root dentry of this filesystem.
+ * - @c s_root: Root dentry of this filesystem.  It owns the construction
+ *   reference to its inode; VFS retires it inside the superblock teardown
+ *   transaction before any inode beyond the subtree is released.
  * - @c s_op: Filesystem super operations.
  * - @c s_type: Registered filesystem driver.
- * - @c s_private: Filesystem-private superblock data.
- * - @c s_inodes: Inodes attached to this superblock.
+ * - @c s_private: Filesystem-private superblock data; owned by the driver and
+ *   released only from @c put_super.
+ * - @c s_inodes: Inodes attached to this superblock, linked under
+ *   @c vfs_cache_lock.  The list is walkable while the superblock teardown
+ *   transaction runs; entries are removed as their inodes retire.
+ * - @c s_error: Sticky first error recorded by eviction or sync paths that
+ *   could not complete; consulted by umount reporting.  It never gates the
+ *   release of objects after a successful teardown transaction.
+ *
+ * @par Lifecycle
+ * A superblock is destroyed only through the failable teardown transaction in
+ * vfs_super_teardown(): dentries retire child-first, then every inode evicts
+ * (each evict may fail and leave its object intact), and only the final,
+ * failure-free release path (vfs_super_destroy) may run put_super/kfree.
  */
 struct super_block {
 	dev_t s_dev;
@@ -236,6 +257,7 @@ struct super_block {
 	struct file_system_type *s_type;
 	void *s_private;
 	struct list_head s_inodes;
+	int s_error;
 };
 
 /**
@@ -263,6 +285,12 @@ struct super_block {
  * - @c i_private: Filesystem-private inode data.
  * - @c i_hash: Node in inode lookup hash.
  * - @c i_sb_list: Node in superblock inode list.
+ * - @c i_lru: Node in the inode LRU list.
+ * - @c i_resident: True while the inode is published in the icache; cleared
+ *   by the same critical section that unlinks it from hash and sb lists.
+ * - @c i_retiring: Set once retirement has started (no new references may be
+ *   acquired); a retiring inode is never re-published, and evict failure
+ *   keeps this set so the object is only ever torn down once.
  */
 struct inode {
 	uint64_t i_ino;
@@ -285,6 +313,9 @@ struct inode {
 	void *i_private;
 	struct hlist_node i_hash;
 	struct list_head i_sb_list;
+	struct list_head i_lru;
+	bool i_resident;
+	bool i_retiring;
 };
 
 /**
@@ -302,6 +333,12 @@ struct inode {
  * - @c d_hash: Node in dentry lookup hash.
  * - @c d_child: Node in parent's child list.
  * - @c d_subdirs: Head of child dentries.
+ * - @c d_lru: Node in the dentry LRU list.
+ * - @c d_resident: True while the dentry is published in the dcache; cleared
+ *   by the same critical section that unlinks it from hash/LRU/child lists.
+ * - @c d_retiring: Set once unpublish has happened; lookups skip retiring
+ *   entries so an entry is retired exactly once before free or drop of the
+ *   construction reference to its inode.
  */
 struct dentry {
 	char d_name[VFS_NAME_MAX + 1];
@@ -314,6 +351,9 @@ struct dentry {
 	struct hlist_node d_hash;
 	struct list_head d_child;
 	struct list_head d_subdirs;
+	struct list_head d_lru;
+	bool d_resident;
+	bool d_retiring;
 };
 
 /**
@@ -330,8 +370,27 @@ struct dentry {
  * - @c mnt_sb: Superblock mounted here.
  * - @c mnt_dev: Backing device id.
  * - @c mnt_is_root: True for the root mount.
+ *
+ * @par Mount state machine (mnt_state)
+ * Transitions happen under the mount table lock:
+ * - UNPUBLISHED -> ATTACHED: mount_add publishes the mount into the table.
+ * - ATTACHED -> QUIESCING: umount starts and sync succeeds so far; lookups
+ *   that would traverse into a QUIESCING mount fail with -EBUSY.
+ * - QUIESCING -> ATTACHED: any failure before detach restores service.
+ * - QUIESCING -> DETACHED: after the failable superblock teardown succeeded,
+ *   the mount leaves the table; destruction happens when the last reference
+ *   drops.  DETACHED is terminal: only the final release runs from here.
+ * - DETACHED/UNPUBLISHED -> DEAD: set by mount_free right before kfree.
  */
 struct vfsmount {
+	/* Namespace publication state is owned by the mount table lock. */
+	enum vfsmount_state {
+		MNT_UNPUBLISHED,
+		MNT_ATTACHED,
+		MNT_QUIESCING,
+		MNT_DETACHED,
+		MNT_DEAD,
+	} mnt_state;
 	refcount_t mnt_refcount;
 	atomic_t mnt_active_refs;
 	struct list_head mnt_list;
@@ -370,10 +429,13 @@ struct path {
  * - @c f_mode: FMODE_* access mode bits.
  * - @c refcount: Open-file reference count.
  * - @c static_file: True for non-freeable built-in file objects.
- * - @c f_lock: Serializes @c f_pos for regular files (rank 110).  A mutex,
- *   like Linux's f_pos_lock: the data path allocates page-cache pages,
- *   which the debug-context gate forbids under a spinlock.
- */
+ *
+ * @c f_pos for regular files is serialized by the single VFS-wide implicit
+ * position mutex (read_write.c), not by a per-file lock: the rank contract
+ * forbids nesting two LOCK_RANK_FILE_POSITION locks, which a per-file mutex
+ * would require for sendfile-style cross-file copies.  It is a mutex, like
+ * Linux's f_pos_lock, because the data path allocates page-cache pages,
+ * which the debug-context gate forbids under a spinlock. */
 struct file {
 	const struct file_operations *f_op;
 	struct path f_path;
@@ -383,7 +445,6 @@ struct file {
 	uint32_t f_flags;
 	uint32_t f_mode;
 	refcount_t refcount;
-	mutex_t f_lock;
 	bool static_file;
 };
 
@@ -524,6 +585,10 @@ int vfs_datasync_file(struct file *file);
 
 __must_check
 int vfs_sync_file(struct file *file);
+
+__must_check
+int vfs_msync_file_range(struct file *file, uint64_t first_page,
+			 uint64_t end_page);
 /**
  * @brief Convert an inode into Linux stat ABI fields.
  * @param inode Inode to snapshot.

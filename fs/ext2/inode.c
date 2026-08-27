@@ -992,13 +992,17 @@ static int ext2_truncate_inode_locked(struct inode *inode, uint64_t size)
 	raw = &EXT2_I(inode)->raw_inode;
 	old_size = inode->i_size;
 	if (size == 0) {
-		pgcache_invalidate_inode(inode);
+		ret = pgcache_invalidate_inode(inode);
+		if (ret < 0)
+			return ret;
 		ext2_free_inode_blocks_locked(inode);
 		return ext2_write_inode(inode);
 	}
 
 	if (size < inode->i_size) {
-		pgcache_truncate_inode(inode, size);
+		ret = pgcache_truncate_inode(inode, size);
+		if (ret < 0)
+			return ret;
 		ret = ext2_zero_truncate_tail(inode, size);
 		if (ret < 0)
 			return ret;

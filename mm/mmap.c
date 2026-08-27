@@ -469,10 +469,13 @@ void mm_pte_mapping_put(const struct vm_area_struct *vma, paddr_t pa)
 {
 	bool dirty = vma_release_dirty(vma);
 
-	mm_pte_mapping_put_dirty(pa, dirty);
+	/* Fork never duplicates shared-file PTEs (skipped together with the
+	 * VMA), so no child PTE here can have acquired a cache lease and
+	 * mm_pte_mapping_put is only reached from that path. */
+	mm_pte_mapping_put_dirty(pa, dirty, false);
 }
 
-void mm_pte_mapping_put_dirty(paddr_t pa, bool dirty)
+void mm_pte_mapping_put_dirty(paddr_t pa, bool dirty, bool lease)
 {
 	struct pgcache *page = pgcache_get_data(__va(pa));
 	struct page *buddy_page;
@@ -480,6 +483,8 @@ void mm_pte_mapping_put_dirty(paddr_t pa, bool dirty)
 	if (page) {
 		if (dirty)
 			pgcache_mark_dirty(page);
+		if (lease)
+			pgcache_shared_write_end(page);
 		pgcache_put_page(page);
 		pgcache_put_page(page);
 		return;
@@ -543,6 +548,8 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 		release = &teardown->release[teardown->nr_release++];
 		release->pa = pte_phys_addr(*pte);
 		release->dirty = vma_release_dirty(vma);
+		release->lease = vma->vm_file && vma->vm_shared &&
+				 pte_allows_user_write(*pte);
 		*pte = 0;
 	}
 }
@@ -566,7 +573,8 @@ void mm_teardown_release(struct mm_teardown *teardown)
 		return;
 	for (size_t i = 0; i < teardown->nr_release; i++)
 		mm_pte_mapping_put_dirty(teardown->release[i].pa,
-					 teardown->release[i].dirty);
+					 teardown->release[i].dirty,
+					 teardown->release[i].lease);
 	kfree(teardown->release);
 	memset(teardown, 0, sizeof(*teardown));
 }
@@ -583,6 +591,9 @@ void mm_replace_user_pte_locked(struct mm_struct *mm,
 	release = &teardown->release[teardown->nr_release++];
 	release->pa = old_pa;
 	release->dirty = vma_release_dirty(vma);
+	/* Read before overwrite: a COW split of a read-only shared PTE must
+	 * not release a lease the old entry never held. */
+	release->lease = pte_allows_user_write(*pte);
 	*pte = new_entry;
 	flush_tlb_page(va);
 	mm_flush_remote(mm, false);
@@ -1389,7 +1400,11 @@ out:
 
 int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags)
 {
-	struct file *sync_files[NR_VMA];
+	struct {
+		struct file *file;
+		uint64_t first_page;
+		uint64_t end_page;
+	} sync_ranges[NR_VMA];
 	uintptr_t end;
 	size_t nr_sync = 0;
 	int ret = 0;
@@ -1413,7 +1428,7 @@ int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags)
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
 		struct vm_area_struct *vma = find_vma(mm, va);
 		pte_t *pte;
-		bool seen;
+		uint64_t page_index;
 
 		if (!vma) {
 			ret = -ENOMEM;
@@ -1433,16 +1448,16 @@ int mm_msync(struct mm_struct *mm, uintptr_t addr, size_t len, int flags)
 		if (!(flags & MS_SYNC))
 			continue;
 
-		seen = false;
-		for (size_t i = 0; i < nr_sync; i++) {
-			if (sync_files[i] == vma->vm_file) {
-				seen = true;
-				break;
-			}
-		}
-		if (!seen && nr_sync < NR_VMA) {
-			sync_files[nr_sync] = vma->vm_file;
-			file_get(sync_files[nr_sync]);
+		page_index = vma_page_index(vma, va);
+		if (nr_sync && sync_ranges[nr_sync - 1].file == vma->vm_file &&
+		    sync_ranges[nr_sync - 1].end_page == page_index) {
+			sync_ranges[nr_sync - 1].end_page++;
+		} else {
+			BUG_ON(nr_sync == NR_VMA);
+			sync_ranges[nr_sync].file = vma->vm_file;
+			sync_ranges[nr_sync].first_page = page_index;
+			sync_ranges[nr_sync].end_page = page_index + 1;
+			file_get(sync_ranges[nr_sync].file);
 			nr_sync++;
 		}
 	}
@@ -1451,8 +1466,10 @@ out:
 	mm_unlock(mm);
 	for (size_t i = 0; i < nr_sync; i++) {
 		if (ret == 0)
-			ret = vfs_sync_file(sync_files[i]);
-		file_put(sync_files[i]);
+			ret = vfs_msync_file_range(sync_ranges[i].file,
+						  sync_ranges[i].first_page,
+						  sync_ranges[i].end_page);
+		file_put(sync_ranges[i].file);
 	}
 	return ret;
 }
@@ -1698,6 +1715,60 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 			cursor = segment_end;
 		}
 	} else {
+		bool leased = false;
+
+		if (new_vm_flags & VM_WRITE) {
+			/* Acquire every shared-cache lease the range will gain
+			 * before rewriting any PTE: a busy page fails the whole
+			 * mprotect instead of leaving mixed permissions. */
+			for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
+				struct vm_area_struct *vma = find_vma(mm, va);
+				pte_t *pte;
+				struct pgcache *page;
+
+				if (!vma || !vma->vm_file || !vma->vm_shared)
+					continue;
+				pte = pgtable_lookup(mm->pgd, va);
+				if (!pte || !pte_is_user_page(*pte) ||
+				    pte_allows_user_write(*pte))
+					continue;
+				page = pgcache_get_data(__va(pte_phys_addr(*pte)));
+				if (!page)
+					continue;
+				if (pgcache_shared_write_begin(page) < 0) {
+					pgcache_put_page(page);
+					leased = true;
+					break;
+				}
+				pgcache_put_page(page);
+			}
+			/* Roll back the leases taken above; no PTE was touched
+			 * yet, so the retry predicate matches exactly. */
+			if (leased) {
+				for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
+					struct vm_area_struct *vma =
+						find_vma(mm, va);
+					pte_t *pte;
+					struct pgcache *page;
+
+					if (!vma || !vma->vm_file ||
+					    !vma->vm_shared)
+						continue;
+					pte = pgtable_lookup(mm->pgd, va);
+					if (!pte || !pte_is_user_page(*pte) ||
+					    pte_allows_user_write(*pte))
+						continue;
+					page = pgcache_get_data(__va(pte_phys_addr(*pte)));
+					if (!page)
+						continue;
+					pgcache_shared_write_end(page);
+					pgcache_put_page(page);
+				}
+				ret = -EBUSY;
+				goto out;
+			}
+		}
+
 		for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
 			pte_t *pte = pgtable_lookup(mm->pgd, va);
 
@@ -1706,6 +1777,12 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 			struct vm_area_struct *vma = find_vma(mm, va);
 			uintptr_t pa = pte_phys_addr(*pte);
 			pgprot_t pte_flags = new_pte_flags;
+			bool shared_write_release = false;
+
+			if (vma && vma->vm_file && vma->vm_shared &&
+			    pte_allows_user_write(*pte) &&
+			    !(new_vm_flags & VM_WRITE))
+				shared_write_release = true;
 
 			if ((new_vm_flags & VM_WRITE) && vma && !vma->vm_shared) {
 				struct pgcache *cache_page = NULL;
@@ -1730,6 +1807,20 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 						pte_flags = pgprot_make_readonly(
 							new_pte_flags);
 				}
+			}
+			if (shared_write_release) {
+				/* Quiesce the lease before the PTE loses write
+				 * access: remote cores may still run with the
+				 * old translation until the flush below. */
+				struct pgcache *page =
+					pgcache_get_data(__va(pa));
+
+				if (page) {
+					pgcache_shared_write_end(page);
+					pgcache_put_page(page);
+				}
+				flush_tlb_page(va);
+				mm_flush_remote(mm, false);
 			}
 			*pte = pte_make(pa, pte_flags);
 		}

@@ -24,8 +24,7 @@ struct files_struct *files_alloc(void)
 
 	memset(files, 0, sizeof(*files));
 	refcount_set(&files->refcount, 1);
-	mutex_init(&files->lock, LOCK_RANK_FILES_FDTABLE,
-		   LOCK_IRQ_TASK_ONLY);
+	mutex_init(&files->lock, LOCK_RANK_FILES_FDTABLE, LOCK_IRQ_TASK_ONLY);
 	return files;
 }
 
@@ -206,7 +205,7 @@ void files_close_on_exec(struct files_struct *files)
 }
 
 int files_prepare_exec(const struct proc_struct *proc,
-			       struct files_struct **prepared)
+		       struct files_struct **prepared)
 {
 	struct files_struct *old;
 
@@ -221,8 +220,7 @@ int files_prepare_exec(const struct proc_struct *proc,
 	return 0;
 }
 
-void files_commit_exec(struct proc_struct *proc,
-			       struct files_struct *prepared)
+void files_commit_exec(struct proc_struct *proc, struct files_struct *prepared)
 {
 	struct files_struct *old;
 
@@ -378,7 +376,7 @@ int init_files(struct proc_struct *proc)
 }
 
 int copy_files(const struct proc_struct *source, struct proc_struct *dest,
-		       bool share)
+	       bool share)
 {
 	struct files_struct *files;
 	struct files_struct *old;

@@ -202,7 +202,7 @@ int init_fs(struct proc_struct *proc)
 }
 
 int copy_fs(const struct proc_struct *source, struct proc_struct *dest,
-		   bool share)
+	    bool share)
 {
 	struct fs_struct *fs;
 	struct fs_struct *old;

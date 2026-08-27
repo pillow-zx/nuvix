@@ -4,15 +4,39 @@
 
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
+#include <nuvix/mutex.h>
 
-#define SEEK_SET 0
-#define SEEK_CUR 1
-#define SEEK_END 2
+#define SEEK_SET	  0
+#define SEEK_CUR	  1
+#define SEEK_END	  2
 #define VFS_COPY_BUF_SIZE 256
 
-static bool vfs_pos_locked(const struct file *file)
+/* Single implicit file-position mutex for the whole VFS layer.  The rank
+ * contract forbids nesting two LOCK_RANK_FILE_POSITION locks, so per-file
+ * f_pos locking cannot cover sendfile-style reads from one file and writes
+ * to another.  One global lock keeps every implicit-position path (read,
+ * write, seek, rewind, buffered copy) mutually exclusive; explicit-position
+ * I/O never takes it. */
+static DEFINE_MUTEX(vfs_fpos_lock, LOCK_RANK_FILE_POSITION,
+		    LOCK_IRQ_TASK_ONLY);
+
+static bool vfs_pos_implicit(const struct file *file)
 {
 	return file && file->f_inode && S_ISREG(file->f_inode->i_mode);
+}
+
+static bool vfs_pos_lock(const struct file *file)
+{
+	if (!vfs_pos_implicit(file))
+		return false;
+	mutex_lock(&vfs_fpos_lock);
+	return true;
+}
+
+static void vfs_pos_unlock(bool locked)
+{
+	if (locked)
+		mutex_unlock(&vfs_fpos_lock);
 }
 
 static ssize_t vfs_read_core(struct file *file, char *buf, size_t count,
@@ -28,16 +52,15 @@ static ssize_t vfs_read_core(struct file *file, char *buf, size_t count,
 ssize_t vfs_read(struct file *file, char *buf, size_t count)
 {
 	ssize_t ret;
+	bool locked;
 
 	if (!file || !(file->f_mode & FMODE_READ) || !file->f_op ||
 	    !file->f_op->read)
 		return -EBADF;
 
-	if (vfs_pos_locked(file))
-		mutex_lock(&file->f_lock);
+	locked = vfs_pos_lock(file);
 	ret = vfs_read_core(file, buf, count, &file->f_pos);
-	if (vfs_pos_locked(file))
-		mutex_unlock(&file->f_lock);
+	vfs_pos_unlock(locked);
 
 	return ret;
 }
@@ -60,16 +83,15 @@ static ssize_t vfs_write_core(struct file *file, const char *buf, size_t count,
 ssize_t vfs_write(struct file *file, const char *buf, size_t count)
 {
 	ssize_t ret;
+	bool locked;
 
 	if (!file || !(file->f_mode & FMODE_WRITE) || !file->f_op ||
 	    !file->f_op->write)
 		return -EBADF;
 
-	if (vfs_pos_locked(file))
-		mutex_lock(&file->f_lock);
+	locked = vfs_pos_lock(file);
 	ret = vfs_write_core(file, buf, count, &file->f_pos);
-	if (vfs_pos_locked(file))
-		mutex_unlock(&file->f_lock);
+	vfs_pos_unlock(locked);
 
 	return ret;
 }
@@ -109,13 +131,13 @@ ssize_t vfs_write_pos(struct file *file, const char *buf, size_t count,
 
 void vfs_rewind_pos(struct file *file, loff_t count)
 {
+	bool locked;
+
 	if (!file || count <= 0)
 		return;
-	if (vfs_pos_locked(file))
-		mutex_lock(&file->f_lock);
+	locked = vfs_pos_lock(file);
 	file->f_pos -= count;
-	if (vfs_pos_locked(file))
-		mutex_unlock(&file->f_lock);
+	vfs_pos_unlock(locked);
 }
 
 ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file,
@@ -123,9 +145,18 @@ ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file,
 {
 	char kbuf[VFS_COPY_BUF_SIZE];
 	ssize_t total = 0;
+	bool locked = false;
+
+	/* One hold of the global position lock covers the implicit positions
+	 * of both files; no per-file lock ordering exists anymore. */
+	if (!in_pos && !out_pos && vfs_pos_implicit(in_file))
+		locked = vfs_pos_lock(in_file);
+	else if (!out_pos && vfs_pos_implicit(out_file))
+		locked = vfs_pos_lock(out_file);
 
 	while (len > 0) {
-		loff_t old_in_pos = in_pos ? *in_pos : 0;
+		loff_t input_cursor = in_pos ? *in_pos : in_file->f_pos;
+		loff_t output_cursor = out_pos ? *out_pos : out_file->f_pos;
 		size_t chunk = len;
 		ssize_t nr_read;
 		ssize_t nr_written;
@@ -133,39 +164,45 @@ ssize_t vfs_copy_file_buffered(struct file *out_file, struct file *in_file,
 		if (chunk > VFS_COPY_BUF_SIZE)
 			chunk = VFS_COPY_BUF_SIZE;
 
-		nr_read = vfs_read_pos(in_file, kbuf, chunk, in_pos);
-		if (nr_read < 0)
-			return total ? total : nr_read;
+		nr_read =
+			in_file->f_op->read(in_file, kbuf, chunk, input_cursor);
+		if (nr_read < 0) {
+			if (!total)
+				total = nr_read;
+			break;
+		}
 		if (nr_read == 0)
 			break;
+		input_cursor += nr_read;
 
-		nr_written = vfs_write_pos(out_file, kbuf, (size_t)nr_read,
-					   out_pos);
+		if ((out_file->f_flags & O_APPEND) && out_file->f_inode)
+			output_cursor = (loff_t)out_file->f_inode->i_size;
+		nr_written = out_file->f_op->write(
+			out_file, kbuf, (size_t)nr_read, output_cursor);
 		if (nr_written < 0) {
-			if (in_pos)
-				*in_pos = old_in_pos;
-			else
-				vfs_rewind_pos(in_file, nr_read);
-			return total ? total : nr_written;
-		}
-		if (nr_written == 0) {
-			if (in_pos)
-				*in_pos = old_in_pos;
-			else
-				vfs_rewind_pos(in_file, nr_read);
+			if (!total)
+				total = nr_written;
 			break;
 		}
-
-		if (in_pos && nr_written < nr_read)
-			*in_pos -= nr_read - nr_written;
-		else if (!in_pos && nr_written < nr_read)
-			vfs_rewind_pos(in_file, nr_read - nr_written);
+		if (nr_written == 0) {
+			break;
+		}
+		output_cursor += nr_written;
+		if (in_pos)
+			*in_pos += nr_written;
+		else
+			in_file->f_pos += nr_written;
+		if (out_pos)
+			*out_pos = output_cursor;
+		else
+			out_file->f_pos = output_cursor;
 
 		total += nr_written;
 		len -= (size_t)nr_written;
 		if (nr_written < nr_read)
 			break;
 	}
+	vfs_pos_unlock(locked);
 
 	return total;
 }
@@ -178,20 +215,14 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
 	if (!file)
 		return -EBADF;
 
-	locked = vfs_pos_locked(file);
+	locked = vfs_pos_lock(file);
 	if (file->f_op && file->f_op->llseek) {
-		loff_t result;
+		loff_t result = file->f_op->llseek(file, offset, whence);
 
-		if (locked)
-			mutex_lock(&file->f_lock);
-		result = file->f_op->llseek(file, offset, whence);
-		if (locked)
-			mutex_unlock(&file->f_lock);
+		vfs_pos_unlock(locked);
 		return result;
 	}
 
-	if (locked)
-		mutex_lock(&file->f_lock);
 	switch (whence) {
 	case SEEK_SET:
 		base = 0;
@@ -201,27 +232,23 @@ loff_t vfs_llseek(struct file *file, loff_t offset, int whence)
 		break;
 	case SEEK_END:
 		if (!file->f_inode) {
-			if (locked)
-				mutex_unlock(&file->f_lock);
+			vfs_pos_unlock(locked);
 			return -ESPIPE;
 		}
 		base = (loff_t)file->f_inode->i_size;
 		break;
 	default:
-		if (locked)
-			mutex_unlock(&file->f_lock);
+		vfs_pos_unlock(locked);
 		return -EINVAL;
 	}
 
 	if (offset < 0 && base < -offset) {
-		if (locked)
-			mutex_unlock(&file->f_lock);
+		vfs_pos_unlock(locked);
 		return -EINVAL;
 	}
 
 	file->f_pos = base + offset;
-	if (locked)
-		mutex_unlock(&file->f_lock);
+	vfs_pos_unlock(locked);
 	return file->f_pos;
 }
 

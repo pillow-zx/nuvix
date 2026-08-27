@@ -18,10 +18,8 @@
 	(O_DSYNC | FASYNC | O_DIRECT | O_NOATIME | __O_SYNC)
 
 static ssize_t null_read(struct file *file, char *buf, size_t count, loff_t pos);
-static ssize_t null_write(struct file *file, const char *buf, size_t count,
-			  loff_t pos);
-static int null_poll(struct file *file, uint32_t events,
-		     struct task_wait *wait);
+static ssize_t null_write(struct file *file, const char *buf, size_t count, loff_t pos);
+static int null_poll(struct file *file, uint32_t events, struct task_wait *wait);
 
 #define VFS_CHRDEV_MAX 8
 
@@ -80,6 +78,22 @@ int vfs_sync_file(struct file *file)
 		return -EINVAL;
 
 	ret = pgcache_sync_inode(file->f_inode);
+	if (ret < 0)
+		return ret;
+
+	return vfs_inode_writeback(file->f_inode);
+}
+
+int vfs_msync_file_range(struct file *file, uint64_t first_page,
+			 uint64_t end_page)
+{
+	int ret;
+
+	if (!file || !file->f_inode)
+		return -EINVAL;
+
+	ret = pgcache_msync_mapping_range(&file->f_inode->i_pages, first_page,
+					 end_page);
 	if (ret < 0)
 		return ret;
 
@@ -204,8 +218,6 @@ struct file *file_alloc(const struct file_operations *f_op, uint32_t mode,
 	file->f_mode = mode;
 	file->private_data = private_data;
 	refcount_set(&file->refcount, 1);
-	mutex_init(&file->f_lock, LOCK_RANK_FILE_POSITION,
-		   LOCK_IRQ_TASK_ONLY);
 
 	return file;
 }

@@ -12,10 +12,13 @@
 #include <nuvix/time.h>
 #include <nuvix/vfs.h>
 
-#define ICACHE_HASH_BITS 6
-#define ICACHE_HASH_SIZE (1u << ICACHE_HASH_BITS)
+#define ICACHE_HASH_BITS  6
+#define ICACHE_HASH_SIZE  (1u << ICACHE_HASH_BITS)
+#define ICACHE_NR_ENTRIES 512U
 
 HASH_TABLE_DECLARE_STATIC(inode_hashtable, ICACHE_HASH_BITS);
+LIST_HEAD_STATIC(inode_lru);
+static uint32_t inode_entries;
 
 extern spinlock_t vfs_cache_lock;
 
@@ -28,6 +31,8 @@ static uint32_t inode_hash(dev_t dev, uint64_t ino)
 void icache_init(void)
 {
 	hash_table_init(&inode_hashtable);
+	INIT_LIST_HEAD(&inode_lru);
+	inode_entries = 0;
 }
 
 struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
@@ -44,6 +49,7 @@ struct inode *inode_alloc(struct super_block *sb, uint64_t ino)
 	page_mapping_init(&inode->i_pages, inode, 0, NULL);
 	INIT_HLIST_NODE(&inode->i_hash);
 	INIT_LIST_HEAD(&inode->i_sb_list);
+	INIT_LIST_HEAD(&inode->i_lru);
 
 	/* The caller links the inode into sb->s_inodes under vfs_cache_lock. */
 	return inode;
@@ -59,6 +65,7 @@ static void inode_hash_insert(struct inode *inode)
 struct inode *iget(struct super_block *sb, uint64_t ino)
 {
 	struct inode *inode;
+	struct inode *victim = NULL;
 	uint32_t hash;
 	struct hlist_node *pos;
 
@@ -71,8 +78,10 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 	hash_table_for_each_possible (pos, &inode_hashtable, hash) {
 		inode = hlist_entry(pos, struct inode, i_hash);
 
-		if (inode->i_sb == sb && inode->i_ino == ino) {
-			igrab(inode);
+		if (inode->i_sb == sb && inode->i_ino == ino &&
+		    !inode->i_retiring) {
+			refcount_inc_allow_zero(&inode->i_refcount);
+			list_move_tail(&inode->i_lru, &inode_lru);
 			spin_unlock(&vfs_cache_lock);
 			return inode;
 		}
@@ -98,7 +107,7 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 		struct inode *existing = hlist_entry(pos, struct inode, i_hash);
 
 		if (existing->i_sb == sb && existing->i_ino == ino) {
-			igrab(existing);
+			refcount_inc_allow_zero(&existing->i_refcount);
 			spin_unlock(&vfs_cache_lock);
 			/* read_inode ran outside the cache lock; the loser's
 			 * private state is heap-only and never published. */
@@ -108,16 +117,53 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 		}
 	}
 
+	if (inode_entries >= ICACHE_NR_ENTRIES) {
+		struct list_head *lru_pos;
+
+		list_for_each (lru_pos, &inode_lru) {
+			struct inode *candidate =
+				list_entry(lru_pos, struct inode, i_lru);
+
+			if (refcount_read(&candidate->i_refcount) == 0 &&
+			    !candidate->i_retiring) {
+				victim = candidate;
+				break;
+			}
+		}
+		if (!victim) {
+			spin_unlock(&vfs_cache_lock);
+			kfree(inode->i_private);
+			kfree(inode);
+			return NULL;
+		}
+		victim->i_retiring = true;
+		if (!hlist_unhashed(&victim->i_hash))
+			hash_table_del(&victim->i_hash);
+		list_del_init(&victim->i_sb_list);
+		list_del_init(&victim->i_lru);
+		victim->i_resident = false;
+		inode_entries--;
+	}
+	inode->i_resident = true;
+	inode->i_retiring = false;
 	list_add_tail(&inode->i_sb_list, &sb->s_inodes);
+	list_add_tail(&inode->i_lru, &inode_lru);
 	inode_hash_insert(inode);
+	inode_entries++;
 	spin_unlock(&vfs_cache_lock);
+	if (victim) {
+		if (victim->i_sb && victim->i_sb->s_op &&
+		    victim->i_sb->s_op->evict_inode)
+			victim->i_sb->s_op->evict_inode(victim);
+		kfree(victim);
+	}
 	return inode;
 }
 
 void igrab(struct inode *inode)
 {
 	if (inode)
-		refcount_inc_allow_zero(&inode->i_refcount);
+		refcount_inc_not_zero(&inode->i_refcount);
 }
 
 void iput(struct inode *inode)
@@ -130,6 +176,12 @@ void iput(struct inode *inode)
 	last = refcount_dec_if_positive(&inode->i_refcount);
 	if (last && inode->i_nlink == 0)
 		inode_forget(inode);
+	else if (last) {
+		spin_lock(&vfs_cache_lock);
+		if (!list_empty(&inode->i_lru))
+			list_move_tail(&inode->i_lru, &inode_lru);
+		spin_unlock(&vfs_cache_lock);
+	}
 }
 
 int vfs_inode_writeback(struct inode *inode)
@@ -340,20 +392,84 @@ int vfs_stat_inode(const struct inode *inode, struct stat *st)
 	return 0;
 }
 
+/* Unpublish only: removes the inode from hash/sb/LRU lists.  Cannot fail and
+ * runs no filesystem callbacks, so it is safe on any path that has already
+ * decided this inode will never be handed out again. */
+static void inode_unpublish_locked(struct inode *inode)
+{
+	inode->i_retiring = true;
+	if (!hlist_unhashed(&inode->i_hash))
+		hash_table_del(&inode->i_hash);
+	if (inode->i_sb_list.next && inode->i_sb_list.prev)
+		list_del(&inode->i_sb_list);
+	if (!list_empty(&inode->i_lru))
+		list_del_init(&inode->i_lru);
+	inode->i_resident = false;
+	if (inode_entries > 0)
+		inode_entries--;
+}
+
+/* Rollback strong path: unpublish, evict with best-effort semantics, and
+ * free unconditionally.  Only for inodes whose creation is being undone
+ * (nlink == 0 rollback) or teardown paths where a prior failable pass
+ * succeeded; an eviction error here is recorded in s_error but cannot be
+ * propagated because the object's creation has already failed. */
 void inode_forget(struct inode *inode)
 {
 	if (!inode)
 		return;
 
 	spin_lock(&vfs_cache_lock);
-	if (!hlist_unhashed(&inode->i_hash))
-		hash_table_del(&inode->i_hash);
-	if (inode->i_sb_list.next && inode->i_sb_list.prev)
-		list_del(&inode->i_sb_list);
+	if (inode->i_retiring) {
+		spin_unlock(&vfs_cache_lock);
+		return;
+	}
+	inode_unpublish_locked(inode);
 	spin_unlock(&vfs_cache_lock);
 
-	if (inode->i_sb && inode->i_sb->s_op && inode->i_sb->s_op->evict_inode)
-		inode->i_sb->s_op->evict_inode(inode);
+	if (inode->i_sb && inode->i_sb->s_op && inode->i_sb->s_op->evict_inode &&
+	    inode->i_sb->s_op->evict_inode(inode) < 0 && inode->i_sb)
+		inode->i_sb->s_error = inode->i_sb->s_error ? : -EIO;
 
 	kfree(inode);
+}
+
+/* Failable eviction for superblock teardown: on success the object is gone;
+ * on failure the inode stays published exactly as it was (retiring clear,
+ * still hashed and linked) so the transaction can retry or abort cleanly. */
+int inode_evict(struct inode *inode)
+{
+	int ret;
+
+	if (!inode)
+		return 0;
+
+	spin_lock(&vfs_cache_lock);
+	if (inode->i_retiring) {
+		spin_unlock(&vfs_cache_lock);
+		kfree(inode);
+		return 0;
+	}
+	inode_unpublish_locked(inode);
+	spin_unlock(&vfs_cache_lock);
+
+	ret = 0;
+	if (inode->i_sb && inode->i_sb->s_op && inode->i_sb->s_op->evict_inode)
+		ret = inode->i_sb->s_op->evict_inode(inode);
+	if (ret < 0) {
+		if (inode->i_sb)
+			inode->i_sb->s_error = ret;
+		spin_lock(&vfs_cache_lock);
+		inode->i_retiring = false;
+		inode->i_resident = true;
+		inode_hash_insert(inode);
+		list_add_tail(&inode->i_sb_list, &inode->i_sb->s_inodes);
+		list_add_tail(&inode->i_lru, &inode_lru);
+		inode_entries++;
+		spin_unlock(&vfs_cache_lock);
+		return ret;
+	}
+
+	kfree(inode);
+	return 0;
 }

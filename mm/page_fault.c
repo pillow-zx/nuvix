@@ -98,6 +98,24 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			return 0;
 		}
 
+		if (access == USER_FAULT_WRITE && vma->vm_file && vma->vm_shared &&
+		    (vma->vm_flags & VM_WRITE) &&
+		    pte_allows_user_read(*existing)) {
+			struct pgcache *shared_page =
+				pgcache_get_data(__va(pte_phys_addr(*existing)));
+
+			if (!shared_page)
+				return -EFAULT;
+			int lease_ret = pgcache_shared_write_begin(shared_page);
+			if (lease_ret == 0) {
+				*existing = pte_make(pte_phys_addr(*existing),
+						vma_flags_to_pte(vma->vm_flags));
+				flush_tlb_page(page_addr);
+			}
+			pgcache_put_page(shared_page);
+			return lease_ret;
+		}
+
 		if (access == USER_FAULT_WRITE && (vma->vm_flags & VM_WRITE) &&
 		    pte_allows_user_read(*existing)) {
 			int cow_ret = cow_split_page(mm, page_addr, existing, vma,
@@ -158,11 +176,25 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 
 		pte_flags = vma_flags_to_pte(vma->vm_flags);
 		if (vma->vm_shared) {
+			bool writable = access == USER_FAULT_WRITE &&
+				(vma->vm_flags & VM_WRITE);
+			if (writable) {
+				int lease_ret = pgcache_shared_write_begin(file_page);
+
+				if (lease_ret < 0) {
+					pgcache_put_page(file_page);
+					return lease_ret;
+				}
+			} else {
+				pte_flags = pgprot_make_readonly(pte_flags);
+			}
 			int ret = map_page(
 				mm->pgd, page_addr,
 				__pa((uintptr_t)page_cache_data(file_page)),
 				pte_flags);
 			if (ret < 0) {
+				if (writable)
+					pgcache_shared_write_end(file_page);
 				pgcache_put_page(file_page);
 				return ret;
 			}

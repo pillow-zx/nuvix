@@ -133,6 +133,35 @@ static ssize_t read_user_buffer_pos(struct file *file, void *buf, size_t len,
 		if (chunk > SYS_FILE_BUF_SIZE)
 			chunk = SYS_FILE_BUF_SIZE;
 
+		if (!pos && pipe_file(file)) {
+			struct pipe_consume_token token;
+			size_t left;
+
+			ret = pipe_consume_begin(file, kbuf, chunk, &token);
+			if (ret < 0)
+				return done ? (ssize_t)done : ret;
+			if (ret == 0)
+				break;
+			left = copy_to_user((char *)buf + done, kbuf,
+					    (size_t)ret);
+			if (left != 0) {
+				size_t accepted = (size_t)ret - left;
+
+				if (accepted) {
+					if (pipe_consume_commit(&token, accepted) < 0)
+						return done ? (ssize_t)done : -EIO;
+				} else {
+					pipe_consume_abort(&token);
+				}
+				done += accepted;
+				return done ? (ssize_t)done : -EFAULT;
+			}
+			if (pipe_consume_commit(&token, (size_t)ret) < 0)
+				return done ? (ssize_t)done : -EIO;
+			done += (size_t)ret;
+			continue;
+		}
+
 		ret = vfs_read_pos(file, kbuf, chunk, pos);
 		if (ret > 0) {
 			size_t left = copy_to_user((char *)buf + done, kbuf,
@@ -526,18 +555,14 @@ ssize_t sys_sendfile(struct trap_frame *tf)
 		return -EINVAL;
 	if (out_file->f_flags & O_APPEND)
 		return -EINVAL;
-	if (count == 0)
-		return 0;
-
 	if (uoffset) {
 		ret = copy_user_offset(uoffset, &offset);
 		if (ret < 0)
 			return ret;
 		ret = vfs_copy_file_buffered(out_file, in_file, &offset, NULL,
 					     count);
-		if (ret > 0 &&
-		    copy_to_user(uoffset, &offset, sizeof(offset)) != 0)
-			return -EFAULT;
+		if (copy_to_user(uoffset, &offset, sizeof(offset)) != 0)
+			return ret > 0 ? ret : -EFAULT;
 		return ret;
 	}
 
@@ -574,9 +599,6 @@ ssize_t sys_splice(struct trap_frame *tf)
 		return -EBADF;
 	if (flags & ~SPLICE_F_SUPPORTED_HINTS)
 		return -EINVAL;
-	if (len == 0)
-		return 0;
-
 	in_pipe = pipe_file(in_file);
 	out_pipe = pipe_file(out_file);
 	if (in_pipe == out_pipe)
@@ -610,12 +632,12 @@ ssize_t sys_splice(struct trap_frame *tf)
 	else
 		ret = vfs_copy_file_buffered(out_file, in_file, in_offsetp,
 					     out_offsetp, len);
-	if (ret > 0 && uoff_in &&
+	if (uoff_in &&
 	    copy_to_user(uoff_in, &in_offset, sizeof(in_offset)) != 0)
-		return -EFAULT;
-	if (ret > 0 && uoff_out &&
+		return ret > 0 ? ret : -EFAULT;
+	if (uoff_out &&
 	    copy_to_user(uoff_out, &out_offset, sizeof(out_offset)) != 0)
-		return -EFAULT;
+		return ret > 0 ? ret : -EFAULT;
 	return ret;
 }
 

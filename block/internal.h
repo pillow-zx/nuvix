@@ -13,7 +13,14 @@ struct pgcache {
 	bool uptodate;
 	bool dirty;
 	bool writeback;
+	bool filling;
+	bool invalidating;
 	bool dropped;
+	int error;
+	uint64_t dirty_generation;
+	uint64_t wb_generation;
+	uint32_t writable_pte_count;
+	struct wait_channel waitq;
 	struct hlist_node hash_node;
 	struct list_head lru_node;
 	struct list_head dirty_node;
@@ -26,6 +33,15 @@ struct pgcache_assoc {
 	struct list_head page_node;
 	struct list_head mapping_node;
 };
+
+/* Resident PTEs hold plain references and writable shared PTEs hold leases,
+ * so any of these pins (or in-flight I/O) blocks a mapping change.  Eviction
+ * uses its own stricter predicate; only truncate/invalidate share this one. */
+static inline bool pgcache_mapping_change_locked(const struct pgcache *page)
+{
+	return page->refcount != 0 || page->writable_pte_count != 0 ||
+	       page->writeback || page->filling || page->invalidating;
+}
 
 void pgcache_init(void);
 void pgcache_wb_init(void);

@@ -42,6 +42,16 @@ bool pgcache_is_dirty(const struct pgcache *page);
 
 void pgcache_mark_dirty(struct pgcache *page);
 
+/* Shared-mapping and mutation lifecycle helpers. */
+__must_check
+int pgcache_shared_write_begin(struct pgcache *page);
+void pgcache_shared_write_end(struct pgcache *page);
+__must_check
+bool pgcache_has_shared_writers(const struct pgcache *page);
+__must_check
+int pgcache_mutation_begin(struct pgcache *page);
+void pgcache_mutation_end(struct pgcache *page, bool dirty);
+
 __must_check
 int pgcache_sync_page(struct pgcache *page);
 
@@ -49,18 +59,31 @@ __must_check
 int pgcache_sync_mapping(struct page_mapping *mapping);
 
 __must_check
+int pgcache_msync_mapping_range(struct page_mapping *mapping,
+				uint64_t first_page, uint64_t end_page);
+
+__must_check
 int pgcache_sync_inode(struct inode *inode);
 
 __must_check
 int pgcache_sync_all(void);
+__must_check
+int pgcache_sync_device(dev_t dev);
 
-void pgcache_truncate_mapping(struct page_mapping *mapping, uint64_t size);
+__must_check
+int pgcache_truncate_mapping(struct page_mapping *mapping, uint64_t size);
 
-void pgcache_invalidate_mapping(struct page_mapping *mapping);
+__must_check
+int pgcache_invalidate_mapping(struct page_mapping *mapping);
 
-void pgcache_truncate_inode(struct inode *inode, uint64_t size);
+__must_check
+int pgcache_truncate_inode(struct inode *inode, uint64_t size);
 
-void pgcache_invalidate_inode(struct inode *inode);
+__must_check
+int pgcache_invalidate_inode(struct inode *inode);
+
+__must_check
+int pgcache_discard_device(dev_t dev);
 
 void pgcache_wb_thread(void *arg);
 

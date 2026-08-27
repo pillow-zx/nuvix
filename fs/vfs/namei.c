@@ -105,12 +105,15 @@ int vfs_at_lookup(int dfd, const char *path, int at_flags,
 
 	if (at_flags & AT_EMPTY_PATH && (!path || !*path)) {
 		if (dfd == AT_FDCWD) {
-			ret = fs_get_cwd_path(current_task()->proc ?
-						 current_task()->proc->fs : NULL, &res->path);
+			ret = fs_get_cwd_path(current_task()->proc
+						      ? current_task()->proc->fs
+						      : NULL,
+					      &res->path);
 			if (ret < 0)
 				return ret;
-			res->inode = res->path.dentry ? res->path.dentry->d_inode :
-				NULL;
+			res->inode = res->path.dentry
+					     ? res->path.dentry->d_inode
+					     : NULL;
 		} else {
 			file = fd_get(dfd);
 			if (!file)
@@ -131,8 +134,8 @@ int vfs_at_lookup(int dfd, const char *path, int at_flags,
 	ret = at_base_path(dfd, path, &base);
 	if (ret < 0)
 		return ret;
-	ret = path_lookupat_path(base.dentry ? &base : NULL, path,
-					lookup_flags, &res->path);
+	ret = path_lookupat_path(base.dentry ? &base : NULL, path, lookup_flags,
+				 &res->path);
 	path_put(&base);
 	if (ret < 0)
 		return ret;
@@ -235,16 +238,17 @@ static int lookup_start_path(const struct path *base, const char *path,
 	res->mnt = NULL;
 	res->dentry = NULL;
 	if (*path == '/')
-		return fs_get_root_path(current_task()->proc ?
-						 current_task()->proc->fs : NULL, res);
+		return fs_get_root_path(
+			current_task()->proc ? current_task()->proc->fs : NULL,
+			res);
 	if (base) {
 		*res = *base;
 		path_get(res);
 		return 0;
 	}
 
-	return fs_get_cwd_path(current_task()->proc ? current_task()->proc->fs : NULL,
-					res);
+	return fs_get_cwd_path(
+		current_task()->proc ? current_task()->proc->fs : NULL, res);
 }
 
 struct dentry *vfs_lookup_one(struct dentry *parent, const char *name,
@@ -276,14 +280,20 @@ struct dentry *vfs_lookup_one(struct dentry *parent, const char *name,
 		return found;
 	}
 	if (!found || !found->d_inode) {
-		dcache_insert(dentry);
+		if (dcache_insert(dentry) < 0) {
+			dput(dentry);
+			return ERR_PTR(-ENOMEM);
+		}
 		dput(dentry);
 		return NULL;
 	}
 
-	if (found == dentry)
-		dcache_insert(dentry);
-	else
+	if (found == dentry) {
+		if (dcache_insert(dentry) < 0) {
+			dput(dentry);
+			return ERR_PTR(-ENOMEM);
+		}
+	} else
 		dput(dentry);
 
 	return found;
@@ -313,13 +323,19 @@ struct dentry *vfs_lookup_one_any(struct dentry *parent, const char *name,
 		return found;
 	}
 	if (!found || !found->d_inode) {
-		dcache_insert(dentry);
+		if (dcache_insert(dentry) < 0) {
+			dput(dentry);
+			return ERR_PTR(-ENOMEM);
+		}
 		return dentry;
 	}
 
-	if (found == dentry)
-		dcache_insert(dentry);
-	else
+	if (found == dentry) {
+		if (dcache_insert(dentry) < 0) {
+			dput(dentry);
+			return ERR_PTR(-ENOMEM);
+		}
+	} else
 		dput(dentry);
 
 	return found;
@@ -381,8 +397,9 @@ static int follow_symlink(const struct path *dir, struct path *link,
 	target[len] = '\0';
 
 	if (target[0] == '/')
-		ret = fs_get_root_path(current_task()->proc ?
-						 current_task()->proc->fs : NULL, &base);
+		ret = fs_get_root_path(
+			current_task()->proc ? current_task()->proc->fs : NULL,
+			&base);
 	else {
 		base = *dir;
 		path_get(&base);
@@ -656,8 +673,8 @@ int vfs_chdir_path(const struct path *path)
 	if (!S_ISDIR(vfs_inode_mode(inode)))
 		return -ENOTDIR;
 
-	return fs_set_cwd_path(current_task()->proc ? current_task()->proc->fs : NULL,
-					path);
+	return fs_set_cwd_path(
+		current_task()->proc ? current_task()->proc->fs : NULL, path);
 }
 
 void vfs_set_root_dentry(struct dentry *dentry)
@@ -675,6 +692,7 @@ void vfs_set_root_dentry(struct dentry *dentry)
 	dget(root_dentry);
 
 	if (current_task())
-		fs_set_root_if_empty(current_task()->proc ?
-						 current_task()->proc->fs : NULL, root_dentry);
+		fs_set_root_if_empty(
+			current_task()->proc ? current_task()->proc->fs : NULL,
+			root_dentry);
 }

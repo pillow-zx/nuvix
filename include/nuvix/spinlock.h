@@ -30,6 +30,7 @@ typedef struct spinlock {
 #define LOCK_RANK_PID              70
 #define LOCK_RANK_PRINTK_READ      80
 #define LOCK_RANK_FILES_FDTABLE    90
+#define LOCK_RANK_VFS_MOUNT        105
 #define LOCK_RANK_FILES_FS         100
 #define LOCK_RANK_FILE_POSITION    110
 #define LOCK_RANK_VFS_CACHE        120
@@ -37,10 +38,8 @@ typedef struct spinlock {
 #define LOCK_RANK_EXT2_SB          140
 #define LOCK_RANK_MM_MMAP          150
 #define LOCK_RANK_PRINTK_RING      160
-#define LOCK_RANK_VFS_MOUNT        170
 #define LOCK_RANK_PAGE_CACHE       180
 #define LOCK_RANK_CONSOLE_EMIT     190
-#define LOCK_RANK_WB_BUF           200
 #define LOCK_RANK_VIRTIO_SUBMIT    210
 #define LOCK_RANK_EVENTPOLL        220
 #define LOCK_RANK_PIPE             230

@@ -82,7 +82,7 @@ void pgcache_assoc_remove_mapping(struct page_mapping *mapping)
 }
 
 void pgcache_assoc_remove_page_locked(struct pgcache *page,
-					 struct list_head *removed)
+				      struct list_head *removed)
 {
 	struct list_head *pos, *next;
 

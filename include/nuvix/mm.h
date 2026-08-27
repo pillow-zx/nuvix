@@ -27,6 +27,9 @@ struct mm_map_id {
 struct mm_mapping_release {
 	paddr_t pa;
 	bool dirty;
+	/* Set when the PTE being cleared actually held a shared-writable
+	 * cache lease; only that case may run pgcache_shared_write_end(). */
+	bool lease;
 };
 
 struct mm_teardown {
