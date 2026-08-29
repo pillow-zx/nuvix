@@ -401,7 +401,8 @@ int vfs_mknod_at_path(const struct path *base, const char *path, uint32_t mode,
 
 	if (type == 0)
 		mode |= S_IFREG;
-	else if (type != S_IFREG && type != S_IFCHR && type != S_IFBLK)
+	else if (type != S_IFREG && type != S_IFCHR && type != S_IFBLK &&
+		 type != S_IFIFO)
 		return -EINVAL;
 
 	ret = vfs_create_at_path(base, path, mode, &created);
