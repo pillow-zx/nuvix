@@ -12,6 +12,7 @@
 #define TIOCSWINSZ 0x5414
 #define TIOCNOTTY  0x5422
 #define TIOCGSID   0x5429
+#define FIONREAD   0x541B
 
 #define NCCS 19
 
@@ -77,5 +78,6 @@ _Static_assert(TIOCGWINSZ == 0x5413, "TIOCGWINSZ ABI mismatch");
 _Static_assert(TIOCSWINSZ == 0x5414, "TIOCSWINSZ ABI mismatch");
 _Static_assert(TIOCNOTTY == 0x5422, "TIOCNOTTY ABI mismatch");
 _Static_assert(TIOCGSID == 0x5429, "TIOCGSID ABI mismatch");
+_Static_assert(FIONREAD == 0x541B, "FIONREAD ABI mismatch");
 
 #endif

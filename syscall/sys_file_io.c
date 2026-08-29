@@ -572,9 +572,10 @@ ssize_t sys_sendfile(struct trap_frame *tf)
 
 /*
  * SYSCALL_SUPPORT(B): splice
- * Current: copies between one pipe endpoint and one regular file endpoint.
- * Unsupported errno: unknown flags, pipe-pipe, file-file, non-regular files,
- * and O_APPEND output return -EINVAL; pipe offsets return -ESPIPE.
+ * Current: copies between one pipe endpoint and either another pipe or one
+ * regular file endpoint.
+ * Unsupported errno: unknown flags, file-file, non-regular files, and
+ * O_APPEND output return -EINVAL; pipe offsets return -ESPIPE.
  * Future: build an explicit pipe/file mode and flag support table.
  */
 ssize_t sys_splice(struct trap_frame *tf)
@@ -601,8 +602,14 @@ ssize_t sys_splice(struct trap_frame *tf)
 		return -EINVAL;
 	in_pipe = pipe_file(in_file);
 	out_pipe = pipe_file(out_file);
-	if (in_pipe == out_pipe)
-		return -EINVAL;
+	if (in_pipe == out_pipe) {
+		if (!in_pipe)
+			return -EINVAL;
+		if (uoff_in || uoff_out)
+			return -ESPIPE;
+		return pipe_splice_to_pipe(in_file, out_file, len,
+					   flags & SPLICE_F_NONBLOCK);
+	}
 	if (in_pipe && uoff_in)
 		return -ESPIPE;
 	if (out_pipe && uoff_out)

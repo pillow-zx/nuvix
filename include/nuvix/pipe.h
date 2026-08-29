@@ -22,9 +22,14 @@ struct pipe_consume_token {
 #define PIPE_BUF PAGE_SIZE
 
 int do_pipe2(int fds[2], int flags);
+
 bool pipe_file(struct file *file);
-ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
-				    loff_t *out_offset, size_t len);
+
+__must_check
+ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file, loff_t *out_offset, size_t len);
+
+__must_check
+ssize_t pipe_splice_to_pipe(struct file *in_file, struct file *out_file, size_t len, bool nonblock);
 __must_check
 int pipe_consume_begin(struct file *file, char *buffer, size_t count,
 			       struct pipe_consume_token *token);

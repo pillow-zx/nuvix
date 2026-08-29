@@ -6,12 +6,14 @@
 #include <nuvix/errno.h>
 #include <nuvix/fdtable.h>
 #include <nuvix/fs.h>
+#include <nuvix/mm.h>
 #include <nuvix/pipe.h>
 #include <nuvix/slab.h>
 #include <nuvix/signal.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/task.h>
 #include <nuvix/wait.h>
+#include <uapi/tty.h>
 #include <nuvix/page.h>
 #include <nuvix/printk.h>
 
@@ -40,6 +42,7 @@ struct pipe_write_wait {
 };
 
 static void pipe_put(struct pipe_buffer *pipe);
+
 CLEANUP_DEFINE(pipe_ref, struct pipe_buffer *, if (_T) pipe_put(_T));
 
 static void pipe_get(struct pipe_buffer *pipe)
@@ -49,21 +52,22 @@ static void pipe_get(struct pipe_buffer *pipe)
 }
 
 static ssize_t pipe_read(struct file *file, char *buf, size_t count, loff_t pos);
-static ssize_t pipe_write(struct file *file, const char *buf, size_t count,
-			  loff_t pos);
-static int pipe_poll(struct file *file, uint32_t events,
-		     struct task_wait *wait);
+static ssize_t pipe_write(struct file *file, const char *buf, size_t count, loff_t pos);
+static int pipe_poll(struct file *file, uint32_t events, struct task_wait *wait);
+static int pipe_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 static int pipe_release(struct file *file);
 
 static const struct file_operations pipe_read_fops = {
 	.read = pipe_read,
 	.poll = pipe_poll,
+	.ioctl = pipe_ioctl,
 	.release = pipe_release,
 };
 
 static const struct file_operations pipe_write_fops = {
 	.write = pipe_write,
 	.poll = pipe_poll,
+	.ioctl = pipe_ioctl,
 	.release = pipe_release,
 };
 
@@ -412,6 +416,28 @@ static int pipe_poll(struct file *file, uint32_t events,
 	return mask;
 }
 
+static int pipe_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
+{
+	struct pipe_buffer *pipe = file ? file->private_data : NULL;
+	size_t available;
+	irq_flags_t flags;
+
+	if (!pipe)
+		return -EINVAL;
+
+	switch (cmd) {
+	case FIONREAD:
+		spin_lock_irqsave(&pipe->lock, &flags);
+		available = pipe->used;
+		spin_unlock_irqrestore(&pipe->lock, flags);
+		if (copy_to_user((void *)arg, &available, sizeof(available)) != 0)
+			return -EFAULT;
+		return 0;
+	}
+
+	return -ENOTTY;
+}
+
 static int pipe_release(struct file *file)
 {
 	struct pipe_buffer *pipe = file->private_data;
@@ -552,6 +578,126 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 			return done ? (ssize_t)done : -EIO;
 		done += (size_t)ret;
 		if ((size_t)ret < chunk)
+			break;
+	}
+
+	return (ssize_t)done;
+}
+
+/*
+ * Move bytes from one pipe into another. Both pipe locks are held
+ * simultaneously, ordered by address to avoid an ABBA deadlock between
+ * concurrent splices in opposite directions, mirroring Linux's
+ * pipe_double_lock ordering for splice(2) pipe-to-pipe transfers.
+ * Precondition: in_file and out_file belong to different pipes.
+ */
+static void pipe_double_lock(struct pipe_buffer *a, struct pipe_buffer *b,
+			     irq_flags_t *flags_a, irq_flags_t *flags_b)
+{
+	if (a < b) {
+		spin_lock_irqsave(&a->lock, flags_a);
+		spin_lock_irqsave(&b->lock, flags_b);
+	} else {
+		spin_lock_irqsave(&b->lock, flags_b);
+		spin_lock_irqsave(&a->lock, flags_a);
+	}
+}
+
+static void pipe_double_unlock(struct pipe_buffer *a, struct pipe_buffer *b,
+			       irq_flags_t flags_a, irq_flags_t flags_b)
+{
+	spin_unlock_irqrestore(&a->lock, flags_a);
+	spin_unlock_irqrestore(&b->lock, flags_b);
+}
+
+ssize_t pipe_splice_to_pipe(struct file *in_file, struct file *out_file,
+			    size_t len, bool nonblock)
+{
+	struct pipe_buffer *ipipe = in_file ? in_file->private_data : NULL;
+	struct pipe_buffer *opipe = out_file ? out_file->private_data : NULL;
+	struct pipe_buffer *__cleanup_with(pipe_ref) iheld = NULL;
+	struct pipe_buffer *__cleanup_with(pipe_ref) oheld = NULL;
+	size_t done = 0;
+	irq_flags_t iflags;
+	irq_flags_t oflags;
+
+	if (!ipipe || !opipe || len == 0)
+		return -EINVAL;
+	pipe_get(ipipe);
+	iheld = ipipe;
+	pipe_get(opipe);
+	oheld = opipe;
+
+	for (;;) {
+		size_t src_tail;
+		size_t src_chunk;
+		size_t dst_chunk;
+
+		pipe_double_lock(ipipe, opipe, &iflags, &oflags);
+
+		if (opipe->readers == 0) {
+			pipe_double_unlock(ipipe, opipe, iflags, oflags);
+			if (done == 0)
+				(void)sig_send_self(SIGPIPE);
+			return done ? (ssize_t)done : -EPIPE;
+		}
+
+		/*
+		 * A pinned consume reservation (splice to a file) expects the
+		 * tail region to stay stable until it commits; wait it out
+		 * instead of racing its commit, like pipe_read does.
+		 */
+		if (ipipe->consume_active) {
+			pipe_double_unlock(ipipe, opipe, iflags, oflags);
+			if (done > 0)
+				break;
+			if (nonblock)
+				return -EAGAIN;
+			if (pipe_wait(ipipe, false, 0) < 0)
+				return done ? (ssize_t)done : -EINTR;
+			continue;
+		}
+
+		if (ipipe->used == 0 || opipe->used == PIPE_SIZE) {
+			bool eof = ipipe->used == 0 && ipipe->writers == 0;
+
+			pipe_double_unlock(ipipe, opipe, iflags, oflags);
+			if (done > 0 || eof)
+				break;
+			if (nonblock)
+				return -EAGAIN;
+			if (ipipe->used == 0) {
+				if (pipe_wait(ipipe, false, 0) < 0)
+					return -EINTR;
+			} else {
+				if (pipe_wait(opipe, true, 1) < 0)
+					return -EINTR;
+			}
+			continue;
+		}
+
+		/*
+		 * pipe_linear_tail and pipe_linear_head_space bound both runs
+		 * to stay within the buffer, so the move is a single memcpy.
+		 */
+		src_tail = ipipe->tail;
+		src_chunk = pipe_linear_tail(ipipe);
+		if (src_chunk > len - done)
+			src_chunk = len - done;
+		dst_chunk = pipe_linear_head_space(opipe);
+		if (dst_chunk > src_chunk)
+			dst_chunk = src_chunk;
+
+		pipe_commit_write_locked(opipe,
+					 (const char *)ipipe->data + src_tail,
+					 dst_chunk);
+		pipe_commit_read_locked(ipipe, dst_chunk);
+		done += dst_chunk;
+		pipe_double_unlock(ipipe, opipe, iflags, oflags);
+		wait_channel_wake_all(&ipipe->writers_wq);
+		wait_channel_wake_all(&opipe->readers_wq);
+
+		if (done == len)
 			break;
 	}
 
