@@ -627,13 +627,11 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	struct task_struct *task = current_task();
 	struct proc_struct *proc = task->proc;
 	struct mm_struct *oldmm;
-	uintptr_t pgroot = mm_pgroot(mm);
 
 	oldmm = proc_replace_mm(proc, mm);
-	task->arch.pgroot = pgroot;
 	task->arch.tf = tf;
 
-	activate_pgroot(task->arch.pgroot);
+	activate_pgroot(mm_pgroot(mm));
 	sched_publish_active_mm(mm);
 	mm_put(oldmm);
 

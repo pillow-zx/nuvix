@@ -37,9 +37,16 @@ void schedule_irqoff(void);
  *
  * The scheduler owns this seam. Callers must have local IRQs disabled and
  * hold no spinlock; the function does not establish these preconditions.
+ * The return value is the physical Last Task whose context was saved.
  */
 __nonnull(1, 2)
-void task_switch(struct task_struct *prev, struct task_struct *next);
+struct task_struct *task_switch(struct task_struct *prev,
+				struct task_struct *next,
+				uintptr_t next_pgroot);
+
+/** First Dispatch Gateway for a Task without a suspended scheduler frame. */
+__noreturn
+void sched_first_dispatch(struct task_struct *last);
 
 /**
  * @brief Request a reschedule of the current task without switching.
@@ -83,6 +90,13 @@ bool sched_wake_external(struct task_struct *task);
 int sched_set_affinity(struct task_struct *task, const cpumask_t *requested);
 
 cpumask_t sched_get_affinity(struct task_struct *task);
+
+/**
+ * Widen a kernel-origin Task to the full schedulable set when it becomes a
+ * user process.  Called once at the init-origin boundary, before the Task
+ * is ever enqueued; replaces the kernel-thread default pin to CPU 0.
+ */
+void sched_task_allow_all_cpus(struct task_struct *task);
 
 /**
  * Transfer one retired Task to the independent reaper.

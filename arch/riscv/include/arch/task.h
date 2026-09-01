@@ -32,18 +32,18 @@ struct task_struct;
  * - @c ctx: Callee-saved kernel context for switch.S.
  * - @c tf: Current trap frame while running in kernel.
  * - @c kstack: Base address of the task kernel stack allocation.
- * - @c satp: User page-table root installed before U-mode return.
  */
 struct task_state {
 	struct context ctx;
 	struct trap_frame *tf;
 	void *kstack;
-	uint64_t pgroot;
 };
 
-/** Architecture handoff for two scheduler-selected tasks. */
+/** Architecture handoff returning the physical Last Task. */
 __nonnull(1, 2)
-void arch_task_switch(struct task_struct *prev, struct task_struct *next);
+struct task_struct *arch_task_switch(struct task_struct *prev,
+				     struct task_struct *next,
+				     uintptr_t next_pgroot);
 
 static_assert(ARCH_KSTACK_SIZE == TASK_KSTACK_SIZE,
 	      "entry.S __trapret kstack arithmetic is out of sync");

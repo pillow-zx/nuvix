@@ -25,6 +25,8 @@ activate_pgroot:
 	ret
 
 switch_to:
+	/* Preserve the physical outgoing Task across SATP activation. */
+	mv      t1, a3
 	sd      ra,  CTX_RA(a0)
 	sd      sp,  CTX_SP(a0)
 	sd      s0,  CTX_S0(a0)
@@ -46,6 +48,7 @@ switch_to:
 	 * not mapped by a user page table.  After activating satp, do not touch the
 	 * outgoing stack before loading the incoming one below.
 	 */
+	fence   rw, rw
 	mv      a0, a2
 	jal     ra, activate_pgroot
 
@@ -63,4 +66,7 @@ switch_to:
 	ld      s9,  CTX_S9(a1)
 	ld      s10, CTX_S10(a1)
 	ld      s11, CTX_S11(a1)
+	/* Return the Last Task to either a restored scheduler frame or the
+	 * incoming Task's First Dispatch Gateway. */
+	mv      a0, t1
 	ret

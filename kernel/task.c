@@ -308,6 +308,10 @@ int task_create_initial_proc(struct task_struct *task)
 	ret = proc_attach_task(proc, task, true);
 	if (ret < 0)
 		goto fail_proc;
+	/* Kernel origin becomes a user process: drop the default CPU-0 pin
+	 * for this Task and let descendants inherit the full schedulable
+	 * set. */
+	sched_task_allow_all_cpus(task);
 	ret = proc_init_resources(proc);
 	if (ret < 0)
 		goto fail_task;
@@ -582,6 +586,11 @@ void task_init(void)
 		/* The boot context runs on the physical idle stack; keep bounds
 		 * and runtime stack in the same address space. */
 		idle->arch.kstack = (void *)__pa(idle_stacks[id]);
+		/* Idle Tasks are never enqueued, so their CPU assignment is
+		 * fixed at construction time; the topology is already
+		 * published by smp_prepare(). */
+		if (id < nr_cpu_ids)
+			idle->cpu = &cpu_table[id];
 	}
 	cpu_boot_init(idle_tasks);
 	set_current_task(idle_tasks);

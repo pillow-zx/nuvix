@@ -75,7 +75,6 @@
  * include/nuvix/task.h, catching layout drift at build time.
  */
 #define TASK_KSTACK 120
-#define TASK_SATP   128
 
 #define TASK_KSTACK_SIZE 1024 * 16
 

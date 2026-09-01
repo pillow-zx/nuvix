@@ -2,27 +2,17 @@
  * arch/riscv/task.c - RISC-V task context helpers
  */
 
-#include <nuvix/mm.h>
+#include <nuvix/sched.h>
 #include <nuvix/task.h>
 #include <nuvix/tools.h>
 #include <uapi/sched.h>
-#include <arch/pgtable.h>
 #include <arch/trap.h>
-
-__must_check __pure
-static uintptr_t task_pgroot(const struct task_struct *task)
-{
-	uint64_t satp = task->arch.pgroot;
-
-	return satp ? satp : kernel_pgroot();
-}
 
 void arch_task_init(struct task_struct *task)
 {
 	task->arch.ctx.ra = 0;
 	task->arch.ctx.sp = 0;
 	task->arch.tf = NULL;
-	task->arch.pgroot = 0;
 }
 
 void task_setup_kthread(struct task_struct *task, void (*fn)(void *),
@@ -33,7 +23,7 @@ void task_setup_kthread(struct task_struct *task, void (*fn)(void *),
 	trap_set_kthread_frame(tf, (uintptr_t)fn, (uintptr_t)arg);
 
 	task->arch.tf = tf;
-	task->arch.ctx.ra = (size_t)__trapret;
+	task->arch.ctx.ra = (size_t)sched_first_dispatch;
 	task->arch.ctx.sp = (size_t)tf;
 }
 
@@ -52,13 +42,15 @@ void task_setup_clone_frame(struct task_struct *child,
 		trap_set_tls(child_tf, tls);
 
 	child->arch.tf = child_tf;
-	child->arch.ctx.ra = (size_t)__trapret;
+	child->arch.ctx.ra = (size_t)sched_first_dispatch;
 	child->arch.ctx.sp = (size_t)child_tf;
 }
 
-void arch_task_switch(struct task_struct *prev, struct task_struct *next)
+struct task_struct *arch_task_switch(struct task_struct *prev,
+				     struct task_struct *next,
+				     uintptr_t next_pgroot)
 {
-	switch_to(&prev->arch.ctx, &next->arch.ctx, task_pgroot(next));
+	return switch_to(&prev->arch.ctx, &next->arch.ctx, next_pgroot, prev);
 }
 
 bool task_trap_frome_user(const struct task_struct *task)

@@ -18,8 +18,11 @@ void __trapret(void);
 
 __noreturn
 void trapret_to_user(struct trap_frame *tf) ;
-void switch_to(struct context *prev, struct context *next,
-	       uintptr_t next_satp);
+struct task_struct;
+
+struct task_struct *switch_to(struct context *prev, struct context *next,
+			      uintptr_t next_satp,
+			      struct task_struct *outgoing);
 
 /**
  * @brief Read the Linux riscv64 syscall number from a trap frame.

@@ -3,11 +3,22 @@
 
 #include <nuvix/sched.h>
 
+struct mm_struct;
+
 enum sched_enqueue_reason {
 	SCHED_ENQUEUE_NEW,
 	SCHED_ENQUEUE_WAKE,
 	SCHED_ENQUEUE_PREEMPT,
 	SCHED_ENQUEUE_YIELD,
+};
+
+struct sched_handoff {
+	struct task_struct *outgoing;
+	struct task_struct *incoming;
+	struct mm_struct *incoming_mm;
+	uintptr_t installed_pgroot;
+	bool terminal;
+	bool pending;
 };
 
 struct runqueue {
@@ -17,6 +28,8 @@ struct runqueue {
 	struct task_struct *idle;
 	struct list_head runnable;
 	uint32_t nr_running;
+	struct mm_struct *active_mm;
+	struct sched_handoff handoff;
 };
 
 struct sched_ops {

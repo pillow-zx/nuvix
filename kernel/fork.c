@@ -93,10 +93,7 @@ static int clone_copy_mm(struct task_struct *child, unsigned long flags)
 	struct mm_struct *oldmm;
 
 	if (clone_wants_thread(flags)) {
-		/* Threads share their proc mm, but still need their own arch
-		 * state. */
-		if (child->proc && child->proc->mm)
-			child->arch.pgroot = mm_pgroot(child->proc->mm);
+		/* Threads share their Proc-owned MM. */
 		return 0;
 	}
 	if (flags & CLONE_VM) {
@@ -110,8 +107,6 @@ static int clone_copy_mm(struct task_struct *child, unsigned long flags)
 	}
 	oldmm = proc_replace_mm(child->proc, mm);
 	mm_put(oldmm);
-	if (mm)
-		child->arch.pgroot = mm_pgroot(mm);
 	return 0;
 }
 
