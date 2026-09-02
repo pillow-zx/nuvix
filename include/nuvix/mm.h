@@ -42,6 +42,10 @@ struct mm_teardown {
 struct uaccess_txn {
 	struct mm_struct *mm;
 	struct mm_teardown teardown;
+	/* Debug witness of the most recent prepare: a prepared load must
+	 * fall inside it, because prepared loads cannot fault. */
+	IFDEF(CONFIG_DEBUG_CONTEXT, uintptr_t prepared_addr;)
+	IFDEF(CONFIG_DEBUG_CONTEXT, size_t prepared_size;)
 };
 
 /**
@@ -262,7 +266,27 @@ int uaccess_cmpxchg_u32(struct uaccess_txn *txn, volatile uint32_t *addr,
 /** Fault-safe acquire load prepared for a following write in @p txn. */
 __must_check __nonnull(1, 2)
 int uaccess_load_u32(struct uaccess_txn *txn,
-				 const volatile uint32_t *addr, uint32_t *value);
+		     const volatile uint32_t *addr, uint32_t *value);
+
+/**
+ * Load a u32 whose mapping was prepared earlier in the same transaction.
+ * Performs no fault handling, so it may run with spinlocks held or
+ * interrupts disabled.  The transaction's mmap_lock must still be held
+ * (checked via txn->mm) and @p addr must have been prepared in this
+ * transaction (asserted in debug builds); ending the transaction
+ * invalidates every preparation.
+ *
+ * The mapping cannot change between prepare and load: mmap_lock is a full
+ * mutex, every PTE mutation for the address space (fault, COW replacement,
+ * unmap) serializes on it, and there is no reclaim, so holding it pins the
+ * prepared translation.  A load that faults anyway (contract violated)
+ * recovers through the user-access exception table and returns -EFAULT
+ * instead of panicking.
+ */
+__must_check
+int uaccess_load_u32_prepared(struct uaccess_txn *txn,
+			      const volatile uint32_t *addr,
+			      uint32_t *value);
 
 /** Copy from an explicitly supplied address space in one transaction. */
 __must_check __nonnull(1, 2, 3)

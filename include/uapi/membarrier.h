@@ -5,9 +5,7 @@
  * @file membarrier.h
  * @brief Linux membarrier command and flag UAPI constants.
  *
- * The constants are ABI values from Linux. nuvix currently provides
- * single-core-compatible behavior for supported commands; the bit values must
- * not be renumbered even when an implementation remains shallow.
+ * The constants are ABI values from Linux and must not be renumbered.
  */
 
 #define MEMBARRIER_CMD_QUERY				    0

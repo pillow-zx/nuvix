@@ -27,7 +27,7 @@ struct runqueue {
 	struct task_struct *current;
 	struct task_struct *idle;
 	struct list_head runnable;
-	uint32_t nr_running;
+	atomic_t nr_running;
 	struct mm_struct *active_mm;
 	struct sched_handoff handoff;
 };

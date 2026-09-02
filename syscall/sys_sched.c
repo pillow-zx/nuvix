@@ -2,6 +2,7 @@
  * syscall/sys_sched.c - scheduler-related syscall ABI wrappers
  */
 
+#include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/mm.h>
 #include <nuvix/pid.h>
@@ -17,7 +18,7 @@
  * Unsupported errno: empty CPU set returns -EINVAL; missing target returns
  * -ESRCH; unauthorized cross-user target returns -EPERM.
  * Requested and effective masks are retained separately; queued/running
- * updates remain valid under the current CPU0-only policy.
+ * updates remain valid under the schedulable-equals-online policy.
  */
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
@@ -94,5 +95,25 @@ ssize_t sys_sched_yield(struct trap_frame *tf)
 {
 	(void)tf;
 	sched_yield();
+	return 0;
+}
+
+/*
+ * SYSCALL_SUPPORT(C): getcpu
+ * Current: reports the calling Task's logical CPU id; the NUMA node is
+ * always 0 because nuvix has no NUMA topology.  The cache-hint pointer is
+ * ignored, matching Linux.
+ */
+ssize_t sys_getcpu(struct trap_frame *tf)
+{
+	unsigned int *ucpu = (unsigned int *)syscall_arg(tf, 0);
+	unsigned int *unode = (unsigned int *)syscall_arg(tf, 1);
+	unsigned int cpu = current_cpu()->id;
+	unsigned int node = 0;
+
+	if (ucpu && copy_to_user(ucpu, &cpu, sizeof(cpu)) != 0)
+		return -EFAULT;
+	if (unode && copy_to_user(unode, &node, sizeof(node)) != 0)
+		return -EFAULT;
 	return 0;
 }

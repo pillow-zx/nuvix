@@ -106,15 +106,15 @@ static int pipe_wait(struct pipe_buffer *pipe, bool writing,
 			 size_t min_space)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
-	struct task_wait *wait = &current_task()->wait;
 
 	for (;;) {
+		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 		irq_flags_t flags;
 		int ret;
 		bool ready;
 
-		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 		if (ret < 0)
 			return ret;
 		spin_lock_irqsave(&pipe->lock, &flags);
@@ -123,20 +123,20 @@ static int pipe_wait(struct pipe_buffer *pipe, bool writing,
 				: (!pipe->consume_active &&
 				   (pipe->used > 0 || pipe->writers == 0));
 		if (!ready)
-			ret = wait_prepare(wait,
+			ret = wait_scope_prepare(&scope,
 					writing ? &pipe->writers_wq : &pipe->readers_wq,
 					true);
 		spin_unlock_irqrestore(&pipe->lock, flags);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return ret;
 		}
 		if (ready) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return 0;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		if (ret < 0)
 			return ret;
 		if (outcome == WAIT_OUTCOME_SIGNAL)
@@ -388,7 +388,8 @@ static int pipe_poll(struct file *file, uint32_t events,
 	spin_lock_irqsave(&pipe->lock, &flags);
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
 		if (wait) {
-			ret = wait_prepare(wait, &pipe->readers_wq, false);
+			ret = wait_scope_prepare_current(&pipe->readers_wq,
+							 false);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&pipe->lock, flags);
 				return ret;
@@ -401,7 +402,8 @@ static int pipe_poll(struct file *file, uint32_t events,
 	}
 	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE)) {
 		if (wait) {
-			ret = wait_prepare(wait, &pipe->writers_wq, false);
+			ret = wait_scope_prepare_current(&pipe->writers_wq,
+							 false);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&pipe->lock, flags);
 				return ret;
@@ -588,8 +590,12 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
  * Move bytes from one pipe into another. Both pipe locks are held
  * simultaneously, ordered by address to avoid an ABBA deadlock between
  * concurrent splices in opposite directions, mirroring Linux's
- * pipe_double_lock ordering for splice(2) pipe-to-pipe transfers.
- * Precondition: in_file and out_file belong to different pipes.
+ * pipe_double_lock ordering for splice(2) pipe-to-pipe transfers.  Pipe
+ * locks are an instance-ordered class (see the checker's list in
+ * spinlock.h): acquiring a second pipe lock while holding one is legal
+ * only in ascending instance-address order, and the debug tracker
+ * additionally requires reverse-order release.  Precondition: in_file
+ * and out_file belong to different pipes.
  */
 static void pipe_double_lock(struct pipe_buffer *a, struct pipe_buffer *b,
 			     irq_flags_t *flags_a, irq_flags_t *flags_b)
@@ -606,8 +612,14 @@ static void pipe_double_lock(struct pipe_buffer *a, struct pipe_buffer *b,
 static void pipe_double_unlock(struct pipe_buffer *a, struct pipe_buffer *b,
 			       irq_flags_t flags_a, irq_flags_t flags_b)
 {
-	spin_unlock_irqrestore(&a->lock, flags_a);
-	spin_unlock_irqrestore(&b->lock, flags_b);
+	/* Reverse acquisition order: the debug tracker requires LIFO. */
+	if (a < b) {
+		spin_unlock_irqrestore(&b->lock, flags_b);
+		spin_unlock_irqrestore(&a->lock, flags_a);
+	} else {
+		spin_unlock_irqrestore(&a->lock, flags_a);
+		spin_unlock_irqrestore(&b->lock, flags_b);
+	}
 }
 
 ssize_t pipe_splice_to_pipe(struct file *in_file, struct file *out_file,

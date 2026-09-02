@@ -43,6 +43,8 @@ switch_to:
 	sd      s11, CTX_S11(a0)
 
 	/*
+	 * The full ordinary-memory barrier is load-bearing for membarrier: every
+	 * Task scheduled after a target scan crosses it before returning to user.
 	 * Keep the address-space and stack handoff indivisible.  In particular,
 	 * the boot idle context still uses its low-address OpenSBI stack, which is
 	 * not mapped by a user page table.  After activating satp, do not touch the

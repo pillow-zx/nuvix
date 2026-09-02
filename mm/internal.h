@@ -24,7 +24,7 @@ struct file;
 #define VMA_STACK BIT_U32(2)
 #define VMA_MMAP  BIT_U32(3)
 
-#define NR_VMA 16
+#define NR_VMA 64
 
 #define USER_FAULT_READ	 0
 #define USER_FAULT_WRITE 1
@@ -48,7 +48,7 @@ struct mm_struct {
 	uintptr_t brk;
 	uintptr_t code_start;
 	uintptr_t code_end;
-	uint32_t membarrier_registrations;
+	atomic_t membarrier_registrations;
 	struct vm_area_struct vma[NR_VMA];
 };
 

@@ -37,15 +37,20 @@ bool rwlock_read_trylock(rwlock_t *lock)
 		acquired = true;
 	}
 	spin_unlock_irqrestore(&lock->state_lock, flags);
+	if (acquired)
+		task_sleep_lock_acquire(lock, lock->semantic_rank,
+					TASK_SLEEP_LOCK_RW_READ);
 
 	return acquired;
 }
 
 void rwlock_read_lock(rwlock_t *lock)
 {
+	IFDEF(CONFIG_DEBUG_CONTEXT,
+	      BUG_ON(current_task() && !task_is_idle(current_task()) &&
+		     !wait_may_block());)
 	for (;;) {
-		struct task_struct *task = current_task();
-		struct task_wait *wait;
+		struct wait_scope scope __wait_scope = {};
 		const struct wait_deadline deadline = wait_deadline_none();
 		wait_outcome_t outcome;
 		irq_flags_t flags;
@@ -59,12 +64,14 @@ void rwlock_read_lock(rwlock_t *lock)
 			acquired = true;
 		}
 		spin_unlock_irqrestore(&lock->state_lock, flags);
-		if (acquired)
+		if (acquired) {
+			task_sleep_lock_acquire(lock, lock->semantic_rank,
+						TASK_SLEEP_LOCK_RW_READ);
 			return;
+		}
 
 		BUG_ON(!wait_context_can_sleep());
-		wait = &task->wait;
-		ret = wait_start(wait, 0, &deadline);
+		ret = wait_scope_begin(&scope, 0, &deadline);
 		BUG_ON(ret < 0);
 		spin_lock_irqsave(&lock->state_lock, &flags);
 		if (rwlock_read_available(lock)) {
@@ -72,19 +79,21 @@ void rwlock_read_lock(rwlock_t *lock)
 			lock->readers++;
 			acquired = true;
 		} else {
-			ret = wait_prepare(wait, &lock->wait, false);
+			ret = wait_scope_prepare(&scope, &lock->wait, false);
 		}
 		spin_unlock_irqrestore(&lock->state_lock, flags);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			panic("rwlock: reader wait registration failed: %d", ret);
 		}
 		if (acquired) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
+			task_sleep_lock_acquire(lock, lock->semantic_rank,
+						TASK_SLEEP_LOCK_RW_READ);
 			return;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		BUG_ON(ret < 0 || outcome != WAIT_OUTCOME_EVENT);
 	}
 }
@@ -95,6 +104,7 @@ void rwlock_read_unlock(rwlock_t *lock)
 	bool wake_writer;
 	bool wake_readers;
 
+	task_sleep_lock_release(lock, TASK_SLEEP_LOCK_RW_READ);
 	spin_lock_irqsave(&lock->state_lock, &flags);
 	BUG_ON(lock->readers == 0);
 	lock->readers--;
@@ -119,15 +129,21 @@ bool rwlock_write_trylock(rwlock_t *lock)
 		acquired = true;
 	}
 	spin_unlock_irqrestore(&lock->state_lock, flags);
+	if (acquired)
+		task_sleep_lock_acquire(lock, lock->semantic_rank,
+					TASK_SLEEP_LOCK_RW_WRITE);
 
 	return acquired;
 }
 
 void rwlock_write_lock(rwlock_t *lock)
 {
+	IFDEF(CONFIG_DEBUG_CONTEXT,
+	      BUG_ON(current_task() && !task_is_idle(current_task()) &&
+		     !wait_may_block());)
 	for (;;) {
 		struct task_struct *task = current_task();
-		struct task_wait *wait;
+		struct wait_scope scope __wait_scope = {};
 		const struct wait_deadline deadline = wait_deadline_none();
 		wait_outcome_t outcome;
 		irq_flags_t flags;
@@ -145,12 +161,14 @@ void rwlock_write_lock(rwlock_t *lock)
 			lock->waiting_writers++;
 		}
 		spin_unlock_irqrestore(&lock->state_lock, flags);
-		if (acquired)
+		if (acquired) {
+			task_sleep_lock_acquire(lock, lock->semantic_rank,
+						TASK_SLEEP_LOCK_RW_WRITE);
 			return;
+		}
 
 		BUG_ON(!wait_context_can_sleep());
-		wait = &task->wait;
-		ret = wait_start(wait, 0, &deadline);
+		ret = wait_scope_begin(&scope, 0, &deadline);
 		BUG_ON(ret < 0);
 		spin_lock_irqsave(&lock->state_lock, &flags);
 		if (rwlock_write_free(lock)) {
@@ -159,21 +177,23 @@ void rwlock_write_lock(rwlock_t *lock)
 			lock->waiting_writers--;
 			acquired = true;
 		} else {
-			ret = wait_prepare(wait, &lock->wait, true);
+			ret = wait_scope_prepare(&scope, &lock->wait, true);
 			if (ret < 0)
 				lock->waiting_writers--;
 		}
 		spin_unlock_irqrestore(&lock->state_lock, flags);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			panic("rwlock: writer wait registration failed: %d", ret);
 		}
 		if (acquired) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
+			task_sleep_lock_acquire(lock, lock->semantic_rank,
+						TASK_SLEEP_LOCK_RW_WRITE);
 			return;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		BUG_ON(ret < 0 || outcome != WAIT_OUTCOME_EVENT);
 
 		/* Keep the writer reservation while handing ownership to this task. */
@@ -183,6 +203,8 @@ void rwlock_write_lock(rwlock_t *lock)
 			lock->waiting_writers--;
 			lock->writer = task;
 			spin_unlock_irqrestore(&lock->state_lock, flags);
+			task_sleep_lock_acquire(lock, lock->semantic_rank,
+						TASK_SLEEP_LOCK_RW_WRITE);
 			return;
 		}
 		lock->waiting_writers--;
@@ -195,6 +217,7 @@ void rwlock_write_unlock(rwlock_t *lock)
 	irq_flags_t flags;
 	bool wake_writer;
 
+	task_sleep_lock_release(lock, TASK_SLEEP_LOCK_RW_WRITE);
 	spin_lock_irqsave(&lock->state_lock, &flags);
 	BUG_ON(lock->writer != current_task());
 	lock->writer = NULL;
@@ -219,6 +242,9 @@ void rwlock_downgrade_write(rwlock_t *lock)
 	lock->readers = 1;
 	wake_readers = lock->waiting_writers == 0;
 	spin_unlock_irqrestore(&lock->state_lock, flags);
+	task_sleep_lock_release(lock, TASK_SLEEP_LOCK_RW_WRITE);
+	task_sleep_lock_acquire(lock, lock->semantic_rank,
+				TASK_SLEEP_LOCK_RW_READ);
 
 	if (wake_readers)
 		wait_channel_wake_all(&lock->wait);

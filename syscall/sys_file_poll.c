@@ -238,28 +238,27 @@ typedef int (*poll_scan_fn)(struct task_wait *wait, void *arg);
 static int poll_wait(poll_scan_fn scan, void *arg,
 		     const struct wait_deadline *deadline, int *ready)
 {
-	struct task_wait *wait = &current_task()->wait;
-
 	for (;;) {
+		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 		int ret;
 
-		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, deadline);
+		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, deadline);
 		if (ret < 0)
 			return ret;
-		ret = scan(wait, arg);
+		ret = scan(scope.wait, arg);
 		if (ret > 0) {
 			int result = ready ? *ready : ret;
 
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return result;
 		}
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return ret;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		if (ret < 0)
 			return ret;
 		if (outcome == WAIT_OUTCOME_SIGNAL)

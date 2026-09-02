@@ -168,7 +168,7 @@ static int eventpoll_scan(struct task_wait *wait, void *arg)
 	ctx->generation_changed = false;
 	spin_lock_irqsave(&ctx->ep->lock, &flags);
 	if (wait) {
-		int ret = wait_prepare(wait, &ctx->ep->waitq, false);
+		int ret = wait_scope_prepare_current(&ctx->ep->waitq, false);
 
 		if (ret < 0) {
 			spin_unlock_irqrestore(&ctx->ep->lock, flags);
@@ -216,7 +216,7 @@ static int eventpoll_poll(struct file *file, uint32_t events,
 
 	if (wait && (events & (POLLIN | POLLOUT))) {
 		spin_lock_irqsave(&ep->lock, &flags);
-		ret = wait_prepare(wait, &ep->waitq, false);
+		ret = wait_scope_prepare_current(&ep->waitq, false);
 		spin_unlock_irqrestore(&ep->lock, flags);
 		if (ret < 0)
 			return ret;
@@ -414,7 +414,6 @@ int eventpoll_wait(struct file *epfile, struct epoll_event *events,
 {
 	struct epoll_snapshot_item snapshot[NR_OPEN] = {};
 	struct epoll_scan_ctx scan_ctx;
-	struct task_wait *wait = &current_task()->wait;
 	struct eventpoll *ep;
 	size_t scan_limit;
 	int ret;
@@ -440,17 +439,19 @@ int eventpoll_wait(struct file *epfile, struct epoll_event *events,
 	scan_ctx.nr_ready = 0;
 	scan_ctx.generation_changed = false;
 	while (true) {
+		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 
 		ret = epoll_snapshot_get(ep, &scan_ctx);
 		if (ret < 0)
 			break;
-		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, deadline);
+		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, deadline);
 		if (ret == 0)
-			ret = eventpoll_scan(wait, &scan_ctx);
+			ret = eventpoll_scan(scope.wait, &scan_ctx);
 		if (ret == 0)
-			ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+			ret = wait_scope_block(&scope, &outcome);
+		if (scope.active)
+			wait_scope_complete(&scope);
 		epoll_snapshot_put(&scan_ctx);
 		if (ret < 0)
 			break;

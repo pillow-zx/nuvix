@@ -15,6 +15,11 @@
 
 #include "internal.h"
 
+static_assert(LOCK_RANK_MM_MMAP < LOCK_RANK_RUNQUEUE,
+	      "mmap_lock must precede the runqueue lock");
+static_assert(LOCK_RANK_WAIT < LOCK_RANK_RUNQUEUE,
+	      "Task wait lock must precede the runqueue lock");
+
 /*
  * Placement ownership: task->cpu, on_rq, and the affinity masks are written
  * only while holding the owning Task's wait lock, with the runqueue lock
@@ -109,7 +114,7 @@ static struct cpu *sched_select_cpu(const cpumask_t *mask)
 
 		if (!cpumask_test_cpu(mask, id) || !cpu_is_schedulable(id))
 			continue;
-		load = runqueues[id].nr_running;
+		load = (uint32_t)atomic_read_relaxed(&runqueues[id].nr_running);
 		if (load < best_load) {
 			best_load = load;
 			best = id;
@@ -151,7 +156,13 @@ static void sched_notify_remote(uint32_t cpu_id)
 static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
 				 enum sched_enqueue_reason reason)
 {
+	struct cpu *old_cpu;
+
 	BUG_ON(!rq || !task || task->on_rq);
+#ifdef CONFIG_DEBUG_CONTEXT
+	BUG_ON(!spinlock_held_by_current(&rq->lock));
+	BUG_ON(!spinlock_held_by_current(&task->wait.lock));
+#endif
 	BUG_ON(!cpu_is_schedulable(rq->cpu_id));
 	/* Affinity invariant: a task may only sit on a runqueue whose CPU is
 	 * in its effective affinity. */
@@ -161,10 +172,13 @@ static void sched_enqueue_locked(struct runqueue *rq, struct task_struct *task,
 	BUG_ON(task->on_cpu);
 	/* Direct slot indexing: runqueues are indexed 0..NR_CPUS-1 and the
 	 * slot always exists; cpu_by_id() would truncate at nr_cpu_ids. */
+	old_cpu = task->cpu;
 	task->cpu = &cpu_table[(uint32_t)(rq - runqueues)];
+	if (old_cpu && old_cpu != task->cpu)
+		rseq_request_restart(task, RSEQ_EVENT_MIGRATE);
 	policy->enqueue(rq, task, reason);
 	task->on_rq = true;
-	rq->nr_running++;
+	atomic_add_fetch_relaxed(&rq->nr_running, 1);
 }
 
 static void sched_dequeue_locked(struct runqueue *rq, struct task_struct *task)
@@ -172,8 +186,8 @@ static void sched_dequeue_locked(struct runqueue *rq, struct task_struct *task)
 	BUG_ON(!rq || !task || !task->on_rq);
 	policy->dequeue(rq, task);
 	task->on_rq = false;
-	BUG_ON(rq->nr_running == 0);
-	rq->nr_running--;
+	BUG_ON(atomic_read_relaxed(&rq->nr_running) == 0);
+	atomic_sub_fetch_relaxed(&rq->nr_running, 1);
 }
 
 static struct task_struct *sched_pick_locked(struct runqueue *rq)
@@ -234,7 +248,7 @@ void sched_init(void)
 				LOCK_IRQ_HARDIRQ_REACHABLE);
 		rq->cpu_id = id;
 		INIT_LIST_HEAD(&rq->runnable);
-		rq->nr_running = 0;
+		atomic_set_relaxed(&rq->nr_running, 0);
 		/* Direct slot indexing like cpu_boot_init(): every enumerated slot
 		 * is prepared. Offline CPUs keep a NULL current until brought up. */
 		rq->idle = cpu_table[id].idle_task;
@@ -317,7 +331,7 @@ int sched_block_current(struct task_wait *wait)
 	 * event_fired hint, and a signal must not block once its predicate is
 	 * true.  This mirrors wait_block(), preserving the wake-then-block race
 	 * guard. */
-	if (wait->status == WAIT_ACTIVE && !wait->event_fired &&
+	if (wait->phase == WAIT_BLOCKED && !wait->event_fired &&
 	    !(wait->policy == TASK_WAIT_INTERRUPTIBLE &&
 	      sig_wait_ready(task, wait)) &&
 	    !(wait->policy == TASK_WAIT_KILLABLE &&
@@ -345,7 +359,7 @@ bool sched_wake(struct task_struct *task, uint64_t generation)
 	if (!task || task_is_idle(task))
 		return false;
 	spin_lock_irqsave(&task->wait.lock, &wait_flags);
-	if (task->wait.status == WAIT_ACTIVE &&
+	if (task->wait.phase == WAIT_BLOCKED &&
 	    task->wait.generation == generation &&
 	    task->lifecycle == TASK_LIVE && task->run_state == TASK_BLOCKED) {
 		/* A Task whose context is still being saved remains unqueued;
@@ -454,7 +468,9 @@ int sched_set_affinity(struct task_struct *task, const cpumask_t *requested)
 		 * wait lock. */
 		target = sched_select_cpu(&task->effective_affinity);
 		BUG_ON(!target);
-		task->cpu = target;
+			if (task->cpu && task->cpu != target)
+				rseq_request_restart(task, RSEQ_EVENT_MIGRATE);
+			task->cpu = target;
 	}
 	if (home_rq)
 		spin_unlock_irqrestore(&home_rq->lock, rq_flags);
@@ -495,6 +511,19 @@ void sched_task_allow_all_cpus(struct task_struct *task)
 	cpumask_copy(&task->requested_affinity, &policy_mask);
 	cpumask_copy(&task->effective_affinity, &policy_mask);
 	spin_unlock_irqrestore(&task->wait.lock, flags);
+}
+
+void sched_task_inherit_affinity(struct task_struct *child,
+				 struct task_struct *parent)
+{
+	irq_flags_t flags;
+
+	if (!child || !parent)
+		return;
+	spin_lock_irqsave(&parent->wait.lock, &flags);
+	cpumask_copy(&child->requested_affinity, &parent->requested_affinity);
+	cpumask_copy(&child->effective_affinity, &parent->effective_affinity);
+	spin_unlock_irqrestore(&parent->wait.lock, flags);
 }
 
 bool sched_wake_external(struct task_struct *task)
@@ -634,7 +663,8 @@ bool sched_resume(struct task_struct *task)
 bool sched_has_runnable(void)
 {
 	struct runqueue *rq = sched_rq_for_cpu(current_cpu());
-	return rq->nr_running != 0;
+
+	return atomic_read_relaxed(&rq->nr_running) != 0;
 }
 
 /*
@@ -813,7 +843,7 @@ static void sched_switch_core(bool terminal)
 	 * invariant violation, not work to dispatch from the idle loop. */
 	if (!cpu_is_schedulable(rq->cpu_id)) {
 		BUG_ON(prev != rq->idle);
-		BUG_ON(rq->nr_running != 0);
+		BUG_ON(atomic_read_relaxed(&rq->nr_running) != 0);
 		spin_unlock(&rq->lock);
 		spin_unlock(&prev->wait.lock);
 		local_irq_restore(flags);

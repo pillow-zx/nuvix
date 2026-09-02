@@ -6,6 +6,7 @@
  * @brief Task-embedded restartable sequence storage.
  */
 
+#include <nuvix/atomic.h>
 #include <nuvix/types.h>
 
 struct rseq;
@@ -18,13 +19,16 @@ struct rseq;
  * - @c area: Registered userspace rseq area, or NULL.
  * - @c len: Userspace-provided rseq area length.
  * - @c sig: Signature used to validate unregister requests.
- * - @c need_update: Userspace cpu_id fields need refresh.
+ * - @c cpu_id: Logical CPU identity last published to userspace.
+ * - @c restart_events: Atomic pending restart-event mask. IPI context may
+ *   mark it without taking a task-only lock.
  */
 struct rseq_task_context {
 	struct rseq *area;
 	uint32_t len;
 	uint32_t sig;
-	uint8_t need_update;
+	uint32_t cpu_id;
+	atomic_t restart_events;
 };
 
 #endif

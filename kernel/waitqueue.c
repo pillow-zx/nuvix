@@ -38,7 +38,15 @@ void wait_init(void)
 
 static bool wait_active(const struct task_wait *wait)
 {
-	return wait->status == WAIT_ACTIVE;
+	return wait->phase == WAIT_ARMED || wait->phase == WAIT_BLOCKED;
+}
+
+bool wait_may_block(void)
+{
+	struct task_struct *task = current_task();
+
+	return task && wait_context_can_sleep() &&
+	       task->wait.phase == WAIT_IDLE;
 }
 
 static void wait_deadline_remove(struct task_wait *wait)
@@ -47,6 +55,9 @@ static void wait_deadline_remove(struct task_wait *wait)
 	struct task_struct *task = NULL;
 	irq_flags_t flags;
 
+	/* Deadline ownership stays with the CPU that armed it. Task migration does
+	 * not move the timer entry: that online CPU expires the saved generation
+	 * and sched_wake() performs any required remote placement. */
 	queue = &deadline_queues[wait->deadline_cpu];
 	spin_lock_irqsave(&queue->lock, &flags);
 	if (wait->deadline_queued) {
@@ -69,6 +80,9 @@ static void wait_deadline_insert(struct task_wait *wait)
 
 	if (!wait->deadline.active)
 		return;
+	/* Record queue locality independently of later Task placement.  CPUs do not
+	 * hot-unplug, so the arming CPU remains responsible through removal or
+	 * expiry even if the blocked Task is re-homed. */
 	cpu_id = current_cpu()->id;
 	queue = &deadline_queues[cpu_id];
 	spin_lock_irqsave(&queue->lock, &flags);
@@ -126,15 +140,16 @@ void wait_channel_init(struct wait_channel *channel)
 	INIT_LIST_HEAD(&channel->waiters);
 }
 
-static int wait_start_mode(struct task_wait *wait, wait_flags_t flags,
+static int wait_scope_begin_mode(struct wait_scope *scope, wait_flags_t flags,
 				   const struct wait_deadline *deadline,
 				   enum task_wait_signal_mode signal_mode,
 				   uint64_t signal_set, bool signal_lock_held)
 {
 	struct task_struct *task = current_task();
+	struct task_wait *wait = task ? &task->wait : NULL;
 	irq_flags_t irq_flags;
 
-	if (!wait || !deadline || !task || wait != &task->wait)
+	if (!scope || !deadline || !task)
 		return -EINVAL;
 	if (!signal_lock_held && !wait_context_can_sleep())
 		return -EINVAL;
@@ -143,12 +158,13 @@ static int wait_start_mode(struct task_wait *wait, wait_flags_t flags,
 		return -EINVAL;
 
 	spin_lock_irqsave(&wait->lock, &irq_flags);
-	if (wait->status != WAIT_IDLE || !list_empty(&wait->registrations) ||
+	if (scope->active || wait->phase != WAIT_IDLE ||
+	    !list_empty(&wait->registrations) ||
 	    wait->registration_count != 0) {
 		spin_unlock_irqrestore(&wait->lock, irq_flags);
 		return -EBUSY;
 	}
-	wait->status = WAIT_ACTIVE;
+	wait->phase = WAIT_ARMED;
 	wait->policy = (flags & WAIT_FLAG_KILLABLE)
 			? TASK_WAIT_KILLABLE
 			: (flags & WAIT_FLAG_INTERRUPTIBLE)
@@ -162,47 +178,56 @@ static int wait_start_mode(struct task_wait *wait, wait_flags_t flags,
 	wait->deadline = *deadline;
 	wait->owner = task;
 	wait->registration_count = 0;
+	scope->wait = wait;
+	scope->generation = wait->generation;
+	scope->active = true;
 	spin_unlock_irqrestore(&wait->lock, irq_flags);
 
 	wait_deadline_insert(wait);
 	return 0;
 }
 
-int wait_start(struct task_wait *wait, wait_flags_t flags,
-		       const struct wait_deadline *deadline)
+int wait_scope_begin(struct wait_scope *scope, wait_flags_t flags,
+		     const struct wait_deadline *deadline)
 {
-	return wait_start_mode(wait, flags, deadline,
-				       TASK_WAIT_SIGNAL_DEFAULT, 0, false);
+	return wait_scope_begin_mode(scope, flags, deadline,
+				     TASK_WAIT_SIGNAL_DEFAULT, 0, false);
 }
 
-int wait_start_signal_set(struct task_wait *wait, wait_flags_t flags,
-			  const struct wait_deadline *deadline, uint64_t signal_set)
+int wait_scope_begin_signal_set(struct wait_scope *scope, wait_flags_t flags,
+				const struct wait_deadline *deadline,
+				uint64_t signal_set)
 {
-	return wait_start_mode(wait, flags, deadline, TASK_WAIT_SIGNAL_SET,
-				       signal_set, false);
+	return wait_scope_begin_mode(scope, flags, deadline, TASK_WAIT_SIGNAL_SET,
+				     signal_set, false);
 }
 
-int wait_start_signal_set_locked(struct task_wait *wait, wait_flags_t flags,
-				 const struct wait_deadline *deadline, uint64_t signal_set)
+int wait_scope_begin_signal_set_locked(struct wait_scope *scope,
+					wait_flags_t flags,
+					const struct wait_deadline *deadline,
+					uint64_t signal_set)
 {
 	BUG_ON(!spinlock_held());
-	return wait_start_mode(wait, flags, deadline, TASK_WAIT_SIGNAL_SET,
-				       signal_set, true);
+	return wait_scope_begin_mode(scope, flags, deadline, TASK_WAIT_SIGNAL_SET,
+				     signal_set, true);
 }
 
-int wait_prepare(struct task_wait *wait, struct wait_channel *channel,
-			 bool exclusive)
+int wait_scope_prepare(struct wait_scope *scope, struct wait_channel *channel,
+		       bool exclusive)
 {
 	struct wait_entry *entry = NULL;
 	struct task_struct *task = current_task();
+	struct task_wait *wait = scope ? scope->wait : NULL;
 	irq_flags_t channel_flags;
 	irq_flags_t wait_flags;
 
-	if (!wait || !channel || !task || wait != &task->wait)
+	if (!scope || !scope->active || !wait || !channel || !task ||
+	    wait != &task->wait)
 		return -EINVAL;
 	spin_lock_irqsave(&channel->lock, &channel_flags);
 	spin_lock_irqsave(&wait->lock, &wait_flags);
-	if (!wait_active(wait) || wait->owner != task) {
+	if (wait->phase != WAIT_ARMED || wait->owner != task ||
+	    wait->generation != scope->generation) {
 		spin_unlock_irqrestore(&wait->lock, wait_flags);
 		spin_unlock_irqrestore(&channel->lock, channel_flags);
 		return -ECANCELED;
@@ -236,11 +261,26 @@ int wait_prepare(struct task_wait *wait, struct wait_channel *channel,
 	return 0;
 }
 
-int wait_block(struct task_wait *wait, wait_outcome_t *outcome)
+int wait_scope_prepare_current(struct wait_channel *channel, bool exclusive)
 {
 	struct task_struct *task = current_task();
+	struct wait_scope scope;
 
-	if (!wait || !outcome || !task || wait != &task->wait)
+	if (!task || !channel)
+		return -EINVAL;
+	scope.wait = &task->wait;
+	scope.generation = task->wait.generation;
+	scope.active = true;
+	return wait_scope_prepare(&scope, channel, exclusive);
+}
+
+int wait_scope_block(struct wait_scope *scope, wait_outcome_t *outcome)
+{
+	struct task_struct *task = current_task();
+	struct task_wait *wait = scope ? scope->wait : NULL;
+
+	if (!scope || !scope->active || !wait || !outcome || !task ||
+	    wait != &task->wait)
 		return -EINVAL;
 	if (!wait_context_can_sleep())
 		return -EINVAL;
@@ -251,10 +291,13 @@ int wait_block(struct task_wait *wait, wait_outcome_t *outcome)
 		irq_flags_t flags;
 
 		spin_lock_irqsave(&wait->lock, &flags);
-		if (!wait_active(wait)) {
+		if (!wait_active(wait) ||
+		    wait->generation != scope->generation) {
 			spin_unlock_irqrestore(&wait->lock, flags);
 			return -EINVAL;
 		}
+		if (wait->phase == WAIT_ARMED)
+			wait->phase = WAIT_BLOCKED;
 		event_fired = wait->event_fired;
 		if (event_fired)
 			wait->event_fired = false;
@@ -282,7 +325,8 @@ int wait_block(struct task_wait *wait, wait_outcome_t *outcome)
 	}
 }
 
-void wait_finish(struct task_wait *wait)
+static void wait_complete_generation(struct task_wait *wait,
+				     uint64_t generation)
 {
 	irq_flags_t flags;
 
@@ -290,12 +334,9 @@ void wait_finish(struct task_wait *wait)
 		return;
 
 	spin_lock_irqsave(&wait->lock, &flags);
-	if (wait->status == WAIT_IDLE) {
-		spin_unlock_irqrestore(&wait->lock, flags);
-		return;
-	}
-	BUG_ON(wait->status != WAIT_ACTIVE);
-	wait->status = WAIT_COMPLETING;
+	BUG_ON(wait->phase != WAIT_ARMED && wait->phase != WAIT_BLOCKED);
+	BUG_ON(wait->generation != generation);
+	wait->phase = WAIT_COMPLETING;
 	spin_unlock_irqrestore(&wait->lock, flags);
 
 	wait_deadline_remove(wait);
@@ -315,7 +356,7 @@ void wait_finish(struct task_wait *wait)
 			wait->registration_count = 0;
 			wait->owner = NULL;
 			wait->deadline_task = NULL;
-				wait->status = WAIT_IDLE;
+				wait->phase = WAIT_IDLE;
 				wait->event_fired = false;
 				wait->signal_mode = TASK_WAIT_SIGNAL_DEFAULT;
 				wait->signal_set = 0;
@@ -352,6 +393,34 @@ void wait_finish(struct task_wait *wait)
 	}
 }
 
+void wait_scope_complete(struct wait_scope *scope)
+{
+	BUG_ON(!scope || !scope->active || !scope->wait);
+	wait_complete_generation(scope->wait, scope->generation);
+	scope->wait = NULL;
+	scope->generation = 0;
+	scope->active = false;
+}
+
+void wait_scope_cleanup(struct wait_scope *scope)
+{
+	if (scope && scope->active)
+		wait_scope_complete(scope);
+}
+
+void wait_cancel_current(void)
+{
+	struct task_struct *task = current_task();
+	struct wait_scope scope;
+
+	if (!task || task->wait.phase == WAIT_IDLE)
+		return;
+	scope.wait = &task->wait;
+	scope.generation = task->wait.generation;
+	scope.active = true;
+	wait_scope_complete(&scope);
+}
+
 static bool wait_channel_wake_match(struct wait_channel *channel,
 					    bool exclusive)
 {
@@ -374,7 +443,7 @@ static bool wait_channel_wake_match(struct wait_channel *channel,
 		if (!wait || !entry->task || entry->channel != channel)
 			continue;
 		spin_lock_irqsave(&wait->lock, &wait_flags);
-		if (wait->status != WAIT_ACTIVE || wait->event_fired ||
+		if (!wait_active(wait) || wait->event_fired ||
 		    entry->wait != wait || entry->channel != channel) {
 			spin_unlock_irqrestore(&wait->lock, wait_flags);
 			continue;
@@ -525,11 +594,13 @@ int wait_sleep_until(const struct wait_deadline *deadline)
 
 	if (!deadline || !deadline->active)
 		return -EINVAL;
-	ret = wait_start(&current_task()->wait, 0, deadline);
+	struct wait_scope scope __wait_scope = {};
+
+	ret = wait_scope_begin(&scope, 0, deadline);
 	if (ret < 0)
 		return ret;
-	ret = wait_block(&current_task()->wait, &outcome);
-	wait_finish(&current_task()->wait);
+	ret = wait_scope_block(&scope, &outcome);
+	wait_scope_complete(&scope);
 	if (ret < 0)
 		return ret;
 	return outcome == WAIT_OUTCOME_TIMEOUT ? 0 : -EINTR;

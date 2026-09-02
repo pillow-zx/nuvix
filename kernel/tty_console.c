@@ -452,7 +452,6 @@ static ssize_t console_read(struct file *file, char *buf, size_t count,
 			    loff_t pos)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
-	struct task_wait *wait = &current_task()->wait;
 	irq_flags_t flags;
 
 	(void)file;
@@ -461,27 +460,29 @@ static ssize_t console_read(struct file *file, char *buf, size_t count,
 		return 0;
 
 	for (;;) {
+		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 		bool ready;
-		int ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+		int ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 
 		if (ret < 0)
 			return ret;
 		spin_lock_irqsave(&console_input.lock, &flags);
 		ready = console_input_readable_locked(count);
 		if (!ready)
-			ret = wait_prepare(wait, &console_input.readable, true);
+			ret = wait_scope_prepare(&scope, &console_input.readable,
+						 true);
 		spin_unlock_irqrestore(&console_input.lock, flags);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return ret;
 		}
 		if (ready) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			continue;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		if (ret < 0)
 			return ret;
 		spin_lock_irqsave(&console_input.lock, &flags);
@@ -536,7 +537,8 @@ static int console_poll(struct file *file, uint32_t events,
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
 		spin_lock_irqsave(&console_input.lock, &flags);
 		if (wait) {
-			ret = wait_prepare(wait, &console_input.readable, false);
+			ret = wait_scope_prepare_current(&console_input.readable,
+							 false);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&console_input.lock,
 						       flags);

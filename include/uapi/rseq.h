@@ -43,11 +43,11 @@ struct rseq_cs {
  *
  * @par Fields
  * - @c cpu_id_start: CPU id sampled before user critical path.
- * - @c cpu_id: Current CPU id; single-core nuvix writes 0.
+ * - @c cpu_id: Current logical CPU id.
  * - @c rseq_cs: User pointer to current struct rseq_cs.
  * - @c flags: Thread-level rseq flags.
  * - @c node_id: NUMA node id; single-node nuvix writes 0.
- * - @c mm_cid: Memory-map concurrency id compatibility field.
+ * - @c mm_cid: Logical CPU id used as the memory-map concurrency id.
  * - @c end: Flexible ABI extension marker.
  */
 struct rseq {

@@ -12,10 +12,15 @@
 #include <nuvix/bitops.h>
 #include <nuvix/types.h>
 
-#define IPI_RESCHEDULE	 BIT(0)
-#define IPI_SHOOTDOWN	 BIT(1)
-#define IPI_FENCE_I	 BIT(2)
-#define IPI_REASON_MASK	 (IPI_RESCHEDULE | IPI_SHOOTDOWN | IPI_FENCE_I)
+#define IPI_RESCHEDULE BIT(0)
+#define IPI_SHOOTDOWN  BIT(1)
+#define IPI_FENCE_I    BIT(2)
+#define IPI_MEMBARRIER BIT(3)
+#define IPI_SYNC_CORE  BIT(4)
+#define IPI_RSEQ       BIT(5)
+#define IPI_REASON_MASK                                                       \
+	(IPI_RESCHEDULE | IPI_SHOOTDOWN | IPI_FENCE_I | IPI_MEMBARRIER |      \
+	 IPI_SYNC_CORE | IPI_RSEQ)
 
 /*
  * Deliver one or more reasons to an online, non-self CPU. The scheduler uses
@@ -35,8 +40,9 @@ bool ipi_seen(uint32_t cpu_id);
 /* Acquire-peek of the pending reasons of one CPU (diagnostics only). */
 int ipi_pending_reasons(uint32_t cpu_id);
 
-/* Send shootdown reasons to one online non-self CPU and wait for its
- * ack (1-second mtime deadline, panic on timeout). */
-void ipi_send_shootdown(uint32_t cpu_id, int reasons);
+/* Deliver synchronous reasons to one online non-self CPU and wait for
+ * this request to complete (1-second mtime deadline, panic on timeout).
+ * reasons must be non-empty and within IPI_REASON_MASK. */
+void ipi_send_sync(uint32_t cpu_id, int reasons);
 
 #endif

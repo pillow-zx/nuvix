@@ -149,33 +149,34 @@ size_t printk_log_unread_size(void)
 static int printk_log_wait_for_unread(void)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
-	struct task_wait *wait = &current_task()->wait;
 
 	for (;;) {
+		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 		irq_flags_t flags;
 		int ret;
 		bool ready;
 
-		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 		if (ret < 0)
 			return ret;
 		spin_lock_irqsave(&printk_ring.lock, &flags);
 		ready = printk_ring_normalize_locked(&printk_ring.read_seq) !=
 			0;
 		if (!ready)
-			ret = wait_prepare(wait, &printk_ring.read_wait, true);
+			ret = wait_scope_prepare(&scope, &printk_ring.read_wait,
+						 true);
 		spin_unlock_irqrestore(&printk_ring.lock, flags);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return ret;
 		}
 		if (ready) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return 0;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		if (ret < 0)
 			return ret;
 		if (outcome == WAIT_OUTCOME_SIGNAL)

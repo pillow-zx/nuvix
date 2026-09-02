@@ -707,23 +707,23 @@ int execve(const char *path, const struct exec_args_envp *args,
 		goto abort_exec;
 
 	for (;;) {
-		struct task_wait *wait = &task->wait;
+		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 
-		ret = wait_start(wait, 0, &deadline);
+		ret = wait_scope_begin(&scope, 0, &deadline);
 		if (ret < 0)
 			goto abort_exec;
-		ret = proc_exec_wait(proc, wait);
+		ret = proc_exec_wait(proc, scope.wait);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			goto abort_exec;
 		}
 		if (ret > 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			break;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		if (ret < 0)
 			goto abort_exec;
 		BUG_ON(outcome != WAIT_OUTCOME_EVENT);

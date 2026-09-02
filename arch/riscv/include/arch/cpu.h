@@ -19,4 +19,14 @@ static inline struct cpu *arch_current_cpu(void)
 	return cpu;
 }
 
+/*
+ * Install this hart's CPU slot as the first statement of S-mode entry.  The
+ * volatile asm orders the tp write before any arch_current_cpu() read.
+ */
+__always_inline
+static inline void arch_current_cpu_install(struct cpu *cpu)
+{
+	asm volatile("mv tp, %0" :: "r"(cpu));
+}
+
 #endif

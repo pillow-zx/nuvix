@@ -70,7 +70,10 @@ static void release_proc_mm(struct proc_struct *proc, bool current)
 
 static void detach_from_scheduler(struct task_struct *task)
 {
-	if (task && task->on_rq)
+	/* sched_dequeue() classifies queue membership under the Task wait lock
+	 * and its home runqueue lock; an unlocked on_rq hint is not cross-CPU
+	 * synchronization. */
+	if (task)
 		sched_dequeue(task);
 }
 
@@ -98,7 +101,7 @@ static void finish_task_exit(struct task_struct *task, int status)
 	current = task == current_task();
 	detach_from_scheduler(task);
 	if (current)
-		wait_finish(&task->wait);
+		wait_cancel_current();
 
 	restart_clear(task);
 	task_set_exit_code(task, status);
@@ -305,7 +308,6 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
 	struct proc_wait_selector selector;
-	struct task_wait *wait = &current_task()->wait;
 	wait_outcome_t outcome;
 	struct proc_struct *parent = current_task()->proc;
 	enum proc_wait_result state;
@@ -339,6 +341,8 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 		.creator_only = (options & __WNOTHREAD) != 0,
 	};
 	for (;;) {
+		struct wait_scope scope __wait_scope = {};
+
 		state = proc_wait_claim(parent, &selector,
 					wait4_event_mask(options),
 					&result->claim);
@@ -359,24 +363,24 @@ int kernel_wait4(pid_t pid, int options, struct wait4_result *result)
 			return 0;
 		}
 
-		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 		if (ret < 0) {
 			wait4_release_orphans(result);
 			return ret;
 		}
 		ret = proc_wait_watch(parent, &selector,
-				      wait4_event_mask(options), wait);
+				      wait4_event_mask(options), scope.wait);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			wait4_release_orphans(result);
 			return ret;
 		}
 		if (ret > 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			continue;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		if (ret < 0) {
 			wait4_release_orphans(result);
 			return ret;

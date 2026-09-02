@@ -2,9 +2,9 @@
  * kernel/smp.c - generic CPU bring-up and secondary idle
  *
  * Logical CPU 0 coordinates topology publication, HSM start, and the acquire
- * wait for each secondary's self-published ONLINE state. Secondary harts run
- * only their local idle loop (no ordinary Task dispatch, no I/O); a bounded
- * boot-time allocator/console self-test is their only allocation.
+ * wait for each secondary's self-published ONLINE state. Secondary harts stay
+ * unschedulable through the boot gate, then enter the ordinary scheduler once
+ * every configured hart has proved local timer and IPI readiness.
  */
 
 #include <nuvix/smp.h>
@@ -238,8 +238,13 @@ void smp_boot_cpus(void)
 	/* Mandatory gate: timer/IPI proof from every secondary before any
 	 * syscall/VFS/device or thread initialization proceeds. */
 	smp_boot_gate(boot_id, &timer_seen, &ipi_seen);
-	/* Secondaries stay online but unschedulable until the migration stage. */
-	BUG_ON(cpu_schedulable_mask() != (1ULL << SCHED_BOOT_AFFINITY_CPU));
+	/* The boot gate is the publication boundary for ordinary Task SMP.  A
+	 * configured secondary cannot receive placement before it proved local
+	 * timer and IPI readiness; afterwards every online CPU is schedulable. */
+	for (id = 0; id < nr_cpu_ids; id++)
+		if (cpu_is_online(id))
+			cpu_set_schedulable(id);
+	BUG_ON(cpu_schedulable_mask() != cpu_online_mask());
 	smp_probe_record(timer_seen, ipi_seen);
 	atomic_set_release(&smp_boot_done, 1);
 }
@@ -294,10 +299,8 @@ void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 	struct cpu *cpu = cpu_by_id(logical_id);
 
 	/* S-mode tp is the CPU pointer: install this hart's slot as the
-	 * first statement. tp is a reserved RISC-V register that the
-	 * compiler never allocates, and this volatile asm orders the write
-	 * before any current_cpu() read in the code below. */
-	asm volatile("mv tp, %0" :: "r"(cpu));
+	 * first statement, before any current_cpu() read below. */
+	arch_current_cpu_install(cpu);
 
 	if (!cpu || cpu->hartid != hartid) {
 		if (cpu) {

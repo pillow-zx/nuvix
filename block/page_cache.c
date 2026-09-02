@@ -185,33 +185,33 @@ static int pgcache_read_physical(struct pgcache *page)
 static int pgcache_wait_producer(struct pgcache *page)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
-	struct task_wait *wait = &current_task()->wait;
 
 	for (;;) {
+		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 		irq_flags_t flags;
 		int ret;
 		bool pending;
 
-		ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 		if (ret < 0)
 			return ret;
 		spin_lock_irqsave(&pgcache_lock, &flags);
 		pending =
 			page->filling || page->writeback || page->invalidating;
 		if (pending)
-			ret = wait_prepare(wait, &page->waitq, true);
+			ret = wait_scope_prepare(&scope, &page->waitq, true);
 		spin_unlock_irqrestore(&pgcache_lock, flags);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return ret;
 		}
 		if (!pending) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return 0;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		if (ret < 0)
 			return ret;
 		if (outcome == WAIT_OUTCOME_SIGNAL)

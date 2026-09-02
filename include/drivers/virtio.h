@@ -8,6 +8,7 @@
 
 #include <nuvix/types.h>
 #include <nuvix/tools.h>
+#include <arch/barrier.h>
 
 /**
  * @def VIRTIO_MMIO_BASE
@@ -193,19 +194,19 @@ static inline void virtio_mmio_write64(paddr_t base, uint32_t low_off,
 __always_inline
 static inline void virtio_mb(void)
 {
-	asm volatile("fence rw,rw" ::: "memory");
+	arch_mb();
 }
 
 __always_inline
 static inline void virtio_wmb(void)
 {
-	asm volatile("fence w,w" ::: "memory");
+	arch_wmb();
 }
 
 __always_inline
 static inline void virtio_rmb(void)
 {
-	asm volatile("fence r,r" ::: "memory");
+	arch_rmb();
 }
 
 #endif

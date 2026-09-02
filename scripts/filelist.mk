@@ -39,6 +39,7 @@ KERNEL_OBJS = \
 	kernel/printk.o         \
 	kernel/smp.o            \
 	kernel/ipi.o            \
+	kernel/membarrier.o     \
 	kernel/stacktrace.o     \
 	kernel/mutex.o          \
 	kernel/rwlock.o         \

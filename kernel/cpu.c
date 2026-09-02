@@ -11,7 +11,8 @@ uint32_t nr_cpu_ids;
 
 /* CPU masks. Publication is release, observation is acquire; the scheduler
  * and syscall layers query only through cpu_online_mask()/cpu_schedulable_mask().
- */
+ * The QEMU virt target has no CPU hotplug: both masks are monotonic after boot,
+ * so an online target remains able to consume an IPI selected from a snapshot. */
 static atomic64_t online_cpu_mask;
 static atomic64_t schedulable_cpu_mask;
 

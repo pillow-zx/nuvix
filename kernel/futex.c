@@ -146,90 +146,85 @@ int futex_key_init(struct futex_key *key, struct mm_struct *mm,
 	return ret;
 }
 
-static int futex_read_user_value_checked(int *uaddr, int *value)
-{
-	if (!uaddr || !value || !access_ok(uaddr, sizeof(*uaddr)))
-		return -EFAULT;
-	if (copy_from_user(value, uaddr, sizeof(*value)) != 0)
-		return -EFAULT;
-	return 0;
-}
-
 static int futex_wait(int *uaddr, int expected, uint32_t bitset,
 			      const struct wait_deadline *deadline)
 {
-	struct futex_key key;
+	struct futex_key key = {};
 	struct futex_bucket *bucket;
-	struct futex_waiter waiter;
+	struct futex_waiter waiter = {};
 	struct task_struct *task = current_task();
 	struct proc_struct *proc = task->proc;
-	struct task_wait *wait = &task->wait;
-	wait_outcome_t outcome;
+	struct mm_struct *mm __cleanup_with(mm_ref) = NULL;
+	struct uaccess_txn txn = {};
+	struct wait_scope scope __wait_scope = {};
+	wait_outcome_t outcome = 0;
 	irq_flags_t flags;
-	int value;
+	uint32_t value;
 	int ret;
 
 	if (bitset == 0)
 		return -EINVAL;
 
-	ret = futex_key_init(&key, proc ? proc->mm : NULL,
-			    (uintptr_t)uaddr);
+	mm = proc ? proc_mm_get(proc) : NULL;
+	if (!mm)
+		return -EFAULT;
+	ret = uaccess_begin_mm(&txn, mm);
 	if (ret < 0)
 		return ret;
-	if (user_range_probe(uaddr, sizeof(*uaddr), false) < 0) {
-		futex_key_put(&key);
-		return -EFAULT;
+	ret = futex_key_init_locked(&key, txn.mm, (uintptr_t)uaddr);
+	if (ret < 0)
+		goto end_uaccess;
+	ret = uaccess_load_u32(&txn, (const volatile uint32_t *)uaddr,
+			       &value);
+	if (ret < 0)
+		goto end_uaccess;
+	if ((int)value != expected) {
+		ret = -EAGAIN;
+		goto end_uaccess;
 	}
 
 	bucket = futex_bucket_for(&key);
-	ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, deadline);
-	if (ret < 0) {
-		futex_key_put(&key);
-		return ret;
-	}
-	memset(&waiter, 0, sizeof(waiter));
+	ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, deadline);
+	if (ret < 0)
+		goto end_uaccess;
 	waiter.key = key;
 	memset(&key, 0, sizeof(key));
 	waiter.bitset = bitset;
 	waiter.task = task;
-	waiter.generation = wait->generation;
+	waiter.generation = scope.generation;
 	INIT_LIST_HEAD(&waiter.node);
-	ret = futex_read_user_value_checked(uaddr, &value);
-	if (ret < 0)
-		goto finish_wait;
 	spin_lock_irqsave(&bucket->lock, &flags);
-	if (value != expected) {
-		spin_unlock_irqrestore(&bucket->lock, flags);
+	/* Final value recheck under the publication lock.  The prepared load
+	 * cannot fault: the transaction still holds mmap_lock, which pins
+	 * the mapping prepared before arming (see uaccess_load_u32_prepared). */
+	ret = uaccess_load_u32_prepared(&txn,
+					(const volatile uint32_t *)uaddr,
+					&value);
+	if (ret == 0 && (int)value == expected)
+		list_add_tail(&waiter.node, &bucket->waiters);
+	else if (ret == 0)
 		ret = -EAGAIN;
-		goto finish_wait;
-	}
-	list_add_tail(&waiter.node, &bucket->waiters);
 	spin_unlock_irqrestore(&bucket->lock, flags);
-	ret = futex_read_user_value_checked(uaddr, &value);
+	uaccess_end(&txn);
 	if (ret < 0)
-		goto detach_waiter;
-	if (value != expected) {
-		ret = -EAGAIN;
-		goto detach_waiter;
-	}
-	ret = wait_block(wait, &outcome);
+		goto finish_wait;
+	ret = wait_scope_block(&scope, &outcome);
 
-detach_waiter:
 	futex_waiter_detach(bucket, &waiter);
 
 finish_wait:
-	wait_finish(wait);
+	wait_scope_complete(&scope);
 	futex_key_put(&waiter.key);
+	return ret < 0 ? ret
+		: outcome == WAIT_OUTCOME_EVENT ? 0
+		: outcome == WAIT_OUTCOME_SIGNAL ? -EINTR
+		: outcome == WAIT_OUTCOME_TIMEOUT ? -ETIMEDOUT
+		: -EINVAL;
 
-	if (ret < 0)
-		return ret;
-	if (outcome == WAIT_OUTCOME_EVENT)
-		return 0;
-	if (outcome == WAIT_OUTCOME_SIGNAL)
-		return -EINTR;
-	if (outcome == WAIT_OUTCOME_TIMEOUT)
-		return -ETIMEDOUT;
-	return -EINVAL;
+end_uaccess:
+	uaccess_end(&txn);
+	futex_key_put(&key);
+	return ret;
 }
 
 static int futex_wake_key_bitset(const struct futex_key *key, int nr,

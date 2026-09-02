@@ -1338,7 +1338,7 @@ int proc_exec_wait(struct proc_struct *proc, struct task_wait *wait)
 	else if (proc->nr_tasks == 1)
 		ret = 1;
 	else
-		ret = wait_prepare(wait, &proc->exec_channel, true);
+		ret = wait_scope_prepare_current(&proc->exec_channel, true);
 	spin_unlock(&proc_topology_lock);
 	return ret;
 }
@@ -1545,11 +1545,14 @@ int proc_wait_watch(struct proc_struct *parent,
 	bool wake = false;
 	int ret;
 
+	if (!parent || !wait)
+		return -EINVAL;
 	spin_lock(&proc_topology_lock);
 	if (proc_wait_event_available_locked(parent, selector, event_mask)) {
 		ret = 1;
 	} else {
-		ret = wait_prepare(wait, &parent->wait_state.channel, true);
+		ret = wait_scope_prepare_current(&parent->wait_state.channel,
+						 true);
 		if (ret == 0 && proc_wait_event_available_locked(
 					parent, selector, event_mask))
 			wake = true;

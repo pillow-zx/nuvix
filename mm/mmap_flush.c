@@ -20,7 +20,7 @@ void mm_flush_remote(struct mm_struct *mm, bool flush_icache)
 		if (id == self_id || !(online & (1ULL << id)))
 			continue;
 		if (sched_cpu_mm_targets(id, mm))
-			ipi_send_shootdown(id, reasons);
+			ipi_send_sync(id, reasons);
 	}
 }
 
@@ -38,6 +38,6 @@ void mm_flush_kernel_all(void)
 
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
 		if (targets & (1ULL << id))
-			ipi_send_shootdown(id, IPI_SHOOTDOWN);
+			ipi_send_sync(id, IPI_SHOOTDOWN);
 	}
 }

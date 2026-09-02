@@ -102,6 +102,7 @@
 	X(SYS_uname, "uname", sys_uname)                                       \
 	X(SYS_getrusage, "getrusage", sys_getrusage)                           \
 	X(SYS_umask, "umask", sys_umask)                                       \
+	X(SYS_getcpu, "getcpu", sys_getcpu)                                    \
 	X(SYS_gettimeofday, "gettimeofday", sys_gettimeofday)                  \
 	X(SYS_getpid, "getpid", sys_getpid)                                    \
 	X(SYS_getppid, "getppid", sys_getppid)                                 \

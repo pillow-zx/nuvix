@@ -214,31 +214,32 @@ static int clone_copy_cred(struct task_struct *child)
 static void clone_wait_for_vfork(struct proc_struct *proc)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
-	struct task_wait *wait = &current_task()->wait;
 
 	for (;;) {
+		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 		irq_flags_t flags;
 		int ret;
 		bool completed;
 
-		ret = wait_start(wait, WAIT_FLAG_KILLABLE, &deadline);
+		ret = wait_scope_begin(&scope, WAIT_FLAG_KILLABLE, &deadline);
 		BUG_ON(ret < 0);
 		spin_lock_irqsave(&proc->vfork.lock, &flags);
 		completed = proc->vfork.completed;
 		if (!completed)
-			ret = wait_prepare(wait, &proc->vfork.channel, true);
+			ret = wait_scope_prepare(&scope,
+						 &proc->vfork.channel, true);
 		spin_unlock_irqrestore(&proc->vfork.lock, flags);
 		if (ret < 0) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			BUG_ON(ret < 0);
 		}
 		if (completed) {
-			wait_finish(wait);
+			wait_scope_complete(&scope);
 			return;
 		}
-		ret = wait_block(wait, &outcome);
-		wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 		BUG_ON(ret < 0);
 		if (outcome == WAIT_OUTCOME_SIGNAL)
 			return;
@@ -264,8 +265,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 	child = task_alloc();
 	if (!child)
 		return -ENOMEM;
-	cpumask_copy(&child->requested_affinity, &task->requested_affinity);
-	cpumask_copy(&child->effective_affinity, &task->effective_affinity);
+	sched_task_inherit_affinity(child, task);
 	ret = clone_prepare_proc(child, flags, &new_proc);
 	if (ret < 0)
 		goto fail;

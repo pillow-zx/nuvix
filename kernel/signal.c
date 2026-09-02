@@ -425,7 +425,8 @@ static bool task_wait_accepts_signal(struct task_struct *task, int sig)
 	if (!task || !sig_valid(sig))
 		return false;
 	spin_lock_irqsave(&task->wait.lock, &flags);
-	accepts = task->wait.status == WAIT_ACTIVE &&
+	accepts = (task->wait.phase == WAIT_ARMED ||
+		   task->wait.phase == WAIT_BLOCKED) &&
 		  task->wait.signal_mode == TASK_WAIT_SIGNAL_SET &&
 		  (task->wait.signal_set & signal_mask(sig)) != 0;
 	spin_unlock_irqrestore(&task->wait.lock, flags);
@@ -437,6 +438,7 @@ static bool task_wait_accepts_signal(struct task_struct *task, int sig)
  * siglock, so a raise cannot observe an active wait with the old mask or the
  * new mask half-published. */
 static int signal_wait_start_set(struct task_struct *task,
+				 struct wait_scope *scope,
 				 const struct wait_deadline *deadline,
 				 uint64_t signal_set)
 {
@@ -444,21 +446,21 @@ static int signal_wait_start_set(struct task_struct *task,
 	irq_flags_t flags;
 	int ret;
 
-	if (!task)
+	if (!task || !scope)
 		return -EINVAL;
 	signal = task->proc ? task->proc->signal : NULL;
 	if (!signal) {
-		ret = wait_start_signal_set(&task->wait,
-					    WAIT_FLAG_INTERRUPTIBLE, deadline,
-					    signal_set);
+		ret = wait_scope_begin_signal_set(scope,
+					  WAIT_FLAG_INTERRUPTIBLE, deadline,
+					  signal_set);
 		if (ret == 0)
 			task->signal.blocked &= ~signal_set;
 		return ret;
 	}
 
 	spin_lock_irqsave(&signal->siglock, &flags);
-	ret = wait_start_signal_set_locked(&task->wait, WAIT_FLAG_INTERRUPTIBLE,
-					   deadline, signal_set);
+	ret = wait_scope_begin_signal_set_locked(
+		scope, WAIT_FLAG_INTERRUPTIBLE, deadline, signal_set);
 	if (ret == 0) {
 		task->signal.blocked &= ~signal_set;
 		signal_recalc_facts_locked(task, signal);
@@ -2018,7 +2020,7 @@ static bool signal_group_stopped(const struct task_struct *task)
 int sig_suspend(uint64_t mask)
 {
 	struct wait_deadline deadline = wait_deadline_none();
-	struct task_wait *wait = &current_task()->wait;
+	struct wait_scope scope __wait_scope = {};
 	uint64_t blocked;
 	wait_outcome_t outcome;
 	int ret;
@@ -2028,10 +2030,11 @@ int sig_suspend(uint64_t mask)
 
 	blocked = sig_blocked_mask(current_task());
 	sig_set_mask(current_task(), mask);
-	ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, &deadline);
+	ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 	if (ret == 0)
-		ret = wait_block(wait, &outcome);
-	wait_finish(wait);
+		ret = wait_scope_block(&scope, &outcome);
+	if (scope.active)
+		wait_scope_complete(&scope);
 	if (ret < 0) {
 		sig_set_mask(current_task(), blocked);
 		return ret;
@@ -2045,6 +2048,7 @@ int sig_suspend(uint64_t mask)
 int sig_wait(uint64_t set, const struct timespec *timeout, siginfo_t *info)
 {
 	struct wait_deadline deadline;
+	struct wait_scope scope __wait_scope = {};
 	uint64_t blocked;
 	wait_outcome_t outcome;
 	int sig;
@@ -2068,10 +2072,10 @@ int sig_wait(uint64_t set, const struct timespec *timeout, siginfo_t *info)
 	/* Make the wait generation visible before unblocking the accepted set.
 	 * A signal raised in between is then retained for this synchronous
 	 * wait, even when its disposition is SIG_IGN. */
-	ret = signal_wait_start_set(current_task(), &deadline, set);
+	ret = signal_wait_start_set(current_task(), &scope, &deadline, set);
 	if (ret == 0) {
-		ret = wait_block(&current_task()->wait, &outcome);
-		wait_finish(&current_task()->wait);
+		ret = wait_scope_block(&scope, &outcome);
+		wait_scope_complete(&scope);
 	}
 	sig_set_mask(current_task(), blocked);
 	if (ret < 0)

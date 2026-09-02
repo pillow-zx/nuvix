@@ -27,6 +27,7 @@
 #include <nuvix/cpu.h>
 #include <nuvix/list.h>
 #include <nuvix/pid.h>
+#include <nuvix/printk.h>
 #include <nuvix/proc.h>
 #include <nuvix/refcount.h>
 #include <nuvix/rseq_types.h>
@@ -63,6 +64,20 @@ enum task_exit_request {
 	(TASK_UNINTERRUPTIBLE | TASK_INTERRUPTIBLE | TASK_KILLABLE)
 
 #define TASK_FLAG_IDLE (1u << 0)
+
+#define TASK_SLEEP_LOCK_MAX 16u
+
+enum task_sleep_lock_kind {
+	TASK_SLEEP_LOCK_MUTEX,
+	TASK_SLEEP_LOCK_RW_READ,
+	TASK_SLEEP_LOCK_RW_WRITE,
+};
+
+struct task_sleep_lock_entry {
+	const void *lock;
+	uint16_t rank;
+	enum task_sleep_lock_kind kind;
+};
 
 #define KSTACK_ORDER ARCH_KSTACK_ORDER
 #define KSTACK_SIZE  ARCH_KSTACK_SIZE
@@ -169,6 +184,9 @@ struct task_struct {
 
 	struct task_sched_entity sched;
 	struct task_wait wait;
+	IFDEF(CONFIG_DEBUG_CONTEXT,
+	      struct task_sleep_lock_entry sleep_locks[TASK_SLEEP_LOCK_MAX];
+	      uint32_t sleep_lock_depth;)
 	struct task_signal_context signal;
 	struct restart_context restart;
 	struct rseq_task_context rseq;
@@ -251,6 +269,75 @@ static inline struct task_struct *task_get_target(pid_t pid,
 }
 
 void task_free(struct task_struct *task);
+
+/*
+ * Task-local sleeping-lock semantic tracker.  Ownership and rank state
+ * follow the Task across descheduling and CPU migration; the internal
+ * state spinlocks of sleeping locks are never passed here.  Kept inline so
+ * non-debug builds pay no external call on every lock fast path.
+ */
+#ifdef CONFIG_DEBUG_CONTEXT
+__always_inline
+static inline void task_sleep_lock_acquire(const void *lock, uint16_t rank,
+					   enum task_sleep_lock_kind kind)
+{
+	struct task_struct *task = current_task();
+	uint32_t depth;
+
+	BUG_ON(!task || !lock || rank == 0);
+	depth = task->sleep_lock_depth;
+	BUG_ON(depth >= TASK_SLEEP_LOCK_MAX);
+	for (uint32_t index = 0; index < depth; index++)
+		if (task->sleep_locks[index].lock == lock)
+			panic("recursive sleeping lock: lock=%p rank=%u kind=%u",
+			      lock, rank, kind);
+	if (depth && rank <= task->sleep_locks[depth - 1].rank)
+		panic("sleeping lock rank not increasing: lock=%p rank=%u "
+		      "top=%p rank=%u", lock, rank,
+		      task->sleep_locks[depth - 1].lock,
+		      task->sleep_locks[depth - 1].rank);
+	task->sleep_locks[depth] = (struct task_sleep_lock_entry){
+		.lock = lock,
+		.rank = rank,
+		.kind = kind,
+	};
+	task->sleep_lock_depth = depth + 1;
+}
+
+__always_inline
+static inline void task_sleep_lock_release(const void *lock,
+					   enum task_sleep_lock_kind kind)
+{
+	struct task_struct *task = current_task();
+	uint32_t depth;
+
+	BUG_ON(!task || !lock);
+	depth = task->sleep_lock_depth;
+	if (depth == 0 || task->sleep_locks[depth - 1].lock != lock ||
+	    task->sleep_locks[depth - 1].kind != kind)
+		panic("sleeping lock LIFO: release=%p kind=%u top=%p kind=%u",
+		      lock, kind,
+		      depth ? task->sleep_locks[depth - 1].lock : NULL,
+		      depth ? task->sleep_locks[depth - 1].kind : 0);
+	task->sleep_locks[depth - 1] = (struct task_sleep_lock_entry){};
+	task->sleep_lock_depth = depth - 1;
+}
+#else
+static inline void task_sleep_lock_acquire(const void *lock, uint16_t rank,
+					   enum task_sleep_lock_kind kind)
+{
+	(void)lock;
+	(void)rank;
+	(void)kind;
+}
+
+static inline void task_sleep_lock_release(const void *lock,
+					   enum task_sleep_lock_kind kind)
+{
+	(void)lock;
+	(void)kind;
+}
+#endif
 
 __must_check
 bool task_begin_exit(struct task_struct *task);

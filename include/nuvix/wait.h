@@ -36,14 +36,31 @@ enum task_wait_signal_mode {
 	TASK_WAIT_SIGNAL_SET,
 };
 
-enum wait_status {
+enum wait_phase {
 	WAIT_IDLE,
-	WAIT_ACTIVE,
+	WAIT_ARMED,
+	WAIT_BLOCKED,
 	WAIT_COMPLETING,
 };
 
 struct task_struct;
 struct task_wait;
+
+/**
+ * One scoped ownership claim over a Task wait generation.
+ *
+ * The Wait Armed Window begins when wait_scope_begin*() succeeds and ends
+ * when wait_scope_complete() (or the scope cleanup hook) returns.  During
+ * that window the owning Task must not enter another operation that may
+ * block, fault, allocate through a sleeping path, or acquire a sleeping
+ * lock.  It may only publish source registrations, recheck source state,
+ * park on this generation, or complete it.
+ */
+struct wait_scope {
+	struct task_wait *wait;
+	uint64_t generation;
+	bool active;
+};
 
 struct wait_deadline {
 	bool active;
@@ -75,7 +92,7 @@ struct wait_entry {
  */
 struct task_wait {
 	spinlock_t lock;
-	enum wait_status status;
+	enum wait_phase phase;
 	enum task_wait_policy policy;
 	enum task_wait_signal_mode signal_mode;
 	uint64_t signal_set;
@@ -127,17 +144,23 @@ static inline bool wait_context_can_sleep(void)
 	       !spinlock_held();
 }
 
-/** Start one wait generation. The caller must finish it before returning. */
+/** Side-effect-free query for entry into an operation that may block. */
+__must_check __pure
+bool wait_may_block(void);
+
+/** Initialize the per-CPU deadline queues. */
 void wait_init(void);
 
-/** Start one wait generation. The caller must finish it before returning. */
+/** Begin one scoped wait generation. */
 __must_check
-int wait_start(struct task_wait *wait, wait_flags_t flags, const struct wait_deadline *deadline);
+int wait_scope_begin(struct wait_scope *scope, wait_flags_t flags,
+		     const struct wait_deadline *deadline);
 
 /** Start an interruptible wait whose signal outcome is tied to a set. */
 __must_check
-int wait_start_signal_set(struct task_wait *wait, wait_flags_t flags,
-			  const struct wait_deadline *deadline, uint64_t signal_set);
+int wait_scope_begin_signal_set(struct wait_scope *scope, wait_flags_t flags,
+				const struct wait_deadline *deadline,
+				uint64_t signal_set);
 
 /**
  * Start an accepted-signal wait while the caller holds the owning siglock.
@@ -145,23 +168,44 @@ int wait_start_signal_set(struct task_wait *wait, wait_flags_t flags,
  * that hold unrelated locks.
  */
 __must_check
-int wait_start_signal_set_locked(struct task_wait *wait, wait_flags_t flags,
-				 const struct wait_deadline *deadline,
-				 uint64_t signal_set);
+int wait_scope_begin_signal_set_locked(struct wait_scope *scope,
+					wait_flags_t flags,
+					const struct wait_deadline *deadline,
+					uint64_t signal_set);
 
 /**
  * Register the current task wait with a source channel. The caller holds the
  * source lock, and keeps it held until this function returns.
  */
 __must_check
-int wait_prepare(struct task_wait *wait, struct wait_channel *channel, bool exclusive);
+int wait_scope_prepare(struct wait_scope *scope, struct wait_channel *channel,
+		       bool exclusive);
+
+/**
+ * Enroll the current Task's armed wait generation with a source channel,
+ * for frames that hold only the bare task_wait (VFS poll handlers) instead
+ * of the owning wait_scope.  The generation is claimed from the Task's wait
+ * state; the underlying prepare revalidates phase, owner, and generation
+ * under both locks, so a stale claim fails with -ECANCELED instead of
+ * mis-publishing.
+ */
+__must_check
+int wait_scope_prepare_current(struct wait_channel *channel, bool exclusive);
 
 /** Block the current task until a source wake, signal, or deadline. */
 __must_check
-int wait_block(struct task_wait *wait, wait_outcome_t *outcome);
+int wait_scope_block(struct wait_scope *scope, wait_outcome_t *outcome);
 
 /** Remove all registrations and finish the current wait generation. */
-void wait_finish(struct task_wait *wait);
+void wait_scope_complete(struct wait_scope *scope);
+
+/** Cleanup hook for a scoped generation; inactive scopes are ignored. */
+void wait_scope_cleanup(struct wait_scope *scope);
+
+/** Lifecycle-only cancellation for a current Task that cannot return. */
+void wait_cancel_current(void);
+
+#define __wait_scope __cleanup(wait_scope_cleanup)
 
 /** Mark an active wait interruptible by a deliverable signal. */
 bool wait_wake_signal(struct task_struct *task, bool fatal);

@@ -29,13 +29,14 @@ static uint64_t clock_ticks_now(void)
 static int syscall_wait_deadline(const struct wait_deadline *deadline,
 				 wait_outcome_t *outcome)
 {
-	struct task_wait *wait = &current_task()->wait;
+	struct wait_scope scope __wait_scope = {};
 	int ret;
 
-	ret = wait_start(wait, WAIT_FLAG_INTERRUPTIBLE, deadline);
+	ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, deadline);
 	if (ret == 0)
-		ret = wait_block(wait, outcome);
-	wait_finish(wait);
+		ret = wait_scope_block(&scope, outcome);
+	if (scope.active)
+		wait_scope_complete(&scope);
 	return ret;
 }
 

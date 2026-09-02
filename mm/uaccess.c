@@ -60,6 +60,7 @@ int user_range_probe(const void *addr, size_t size, bool write)
 
 static int uaccess_begin_ref(struct uaccess_txn *txn, struct mm_struct *mm)
 {
+	IFDEF(CONFIG_DEBUG_CONTEXT, BUG_ON(!wait_may_block());)
 	memset(txn, 0, sizeof(*txn));
 	txn->mm = mm;
 	mm_lock(mm);
@@ -220,16 +221,43 @@ int uaccess_copy_from_mm(struct mm_struct *mm, void *to, const void *from,
 	return ret;
 }
 
-static int uaccess_prepare_u32(struct uaccess_txn *txn,
-			       const volatile void *addr)
+/* Shared validity guard for the u32 access helpers in this file. */
+__always_inline __must_check
+static inline int uaccess_u32_valid(struct uaccess_txn *txn,
+				    const volatile void *addr)
 {
 	if (!txn || !txn->mm)
 		return -EFAULT;
 	if (((uintptr_t)addr & (sizeof(uint32_t) - 1)) != 0)
 		return -EINVAL;
-	return fault_in_user_range_locked(txn->mm, (uintptr_t)addr,
+	return 0;
+}
+
+/* Record @addr as faulted in for @txn so later prepared loads can be
+ * debug-checked against it. */
+__always_inline
+static inline void uaccess_u32_set_prepared(struct uaccess_txn *txn,
+					    const volatile void *addr)
+{
+	IFDEF(CONFIG_DEBUG_CONTEXT,
+	      txn->prepared_addr = (uintptr_t)addr;
+	      txn->prepared_size = sizeof(uint32_t);)
+}
+
+static int uaccess_prepare_u32(struct uaccess_txn *txn,
+			       const volatile void *addr)
+{
+	int ret;
+
+	ret = uaccess_u32_valid(txn, addr);
+	if (ret < 0)
+		return ret;
+	ret = fault_in_user_range_locked(txn->mm, (uintptr_t)addr,
 					  sizeof(uint32_t), USER_FAULT_WRITE,
 					  &txn->teardown);
+	if (ret == 0)
+		uaccess_u32_set_prepared(txn, addr);
+	return ret;
 }
 
 int uaccess_cmpxchg_u32(struct uaccess_txn *txn, volatile uint32_t *addr,
@@ -255,6 +283,28 @@ int uaccess_load_u32(struct uaccess_txn *txn, const volatile uint32_t *addr,
 	ret = uaccess_prepare_u32(txn, addr);
 	if (ret < 0)
 		return ret;
+	return user_u32_load_acquire(addr, value);
+}
+
+int uaccess_load_u32_prepared(struct uaccess_txn *txn,
+			      const volatile uint32_t *addr,
+			      uint32_t *value)
+{
+	int ret;
+
+	if (!value)
+		return -EFAULT;
+	ret = uaccess_u32_valid(txn, addr);
+	if (ret < 0)
+		return ret;
+	/* No fault handling: this load is safe only while the transaction's
+	 * mmap_lock is still held (txn->mm non-NULL) and the address was
+	 * prepared earlier in this transaction.  Debug builds enforce the
+	 * prepared range; uaccess_end() invalidates the preparation. */
+	IFDEF(CONFIG_DEBUG_CONTEXT,
+	      BUG_ON((uintptr_t)addr < txn->prepared_addr ||
+		     (uintptr_t)addr + sizeof(uint32_t) >
+			     txn->prepared_addr + txn->prepared_size);)
 	return user_u32_load_acquire(addr, value);
 }
 

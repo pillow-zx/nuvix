@@ -98,6 +98,10 @@ cpumask_t sched_get_affinity(struct task_struct *task);
  */
 void sched_task_allow_all_cpus(struct task_struct *task);
 
+/** Snapshot a parent's scheduler-owned affinity into an unpublished child. */
+void sched_task_inherit_affinity(struct task_struct *child,
+				 struct task_struct *parent);
+
 /**
  * Transfer one retired Task to the independent reaper.
  *

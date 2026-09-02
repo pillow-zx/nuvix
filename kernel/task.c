@@ -194,7 +194,7 @@ static void task_init_wait(struct task_struct *task)
 	task->wait.signal_set = 0;
 	task->wait.event_fired = false;
 	task->wait.generation = 0;
-	task->wait.status = WAIT_IDLE;
+	task->wait.phase = WAIT_IDLE;
 	task->wait.status_value = 0;
 	task->wait.owner = NULL;
 	task->wait.deadline_queued = false;
@@ -229,6 +229,8 @@ static void task_init_common(struct task_struct *task)
 	task_init_wait(task);
 	atomic_set(&task->sched.need_resched, 0);
 	INIT_LIST_HEAD(&task->sched.run_node);
+	task->rseq.cpu_id = UINT32_MAX;
+	atomic_set(&task->rseq.restart_events, 0);
 	task->signal.sas.ss_flags = SS_DISABLE;
 	arch_task_init(task);
 }
@@ -461,7 +463,7 @@ bool task_reap_ready(const struct task_struct *task)
 	 * (lifecycle, on_rq, wait teardown, proc detach) with this read. */
 	return task && !task_is_idle(task) && task != current_task() &&
 	       task->lifecycle == TASK_DEAD && !task->on_rq &&
-	       !task->on_cpu && task->wait.status == WAIT_IDLE &&
+	       !task->on_cpu && task->wait.phase == WAIT_IDLE &&
 	       list_empty(&task->wait.registrations) &&
 	       !task->wait.deadline_queued && !task->wait.deadline_task &&
 	       list_empty(&task->proc_node);

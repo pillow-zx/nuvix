@@ -54,6 +54,10 @@ typedef struct spinlock {
 #define LOCK_RANK_RUNQUEUE         320
 #define LOCK_RANK_RETIRED          330
 
+/* Task-local semantic ranks for sleeping-lock dependency order.  They are
+ * intentionally independent of the internal state spinlock ranks above. */
+#define SLEEP_RANK_MM_MMAP 125
+
 #define SPINLOCK_INIT(rank_value, irq_policy_value)                            \
 	{.locked = ATOMIC_INIT(0),                                             \
 	 IFDEF(CONFIG_DEBUG_CONTEXT, .rank = (rank_value),                       \
@@ -102,6 +106,30 @@ static inline bool spinlock_held_by_current(const spinlock_t *lock)
 #endif
 
 #ifdef CONFIG_DEBUG_CONTEXT
+/*
+ * Lock classes whose instances may be held simultaneously, acquired in
+ * ascending instance-address order and released in reverse.  Equal-rank
+ * nesting is a violation for every class not listed here: the policy is
+ * a property of the class, so it is declared once here instead of being
+ * stored per lock instance.
+ */
+static const uint16_t lock_instance_ordered_ranks[] __unused = {
+	LOCK_RANK_PIPE,
+};
+
+static inline bool lock_rank_is_instance_ordered(uint16_t rank)
+{
+	for (uint32_t i = 0;
+	     i < sizeof(lock_instance_ordered_ranks) /
+			 sizeof(lock_instance_ordered_ranks[0]);
+	     i++)
+		if (lock_instance_ordered_ranks[i] == rank)
+			return true;
+	return false;
+}
+#endif
+
+#ifdef CONFIG_DEBUG_CONTEXT
 __always_inline __nonnull(1)
 static inline void spinlock_track_acquire(spinlock_t *lock, irq_flags_t flags, bool irqsave)
 {
@@ -122,11 +150,27 @@ static inline void spinlock_track_acquire(spinlock_t *lock, irq_flags_t flags, b
 		      "rank=%u",
 		      lock, lock->rank);
 	if (depth && lock->rank && cpu->locks[depth - 1]->rank &&
-	    lock->rank <= cpu->locks[depth - 1]->rank)
-		panic("spinlock rank not strictly increasing: lock=%p rank=%u "
-		      "top=%p rank=%u",
-		      lock, lock->rank, cpu->locks[depth - 1],
-		      cpu->locks[depth - 1]->rank);
+	    lock->rank <= cpu->locks[depth - 1]->rank) {
+		/* Equal-rank nesting is legal only for classes declared
+		 * instance-ordered, and only in ascending instance-address
+		 * order; a same-rank lock already held is always the stack
+		 * top, because anything above it would have tripped this
+		 * check first. */
+		if (lock->rank == cpu->locks[depth - 1]->rank &&
+		    lock_rank_is_instance_ordered(lock->rank)) {
+			if ((uintptr_t)lock <
+			    (uintptr_t)cpu->locks[depth - 1])
+				panic("spinlock instance order inversion: "
+				      "lock=%p held=%p rank=%u",
+				      lock, cpu->locks[depth - 1],
+				      lock->rank);
+		} else {
+			panic("spinlock rank not strictly increasing: "
+			      "lock=%p rank=%u top=%p rank=%u",
+			      lock, lock->rank, cpu->locks[depth - 1],
+			      cpu->locks[depth - 1]->rank);
+		}
+	}
 	cpu->locks[depth] = lock;
 	cpu->lock_flags[depth] = flags;
 	cpu->lock_irqsave[depth] = irqsave;

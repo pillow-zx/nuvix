@@ -103,6 +103,7 @@
 #define SYS_uname	       160
 #define SYS_getrusage	       165
 #define SYS_umask	       166
+#define SYS_getcpu	       168
 #define SYS_gettimeofday       169
 #define SYS_getpid	       172
 #define SYS_getppid	       173

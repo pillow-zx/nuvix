@@ -25,6 +25,7 @@ typedef struct {
 	struct wait_channel wait;
 	uint32_t readers;
 	uint32_t waiting_writers;
+	uint16_t semantic_rank;
 } rwlock_t;
 
 #define RWLOCK_INIT(name, rank_value, irq_policy_value)                         \
@@ -34,6 +35,7 @@ typedef struct {
 		.wait = WAIT_CHANNEL_INIT((name).wait),                          \
 		.readers = 0,                                                    \
 		.waiting_writers = 0,                                            \
+		.semantic_rank = (rank_value),                                   \
 	}
 #define DEFINE_RWLOCK(name, rank_value, irq_policy_value)                       \
 	rwlock_t name = RWLOCK_INIT(name, rank_value, irq_policy_value);
@@ -44,6 +46,7 @@ typedef struct {
 		(lock)->writer = NULL;                                         \
 		(lock)->readers = 0;                                           \
 		(lock)->waiting_writers = 0;                                   \
+		(lock)->semantic_rank = (rank_value);                           \
 		wait_channel_init(&(lock)->wait);                              \
 	} while (0)
 

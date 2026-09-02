@@ -6,6 +6,7 @@
  * @brief Restartable sequences task state and user-return hooks.
  */
 
+#include <nuvix/bitops.h>
 #include <nuvix/compiler.h>
 #include <nuvix/rseq_types.h>
 #include <nuvix/types.h>
@@ -13,6 +14,17 @@
 struct rseq;
 struct task_struct;
 struct trap_frame;
+
+enum rseq_restart_event {
+	RSEQ_EVENT_PREEMPT = BIT(0),
+	RSEQ_EVENT_SIGNAL = BIT(1),
+	RSEQ_EVENT_MIGRATE = BIT(2),
+	RSEQ_EVENT_FORCE = BIT(3),
+};
+
+#define RSEQ_EVENT_MASK                                                        \
+	(RSEQ_EVENT_PREEMPT | RSEQ_EVENT_SIGNAL | RSEQ_EVENT_MIGRATE |          \
+	 RSEQ_EVENT_FORCE)
 
 /**
  * @brief Implement the Linux rseq syscall for the current task.
@@ -47,6 +59,9 @@ void rseq_clone(struct task_struct *child, const struct task_struct *parent,
  * @param prev Task being switched out.
  */
 void rseq_sched_switch(struct task_struct *prev);
+
+/** Atomically mark restart events; safe to call from IPI context. */
+void rseq_request_restart(struct task_struct *task, uint32_t events);
 
 /**
  * @brief Refresh rseq userspace fields before returning to user mode.

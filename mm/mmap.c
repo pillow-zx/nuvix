@@ -678,7 +678,9 @@ struct mm_struct *mm_alloc(void)
 
 	memset(mm, 0, sizeof(struct mm_struct));
 	refcount_set(&mm->refcount, 1);
-	mutex_init(&mm->mmap_lock, LOCK_RANK_MM_MMAP, LOCK_IRQ_TASK_ONLY);
+	atomic_set_relaxed(&mm->membarrier_registrations, 0);
+	mutex_init_semantic(&mm->mmap_lock, LOCK_RANK_MM_MMAP,
+			    SLEEP_RANK_MM_MMAP, LOCK_IRQ_TASK_ONLY);
 	return mm;
 }
 
@@ -721,13 +723,14 @@ int mm_refcount_read(const struct mm_struct *mm)
 void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd)
 {
 	BUG_ON(!mm);
-	mm->membarrier_registrations |= cmd;
+	atomic_fetch_or_order(&mm->membarrier_registrations, (int32_t)cmd,
+			      ATOMIC_ORDER_RELEASE);
 }
 
 uint32_t mm_membarrier_registrations(const struct mm_struct *mm)
 {
 	BUG_ON(!mm);
-	return mm->membarrier_registrations;
+	return (uint32_t)atomic_read_acquire(&mm->membarrier_registrations);
 }
 
 uintptr_t mm_pgroot(const struct mm_struct *mm)
@@ -761,7 +764,8 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 	newmm->brk = oldmm->brk;
 	newmm->code_start = oldmm->code_start;
 	newmm->code_end = oldmm->code_end;
-	newmm->membarrier_registrations = oldmm->membarrier_registrations;
+	atomic_set_relaxed(&newmm->membarrier_registrations,
+			   atomic_read_relaxed(&oldmm->membarrier_registrations));
 	memcpy(newmm->vma, oldmm->vma, sizeof(oldmm->vma));
 	for (int i = 0; i < NR_VMA; i++) {
 		if (newmm->vma[i].used && newmm->vma[i].vm_file)
