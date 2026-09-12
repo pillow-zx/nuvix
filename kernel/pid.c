@@ -24,7 +24,6 @@ static void pid_identity_destroy(struct pid_identity *identity)
 	BUG_ON(identity->published);
 	BUG_ON(identity->task || identity->proc || identity->pgrp ||
 	       identity->session);
-	BUG_ON(pid_used[identity->nr]);
 	kfree(identity);
 }
 
@@ -88,6 +87,9 @@ void pid_put(struct pid_identity *identity)
 	BUG_ON(!pid_used[identity->nr]);
 	pid_used[identity->nr] = false;
 	spin_unlock(&pid_lock);
+	/* The allocator may reuse this numeric slot immediately.  Destruction
+	 * validates only the retired identity itself, never the now-independent
+	 * pid_used slot after dropping pid_lock. */
 	pid_identity_destroy(identity);
 }
 

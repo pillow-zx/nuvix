@@ -201,6 +201,10 @@ static void task_init_wait(struct task_struct *task)
 	task->wait.deadline_cpu = 0;
 	task->wait.deadline_generation = 0;
 	task->wait.deadline_task = NULL;
+	IFDEF(CONFIG_DEBUG_CONTEXT, task->wait.denial_started = 0;
+	      task->wait.denial_generation = 0;
+	      task->wait.denial_retries = 0;
+	      task->wait.denial_reported = false;)
 	INIT_LIST_HEAD(&task->wait.registrations);
 	INIT_LIST_HEAD(&task->wait.deadline_node);
 	for (uint32_t i = 0; i < WAIT_MAX_REGISTRATIONS; i++) {

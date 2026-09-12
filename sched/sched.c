@@ -10,6 +10,7 @@
 #include <nuvix/sched.h>
 #include <nuvix/signal.h>
 #include <nuvix/task.h>
+#include <nuvix/timer.h>
 #include <nuvix/trap.h>
 #include <arch/pgtable.h>
 
@@ -41,8 +42,68 @@ struct retired_queue {
 
 static struct retired_queue retired_queues[NR_CPUS];
 static const struct sched_ops *policy = &rr_ops;
-
 static void sched_switch_complete(struct task_struct *last);
+
+#ifdef CONFIG_DEBUG_CONTEXT
+#define SCHED_HEARTBEAT_STALL_TICKS (MTIME_FREQ / 2)
+
+static atomic_t heartbeat_stall_reported[NR_CPUS];
+
+static void sched_park_denial_begin_locked(struct task_wait *wait)
+{
+	if (!wait->denial_retries ||
+	    wait->denial_generation != wait->generation) {
+		wait->denial_started = timer_now();
+		wait->denial_generation = wait->generation;
+		wait->denial_retries = 1;
+		wait->denial_reported = false;
+	} else if (wait->denial_retries != UINT32_MAX) {
+		wait->denial_retries++;
+	}
+}
+
+static void sched_heartbeat_scan(void)
+{
+	uint32_t scanner = current_cpu()->id;
+	uint64_t online = cpu_online_mask();
+	uint64_t now = timer_now();
+
+	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
+		struct runqueue *rq;
+		struct task_struct *task;
+		uint64_t heartbeat;
+		uint32_t nr_running;
+		bool handoff;
+		irq_flags_t flags;
+
+		if (id == scanner || !(online & BIT_U64(id)))
+			continue;
+		heartbeat = cpu_timer_heartbeat(id);
+		if (!heartbeat || now < heartbeat ||
+		    now - heartbeat <= SCHED_HEARTBEAT_STALL_TICKS) {
+			atomic_set_relaxed(&heartbeat_stall_reported[id], 0);
+			continue;
+		}
+		if (atomic_cmpxchg_acq_rel(&heartbeat_stall_reported[id], 0, 1))
+			continue;
+
+		rq = &runqueues[id];
+		spin_lock_irqsave(&rq->lock, &flags);
+		task = rq->current;
+		nr_running = (uint32_t)atomic_read_relaxed(&rq->nr_running);
+		handoff = rq->handoff.pending;
+		spin_unlock_irqrestore(&rq->lock, flags);
+		pr_warn("sched: interrupt heartbeat stall scanner=%u cpu=%u "
+			"current=%p pending_ipi=0x%x timer_seen=%u "
+			"heartbeat=%lu age=%lu nr_running=%u handoff=%u "
+			"ipi_seen=%u\n",
+			scanner, id, (void *)task, ipi_pending_reasons(id),
+			cpu_timer_seen(id), (size_t)heartbeat,
+			(size_t)(now - heartbeat), nr_running, handoff,
+			ipi_seen(id));
+	}
+}
+#endif
 
 static void sched_switch_current(void)
 {
@@ -97,9 +158,9 @@ static struct runqueue *sched_rq_for_task(struct task_struct *task)
 
 /*
  * Least-loaded selection hint: pick the schedulable CPU inside the allowed
- * mask with the fewest queued Tasks, breaking ties toward the lower logical
- * ID.  The load read is unsynchronized by design -- the runqueue lock guards
- * queue membership, and this is only a placement hint, not a guarantee.
+ * mask with the fewest runnable or running Tasks, breaking ties toward the
+ * lower logical ID.  Both witnesses are atomic because selection does not
+ * take remote runqueue locks; this is a placement hint, not a guarantee.
  */
 static struct cpu *sched_select_cpu(const cpumask_t *mask)
 {
@@ -114,7 +175,9 @@ static struct cpu *sched_select_cpu(const cpumask_t *mask)
 
 		if (!cpumask_test_cpu(mask, id) || !cpu_is_schedulable(id))
 			continue;
-		load = (uint32_t)atomic_read_relaxed(&runqueues[id].nr_running);
+		load = (uint32_t)atomic_read_relaxed(&runqueues[id].nr_running) +
+		       (uint32_t)atomic_read_relaxed(
+			       &runqueues[id].has_nonidle_current);
 		if (load < best_load) {
 			best_load = load;
 			best = id;
@@ -195,7 +258,7 @@ static struct task_struct *sched_pick_locked(struct runqueue *rq)
 	struct task_struct *next = policy->pick_next(rq);
 
 	if (!next)
-		return rq->idle;
+		return NULL;
 	/* Dequeueing the picked Task here is part of the switch-in
 	 * publication exception (see sched_switch_locked): the pick holds
 	 * only the runqueue lock. */
@@ -230,6 +293,8 @@ static void sched_switch_locked(struct runqueue *rq, struct task_struct *next)
 		next->run_state = TASK_RUNNING;
 	}
 	rq->current = next;
+	atomic_set_relaxed(&rq->has_nonidle_current,
+			   next && next != rq->idle);
 }
 
 void sched_task_init(struct task_struct *task)
@@ -253,6 +318,8 @@ void sched_init(void)
 		 * is prepared. Offline CPUs keep a NULL current until brought up. */
 		rq->idle = cpu_table[id].idle_task;
 		rq->current = cpu_table[id].current_task;
+		atomic_set_relaxed(&rq->has_nonidle_current,
+				   rq->current && rq->current != rq->idle);
 		rq->active_mm = NULL;
 		rq->handoff.outgoing = NULL;
 		rq->handoff.incoming = NULL;
@@ -263,6 +330,8 @@ void sched_init(void)
 		spin_lock_init(&retired_queues[id].lock, LOCK_RANK_RETIRED,
 				LOCK_IRQ_HARDIRQ_REACHABLE);
 		INIT_LIST_HEAD(&retired_queues[id].tasks);
+		IFDEF(CONFIG_DEBUG_CONTEXT,
+		      atomic_set_relaxed(&heartbeat_stall_reported[id], 0);)
 	}
 }
 
@@ -315,16 +384,16 @@ void sched_dequeue(struct task_struct *task)
 	spin_unlock_irqrestore(&task->wait.lock, wait_flags);
 }
 
-int sched_block_current(struct task_wait *wait)
+enum sched_park_result sched_block_current(struct task_wait *wait)
 {
 	struct task_struct *task = current_task();
 	struct runqueue *rq;
 	irq_flags_t wait_flags;
 	irq_flags_t rq_flags;
-	bool block = false;
+	enum sched_park_result result = SCHED_PARK_RACE;
 
 	if (!wait || !task || wait != &task->wait || task_is_idle(task))
-		return -EINVAL;
+		return SCHED_PARK_INVALID;
 	rq = sched_rq_for_cpu(current_cpu());
 	spin_lock_irqsave(&wait->lock, &wait_flags);
 	/* Block only if nothing has already woken us: an event wake clears the
@@ -335,17 +404,23 @@ int sched_block_current(struct task_wait *wait)
 	    !(wait->policy == TASK_WAIT_INTERRUPTIBLE &&
 	      sig_wait_ready(task, wait)) &&
 	    !(wait->policy == TASK_WAIT_KILLABLE &&
-	      sig_fatal_pending(task)) &&
-	    task->lifecycle == TASK_LIVE && task->run_state == TASK_RUNNING) {
-		spin_lock_irqsave(&rq->lock, &rq_flags);
-		task->run_state = TASK_BLOCKED;
-		block = true;
-		spin_unlock_irqrestore(&rq->lock, rq_flags);
+	      sig_fatal_pending(task))) {
+		if (task->lifecycle == TASK_LIVE &&
+		    task->run_state == TASK_RUNNING) {
+			spin_lock_irqsave(&rq->lock, &rq_flags);
+			task->run_state = TASK_BLOCKED;
+			result = SCHED_PARKED;
+			spin_unlock_irqrestore(&rq->lock, rq_flags);
+		} else {
+			result = SCHED_PARK_STATE_DENIED;
+			IFDEF(CONFIG_DEBUG_CONTEXT,
+			      sched_park_denial_begin_locked(wait);)
+		}
 	}
 	spin_unlock_irqrestore(&wait->lock, wait_flags);
-	if (block)
+	if (result == SCHED_PARKED || result == SCHED_PARK_STATE_DENIED)
 		sched_switch_current();
-	return block ? 1 : 0;
+	return result;
 }
 
 bool sched_wake(struct task_struct *task, uint64_t generation)
@@ -694,7 +769,9 @@ static void sched_switch_out_complete(struct task_struct *prev, bool terminal)
 	spin_lock_irqsave(&prev->wait.lock, &wait_flags);
 	BUG_ON(!prev->on_cpu || prev->on_rq);
 	prev->on_cpu = false;
-	if (!terminal && prev->lifecycle == TASK_LIVE &&
+	if (!terminal &&
+	    (prev->lifecycle == TASK_LIVE ||
+	     prev->lifecycle == TASK_EXITING) &&
 	    (prev->run_state == TASK_RUNNING ||
 	     prev->run_state == TASK_RUNNABLE)) {
 		if (!prev->on_rq) {
@@ -886,6 +963,7 @@ void schedule(void)
 	BUG_ON(spinlock_held());
 	BUG_ON(irqs_disabled());
 
+	IFDEF(CONFIG_DEBUG_CONTEXT, sched_heartbeat_scan();)
 	sched_switch_core(false);
 }
 

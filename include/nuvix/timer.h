@@ -42,4 +42,7 @@ void clockevent_deadline_changed(uint64_t expires);
 /* Boot-health: true after this CPU handled one local scheduler tick. */
 bool cpu_timer_seen(uint32_t id);
 
+/* Last timer-interrupt progress publication for cross-CPU diagnostics. */
+uint64_t cpu_timer_heartbeat(uint32_t id);
+
 #endif

@@ -33,10 +33,19 @@ static struct realtime_clock realtime_clock = {
 static struct clockevent_cpu clockevents[NR_CPUS];
 /* Boot-health: set once per CPU after a local scheduler tick was handled. */
 static atomic_isize_t clockevent_timer_seen[NR_CPUS];
+/* Release-published on every local timer interrupt. */
+static atomic64_t clockevent_heartbeat[NR_CPUS];
 
 bool cpu_timer_seen(uint32_t id)
 {
 	return atomic_isize_read_acquire(&clockevent_timer_seen[id]) != 0;
+}
+
+uint64_t cpu_timer_heartbeat(uint32_t id)
+{
+	if (id >= NR_CPUS)
+		return 0;
+	return (uint64_t)atomic64_read_acquire(&clockevent_heartbeat[id]);
 }
 
 void clockevent_init(void)
@@ -49,6 +58,7 @@ void clockevent_init(void)
 		event->next_tick = UINT64_MAX;
 		event->programmed = UINT64_MAX;
 		event->initialized = false;
+		atomic64_set_relaxed(&clockevent_heartbeat[id], 0);
 	}
 }
 
@@ -84,6 +94,9 @@ void clockevent_handle_irq(uint64_t now)
 	irq_flags_t flags;
 	bool tick = false;
 
+	/* Publish interrupt entry before work that can wake other Tasks. */
+	atomic64_set_release(&clockevent_heartbeat[current_cpu()->id],
+			     (int64_t)now);
 	wait_expire_deadlines(now);
 	spin_lock_irqsave(&event->lock, &flags);
 	BUG_ON(!event->initialized);

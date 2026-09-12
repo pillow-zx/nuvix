@@ -67,43 +67,52 @@ int ipi_send(uint32_t cpu_id, int reasons)
 void ipi_handle(void)
 {
 	struct cpu *cpu = current_cpu();
-	int32_t served[IPI_SYNC_FAMILY_COUNT] = {0};
-	uint32_t families;
-	isize reasons;
+	bool handled = false;
 
-	/* Acknowledge first so a second send can interrupt again while this
-	 * handler runs. */
-	smp_ipi_ack();
-	reasons = atomic_isize_xchg_acquire(&ipi_pending[cpu->id], 0);
-	if (!reasons)
-		return;
-	families = ipi_sync_family_mask((int)reasons);
-	for (uint32_t family = 0; family < IPI_SYNC_FAMILY_COUNT; family++)
-		if (families & BIT(family))
-			served[family] = atomic_read_acquire(
-				&ipi_sync_requests[family][cpu->id]);
-	if (reasons & IPI_RESCHEDULE) {
-		/* No-op for an idle current task; never schedules in IRQ
-		 * context. The trap-return path consumes need_resched. */
-		sched_request();
+	for (;;) {
+		int32_t served[IPI_SYNC_FAMILY_COUNT] = {0};
+		uint32_t families;
+		isize reasons;
+
+		/* Acknowledge before each acquire-and-clear.  A reason published
+		 * during dispatch is consumed by the next iteration; a send after
+		 * the final empty exchange leaves SSIP set for a later visit. */
+		smp_ipi_ack();
+		reasons = atomic_isize_xchg_acquire(&ipi_pending[cpu->id], 0);
+		if (!reasons)
+			break;
+		handled = true;
+		families = ipi_sync_family_mask((int)reasons);
+		for (uint32_t family = 0; family < IPI_SYNC_FAMILY_COUNT;
+		     family++)
+			if (families & BIT(family))
+				served[family] = atomic_read_acquire(
+					&ipi_sync_requests[family][cpu->id]);
+		if (reasons & IPI_RESCHEDULE) {
+			/* No-op for an idle current task; never schedules in IRQ
+			 * context. The trap-return path consumes need_resched. */
+			sched_request();
+		}
+		if (reasons & IPI_SHOOTDOWN)
+			tlb_flush_all();
+		if (reasons & IPI_FENCE_I)
+			icache_flush();
+		if (reasons & (IPI_MEMBARRIER | IPI_SYNC_CORE | IPI_RSEQ))
+			arch_mb();
+		if (reasons & IPI_SYNC_CORE)
+			icache_flush();
+		if (reasons & IPI_RSEQ)
+			rseq_request_restart(current_task(), RSEQ_EVENT_FORCE);
+		for (uint32_t family = 0; family < IPI_SYNC_FAMILY_COUNT;
+		     family++)
+			if (families & BIT(family))
+				atomic_set_release(
+					&ipi_sync_completions[family][cpu->id],
+					served[family]);
 	}
-	if (reasons & IPI_SHOOTDOWN)
-		tlb_flush_all();
-	if (reasons & IPI_FENCE_I)
-		icache_flush();
-	if (reasons & (IPI_MEMBARRIER | IPI_SYNC_CORE | IPI_RSEQ))
-		arch_mb();
-	if (reasons & IPI_SYNC_CORE)
-		icache_flush();
-	if (reasons & IPI_RSEQ)
-		rseq_request_restart(current_task(), RSEQ_EVENT_FORCE);
-	for (uint32_t family = 0; family < IPI_SYNC_FAMILY_COUNT; family++)
-		if (families & BIT(family))
-			atomic_set_release(
-				&ipi_sync_completions[family][cpu->id],
-				served[family]);
 	/* Boot-health flag: set once per CPU after any reason was handled. */
-	atomic_isize_set_release(&ipi_seen_flags[cpu->id], 1);
+	if (handled)
+		atomic_isize_set_release(&ipi_seen_flags[cpu->id], 1);
 }
 
 bool ipi_seen(uint32_t cpu_id)

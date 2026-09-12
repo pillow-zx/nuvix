@@ -242,6 +242,7 @@ static inline void uaccess_u32_set_prepared(struct uaccess_txn *txn,
 	IFDEF(CONFIG_DEBUG_CONTEXT,
 	      txn->prepared_addr = (uintptr_t)addr;
 	      txn->prepared_size = sizeof(uint32_t);)
+	IFNDEF(CONFIG_DEBUG_CONTEXT, (void)txn; (void)addr;)
 }
 
 static int uaccess_prepare_u32(struct uaccess_txn *txn,

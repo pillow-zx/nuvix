@@ -115,6 +115,10 @@ struct task_wait {
 	uint32_t deadline_cpu;
 	uint64_t deadline_generation;
 	struct task_struct *deadline_task;
+	IFDEF(CONFIG_DEBUG_CONTEXT, uint64_t denial_started;
+	      uint64_t denial_generation;
+	      uint32_t denial_retries;
+	      bool denial_reported;)
 };
 
 __always_inline __must_check __const

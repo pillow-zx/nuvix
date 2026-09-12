@@ -8,6 +8,7 @@
 
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
+#include <nuvix/printk.h>
 #include <nuvix/processor.h>
 #include <nuvix/sched.h>
 #include <nuvix/signal.h>
@@ -22,6 +23,10 @@ struct wait_deadline_queue {
 };
 
 static struct wait_deadline_queue deadline_queues[NR_CPUS];
+
+#ifdef CONFIG_DEBUG_CONTEXT
+#define WAIT_DENIAL_REPORT_TICKS (MTIME_FREQ / 10)
+#endif
 
 void wait_init(void)
 {
@@ -40,6 +45,75 @@ static bool wait_active(const struct task_wait *wait)
 {
 	return wait->phase == WAIT_ARMED || wait->phase == WAIT_BLOCKED;
 }
+
+#ifdef CONFIG_DEBUG_CONTEXT
+static void wait_denial_reset_locked(struct task_wait *wait)
+{
+	wait->denial_started = 0;
+	wait->denial_generation = 0;
+	wait->denial_retries = 0;
+	wait->denial_reported = false;
+}
+
+static void wait_denial_observe(struct task_struct *task,
+				enum sched_park_result result)
+{
+	struct task_wait *wait = &task->wait;
+	uint64_t generation = 0;
+	uint64_t duration = 0;
+	uint64_t now;
+	uint32_t retries = 0;
+	enum task_lifecycle lifecycle = TASK_NEW;
+	enum task_run_state run_state = TASK_STOPPED;
+	enum wait_phase phase = WAIT_IDLE;
+	uint32_t cpu_id = UINT32_MAX;
+	bool on_rq = false;
+	bool on_cpu = false;
+	bool report = false;
+	irq_flags_t flags;
+
+	spin_lock_irqsave(&wait->lock, &flags);
+	if (result != SCHED_PARK_STATE_DENIED) {
+		wait_denial_reset_locked(wait);
+		spin_unlock_irqrestore(&wait->lock, flags);
+		return;
+	}
+
+	now = timer_now();
+
+	BUG_ON(!wait->denial_retries ||
+	       wait->denial_generation != wait->generation);
+	if (!wait->denial_reported &&
+	    now - wait->denial_started >= WAIT_DENIAL_REPORT_TICKS) {
+		wait->denial_reported = true;
+		report = true;
+		generation = wait->denial_generation;
+		duration = now - wait->denial_started;
+		retries = wait->denial_retries;
+		lifecycle = task->lifecycle;
+		run_state = task->run_state;
+		phase = wait->phase;
+		cpu_id = task->cpu ? task->cpu->id : UINT32_MAX;
+		on_rq = task->on_rq;
+		on_cpu = task->on_cpu;
+	}
+	spin_unlock_irqrestore(&wait->lock, flags);
+
+	if (report)
+		pr_warn("wait: park denial task=%p lifecycle=%u run_state=%u "
+			"cpu=%u on_rq=%u on_cpu=%u phase=%u generation=%lu "
+			"duration=%lu retries=%u\n",
+			(void *)task, lifecycle, run_state, cpu_id, on_rq, on_cpu,
+			phase, (size_t)generation, (size_t)duration, retries);
+}
+#else
+static void wait_denial_observe(struct task_struct *task,
+				enum sched_park_result result)
+{
+	(void)task;
+	(void)result;
+}
+#endif
 
 bool wait_may_block(void)
 {
@@ -127,10 +201,10 @@ static bool wait_event_fired(struct task_wait *wait, uint64_t generation)
 	return wake;
 }
 
-static void wait_block_current(void)
+static enum sched_park_result wait_block_current(void)
 {
 	BUG_ON(!wait_context_can_sleep());
-	sched_block_current(&current_task()->wait);
+	return sched_block_current(&current_task()->wait);
 }
 
 void wait_channel_init(struct wait_channel *channel)
@@ -321,7 +395,19 @@ int wait_scope_block(struct wait_scope *scope, wait_outcome_t *outcome)
 		if (wait->deadline.active && timer_now() >= wait->deadline.expires)
 			return (*outcome = WAIT_OUTCOME_TIMEOUT), 0;
 
-		wait_block_current();
+		enum sched_park_result park = wait_block_current();
+
+		if (park == SCHED_PARK_INVALID)
+			return -EINVAL;
+		BUG_ON(park != SCHED_PARKED && park != SCHED_PARK_RACE &&
+		       park != SCHED_PARK_STATE_DENIED);
+		wait_denial_observe(task, park);
+		/* A Task-state denial already crossed a scheduling point.  Return a
+		 * recheck hint to the condition owner instead of blindly retrying the
+		 * same park: mutexes, futexes, and other wait sources must re-derive
+		 * their authoritative condition after every scheduler outcome. */
+		if (park == SCHED_PARK_STATE_DENIED)
+			return (*outcome = WAIT_OUTCOME_EVENT), 0;
 	}
 }
 
@@ -361,6 +447,8 @@ static void wait_complete_generation(struct task_wait *wait,
 				wait->signal_mode = TASK_WAIT_SIGNAL_DEFAULT;
 				wait->signal_set = 0;
 				wait->deadline = wait_deadline_none();
+				IFDEF(CONFIG_DEBUG_CONTEXT,
+				      wait_denial_reset_locked(wait);)
 			spin_unlock_irqrestore(&wait->lock, wait_flags);
 			if (deadline_task)
 				task_put(deadline_task);

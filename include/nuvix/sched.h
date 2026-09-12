@@ -6,14 +6,22 @@
  * @brief Scheduler entry points and preemption counters.
  */
 
-#include <nuvix/list.h>
-#include <nuvix/task.h>
+#include <nuvix/errno.h>
 #include <nuvix/irq.h>
+#include <nuvix/list.h>
 #include <nuvix/spinlock.h>
+#include <nuvix/task.h>
 #include <arch/processor.h>
 
 /* Boot policy keeps ordinary Tasks schedulable on logical CPU 0. */
 #define SCHED_BOOT_AFFINITY_CPU 0u
+
+enum sched_park_result {
+	SCHED_PARK_INVALID = -EINVAL,
+	SCHED_PARK_STATE_DENIED = -EAGAIN,
+	SCHED_PARK_RACE = 0,
+	SCHED_PARKED = 1,
+};
 
 /**
  * @brief Initialize scheduler queues and policy state.
@@ -78,8 +86,16 @@ void sched_enqueue_new(struct task_struct *task);
 
 bool sched_has_runnable(void);
 
-/** Block the current task for one wait generation. */
-int sched_block_current(struct task_wait *wait);
+/**
+ * Block the current Task for one wait generation.
+ *
+ * A race means the wait condition changed before the park and needs only a
+ * caller recheck.  A state denial means Task lifecycle or run state prevented
+ * parking; the scheduler crosses an interrupt-enabled scheduling point before
+ * returning that distinct result.
+ */
+__must_check enum sched_park_result
+sched_block_current(struct task_wait *wait);
 
 /** Wake a task only when it still belongs to the supplied wait generation. */
 bool sched_wake(struct task_struct *task, uint64_t generation);
