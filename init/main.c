@@ -13,7 +13,6 @@
 #include <nuvix/timer.h>
 #include <nuvix/syscall.h>
 #include <nuvix/signal.h>
-#include <nuvix/user_map.h>
 #include <nuvix/vmalloc.h>
 #include <nuvix/vfs.h>
 #include <drivers/virtio_blk.h>
@@ -22,7 +21,6 @@
 #include <nuvix/pgtable.h>
 #include <nuvix/exit.h>
 #include <nuvix/irq.h>
-#include <nuvix/user_map_arch.h>
 #include <nuvix/tty.h>
 #include <nuvix/smp.h>
 
@@ -30,6 +28,7 @@ void kernel_main(uint64_t hartid)
 {
 	struct task_struct *init;
 	struct task_struct *writeback;
+	void *mem_start;
 	int ret;
 
 	console_init_sbi();
@@ -43,17 +42,13 @@ void kernel_main(uint64_t hartid)
 	bootinfo_sbi();
 	bootinfo_timer();
 
-	pagetable_init();
+	mem_start = pgtable_init();
 	console_init_mmio();
 	tty_console_init();
 
-	buddy_init();
-	pagetable_use_buddy();
+	buddy_init(mem_start);
 	slab_init();
 	vmalloc_init();
-	user_map_init();
-	BUG_ON(user_map_reserve("stack_guard", USER_STACK_GUARD_BASE,
-				USER_STACK_BASE) < 0);
 	sig_init();
 	bootinfo_mm();
 
@@ -82,6 +77,10 @@ void kernel_main(uint64_t hartid)
 	 * CPU's online/schedulable publication happens inside smp_boot_cpus().
 	 */
 	smp_boot_cpus();
+	/* Local trap/timer state and the current idle task are ready, and
+	 * all online CPUs can service IPIs. Filesystem initialization below
+	 * uses vmalloc, whose global shootdowns require IRQs enabled here. */
+	local_irq_enable();
 	/* Close the banner with the CPU block: online/schedulable masks are
 	 * final once every secondary has published ONLINE. */
 	bootinfo_cpu();

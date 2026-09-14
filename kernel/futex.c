@@ -54,7 +54,7 @@ static bool futex_key_equal(const struct futex_key *a,
 	if (a->shared != b->shared)
 		return false;
 	if (a->shared)
-		return a->shared_file.mapping == b->shared_file.mapping &&
+		return a->shared_file.anon == b->shared_file.anon &&
 		       a->shared_file.pgoff == b->shared_file.pgoff;
 	return a->priv.mm == b->priv.mm &&
 	       a->priv.uaddr == b->priv.uaddr;
@@ -65,7 +65,7 @@ static struct futex_bucket *futex_bucket_for(const struct futex_key *key)
 	uintptr_t hash;
 
 	if (key->shared)
-		hash = ((uintptr_t)key->shared_file.mapping >> 3) ^
+		hash = ((uintptr_t)key->shared_file.anon >> 3) ^
 		       key->shared_file.pgoff;
 	else
 		hash = ((uintptr_t)key->priv.mm >> 3) ^
@@ -97,13 +97,11 @@ static int futex_key_fill(struct futex_key *key, struct mm_struct *mm,
 		key->priv.mm = mm;
 		key->priv.uaddr = uaddr;
 		return 0;
-	case MM_MAPPING_SHARED_FILE:
+	case MM_MAPPING_SHARED_ANON:
 		key->shared = true;
-		/* The key takes ownership of the held file reference. */
+		/* The key owns the shared-anonymous object reference and byte offset. */
 		key->shared_file = *id;
 		return 0;
-	case MM_MAPPING_SHARED_ANON:
-		return -ENOSYS;
 	default:
 		return -EFAULT;
 	}

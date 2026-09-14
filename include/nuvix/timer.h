@@ -6,13 +6,11 @@
 #ifndef _NUVIX_TIMER_H
 #define _NUVIX_TIMER_H
 
+#include <nuvix/config.h>
 #include <nuvix/types.h>
 
 /** Scheduler/accounting ticks per second. */
 #define HZ              100ULL
-
-/** QEMU virt mtime frequency in ticks per second. */
-#define MTIME_FREQ      10000000ULL
 
 /** Number of mtime ticks in one scheduler tick. */
 #define CLOCKS_PER_TICK MTIME_FREQ / HZ

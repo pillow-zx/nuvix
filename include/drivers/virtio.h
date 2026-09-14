@@ -6,15 +6,10 @@
 #ifndef _NUVIX_DRIVERS_VIRTIO_H
 #define _NUVIX_DRIVERS_VIRTIO_H
 
+#include <nuvix/config.h>
 #include <nuvix/types.h>
 #include <nuvix/tools.h>
 #include <arch/barrier.h>
-
-/**
- * @def VIRTIO_MMIO_BASE
- * @brief QEMU virt base address of the first virtio MMIO transport.
- */
-#define VIRTIO_MMIO_BASE 0x10001000UL
 
 /**
  * @def VIRTIO_MMIO_MAGIC

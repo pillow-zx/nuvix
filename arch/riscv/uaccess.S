@@ -1,6 +1,3 @@
-/*
- * arch/riscv/uaccess.S - fault-safe user u32 accesses
- */
 
 #define SSTATUS_SUM 0x40000
 #define EAGAIN      11
@@ -9,7 +6,6 @@
 
 	.text
 
-/* a0: user address, a1: kernel destination, return a0: errno */
 .macro USER_U32_LOAD name, order
 	.section .text.\name,"ax",@progbits
 	.align 2
@@ -55,7 +51,6 @@
 	.size \name, .-\name
 .endm
 
-/* a0: user address, a1: value, return a0: errno */
 .macro USER_U32_STORE name, order
 	.section .text.\name,"ax",@progbits
 	.align 2
@@ -100,7 +95,6 @@
 	.size \name, .-\name
 .endm
 
-/* a0: user address, a1: expected, a2: desired, a3: kernel observed output */
 .macro USER_U32_CMPXCHG name, lr_order, sc_order
 	.section .text.\name,"ax",@progbits
 	.align 2

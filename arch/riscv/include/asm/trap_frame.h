@@ -1,63 +1,11 @@
 #ifndef _NUVIX_ASM_TRAP_FRAME_H
 #define _NUVIX_ASM_TRAP_FRAME_H
 
-/**
- * @file
- * @brief Trap entry register save layout.
- *
- * Assembly contract for entry.S and __trapret. Code above arch/riscv should
- * use <arch/trap.h> accessors instead of field access.
- */
 
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
 #include <asm/asm_offsets.h>
 
-/**
- * @struct trap_frame
- * @brief Complete RISC-V register image saved on every trap entry.
- *
- * The field order is an ABI between C and arch/riscv/entry.S.  Offsets must
- * match arch/riscv/include/asm/asm_offsets.h exactly because assembly saves
- * and restores registers by numeric offsets.
- *
- * @par Fields
- * - @c sepc: Saved exception PC restored into sepc before sret.
- * - @c ra: Return address register x1.
- * - @c sp: Interrupted stack pointer x2.
- * - @c gp: Global pointer x3.
- * - @c tp: Thread pointer x4 / Linux TLS register.
- * - @c t0: Temporary register x5.
- * - @c t1: Temporary register x6.
- * - @c t2: Temporary register x7.
- * - @c s0: Saved register x8 / frame pointer.
- * - @c s1: Saved register x9.
- * - @c a0: Argument/return register x10; syscall return value.
- * - @c a1: Argument register x11.
- * - @c a2: Argument register x12.
- * - @c a3: Argument register x13.
- * - @c a4: Argument register x14.
- * - @c a5: Argument register x15.
- * - @c a6: Argument register x16.
- * - @c a7: Argument register x17; Linux syscall number.
- * - @c s2: Saved register x18.
- * - @c s3: Saved register x19.
- * - @c s4: Saved register x20.
- * - @c s5: Saved register x21.
- * - @c s6: Saved register x22.
- * - @c s7: Saved register x23.
- * - @c s8: Saved register x24.
- * - @c s9: Saved register x25.
- * - @c s10: Saved register x26.
- * - @c s11: Saved register x27.
- * - @c t3: Temporary register x28.
- * - @c t4: Temporary register x29.
- * - @c t5: Temporary register x30.
- * - @c t6: Temporary register x31.
- * - @c scause: Trap cause captured from the scause CSR.
- * - @c stval: Trap value captured from the stval CSR.
- * - @c sstatus: Status image restored into sstatus before sret.
- */
 struct trap_frame {
 	size_t sepc;
 	size_t ra;

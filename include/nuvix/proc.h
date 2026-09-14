@@ -173,15 +173,14 @@ struct proc_cputime_snapshot {
 };
 
 /** Process construction/publication and references. */
-__must_check
-struct proc_struct *proc_alloc(struct proc_struct *parent, struct pid_identity *pid);
+__must_check struct proc_struct *proc_alloc(struct proc_struct *parent,
+					    struct pid_identity *pid);
 
 void proc_get(struct proc_struct *proc);
 
 void proc_put(struct proc_struct *proc);
 
-__must_check
-bool proc_try_get(struct proc_struct *proc);
+__must_check bool proc_try_get(struct proc_struct *proc);
 
 /** Topology-owned references for objects crossing the topology lock. */
 void proc_pgrp_get(struct pgrp_struct *pgrp);
@@ -205,11 +204,9 @@ bool proc_session_try_get(struct session_struct *session);
 
 void proc_session_put(struct session_struct *session);
 
-__must_check
-struct pgrp_struct *proc_lookup_pgrp(pid_t pgid);
+__must_check struct pgrp_struct *proc_lookup_pgrp(pid_t pgid);
 
-__must_check
-struct session_struct *proc_lookup_session(pid_t sid);
+__must_check struct session_struct *proc_lookup_session(pid_t sid);
 
 int proc_init_resources(struct proc_struct *proc);
 
@@ -217,8 +214,15 @@ int proc_clone_rlimits(struct proc_struct *proc, struct proc_struct *source);
 
 void proc_release_resources(struct proc_struct *proc);
 
-/** Replace a proc-owned resource and return its previous reference. */
-struct mm_struct *proc_replace_mm(struct proc_struct *proc, struct mm_struct *mm);
+/**
+ * Replace the Proc-owned address space and return its previous reference.
+ *
+ * The incoming reference is transferred to the Proc.  This is the sole MM
+ * publication boundary: a BUILDING MM becomes ACTIVE here, and the old
+ * publication is withdrawn after the new pointer is visible.
+ */
+struct mm_struct *proc_replace_mm(struct proc_struct *proc,
+				  struct mm_struct *mm);
 
 /** Take a stable reference to the proc-owned address space, if any. */
 struct mm_struct *proc_mm_get(struct proc_struct *proc);
@@ -227,7 +231,7 @@ struct files_struct *proc_replace_files(struct proc_struct *proc,
 					struct files_struct *files);
 
 struct fs_struct *proc_replace_fs(struct proc_struct *proc,
-					struct fs_struct *fs);
+				  struct fs_struct *fs);
 
 int proc_publish(struct proc_struct *proc);
 
@@ -236,31 +240,33 @@ int proc_publish_with_task(struct proc_struct *proc, struct task_struct *task);
 void proc_unpublish(struct proc_struct *proc);
 
 /** Process-owned accounting updates and lock-consistent snapshots. */
-void proc_account_task_cputime(struct proc_struct *proc, const struct task_cputime *time);
+void proc_account_task_cputime(struct proc_struct *proc,
+			       const struct task_cputime *time);
 
-void proc_account_child_cputime(struct proc_struct *proc, const struct task_cputime *time);
+void proc_account_child_cputime(struct proc_struct *proc,
+				const struct task_cputime *time);
 
-void proc_cputime_snapshot(struct proc_struct *proc, struct proc_cputime_snapshot *snapshot);
+void proc_cputime_snapshot(struct proc_struct *proc,
+			   struct proc_cputime_snapshot *snapshot);
 
 /** Task membership and process topology. */
-int proc_attach_task(struct proc_struct *proc, struct task_struct *task, bool leader);
+int proc_attach_task(struct proc_struct *proc, struct task_struct *task,
+		     bool leader);
 
-bool proc_is_last_task(const struct proc_struct *proc, const struct task_struct *task);
+bool proc_is_last_task(const struct proc_struct *proc,
+		       const struct task_struct *task);
 
 bool proc_detach_task(struct proc_struct *proc, struct task_struct *task);
 
 /** Lock-consistent task membership queries owned by the proc module. */
-__must_check
-bool proc_task_is_member(const struct proc_struct *proc,
-			 const struct task_struct *task);
+__must_check bool proc_task_is_member(const struct proc_struct *proc,
+				      const struct task_struct *task);
 
-__must_check
-bool proc_task_is_leader(const struct proc_struct *proc,
-			 const struct task_struct *task);
+__must_check bool proc_task_is_leader(const struct proc_struct *proc,
+				      const struct task_struct *task);
 
 /** Process role state owned by proc, including exec/fork transitions. */
-__must_check
-bool proc_is_user_process(struct proc_struct *proc);
+__must_check bool proc_is_user_process(struct proc_struct *proc);
 
 void proc_mark_user_process(struct proc_struct *proc);
 
@@ -293,20 +299,20 @@ struct proc_parent_event {
 void proc_parent_event_release(struct proc_parent_event *event);
 
 size_t proc_unlink_child(struct proc_struct *child,
-		struct proc_orphan_event *events,  size_t capacity);
+			 struct proc_orphan_event *events, size_t capacity);
 
 size_t proc_reparent_children(struct proc_struct *proc,
-		struct proc_orphan_event *events, size_t capacity);
+			      struct proc_orphan_event *events,
+			      size_t capacity);
 
-__must_check
-struct proc_struct *proc_parent_get(struct proc_struct *proc);
+__must_check struct proc_struct *proc_parent_get(struct proc_struct *proc);
 
-__must_check
-struct task_struct *proc_leader_get(struct proc_struct *proc);
+__must_check struct task_struct *proc_leader_get(struct proc_struct *proc);
 
 uint32_t proc_child_count(const struct proc_struct *proc);
 
-size_t proc_task_snapshot(struct proc_struct *proc,  const struct task_struct *ignored,
+size_t proc_task_snapshot(struct proc_struct *proc,
+			  const struct task_struct *ignored,
 			  struct task_struct **tasks, size_t capacity);
 
 /**
@@ -319,34 +325,39 @@ typedef void (*proc_task_callback_t)(struct task_struct *task, void *arg);
 void proc_for_each_task(struct proc_struct *proc, proc_task_callback_t callback,
 			void *arg);
 
-size_t proc_pgrp_task_snapshot(struct pgrp_struct *pgrp, struct session_struct *session,
+size_t proc_pgrp_task_snapshot(struct pgrp_struct *pgrp,
+			       struct session_struct *session,
 			       struct task_struct **tasks, size_t capacity);
 
 /** Proc lifecycle and wait-visible event operations. */
 bool proc_begin_group_exit(struct proc_struct *proc, int status);
 
-__must_check
-bool proc_group_exit_pending(const struct proc_struct *proc, int *status);
+__must_check bool proc_group_exit_pending(const struct proc_struct *proc,
+					  int *status);
 
-void proc_publish_stop(struct proc_struct *proc, int sig, struct proc_parent_event *event);
+void proc_publish_stop(struct proc_struct *proc, int sig,
+		       struct proc_parent_event *event);
 
-void proc_publish_continue(struct proc_struct *proc, struct proc_parent_event *event);
+void proc_publish_continue(struct proc_struct *proc,
+			   struct proc_parent_event *event);
 
 void proc_prepare_exit(struct proc_struct *proc, int status, uid_t uid,
 		       bool auto_reap, bool notify_sigchld);
 
-size_t proc_publish_exit(struct proc_struct *proc, struct proc_orphan_event *events,
-			 size_t capacity, struct proc_parent_event *parent_event);
+size_t proc_publish_exit(struct proc_struct *proc,
+			 struct proc_orphan_event *events, size_t capacity,
+			 struct proc_parent_event *parent_event);
 
-__must_check
-bool proc_can_reap(const struct proc_struct *proc);
+__must_check bool proc_can_reap(const struct proc_struct *proc);
 
-size_t proc_mark_reaped(struct proc_struct *proc, struct proc_orphan_event *events, size_t capacity);
+size_t proc_mark_reaped(struct proc_struct *proc,
+			struct proc_orphan_event *events, size_t capacity);
 
 /** Serialize exec and de-threading through proc-owned task membership. */
 int proc_exec_begin(struct proc_struct *proc, struct task_struct *owner);
 
-int proc_exec_request_siblings(struct proc_struct *proc, struct task_struct *owner);
+int proc_exec_request_siblings(struct proc_struct *proc,
+			       struct task_struct *owner);
 
 int proc_exec_wait(struct proc_struct *proc, struct task_wait *wait);
 
@@ -388,7 +399,8 @@ struct proc_wait_claim {
 
 enum proc_wait_result proc_wait_claim(struct proc_struct *parent,
 				      const struct proc_wait_selector *selector,
-		                      uint32_t event_mask, struct proc_wait_claim *claim);
+				      uint32_t event_mask,
+				      struct proc_wait_claim *claim);
 
 int proc_wait_watch(struct proc_struct *parent,
 		    const struct proc_wait_selector *selector,
@@ -399,7 +411,8 @@ bool proc_wait_commit(struct proc_wait_claim *claim);
 void proc_wait_abort(struct proc_wait_claim *claim);
 
 /** Process-group/session topology. */
-int proc_join_pgrp(struct proc_struct *proc, pid_t pgid, struct proc_orphan_event *event);
+int proc_join_pgrp(struct proc_struct *proc, pid_t pgid,
+		   struct proc_orphan_event *event);
 
 /*
  * Create a new session for @p proc.  The caller leaves the whole old
@@ -421,15 +434,18 @@ int proc_create_session(struct proc_struct *proc, pid_t *sid,
  * it is treated as absent so an empty session is recognized immediately
  * instead of waiting for the reaper to unlink it from its pgrp.
  */
-bool proc_session_is_empty(const struct session_struct *session, const struct proc_struct *exclude);
+bool proc_session_is_empty(const struct session_struct *session,
+			   const struct proc_struct *exclude);
 
-int proc_snapshot_topology(const struct proc_struct *proc, pid_t *pgid, pid_t *sid);
+int proc_snapshot_topology(const struct proc_struct *proc, pid_t *pgid,
+			   pid_t *sid);
 
 /* Fill the identity recorded when an exited process awaits wait4; false when
  * the proc has no exit snapshot (still live or already reaped). */
-bool proc_exit_identity(const struct proc_struct *proc, pid_t *pgid, pid_t *sid);
+bool proc_exit_identity(const struct proc_struct *proc, pid_t *pgid,
+			pid_t *sid);
 
-__must_check
-bool proc_pgrp_has_member(pid_t pgid, pid_t sid, const struct task_struct *ignored);
+__must_check bool proc_pgrp_has_member(pid_t pgid, pid_t sid,
+				       const struct task_struct *ignored);
 
 #endif

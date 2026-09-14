@@ -12,7 +12,7 @@
 #include <nuvix/task.h>
 #include <nuvix/timer.h>
 #include <nuvix/trap.h>
-#include <arch/pgtable.h>
+#include <nuvix/pgtable.h>
 
 #include "internal.h"
 
@@ -121,8 +121,7 @@ static void sched_switch_current(void)
 }
 
 struct task_struct *task_switch(struct task_struct *prev,
-				struct task_struct *next,
-				uintptr_t next_pgroot)
+				struct task_struct *next, uintptr_t next_pgroot)
 {
 	BUG_ON(!irqs_disabled());
 	BUG_ON(in_irq());
@@ -175,7 +174,8 @@ static struct cpu *sched_select_cpu(const cpumask_t *mask)
 
 		if (!cpumask_test_cpu(mask, id) || !cpu_is_schedulable(id))
 			continue;
-		load = (uint32_t)atomic_read_relaxed(&runqueues[id].nr_running) +
+		load = (uint32_t)atomic_read_relaxed(
+			       &runqueues[id].nr_running) +
 		       (uint32_t)atomic_read_relaxed(
 			       &runqueues[id].has_nonidle_current);
 		if (load < best_load) {
@@ -293,8 +293,7 @@ static void sched_switch_locked(struct runqueue *rq, struct task_struct *next)
 		next->run_state = TASK_RUNNING;
 	}
 	rq->current = next;
-	atomic_set_relaxed(&rq->has_nonidle_current,
-			   next && next != rq->idle);
+	atomic_set_relaxed(&rq->has_nonidle_current, next && next != rq->idle);
 }
 
 void sched_task_init(struct task_struct *task)
@@ -310,12 +309,13 @@ void sched_init(void)
 		struct runqueue *rq = &runqueues[id];
 
 		spin_lock_init(&rq->lock, LOCK_RANK_RUNQUEUE,
-				LOCK_IRQ_HARDIRQ_REACHABLE);
+			       LOCK_IRQ_HARDIRQ_REACHABLE);
 		rq->cpu_id = id;
 		INIT_LIST_HEAD(&rq->runnable);
 		atomic_set_relaxed(&rq->nr_running, 0);
-		/* Direct slot indexing like cpu_boot_init(): every enumerated slot
-		 * is prepared. Offline CPUs keep a NULL current until brought up. */
+		/* Direct slot indexing like cpu_boot_init(): every enumerated
+		 * slot is prepared. Offline CPUs keep a NULL current until
+		 * brought up. */
 		rq->idle = cpu_table[id].idle_task;
 		rq->current = cpu_table[id].current_task;
 		atomic_set_relaxed(&rq->has_nonidle_current,
@@ -324,11 +324,11 @@ void sched_init(void)
 		rq->handoff.outgoing = NULL;
 		rq->handoff.incoming = NULL;
 		rq->handoff.incoming_mm = NULL;
-		rq->handoff.installed_pgroot = 0;
+		rq->handoff.pgroot = 0;
 		rq->handoff.terminal = false;
 		rq->handoff.pending = false;
 		spin_lock_init(&retired_queues[id].lock, LOCK_RANK_RETIRED,
-				LOCK_IRQ_HARDIRQ_REACHABLE);
+			       LOCK_IRQ_HARDIRQ_REACHABLE);
 		INIT_LIST_HEAD(&retired_queues[id].tasks);
 		IFDEF(CONFIG_DEBUG_CONTEXT,
 		      atomic_set_relaxed(&heartbeat_stall_reported[id], 0);)
@@ -403,8 +403,7 @@ enum sched_park_result sched_block_current(struct task_wait *wait)
 	if (wait->phase == WAIT_BLOCKED && !wait->event_fired &&
 	    !(wait->policy == TASK_WAIT_INTERRUPTIBLE &&
 	      sig_wait_ready(task, wait)) &&
-	    !(wait->policy == TASK_WAIT_KILLABLE &&
-	      sig_fatal_pending(task))) {
+	    !(wait->policy == TASK_WAIT_KILLABLE && sig_fatal_pending(task))) {
 		if (task->lifecycle == TASK_LIVE &&
 		    task->run_state == TASK_RUNNING) {
 			spin_lock_irqsave(&rq->lock, &rq_flags);
@@ -543,9 +542,9 @@ int sched_set_affinity(struct task_struct *task, const cpumask_t *requested)
 		 * wait lock. */
 		target = sched_select_cpu(&task->effective_affinity);
 		BUG_ON(!target);
-			if (task->cpu && task->cpu != target)
-				rseq_request_restart(task, RSEQ_EVENT_MIGRATE);
-			task->cpu = target;
+		if (task->cpu && task->cpu != target)
+			rseq_request_restart(task, RSEQ_EVENT_MIGRATE);
+		task->cpu = target;
 	}
 	if (home_rq)
 		spin_unlock_irqrestore(&home_rq->lock, rq_flags);
@@ -614,7 +613,8 @@ bool sched_wake_external(struct task_struct *task)
 	spin_lock_irqsave(&task->wait.lock, &wait_flags);
 	if (task->lifecycle == TASK_LIVE) {
 		rq = sched_rq_for_task_locked(task);
-		BUG_ON(!cpumask_test_cpu(&task->effective_affinity, rq->cpu_id));
+		BUG_ON(!cpumask_test_cpu(&task->effective_affinity,
+					 rq->cpu_id));
 		spin_lock_irqsave(&rq->lock, &rq_flags);
 		/* The on_rq/on_cpu decision is re-validated under the
 		 * runqueue lock: the switch-in publication exception dequeues
@@ -640,8 +640,8 @@ bool sched_retired_pop(struct task_struct **task)
 		return false;
 	*task = NULL;
 	/* Removal is the scheduler's Retirement witness: the task was placed on
-	 * this queue only after its CPU handoff completed. TASK_DEAD alone never
-	 * authorizes the reaper to free the task stack. */
+	 * this queue only after its CPU handoff completed. TASK_DEAD alone
+	 * never authorizes the reaper to free the task stack. */
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
 		struct retired_queue *queue = &retired_queues[id];
 		irq_flags_t flags;
@@ -770,8 +770,7 @@ static void sched_switch_out_complete(struct task_struct *prev, bool terminal)
 	BUG_ON(!prev->on_cpu || prev->on_rq);
 	prev->on_cpu = false;
 	if (!terminal &&
-	    (prev->lifecycle == TASK_LIVE ||
-	     prev->lifecycle == TASK_EXITING) &&
+	    (prev->lifecycle == TASK_LIVE || prev->lifecycle == TASK_EXITING) &&
 	    (prev->run_state == TASK_RUNNING ||
 	     prev->run_state == TASK_RUNNABLE)) {
 		if (!prev->on_rq) {
@@ -780,9 +779,9 @@ static void sched_switch_out_complete(struct task_struct *prev, bool terminal)
 			target_rq = sched_rq_for_cpu(target);
 			spin_lock_irqsave(&target_rq->lock, &rq_flags);
 			sched_enqueue_locked(target_rq, prev,
-					     prev->run_state == TASK_RUNNABLE ?
-					     SCHED_ENQUEUE_WAKE :
-					     SCHED_ENQUEUE_PREEMPT);
+					     prev->run_state == TASK_RUNNABLE
+						     ? SCHED_ENQUEUE_WAKE
+						     : SCHED_ENQUEUE_PREEMPT);
 			spin_unlock_irqrestore(&target_rq->lock, rq_flags);
 			notify_id = target->id;
 		}
@@ -811,7 +810,7 @@ static void sched_handoff_begin_locked(struct runqueue *rq,
 	rq->handoff.outgoing = outgoing;
 	rq->handoff.incoming = incoming;
 	rq->handoff.incoming_mm = NULL;
-	rq->handoff.installed_pgroot = 0;
+	rq->handoff.pgroot = 0;
 	rq->handoff.terminal = terminal;
 	rq->handoff.pending = true;
 }
@@ -821,13 +820,14 @@ static uintptr_t sched_handoff_prepare_mm(struct runqueue *rq)
 	struct task_struct *incoming = rq->handoff.incoming;
 	struct mm_struct *mm;
 
-	BUG_ON(!rq->handoff.pending || !incoming ||
-	       rq->handoff.incoming_mm || rq->handoff.installed_pgroot);
-	mm = !task_is_idle(incoming) && incoming->proc ?
-		proc_mm_get(incoming->proc) : NULL;
+	BUG_ON(!rq->handoff.pending || !incoming || rq->handoff.incoming_mm ||
+	       rq->handoff.pgroot);
+	mm = !task_is_idle(incoming) && incoming->proc
+		     ? proc_mm_get(incoming->proc)
+		     : NULL;
 	rq->handoff.incoming_mm = mm;
-	rq->handoff.installed_pgroot = mm ? mm_pgroot(mm) : kernel_pgroot();
-	return rq->handoff.installed_pgroot;
+	rq->handoff.pgroot = mm ? mm_pgroot(mm) : kpgroot;
+	return rq->handoff.pgroot;
 }
 
 static void sched_switch_complete(struct task_struct *last)
@@ -841,11 +841,10 @@ static void sched_switch_complete(struct task_struct *last)
 
 	BUG_ON(!irqs_disabled() || in_irq() || spinlock_held());
 	spin_lock_irqsave(&rq->lock, &flags);
-	BUG_ON(!rq->handoff.pending || !last ||
-	       last != rq->handoff.outgoing ||
+	BUG_ON(!rq->handoff.pending || !last || last != rq->handoff.outgoing ||
 	       current_task() != rq->handoff.incoming ||
 	       rq->current != rq->handoff.incoming ||
-	       csr_read(satp) != rq->handoff.installed_pgroot);
+	       csr_read(satp) != rq->handoff.pgroot);
 	incoming_mm = rq->handoff.incoming_mm;
 	oldmm = rq->active_mm;
 	terminal = rq->handoff.terminal;
@@ -858,7 +857,7 @@ static void sched_switch_complete(struct task_struct *last)
 	       rq->handoff.incoming != current_task() ||
 	       rq->current != current_task() ||
 	       (!task_is_idle(current_task()) && !current_task()->on_cpu) ||
-	       csr_read(satp) != rq->handoff.installed_pgroot);
+	       csr_read(satp) != rq->handoff.pgroot);
 	if (oldmm != incoming_mm) {
 		/* Transfer the transaction's incoming-MM reference into the
 		 * Active MM publication. */
@@ -871,13 +870,13 @@ static void sched_switch_complete(struct task_struct *last)
 	rq->handoff.outgoing = NULL;
 	rq->handoff.incoming = NULL;
 	rq->handoff.incoming_mm = NULL;
-	rq->handoff.installed_pgroot = 0;
+	rq->handoff.pgroot = 0;
 	rq->handoff.terminal = false;
 	rq->handoff.pending = false;
 	BUG_ON(rq->current != current_task() ||
 	       (task_is_idle(current_task()) && rq->active_mm) ||
 	       (rq->active_mm && csr_read(satp) != mm_pgroot(rq->active_mm)) ||
-	       (!rq->active_mm && csr_read(satp) != kernel_pgroot()));
+	       (!rq->active_mm && csr_read(satp) != kpgroot));
 	spin_unlock_irqrestore(&rq->lock, flags);
 	mm_put(dropmm);
 	task_put(last);
@@ -933,8 +932,7 @@ static void sched_switch_core(bool terminal)
 	}
 	next = sched_pick_locked(rq);
 	if (!next && !terminal && prev != rq->idle &&
-	    prev->lifecycle == TASK_LIVE &&
-	    prev->run_state == TASK_RUNNING &&
+	    prev->lifecycle == TASK_LIVE && prev->run_state == TASK_RUNNING &&
 	    !sched_task_migration_pending(prev))
 		next = prev;
 	if (!next)
@@ -979,8 +977,7 @@ void schedule_irqoff(void)
 	sched_switch_core(false);
 }
 
-__noreturn
-void sched_exit_current(void)
+__noreturn void sched_exit_current(void)
 {
 	BUG_ON(!current_task() || task_is_idle(current_task()));
 	BUG_ON(current_task()->lifecycle != TASK_DEAD);

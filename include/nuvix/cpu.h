@@ -11,10 +11,10 @@
 #include <nuvix/tools.h>
 #include <nuvix/printk.h>
 #include <nuvix/atomic.h>
+#include <nuvix/config.h>
 #include <arch/cpu.h>
 #include <arch/irq.h>
 
-#define NR_CPUS                 CONFIG_QEMU_CPUS
 #define CPUMASK_WORD_BITS       64u
 #define CPUMASK_WORDS           ((NR_CPUS + CPUMASK_WORD_BITS - 1) / CPUMASK_WORD_BITS)
 

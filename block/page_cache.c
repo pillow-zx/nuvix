@@ -108,7 +108,7 @@ static void pgcache_free_page(struct pgcache *page, struct list_head *removed)
 		return;
 	pgcache_assoc_free_list(removed);
 	if (page->data)
-		free_page(page->data, 0);
+		page_put(virt_to_page(page->data));
 	kfree(page);
 }
 
@@ -135,7 +135,8 @@ static struct pgcache *pgcache_evict_one_locked(struct list_head *removed)
 	list_for_each_safe (pos, next, &pgcache_lru) {
 		struct pgcache *page =
 			list_entry(pos, struct pgcache, lru_node);
-		if (page->refcount || page->dirty || page->writeback ||
+		if (refcount_read(&virt_to_page(page->data)->refcount) != 1 ||
+		    page->refcount || page->dirty || page->writeback ||
 		    page->filling || page->invalidating ||
 		    page->writable_pte_count != 0)
 			continue;
@@ -630,7 +631,7 @@ int pgcache_discard_device(dev_t dev)
 			list_entry(pos, struct pgcache, lru_node);
 
 		list_del_init(pos);
-		free_page(page->data, 0);
+		page_put(virt_to_page(page->data));
 		kfree(page);
 	}
 	return 0;

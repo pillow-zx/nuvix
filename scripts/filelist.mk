@@ -8,15 +8,14 @@ ARCH_OBJS = \
 	arch/riscv/switch.o            \
 	arch/riscv/trap.o              \
 	arch/riscv/task.o              \
-	arch/riscv/trap_init.o         \
 	arch/riscv/timer.o             \
-	arch/riscv/plic.o              \
 	arch/riscv/sbi.o               \
 	arch/riscv/platform.o          \
 	arch/riscv/smp.o               \
 	arch/riscv/mm/page_table.o     \
-	arch/riscv/mm/user_map.o       \
+	arch/riscv/mm/mmio.o           \
 	arch/riscv/mm/tlb.o            \
+	arch/riscv/mm/shootdown.o      \
 	arch/riscv/lib/softfloat.o     \
 	arch/riscv/lib/memcpy.o        \
 	arch/riscv/lib/memset.o        \
@@ -72,10 +71,10 @@ MM_OBJS = \
 	mm/buddy.o      \
 	mm/slab.o       \
 	mm/vmalloc.o    \
-	mm/user_map.o   \
+	mm/address_space.o \
 	mm/vma.o        \
+	mm/content.o    \
 	mm/mmap.o       \
-	mm/mmap_flush.o \
 	mm/page_fault.o \
 	mm/uaccess.o
 

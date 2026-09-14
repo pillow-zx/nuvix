@@ -15,7 +15,6 @@
 !sched/
 !block/
 !init/
-!docs/
 !scripts/
 !scripts/tools/
 !fs/
@@ -65,7 +64,6 @@
 !.editorconfig
 !.gitignore
 !Makefile
-!README.md
 !LICENSE
 !Doxyfile
 !.agents/skills/**/*

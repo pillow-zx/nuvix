@@ -16,7 +16,7 @@ struct sched_handoff {
 	struct task_struct *outgoing;
 	struct task_struct *incoming;
 	struct mm_struct *incoming_mm;
-	uintptr_t installed_pgroot;
+	uintptr_t pgroot;
 	bool terminal;
 	bool pending;
 };

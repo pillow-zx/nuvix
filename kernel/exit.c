@@ -62,7 +62,7 @@ static void release_proc_mm(struct proc_struct *proc, bool current)
 	if (!mm)
 		return;
 	if (current) {
-		activate_pgroot(kernel_pgroot());
+	active_pgtable(mm_pgroot(mm));
 		sched_publish_active_mm(NULL);
 	}
 	mm_put(mm);
@@ -162,6 +162,7 @@ static void task_reaper_thread(void *arg)
 		struct wait_deadline deadline;
 		int ret;
 
+		mm_reap_retired();
 		while (sched_retired_pop(&task)) {
 			BUG_ON(!task_reap_ready(task));
 			release_task(task);

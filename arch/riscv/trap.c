@@ -1,6 +1,3 @@
-/*
- * arch/riscv/trap.c - Trap 分发（C 层）
- */
 
 #include <asm/csr.h>
 #include <asm/trap.h>
@@ -19,6 +16,17 @@
 #include <nuvix/user_return.h>
 #include <nuvix/ipi.h>
 #include <arch/uaccess.h>
+
+extern void __alltraps(void);
+
+void trap_cpu_init(void)
+{
+	csr_write(stvec, __alltraps);
+	csr_write(sscratch, 0);
+	csr_set(sie, SIE_STIE);
+	csr_clear(sip, SIP_SSIP);
+	csr_set(sie, SIE_SSIE);
+}
 
 static const char *trap_origin(const struct trap_frame *tf)
 {
@@ -101,13 +109,13 @@ static void handle_timer_irq(void)
 
 static void trap_user_return(struct trap_frame *tf)
 {
+	/* Signal delivery and child-TID stores may fault, sleep, or shoot down
+	 * remote translations. Keep IPIs serviceable until the final return. */
+	local_irq_enable();
 	user_return_work(tf);
-	if (current_task() && task_need_resched(current_task())) {
-		if (irqs_disabled())
-			schedule_irqoff();
-		else
-			schedule();
-	}
+	local_irq_disable();
+	if (current_task() && task_need_resched(current_task()))
+		schedule_irqoff();
 	BUG_ON(!irqs_disabled());
 }
 
@@ -119,7 +127,9 @@ void trap_handler(struct trap_frame *tf)
 	uint64_t code = scause & ~SCAUSE_IRQ_FLAG;
 	bool user = trap_frame_from_user(tf);
 
-	if (task)
+	/* Nested kernel interrupts must not replace the user register frame
+	 * used by fork, signals, and user-return work. */
+	if (task && user)
 		task->arch.tf = tf;
 
 	if (is_interrupt) {
@@ -151,6 +161,13 @@ void trap_handler(struct trap_frame *tf)
 			return;
 
 		struct trap_exception exception = trap_classify_exception(tf);
+
+		/* User exceptions run in sleepable task context. In particular,
+		 * concurrent page faults must receive each other's shootdown IPIs.
+		 * Kernel faults retain their entry IRQ state and uaccess fixups
+		 * have already returned above. */
+		if (user)
+			local_irq_enable();
 
 		switch (exception.disposition) {
 		case TRAP_EXCEPTION_SYSCALL:

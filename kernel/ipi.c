@@ -14,9 +14,10 @@
 #include <nuvix/sched.h>
 #include <nuvix/timer.h>
 #include <nuvix/printk.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/processor.h>
 #include <arch/barrier.h>
 #include <arch/smp.h>
-#include <asm/csr.h>
 
 enum ipi_sync_family {
 	IPI_SYNC_SHOOTDOWN,
@@ -96,11 +97,11 @@ void ipi_handle(void)
 		if (reasons & IPI_SHOOTDOWN)
 			tlb_flush_all();
 		if (reasons & IPI_FENCE_I)
-			icache_flush();
+			flush_icache();
 		if (reasons & (IPI_MEMBARRIER | IPI_SYNC_CORE | IPI_RSEQ))
 			arch_mb();
 		if (reasons & IPI_SYNC_CORE)
-			icache_flush();
+			flush_icache();
 		if (reasons & IPI_RSEQ)
 			rseq_request_restart(current_task(), RSEQ_EVENT_FORCE);
 		for (uint32_t family = 0; family < IPI_SYNC_FAMILY_COUNT;
@@ -131,6 +132,8 @@ void ipi_send_sync(uint32_t cpu_id, int reasons)
 	uint32_t families = ipi_sync_family_mask(reasons);
 	uint64_t deadline;
 
+	/* Reciprocal requests require both senders to service interrupts. */
+	BUG_ON(irqs_disabled() || in_irq() || spinlock_held());
 	BUG_ON(!families || (reasons & ~IPI_REASON_MASK));
 	for (uint32_t family = 0; family < IPI_SYNC_FAMILY_COUNT; family++)
 		if (families & BIT(family))

@@ -1,22 +1,12 @@
-/*
- * arch/riscv/switch.S - cooperative context switch
- */
 
 #include <asm/asm_offsets.h>
 
 	.section .text.entry
 	.globl switch_to
-	.globl activate_pgroot
+	.globl active_pgtable  
 	.align 4
 
-/*
- * activate_pgroot(a0 = target satp)
- *
- * Keep SATP activation and invalidation as one operation.  The fence is also
- * required when a recycled page-table root happens to produce the same value.
- * t0 is scratch; the helper uses the normal C ABI return register.
- */
-activate_pgroot:
+active_pgtable: 
 	csrr    t0, satp
 	beq     t0, a0, .Lsatp_ready
 	csrw    satp, a0
@@ -25,7 +15,6 @@ activate_pgroot:
 	ret
 
 switch_to:
-	/* Preserve the physical outgoing Task across SATP activation. */
 	mv      t1, a3
 	sd      ra,  CTX_RA(a0)
 	sd      sp,  CTX_SP(a0)
@@ -42,17 +31,9 @@ switch_to:
 	sd      s10, CTX_S10(a0)
 	sd      s11, CTX_S11(a0)
 
-	/*
-	 * The full ordinary-memory barrier is load-bearing for membarrier: every
-	 * Task scheduled after a target scan crosses it before returning to user.
-	 * Keep the address-space and stack handoff indivisible.  In particular,
-	 * the boot idle context still uses its low-address OpenSBI stack, which is
-	 * not mapped by a user page table.  After activating satp, do not touch the
-	 * outgoing stack before loading the incoming one below.
-	 */
 	fence   rw, rw
 	mv      a0, a2
-	jal     ra, activate_pgroot
+	jal     ra, active_pgtable  
 
 	ld      ra,  CTX_RA(a1)
 	ld      sp,  CTX_SP(a1)
@@ -68,7 +49,5 @@ switch_to:
 	ld      s9,  CTX_S9(a1)
 	ld      s10, CTX_S10(a1)
 	ld      s11, CTX_S11(a1)
-	/* Return the Last Task to either a restored scheduler frame or the
-	 * incoming Task's First Dispatch Gateway. */
 	mv      a0, t1
 	ret

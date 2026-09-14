@@ -1035,10 +1035,9 @@ INPUT                  = include \
 												 lib \
 												 drivers \
 												 block \
-												 syscall \
-												 init \
-												 docs \
-												 README.md
+													syscall \
+													init \
+													DESIGN.md
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses
@@ -1260,16 +1259,10 @@ FILTER_SOURCE_PATTERNS =
 # (index.html). This can be useful if you have a project on for instance GitHub
 # and want to reuse the introduction page also for the Doxygen output.
 
-USE_MDFILE_AS_MAINPAGE =
+USE_MDFILE_AS_MAINPAGE = DESIGN.md
 
-# If the IMPLICIT_DIR_DOCS tag is set to YES, any README.md file found in sub-
-# directories of the project's root, is used as the documentation for that sub-
-# directory, except when the README.md starts with a \dir, \page or \mainpage
-# command. If set to NO, the README.md file needs to start with an explicit \dir
-# command in order to be used as directory documentation.
-# The default value is: YES.
-
-IMPLICIT_DIR_DOCS      = YES
+# Directory-level Markdown files are not used as implicit documentation.
+IMPLICIT_DIR_DOCS      = NO
 
 # The Fortran standard specifies that for fixed formatted Fortran code all
 # characters from position 72 are to be considered as comment. A common

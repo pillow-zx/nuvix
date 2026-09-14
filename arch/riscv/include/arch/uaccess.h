@@ -9,8 +9,6 @@
 
 struct trap_frame;
 
-/* A user atomic access returns an errno; cmpxchg reports a value mismatch
- * through -EAGAIN and stores the observed value in @observed. */
 int riscv_user_u32_load_relaxed(const volatile uint32_t *addr, uint32_t *value);
 int riscv_user_u32_load_acquire(const volatile uint32_t *addr, uint32_t *value);
 int riscv_user_u32_load_seq_cst(const volatile uint32_t *addr, uint32_t *value);
@@ -28,7 +26,6 @@ int riscv_user_u32_cmpxchg_acq_rel(volatile uint32_t *addr, uint32_t expected,
 int riscv_user_u32_cmpxchg_seq_cst(volatile uint32_t *addr, uint32_t expected,
 				   uint32_t desired, uint32_t *observed);
 
-/* Called by the trap path before a kernel-origin fault is treated as fatal. */
 __must_check
 bool riscv_uaccess_fixup(struct trap_frame *tf);
 
@@ -218,11 +215,6 @@ static inline int user_u32_cmpxchg(volatile uint32_t *addr, uint32_t expected, u
 	return user_u32_cmpxchg_seq_cst(addr, expected, desired, observed);
 }
 
-/*
- * Keep the recovery record beside the instruction that may fault.  The trap
- * fixup changes a0 to -EFAULT and resumes at label 2, whose only job is to
- * restore sstatus before the inline helper returns to C.
- */
 #define __RISCV_UACCESS_EX_TABLE                                               \
 	".pushsection __ex_table,\"a\"\n\t"                                    \
 	".balign 8\n\t"                                                        \
@@ -383,7 +375,6 @@ static inline int __riscv_user_put(u64 value, volatile void *addr, size_t width)
 	}
 }
 
-/* Linux-style width selection is made from the pointed-to object. */
 #define __RISCV_USER_WIDTH_ASSERT(ptr)                                         \
 	static_assert(sizeof(*(ptr)) == sizeof(u8) ||                          \
 			      sizeof(*(ptr)) == sizeof(u16) ||                 \

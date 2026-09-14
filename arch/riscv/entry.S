@@ -1,6 +1,3 @@
-/*
- * arch/riscv/entry.S - Trap 汇编入口/出口
- */
 
 #include <asm/asm_offsets.h>
 
@@ -16,11 +13,8 @@ __alltraps:
 	csrrw   tp, sscratch, tp
 	bnez    tp, .Lfrom_user
 
-	/* Trap from S-mode: sscratch carried the interrupted kernel tp (the CPU
-	 * pointer); the interrupted t0 is still in t0. */
 	addi    sp, sp, -TRAP_FRAME_ALLOC_SIZE
 
-	/* Preserve the interrupted t1 before using it as entry scratch. */
 	sd      t1, TF_T1(sp)
 	csrr    t1, sscratch
 	csrw    sscratch, zero
@@ -70,8 +64,6 @@ __alltraps:
 	j       .Lcall_handler
 
 .Lfrom_user:
-	/* tp = CPU pointer, sscratch = user TLS. Park user t0 and t1 in the
-	 * CPU's entry scratch before the kernel-stack chain clobbers them. */
 	sd      t0, CPU_ENTRY_SCRATCH(tp)
 	sd      t1, CPU_ENTRY_SCRATCH + 8(tp)
 
@@ -140,7 +132,6 @@ __alltraps:
 
 	.align 4
 __trapret:
-	/* Keep sepc stable from the first write through the final sret. */
 	csrci   sstatus, SSTATUS_SIE
 	ld      t0, TF_SEPC(sp)
 	csrw    sepc, t0
@@ -151,8 +142,6 @@ __trapret:
 	ld      t0, TF_SSTATUS(sp)
 	csrw    sstatus, t0
 
-	/* tp is not restored here: both trap-entry paths leave it as the CPU
-	 * pointer, and .Lret_user needs it for the sscratch handoff. */
 	ld      ra,  TF_RA(sp)
 	ld      gp,  TF_GP(sp)
 	ld      t2,  TF_T2(sp)
@@ -186,14 +175,6 @@ __trapret:
 	bnez    t0, .Lret_supervisor
 
 .Lret_user:
-	/*
-	 * U-mode contract: sscratch = CPU pointer, tp = user TLS.
-	 *
-	 * The U→S entry swaps them back: tp becomes the CPU pointer and
-	 * sscratch briefly carries the user TLS, which lands in TF_TP. The CPU
-	 * pointer itself is always recovered from the tp register; it is never
-	 * derived from cpu_table[0].
-	 */
 	csrw    sscratch, tp
 
 	ld      tp, TF_TP(sp)
@@ -203,22 +184,12 @@ __trapret:
 	sret
 
 .Lret_supervisor:
-	/* tp stays the CPU pointer: the kernel path restored it at entry, C
-	 * never touches it, and frames built for first kernel-thread entry have
-	 * TF_TP == 0. Never load tp from a kernel frame. */
 	csrw    sscratch, zero
 	ld      t1, TF_T1(sp)
 	ld      t0, TF_T0(sp)
 	addi    sp, sp, TRAP_FRAME_ALLOC_SIZE
 	sret
 
-/*
- * trapret_to_user(tf)
- *   a0 = trap_frame pointer
- *
- * C 代码用 noreturn 声明调用此入口，避免编译器在 release 下把
- * __trapret 跳转当成普通可返回 inline asm。
- */
 trapret_to_user:
 	mv      sp, a0
 	j       __trapret

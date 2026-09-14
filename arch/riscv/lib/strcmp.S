@@ -4,7 +4,6 @@
 	.globl strcmp
 	.type strcmp, @function
 strcmp:
-	/* Only co-aligned pointers can use naturally aligned word loads. */
 	xor	t0, a0, a1
 	andi	t0, t0, 7
 	bnez	t0, .Lstrcmp_byte

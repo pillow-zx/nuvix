@@ -114,16 +114,10 @@
 	X(SYS_sysinfo, "sysinfo", sys_sysinfo)                                 \
 	X(SYS_brk, "brk", sys_brk)                                             \
 	X(SYS_munmap, "munmap", sys_munmap)                                    \
-	X(SYS_mremap, "mremap", sys_mremap)                                    \
 	X(SYS_clone, "clone", sys_clone)                                       \
 	X(SYS_execve, "execve", sys_execve)                                    \
 	X(SYS_mmap, "mmap", sys_mmap)                                          \
 	X(SYS_mprotect, "mprotect", sys_mprotect)                              \
-	X(SYS_msync, "msync", sys_msync)                                       \
-	X(SYS_mlock, "mlock", sys_mlock)                                       \
-	X(SYS_munlock, "munlock", sys_munlock)                                 \
-	X(SYS_mincore, "mincore", sys_mincore)                                 \
-	X(SYS_madvise, "madvise", sys_madvise)                                 \
 	X(SYS_wait4, "wait4", sys_wait4)                                       \
 	X(SYS_prlimit64, "prlimit64", sys_prlimit64)                           \
 	X(SYS_renameat2, "renameat2", sys_renameat2)                           \

@@ -21,9 +21,9 @@
 #include <nuvix/task.h>
 #include <nuvix/syscall.h>
 #include <nuvix/time.h>
-#include <nuvix/user_map.h>
 #include <nuvix/wait.h>
 #include <uapi/futex.h>
+#include <uapi/mman.h>
 #include <uapi/syscall.h>
 #include <nuvix/processor.h>
 #include <nuvix/page.h>
@@ -915,26 +915,18 @@ static int send_pgrp_signal_info(int sig, const siginfo_t *info, pid_t pgid,
 	return ret;
 }
 
-static int signal_map_trampoline(pte_t *pgd)
+static int signal_map_trampoline(struct mm_struct *mm)
 {
-	static const uint32_t code[] = {
-		RISCV_ADDI(RISCV_REG_A7, RISCV_REG_ZERO, SYS_rt_sigreturn),
-		RISCV_ECALL,
-		RISCV_J_SELF,
-	};
+	if (!trampoline_page)
+		return -ENOMEM;
 
-	if (!trampoline_page) {
-		trampoline_page = get_free_page(0, ALLOC_NOWAIT);
-		if (!trampoline_page)
-			return -ENOMEM;
-		memset(trampoline_page, 0, PAGE_SIZE);
-		memcpy(trampoline_page, code, sizeof(code));
-		flush_icache();
-	}
+	return mm_install_fixed_page(mm, SIGNAL_TRAMPOLINE_ADDR,
+				     trampoline_page, PROT_READ | PROT_EXEC);
+}
 
-	return map_page(pgd, SIGNAL_TRAMPOLINE_ADDR,
-			__pa((uintptr_t)trampoline_page),
-			pgprot_user(true, false, true));
+int sig_mm_init(struct mm_struct *mm)
+{
+	return signal_map_trampoline(mm);
 }
 
 /* Mark the whole thread group stopped and stop every live sibling.  A
@@ -1991,12 +1983,19 @@ int sig_force_info(int sig, const siginfo_t *info, struct task_struct *task)
 
 void sig_init(void)
 {
-	int ret;
+	static const uint32_t code[] = {
+		RISCV_ADDI(RISCV_REG_A7, RISCV_REG_ZERO, SYS_rt_sigreturn),
+		RISCV_ECALL,
+		RISCV_J_SELF,
+	};
 
-	ret = user_map_register_reserved(
-		"signal_trampoline", SIGNAL_TRAMPOLINE_ADDR,
-		SIGNAL_TRAMPOLINE_ADDR + PAGE_SIZE, signal_map_trampoline);
-	BUG_ON(ret < 0);
+	if (trampoline_page)
+		return;
+	trampoline_page = get_free_page(0, ALLOC_NOWAIT);
+	BUG_ON(!trampoline_page);
+	memset(trampoline_page, 0, PAGE_SIZE);
+	memcpy(trampoline_page, code, sizeof(code));
+	flush_icache();
 }
 
 /* True when the current task's thread group is stopped; used at the user

@@ -6,11 +6,9 @@
 __memset:
 	mv	t0, a0
 
-	/* Small fills are cheaper without alignment setup. */
 	sltiu	a3, a2, 16
 	bnez	a3, .Lmemset_tail
 
-	/* Align the destination before switching to 64-bit stores. */
 	addi	a3, t0, 7
 	andi	a3, a3, -8
 	beq	a3, t0, .Lmemset_broadcast
@@ -30,7 +28,6 @@ __memset:
 	slli	a3, a1, 32
 	or	a1, a1, a3
 
-	/* 32 stores per iteration, with a Duff-style short first pass. */
 	andi	a4, a2, -8
 	add	a3, t0, a4
 	andi	a4, a4, 248

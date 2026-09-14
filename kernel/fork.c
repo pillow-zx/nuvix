@@ -104,6 +104,7 @@ static int clone_copy_mm(struct task_struct *child, unsigned long flags)
 		mm = dup_mm(parent_mm);
 		if (parent_mm && !mm)
 			return -ENOMEM;
+		/* dup_mm inherits fixed mappings, including the signal trampoline. */
 	}
 	oldmm = proc_replace_mm(child->proc, mm);
 	mm_put(oldmm);

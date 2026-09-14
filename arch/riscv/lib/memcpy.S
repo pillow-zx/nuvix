@@ -9,12 +9,6 @@ __memcpy:
 	sltiu	a3, a2, 128
 	beqz	a3, .Lmemcpy_large
 
-	/*
-	 * Small copies dominate kernel traffic (struct assignment,
-	 * fdtable moves, signal masks).  Pick the widest access width
-	 * that destination, source, and length jointly allow, staying
-	 * strictly aligned like the bulk path below.
-	 */
 	or	a3, t6, a1
 	or	a3, a3, a2
 	andi	a4, a3, 7
@@ -92,7 +86,6 @@ __memcpy:
 	bne	a3, a4, .Lmemcpy_byte
 	beqz	a3, .Lmemcpy_bulk
 
-	/* Bring both pointers to an 8-byte boundary. */
 	andi	a3, a1, -8
 	addi	a3, a3, 8
 	sub	a4, a3, a1

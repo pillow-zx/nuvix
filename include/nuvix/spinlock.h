@@ -37,6 +37,7 @@ typedef struct spinlock {
 #define LOCK_RANK_INODE            130
 #define LOCK_RANK_EXT2_SB          140
 #define LOCK_RANK_MM_MMAP          150
+#define LOCK_RANK_MM_ANON          155
 #define LOCK_RANK_PRINTK_RING      160
 #define LOCK_RANK_PAGE_CACHE       180
 #define LOCK_RANK_CONSOLE_EMIT     190
@@ -63,7 +64,7 @@ typedef struct spinlock {
 	 IFDEF(CONFIG_DEBUG_CONTEXT, .rank = (rank_value),                       \
 	       .irq_policy = (irq_policy_value),)}
 #define DEFINE_SPINLOCK(name, rank_value, irq_policy_value)                    \
-	spinlock_t name = SPINLOCK_INIT(rank_value, irq_policy_value);
+	spinlock_t name = SPINLOCK_INIT(rank_value, irq_policy_value)
 
 #define spin_lock_init(lock, rank_value, irq_policy_value)                     \
 	do {                                                                   \

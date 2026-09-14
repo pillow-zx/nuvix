@@ -13,20 +13,6 @@
 
 #include "internal.h"
 
-__always_inline __must_check __const
-static inline size_t user_copy_width(uintptr_t uaddr, uintptr_t kaddr, size_t remaining)
-{
-	const size_t width = ALIGNMENT_OF2(uaddr, kaddr);
-
-	if (width >= sizeof(u64) && remaining >= sizeof(u64))
-		return sizeof(u64);
-	if (width >= sizeof(u32) && remaining >= sizeof(u32))
-		return sizeof(u32);
-	if (width >= sizeof(u16) && remaining >= sizeof(u16))
-		return sizeof(u16);
-	return sizeof(u8);
-}
-
 bool access_ok(const void *addr, size_t size)
 {
 	vaddr_t a = (vaddr_t)addr;
@@ -108,89 +94,47 @@ static int uaccess_copy(struct uaccess_txn *txn, void *to, const void *from,
 			size_t n, bool to_user)
 {
 	uintptr_t uaddr = (uintptr_t)(to_user ? to : from);
-	uintptr_t kaddr = (uintptr_t)(to_user ? from : to);
-	size_t remaining = n;
-	int ret;
+	uint8_t *kernel = to_user ? (uint8_t *)from : to;
 
-	if (!txn || !txn->mm || !to || !from)
+	if (!txn || !txn->mm || !access_ok((const void *)uaddr, n))
 		return -EFAULT;
-	if (n == 0)
-		return 0;
-	if (!access_ok((const void *)uaddr, n))
-		return -EFAULT;
-	ret = fault_in_user_range_locked(
-		txn->mm, uaddr, n,
-		to_user ? USER_FAULT_WRITE : USER_FAULT_READ, &txn->teardown);
-	if (ret < 0)
-		return ret;
+	while (n) {
+		size_t offset = uaddr & (PAGE_SIZE - 1);
+		size_t chunk = MIN(n, PAGE_SIZE - offset);
+		pte_t *pte;
+		uint8_t *data;
+		int ret;
 
-	while (remaining != 0) {
-		size_t width = user_copy_width(uaddr, kaddr, remaining);
-
-		if (to_user) {
-			switch (width) {
-			case sizeof(u64):
-				ret = put_user_u64(*(const u64 *)kaddr,
-						   (volatile u64 *)uaddr);
-				break;
-			case sizeof(u32):
-				ret = put_user_u32(*(const u32 *)kaddr,
-						   (volatile u32 *)uaddr);
-				break;
-			case sizeof(u16):
-				ret = put_user_u16(*(const u16 *)kaddr,
-						   (volatile u16 *)uaddr);
-				break;
-			default:
-				ret = put_user_u8(*(const u8 *)kaddr,
-						  (volatile u8 *)uaddr);
-				break;
-			}
-		} else {
-			switch (width) {
-			case sizeof(u64): {
-				u64 value;
-
-				ret = get_user_u64(
-					value, (const volatile u64 *)uaddr);
-				if (ret == 0)
-					*(u64 *)kaddr = value;
-				break;
-			}
-			case sizeof(u32): {
-				u32 value;
-
-				ret = get_user_u32(
-					value, (const volatile u32 *)uaddr);
-				if (ret == 0)
-					*(u32 *)kaddr = value;
-				break;
-			}
-			case sizeof(u16): {
-				u16 value;
-
-				ret = get_user_u16(
-					value, (const volatile u16 *)uaddr);
-				if (ret == 0)
-					*(u16 *)kaddr = value;
-				break;
-			}
-			default: {
-				u8 value;
-
-				ret = get_user_u8(
-					value, (const volatile u8 *)uaddr);
-				if (ret == 0)
-					*(u8 *)kaddr = value;
-				break;
-			}
-			}
-		}
+		ret = fault_in_user_range_locked(txn->mm, uaddr, chunk,
+			to_user ? USER_FAULT_WRITE : USER_FAULT_READ, &txn->teardown);
 		if (ret < 0)
 			return ret;
-		uaddr += width;
-		kaddr += width;
-		remaining -= width;
+		/* This is the uaccess boundary: translation and permission remain
+		 * stable through this page's copy, including a non-current mm. */
+		pte = pt_lookup(txn->mm->pgd, uaddr);
+		if (!pte || (to_user ? !pte_user_write(*pte) :
+				      !pte_user_read(*pte)))
+			return -EFAULT;
+		data = (uint8_t *)__va(PTE_TO_PA(*pte)) + offset;
+		if (to_user) {
+			struct vm_area_struct *vma = find_vma(txn->mm, uaddr);
+
+			memcpy(data, kernel, chunk);
+			if (vma && (vma->vm_flags & VM_EXEC)) {
+				icache_flush();
+				mm_flush_remote(txn->mm, true);
+			}
+		} else {
+			memcpy(kernel, data, chunk);
+		}
+		uaddr += chunk;
+		kernel += chunk;
+		n -= chunk;
+		if (n) {
+			mm_unlock(txn->mm);
+			mm_teardown_release(&txn->teardown);
+			mm_lock(txn->mm);
+		}
 	}
 	return 0;
 }
@@ -356,10 +300,8 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 	if (uaccess_begin_current(&txn) < 0)
 		return -EFAULT;
 
-	/* One mmap_lock hold covers every page, so the scan cannot race
-	 * with munmap()/mprotect() between pages.  Only pages actually
-	 * reached by the scan are faulted in: a NUL inside the first
-	 * page succeeds even when later pages are unmapped. */
+	/* Fault preparation may release mmap_lock. Each page is revalidated
+	 * before scanning it; only pages reached by the string are accessed. */
 	while (done < maxlen) {
 		uintptr_t page = (addr + done) & PAGE_MASK;
 		size_t offset = (addr + done) & (PAGE_SIZE - 1);

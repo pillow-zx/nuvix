@@ -40,37 +40,32 @@ static DEFINE_SPINLOCK(vmalloc_pt_lock, LOCK_RANK_ALLOC_VMALLOC,
  * The caller keeps the virtual span reserved through this operation. */
 static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 {
-	pte_t *root = kernel_pt();
-	size_t capacity = (end - start) / PAGE_SIZE;
-	void **pages;
-	size_t nr_pages = 0;
+	pte_t *root = kpgtable();
+	uintptr_t va = start;
 
-	pages = kmalloc_array(capacity, sizeof(*pages), ALLOC_NOWAIT);
-	BUG_ON(!pages);
+	while (va < end) {
+		void *pages[MM_RELEASE_BATCH];
+		size_t count = 0;
 
-	spin_lock(&vmalloc_pt_lock);
+		spin_lock(&vmalloc_pt_lock);
+		while (va < end && count < MM_RELEASE_BATCH) {
+			pte_t *pte = pt_lookup(root, va);
 
-	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = pgtable_lookup(root, va);
-		paddr_t pa;
-
-		if (!pte || !pte_is_present(*pte))
-			continue;
-
-		pa = pte_phys_addr(*pte);
-		*pte = 0;
-		BUG_ON(nr_pages >= capacity);
-		pages[nr_pages++] = __va(pa);
+			if (pte && pte_present(*pte)) {
+				pages[count++] = __va(PTE_TO_PA(*pte));
+				*pte = 0;
+			}
+			va += PAGE_SIZE;
+		}
+		spin_unlock(&vmalloc_pt_lock);
+		tlb_flush_all();
+		if (smp_booted())
+			mm_flush_kernel_all();
+		for (size_t i = 0; i < count; i++)
+			free_page(pages[i], 0);
 	}
-	flush_tlb_all();
-	if (smp_booted())
-		mm_flush_kernel_all();
-	spin_unlock(&vmalloc_pt_lock);
-
-	for (size_t i = 0; i < nr_pages; i++)
-		free_page(pages[i], 0);
-	kfree(pages);
 }
+
 
 static struct vmalloc_area *vmalloc_find_area(uintptr_t start)
 {
@@ -103,38 +98,15 @@ static struct vmalloc_area *vmalloc_find_free_area(size_t size)
 }
 
 /* Force-create every L1/L0 page-table entry in the vmalloc region before SMP
- * bring-up so runtime map_page() there never allocates a table page (two CPUs
+ * bring-up so runtime pt_map_page() there never allocates a table page (two CPUs
  * mapping concurrently into an unpopulated span would race in pt_walk_create).
  * Runs pre-SMP; leaf PTEs stay zero. */
 static void vmalloc_prepopulate_tables(void)
 {
-	pte_t *root = kernel_pt();
+	BUG_ON(pgtable_prepare_range(kpgtable(), vmalloc_start,
+				     vmalloc_end) < 0);
 
-	for (uintptr_t va = vmalloc_start; va < vmalloc_end;
-	     va += (2UL << 20)) {
-		pte_t *l2e = &root[(va >> 30) & 0x1FF];
-
-		if (!(*l2e & PTE_V)) {
-			void *table = get_free_page(0, ALLOC_NOWAIT);
-
-			BUG_ON(!table);
-			memset(table, 0, PAGE_SIZE);
-			*l2e = PA_TO_PTE(__pa((uintptr_t)table)) | PTE_TABLE;
-		}
-
-		pte_t *l1 = (pte_t *)__va(PTE_TO_PA(*l2e));
-		pte_t *l1e = &l1[(va >> 21) & 0x1FF];
-
-		if (!(*l1e & PTE_V)) {
-			void *table = get_free_page(0, ALLOC_NOWAIT);
-
-			BUG_ON(!table);
-			memset(table, 0, PAGE_SIZE);
-			*l1e = PA_TO_PTE(__pa((uintptr_t)table)) | PTE_TABLE;
-		}
-	}
-
-	flush_tlb_all();
+	tlb_flush_all();
 }
 
 __always_inline
@@ -208,7 +180,7 @@ void vmalloc_init(void)
 	list_add_tail(&area->node, &vmalloc_areas);
 	vmalloc_ready = true;
 
-	/* Pre-SMP: force-create the region's page tables so runtime map_page()
+	/* Pre-SMP: force-create the region's page tables so runtime pt_map_page()
 	 * never allocates a table page under concurrent mapping. */
 	vmalloc_prepopulate_tables();
 }
@@ -286,7 +258,7 @@ void *vmalloc(size_t size, enum alloc_mode mode)
 
 		memset(page, 0, PAGE_SIZE);
 		spin_lock(&vmalloc_pt_lock);
-		ret = map_page(kernel_pt(), va, __pa((uintptr_t)page),
+		ret = map_page(kpgtable(), va, __pa((uintptr_t)page),
 			       pgprot_kernel(true, true, false));
 		spin_unlock(&vmalloc_pt_lock);
 		if (ret < 0) {
@@ -294,11 +266,9 @@ void *vmalloc(size_t size, enum alloc_mode mode)
 			goto fail;
 		}
 	}
-	spin_lock(&vmalloc_pt_lock);
-	flush_tlb_all();
+	tlb_flush_all();
 	if (smp_booted())
 		mm_flush_kernel_all();
-	spin_unlock(&vmalloc_pt_lock);
 
 	return (void *)start;
 

@@ -6,7 +6,6 @@
 memcmp:
 	beqz	a2, .Lmemcmp_equal
 
-	/* Word loads are used only when both pointers have the same offset. */
 	andi	t0, a0, 7
 	andi	t1, a1, 7
 	bne	t0, t1, .Lmemcmp_byte

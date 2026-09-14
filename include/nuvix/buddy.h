@@ -45,7 +45,8 @@ extern struct free_area free_area[];
 /**
  * @brief Initialize mem_map and buddy free lists from the boot memory range.
  */
-void buddy_init(void);
+__nonnull(1)
+void buddy_init(void *mem_start);
 
 /**
  * @brief Allocate a physically contiguous power-of-two page block.

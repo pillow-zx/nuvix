@@ -17,9 +17,6 @@
 	.section .text.entry
 	.globl _start
 _start:
-	/* SBI boot-hart entry only: secondaries are brought up via HSM into
-	 * secondary_entry, and the actual boot hart is normalized to logical
-	 * CPU 0, so there is no non-boot-hart park check here. */
 	lla	gp, __global_pointer$
 
 	lla	sp, idle_stacks + TASK_KSTACK_SIZE
@@ -74,7 +71,7 @@ secondary_entry:
 	add	sp, t0, t2
 	add	sp, sp, t1
 
-	lla	t0, pgtable_boot_token
+	lla	t0, pt_boot_token
 	ld	t1, 0(t0)
 	fence	r, r
 	beqz	t1, .Lsec_bad_satp

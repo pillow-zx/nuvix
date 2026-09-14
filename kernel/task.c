@@ -64,11 +64,13 @@ void cred_put(struct cred *cred)
 static void cred_replace(struct task_struct *task, struct cred *cred)
 {
 	struct cred *old;
+	irq_flags_t flags;
 
-	spin_lock(&task->wait.lock);
+	/* The wait lock is also acquired by interrupt-side wakeups. */
+	spin_lock_irqsave(&task->wait.lock, &flags);
 	old = task->cred;
 	task->cred = cred;
-	spin_unlock(&task->wait.lock);
+	spin_unlock_irqrestore(&task->wait.lock, flags);
 	cred_put(old);
 }
 

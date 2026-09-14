@@ -115,16 +115,10 @@
 #define SYS_sysinfo	       179
 #define SYS_brk		       214
 #define SYS_munmap	       215
-#define SYS_mremap	       216
 #define SYS_clone	       220
 #define SYS_execve	       221
 #define SYS_mmap	       222
 #define SYS_mprotect	       226
-#define SYS_msync	       227
-#define SYS_mlock	       228
-#define SYS_munlock	       229
-#define SYS_mincore	       232
-#define SYS_madvise	       233
 #define SYS_riscv_hwprobe      258
 #define SYS_riscv_flush_icache 259
 #define SYS_wait4	       260

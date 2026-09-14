@@ -372,6 +372,7 @@ static int validate_elf_program_headers(const struct elf_phdr_table *phdrs)
 static int create_exec_mm(struct mm_struct **mm_out)
 {
 	struct mm_struct *mm;
+	int ret;
 
 	if (!mm_out)
 		return -EINVAL;
@@ -380,6 +381,11 @@ static int create_exec_mm(struct mm_struct **mm_out)
 	mm = mm_create_user();
 	if (!mm)
 		return -ENOMEM;
+	ret = sig_mm_init(mm);
+	if (ret < 0) {
+		mm_put(mm);
+		return ret;
+	}
 
 	*mm_out = mm;
 	return 0;
@@ -631,7 +637,7 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	oldmm = proc_replace_mm(proc, mm);
 	task->arch.tf = tf;
 
-	activate_pgroot(mm_pgroot(mm));
+	active_pgtable(mm_pgroot(mm));
 	sched_publish_active_mm(mm);
 	mm_put(oldmm);
 

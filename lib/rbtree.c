@@ -61,7 +61,8 @@ void rb_insert_color(struct rb_node *node, struct rb_root *root)
 		if (parent == grandparent->left) {
 			struct rb_node *uncle = grandparent->right;
 
-			if (uncle->color) {
+			/* Missing leaves are black. */
+			if (uncle && uncle->color) {
 				rb_set_black(parent);
 				rb_set_black(uncle);
 				rb_set_red(grandparent);
@@ -80,7 +81,7 @@ void rb_insert_color(struct rb_node *node, struct rb_root *root)
 		} else {
 			struct rb_node *uncle = grandparent->left;
 
-			if (uncle->color) {
+			if (uncle && uncle->color) {
 				rb_set_black(parent);
 				rb_set_black(uncle);
 				rb_set_red(grandparent);
@@ -101,10 +102,11 @@ void rb_insert_color(struct rb_node *node, struct rb_root *root)
 	rb_set_black(root->node);
 }
 
-static void rb_erase_color(struct rb_node *parent, struct rb_root *root)
+static void rb_erase_color(struct rb_node *node, struct rb_node *parent,
+			   struct rb_root *root)
 {
-	struct rb_node *node = NULL;
-
+	/* Repair the actual replacement subtree. A red replacement absorbs
+	 * the removed black node by becoming black, without any rotations. */
 	while ((!node || !node->color) && node != root->node) {
 		struct rb_node *sibling;
 
@@ -206,6 +208,8 @@ void rb_erase(struct rb_node *node, struct rb_root *root)
 			node->right->parent = successor;
 		} else {
 			parent = successor;
+			if (child)
+				child->parent = successor;
 		}
 		successor->left = node->left;
 		node->left->parent = successor;
@@ -218,7 +222,7 @@ void rb_erase(struct rb_node *node, struct rb_root *root)
 		else
 			node->parent->right = successor;
 		if (!red)
-			rb_erase_color(parent, root);
+			rb_erase_color(child, parent, root);
 		return;
 	}
 
@@ -233,5 +237,5 @@ void rb_erase(struct rb_node *node, struct rb_root *root)
 	else
 		parent->right = child;
 	if (!red)
-		rb_erase_color(parent, root);
+		rb_erase_color(child, parent, root);
 }

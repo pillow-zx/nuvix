@@ -1,9 +1,6 @@
 #ifndef _NUVIX_ARCH_RISCV_TASK_ACCESS_H
 #define _NUVIX_ARCH_RISCV_TASK_ACCESS_H
 
-/*
- * arch/riscv/include/arch/task_access.h - RISC-V task accessors
- */
 
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>

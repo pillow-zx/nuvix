@@ -1,6 +1,3 @@
-/*
- * arch/riscv/timer.c - Sstc 时钟 (100Hz)
- */
 
 #include <nuvix/timer.h>
 #include <asm/csr.h>

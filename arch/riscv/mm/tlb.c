@@ -1,9 +1,6 @@
-/*
- * arch/riscv/mm/tlb.c - TLB 刷新 (sfence.vma)
- */
 
 #include <nuvix/types.h>
-#include <asm/csr.h>
+#include <asm/tlb.h>
 
 __always_inline
 static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)

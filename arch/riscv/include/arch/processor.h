@@ -4,6 +4,7 @@
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
 #include <asm/csr.h>
+#include <asm/tlb.h>
 
 struct cpu;
 

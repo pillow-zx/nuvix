@@ -1,12 +1,6 @@
 #ifndef _NUVIX_ARCH_RISCV_SBI_H
 #define _NUVIX_ARCH_RISCV_SBI_H
 
-/*
- * arch/riscv/include/arch/sbi.h - OpenSBI ecall protocol surface
- *
- * SBI v0.2 extension IDs and function IDs live here, never in generic
- * kernel code.
- */
 
 #include <nuvix/types.h>
 
@@ -22,7 +16,6 @@
 #define SBI_FID_HSM_HART_GET_STATUS 2
 #define SBI_FID_IPI_SEND	0
 
-/* SBI v0.2+ HSM hart states (hart_get_status value field). */
 #define SBI_HSM_STARTED	      0
 #define SBI_HSM_STOPPED	      1
 #define SBI_HSM_START_PENDING 2
@@ -44,7 +37,6 @@ struct sbi_ret sbi_hsm_hart_start(uint64_t hartid, uint64_t start_addr,
 struct sbi_ret sbi_hsm_hart_get_status(uint64_t hartid);
 struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base);
 
-/* Symbolic name for an HSM state value, or NULL when unknown. */
 const char *sbi_hsm_status_name(uint64_t value);
 
 #endif

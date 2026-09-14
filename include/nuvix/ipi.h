@@ -42,6 +42,7 @@ int ipi_pending_reasons(uint32_t cpu_id);
 
 /* Deliver synchronous reasons to one online non-self CPU and wait for
  * this request to complete (1-second mtime deadline, panic on timeout).
+ * Requires task context, enabled interrupts, and no held spinlocks.
  * reasons must be non-empty and within IPI_REASON_MASK. */
 void ipi_send_sync(uint32_t cpu_id, int reasons);
 

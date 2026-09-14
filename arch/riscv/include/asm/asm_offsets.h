@@ -1,13 +1,7 @@
 #ifndef _NUVIX_ASM_OFFSETS_H
 #define _NUVIX_ASM_OFFSETS_H
 
-/*
- * arch/riscv/include/asm/asm_offsets.h - assembly-visible structure offsets
- *
- * Keep these constants synchronized with C layouts and low-level assembly.
- */
 
-/* ---- struct trap_frame offsets ---- */
 #define TF_SEPC	   (0 * 8)
 #define TF_RA	   (1 * 8)
 #define TF_SP	   (2 * 8)
@@ -47,14 +41,8 @@
 #define TRAP_FRAME_SIZE (35 * 8)
 #define TRAP_FRAME_ALLOC_SIZE (36 * 8)
 
-/*
- * Temporary user-sp save slot used on U->S trap entry.
- * sscratch stores kstack_top; this slot is at kstack_top - 8, which is
- * frame_base + TRAP_SCRATCH_OFFSET after allocating trap-frame storage.
- */
 #define TRAP_SCRATCH_OFFSET (TRAP_FRAME_ALLOC_SIZE - 8)
 
-/* ---- struct context offsets ---- */
 #define CTX_RA	(0 * 8)
 #define CTX_SP	(1 * 8)
 #define CTX_S0	(2 * 8)
@@ -70,24 +58,15 @@
 #define CTX_S10 (12 * 8)
 #define CTX_S11 (13 * 8)
 
-/*
- * Must match offsetof(struct task_struct, ...). The C side checks these in
- * include/nuvix/task.h, catching layout drift at build time.
- */
 #define TASK_KSTACK 120
 
 #define TASK_KSTACK_SIZE 1024 * 16
 
-/* ---- struct cpu offsets ---- */
 #define CPU_STATE	   8
 #define CPU_CURRENT_TASK  24
 #define CPU_PREEMPT_COUNT 32
 #define CPU_ENTRY_SCRATCH 48
 
-/*
- * sizeof(struct cpu), config-dependent through CONFIG_DEBUG_CONTEXT.
- * The C side checks it with a static_assert in include/nuvix/cpu.h.
- */
 #if defined(CONFIG_DEBUG_CONTEXT)
 #define CPU_SIZE 336
 #else

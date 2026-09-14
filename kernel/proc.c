@@ -455,10 +455,20 @@ struct mm_struct *proc_replace_mm(struct proc_struct *proc,
 
 	if (!proc)
 		return NULL;
+	/*
+	 * The reference handed to this function becomes the Proc's structural
+	 * MM ownership reference.  Commit the AddressSpace publication before
+	 * exposing the pointer under proc->lock; withdrawing the old publication
+	 * happens after the pointer is no longer discoverable.
+	 */
+	if (mm)
+		mm_publish(mm);
 	spin_lock(&proc->lock);
 	oldmm = proc->mm;
 	proc->mm = mm;
 	spin_unlock(&proc->lock);
+	if (oldmm)
+		mm_unpublish(oldmm);
 	return oldmm;
 }
 

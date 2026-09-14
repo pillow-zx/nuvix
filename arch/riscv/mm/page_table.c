@@ -1,7 +1,3 @@
-/*
- * arch/riscv/mm/page_table.c - Sv39 三级页表操作
- */
-
 #include <nuvix/printk.h>
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
@@ -13,73 +9,29 @@
 #include <arch/pgtable.h>
 #include <asm/csr.h>
 
-typedef void *(*page_alloc_fn)(void);
-static page_alloc_fn pt_alloc;
-static uintptr_t kpgroot;
+uintptr_t kpgroot;
 
-/*
- * Kernel Sv39 satp token published once at the end of pagetable_init().
- * Secondary harts acquire-load it from their physical trampoline before
- * switching page tables; immutable after publication.
- */
-atomic_isize_t pgtable_boot_token;
-
-static char *early_alloc_ptr;
+atomic_isize_t pt_boot_token;
 
 extern char _end[];
 
-void *bootmem_end(void)
+static inline bool pte_is_leaf(pte_t pte)
 {
-	return early_alloc_ptr;
+	return (pte & (PTE_R | PTE_W | PTE_X)) != 0;
 }
 
-static void *early_alloc_page(void)
+static int pgtable_walk_create(pte_t *root, vaddr_t va, pte_t **out)
 {
-	void *p = early_alloc_ptr;
-	early_alloc_ptr += PAGE_SIZE;
-	memset(p, 0, PAGE_SIZE);
-	return p;
-}
-
-static void *buddy_alloc_page(void)
-{
-	void *p = get_free_page(0, ALLOC_NOWAIT);
-	if (p)
-		memset(p, 0, PAGE_SIZE);
-	return p;
-}
-
-static void *pt_alloc_page(void)
-{
-	BUG_ON(!pt_alloc);
-
-	return pt_alloc();
-}
-
-void pagetable_use_buddy(void)
-{
-	pt_alloc = buddy_alloc_page;
-}
-
-static bool pte_is_leaf(pte_t pte)
-{
-	return asm_pte_leaf(pte);
-}
-
-static int pt_walk_create(pte_t *root, vaddr_t va, pte_t **out)
-{
-	bool new_l1 = false;
-
 	int idx2 = (va >> 30) & 0x1FF;
 	pte_t *l2e = &root[idx2];
 	pte_t *l1;
 
 	if (!(*l2e & PTE_V)) {
-		l1 = pt_alloc_page();
+		l1 = get_free_page(0, ALLOC_NOWAIT);
 		if (!l1)
 			return -ENOMEM;
+		memset(l1, 0, PAGE_SIZE);
 		*l2e = PA_TO_PTE(__pa((uintptr_t)l1)) | PTE_TABLE;
-		new_l1 = true;
 	} else {
 		if (pte_is_leaf(*l2e))
 			return -EINVAL;
@@ -91,14 +43,12 @@ static int pt_walk_create(pte_t *root, vaddr_t va, pte_t **out)
 	pte_t *l0;
 
 	if (!(*l1e & PTE_V)) {
-		l0 = pt_alloc_page();
-		if (!l0) {
-			if (new_l1) {
-				*l2e = 0;
-				free_page(l1, 0);
-			}
+		l0 = get_free_page(0, ALLOC_NOWAIT);
+		/* An attached empty table stays owned by the root. Hardware may
+		 * already be walking it; root retirement releases it safely. */
+		if (!l0)
 			return -ENOMEM;
-		}
+		memset(l0, 0, PAGE_SIZE);
 		*l1e = PA_TO_PTE(__pa((uintptr_t)l0)) | PTE_TABLE;
 	} else {
 		if (pte_is_leaf(*l1e))
@@ -111,7 +61,7 @@ static int pt_walk_create(pte_t *root, vaddr_t va, pte_t **out)
 	return 0;
 }
 
-pte_t *pgtable_lookup(pte_t *root, vaddr_t va)
+pte_t *pt_lookup(pte_t *root, vaddr_t va)
 {
 	int idx2 = (va >> 30) & 0x1FF;
 	pte_t *l2e = &root[idx2];
@@ -145,58 +95,43 @@ int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
 	if (!(perm & PTE_V))
 		return -EINVAL;
 
-	ret = pt_walk_create(root, va, &pte);
+	ret = pgtable_walk_create(root, va, &pte);
 	if (ret < 0)
 		return ret;
 	*pte = PA_TO_PTE(pa) | perm;
 	return 0;
 }
 
-uintptr_t kernel_pgroot(void)
+uintptr_t pt_boot_token_acquire(void)
 {
-	return kpgroot;
+	return (uintptr_t)atomic_isize_read_acquire(&pt_boot_token);
 }
 
-uintptr_t pgtable_boot_token_acquire(void)
+bool pt_boot_token_valid(void)
 {
-	return (uintptr_t)atomic_isize_read_acquire(&pgtable_boot_token);
-}
-
-bool pgtable_boot_token_valid(void)
-{
-	uintptr_t token = pgtable_boot_token_acquire();
+	uintptr_t token = pt_boot_token_acquire();
 
 	return (token & SATP_MODE_SV39) == SATP_MODE_SV39 &&
 	       (token & SATP_PPN_MASK) != 0;
 }
 
-pte_t *current_pt(void)
+pte_t *kpgtable(void)
 {
-	uintptr_t satp_val = csr_read(satp);
+	uintptr_t satp_val = kpgroot;
 	uintptr_t root_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
 
 	return (pte_t *)__va(root_pa);
 }
 
-pte_t *kernel_pt(void)
+void *pgtable_init(void)
 {
-	uintptr_t satp_val = kernel_pgroot();
-	uintptr_t root_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
-
-	return (pte_t *)__va(root_pa);
-}
-
-void pagetable_init(void)
-{
-	paddr_t end_addr;
+	char *bootmem;
 	pte_t *root = NULL;
 
-	end_addr = (paddr_t)_end;
-	early_alloc_ptr = (char *)ALIGN_UP(end_addr, PAGE_SIZE);
-
-	pt_alloc = early_alloc_page;
-
-	root = (pte_t *)early_alloc_page();
+	bootmem = (char *)ALIGN_UP((uintptr_t)_end, PAGE_SIZE);
+	root = (pte_t *)bootmem;
+	bootmem += PAGE_SIZE;
+	memset(root, 0, PAGE_SIZE);
 
 	pr_debug("page_table: mapping %dMB DRAM with 4KB pages...\n",
 		(int)(DRAM_SIZE >> 20));
@@ -204,7 +139,31 @@ void pagetable_init(void)
 	for (paddr_t pa = DRAM_BASE; pa < DRAM_BASE + DRAM_SIZE;
 	     pa += PAGE_SIZE) {
 		vaddr_t va = KERNEL_VBASE + pa;
-		BUG_ON(map_page(root, va, pa, PTE_KERN_RWX) < 0);
+		int idx_high = (va >> 30) & 0x1FF;
+		int idx_mid = (va >> 21) & 0x1FF;
+		int idx_low = (va >> 12) & 0x1FF;
+		pte_t *l1;
+		pte_t *l0;
+
+		if (!(root[idx_high] & PTE_V)) {
+			l1 = (pte_t *)bootmem;
+			bootmem += PAGE_SIZE;
+			memset(l1, 0, PAGE_SIZE);
+			root[idx_high] = PA_TO_PTE(__pa((uintptr_t)l1)) | PTE_TABLE;
+		} else {
+			l1 = (pte_t *)__va(PTE_TO_PA(root[idx_high]));
+		}
+
+		if (!(l1[idx_mid] & PTE_V)) {
+			l0 = (pte_t *)bootmem;
+			bootmem += PAGE_SIZE;
+			memset(l0, 0, PAGE_SIZE);
+			l1[idx_mid] = PA_TO_PTE(__pa((uintptr_t)l0)) | PTE_TABLE;
+		} else {
+			l0 = (pte_t *)__va(PTE_TO_PA(l1[idx_mid]));
+		}
+
+		l0[idx_low] = PA_TO_PTE(pa) | PTE_KERN_RWX;
 	}
 
 	int idx_high = ((KERNEL_VBASE + DRAM_BASE) >> 30) & 0x1FF;
@@ -217,13 +176,102 @@ void pagetable_init(void)
 	uintptr_t satp_val = SATP_MODE_SV39 | (root_pa >> PAGE_SHIFT);
 	kpgroot = satp_val;
 
-	activate_pgroot(satp_val);
-	/* Release-publish after every page-table write is ordered before it:
-	 * a secondary observing the token may switch page tables immediately. */
-	atomic_isize_set_release(&pgtable_boot_token, (isize)satp_val);
+	active_pgtable(satp_val);
+	atomic_isize_set_release(&pt_boot_token, (isize)satp_val);
 
 	pr_debug("page_table: switched to kernel page table (root=%p, "
-		"early_alloc=%dKB)\n",
-		(void *)root_pa,
-		(int)((uintptr_t)early_alloc_ptr - (uintptr_t)_end) / 1024);
+		"bootmem=%p)\n",
+		(void *)root_pa, bootmem);
+
+	return bootmem;
+}
+
+__cold
+void pgtable_udestroy(pte_t *pgd)
+{
+	for (int i = 0; i < 256; i++) {
+		if (!pte_present(pgd[i]))
+			continue;
+
+		pte_t *pmd = (pte_t *)__va(PTE_TO_PA(pgd[i]));
+
+		for (int j = 0; j < 512; j++) {
+			if (!pte_present(pmd[j]))
+				continue;
+
+			pte_t *pt = (pte_t *)__va(PTE_TO_PA(pmd[j]));
+
+			for (int k = 0; k < 512; k++)
+				pt[k] = 0;
+			free_page(pt, 0);
+		}
+		free_page(pmd, 0);
+	}
+	free_page(pgd, 0);
+}
+
+/* The caller owns the root; shared kernel entries are borrowed. */
+pte_t *pgtable_ucreate(void)
+{
+	pte_t *root = get_free_page(0, ALLOC_NOWAIT);
+	pte_t *kernel = kpgtable();
+
+	if (!root)
+		return NULL;
+	memset(root, 0, PAGE_SIZE);
+	for (int i = 256; i < 512; i++)
+		root[i] = kernel[i];
+	if (arch_upgd_init(root) < 0) {
+		pgtable_udestroy(root);
+		return NULL;
+	}
+	return root;
+}
+
+/* Boot-only preparation of leaf slots; no leaf mapping is published. */
+int pgtable_prepare_range(pte_t *root, uintptr_t start, uintptr_t end)
+{
+	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
+		pte_t *pte;
+		int ret = pgtable_walk_create(root, va, &pte);
+
+		if (ret < 0)
+			return ret;
+	}
+	return 0;
+}
+
+bool pgtable_take_upage(pte_t *root, uintptr_t *cursor, paddr_t *pa)
+{
+	uintptr_t va = *cursor;
+
+	while (va < TASK_SIZE) {
+		pte_t upper = root[(va >> 30) & 0x1ff];
+		pte_t *middle, *leaves;
+		pte_t entry;
+
+		if (!pte_present(upper) || pte_is_leaf(upper)) {
+			va = ALIGN_DOWN(va, 1UL << 30) + (1UL << 30);
+			continue;
+		}
+		middle = __va(PTE_TO_PA(upper));
+		entry = middle[(va >> 21) & 0x1ff];
+		if (!pte_present(entry) || pte_is_leaf(entry)) {
+			va = ALIGN_DOWN(va, 1UL << 21) + (1UL << 21);
+			continue;
+		}
+		leaves = __va(PTE_TO_PA(entry));
+		for (unsigned int i = (va >> PAGE_SHIFT) & 0x1ff;
+		     i < 512 && va < TASK_SIZE; i++, va += PAGE_SIZE) {
+			entry = leaves[i];
+			if (!pte_user_page(entry))
+				continue;
+			leaves[i] = 0;
+			*pa = PTE_TO_PA(entry);
+			*cursor = va + PAGE_SIZE;
+			return true;
+		}
+	}
+	*cursor = va;
+	return false;
 }

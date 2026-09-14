@@ -1,11 +1,11 @@
 /*
- * mm/mmap_flush.c - remote TLB/icache shootdown
+ * arch/riscv/mm/shootdown.c - remote TLB/icache shootdown
  */
 
 #include <nuvix/mm.h>
 #include <nuvix/cpu.h>
 #include <nuvix/ipi.h>
-#include <nuvix/sched.h>
+
 
 void mm_flush_remote(struct mm_struct *mm, bool flush_icache)
 {
@@ -13,14 +13,17 @@ void mm_flush_remote(struct mm_struct *mm, bool flush_icache)
 	uint64_t online = cpu_online_mask();
 	int reasons = IPI_SHOOTDOWN;
 
+	/* No ASIDs: every entry into a user root flushes locally. Broadcast
+	 * covers CPUs already running it, including concurrent handoffs,
+	 * without borrowing a scheduler snapshot as translation ownership. */
+	(void)mm;
 	if (flush_icache)
 		reasons |= IPI_FENCE_I;
 
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
 		if (id == self_id || !(online & (1ULL << id)))
 			continue;
-		if (sched_cpu_mm_targets(id, mm))
-			ipi_send_sync(id, reasons);
+		ipi_send_sync(id, reasons);
 	}
 }
 

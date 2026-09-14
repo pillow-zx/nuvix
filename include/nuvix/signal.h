@@ -13,6 +13,7 @@
 struct trap_frame;
 struct task_struct;
 struct proc_struct;
+struct mm_struct;
 struct pgrp_struct;
 struct session_struct;
 struct sighand_struct;
@@ -106,6 +107,10 @@ int sig_proc_init(struct proc_struct *proc);
 __must_check __access_no_size(read_only, 1)
 struct sigchld_exit_policy sigchld_exit_policy(const struct proc_struct *proc);
 
+/** Install the fixed signal trampoline in an unpublished address space. */
+__must_check
+int sig_mm_init(struct mm_struct *mm);
+
 __must_check __access_no_size(read_write, 1)
 int sig_task_clone(struct task_struct *child, bool share_sighand, bool disable_altstack);
 
@@ -142,7 +147,7 @@ __hot __nonnull(1) __access_no_size(read_write, 1)
 void sig_deliver(struct trap_frame *tf);
 
 /**
- * @brief Register the fixed signal trampoline user mapping.
+ * @brief Initialize the shared signal trampoline page.
  */
 __cold
 void sig_init(void);

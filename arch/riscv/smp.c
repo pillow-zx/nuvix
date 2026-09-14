@@ -1,10 +1,3 @@
-/*
- * arch/riscv/smp.c - RISC-V SMP bring-up adapter
- *
- * Policy on top of the raw SBI BASE/HSM wrappers: version requirements,
- * extension probing, and HSM-STOPPED acceptance for every secondary
- * target. Generic code never sees SBI constants.
- */
 
 #include <arch/sbi.h>
 #include <arch/smp.h>
@@ -44,8 +37,6 @@ void smp_basic_prepare(void)
 			      nr_cpu_ids, ret.error, ret.value);
 	}
 
-	/* Every secondary target must be HSM STOPPED before any start; the
-	 * boot hart is STARTED by definition and is not a target. */
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
 		uint32_t hartid = cpu_table[id].hartid;
 		const char *name;
@@ -92,7 +83,5 @@ int smp_ipi_notify(uint32_t hartid)
 
 void smp_ipi_ack(void)
 {
-	/* QEMU virt asserts sip.SSIP by writing 1 (not W1C), so the
-	 * acknowledgement writes it to zero. */
 	csr_clear(sip, SIP_SSIP);
 }

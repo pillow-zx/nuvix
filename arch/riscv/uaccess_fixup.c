@@ -1,6 +1,3 @@
-/*
- * arch/riscv/uaccess_fixup.c - user-access exception fixups
- */
 
 #include <asm/trap.h>
 #include <arch/trap.h>

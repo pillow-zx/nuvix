@@ -7,12 +7,10 @@ __memmove:
 	beq	a0, a1, .Lmemmove_return
 	beqz	a2, .Lmemmove_return
 
-	/* Keep exact end pointers for the byte tails. */
 	mv	t3, a0
 	add	t4, a0, a2
 	add	a4, a1, a2
 
-	/* Short copies avoid the aligned bulk paths. */
 	andi	t0, a2, -16
 	beqz	t0, .Lmemmove_byte
 
@@ -22,12 +20,10 @@ __memmove:
 	addi	t5, t5, 8
 .Lmemmove_aligned_dest:
 
-	/* Co-aligned buffers can use plain 64-bit loads and stores. */
 	xor	t0, a0, a1
 	andi	t1, t0, 7
 	beqz	t1, .Lmemmove_coaligned
 
-	/* Otherwise merge adjacent source words, little-endian. */
 	bltu	a1, a0, .Lmemmove_misaligned_reverse
 .Lmemmove_misaligned_forward:
 	jal	t0, .Lmemmove_until_aligned_forward

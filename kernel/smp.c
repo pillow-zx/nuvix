@@ -21,8 +21,7 @@
 #include <nuvix/task.h>
 #include <nuvix/timer.h>
 #include <nuvix/irq.h>
-#include <asm/csr.h>
-#include <arch/trap.h>
+#include <nuvix/trap.h>
 
 /* Boot-error slot per CPU. Written by the pre-satp trampoline (plain store)
  * and by smp_secondary_main() before a PARKED release store; logical CPU 0
@@ -210,7 +209,7 @@ void smp_boot_cpus(void)
 
 	BUG_ON(!nr_cpu_ids || nr_cpu_ids > NR_CPUS);
 	/* Secondaries switch to the kernel page table, so it must be published. */
-	BUG_ON(!pgtable_boot_token_valid());
+	BUG_ON(!pt_boot_token_valid());
 
 	boot_id = 0;
 

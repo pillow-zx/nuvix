@@ -85,13 +85,13 @@ static void refill_cache_alloc(struct kmem_cache *cache, uint32_t cache_idx,
 	slab = page;
 	meta = virt_to_page(page);
 	BUG_ON(!meta);
-	page_set_flag(meta, PG_SLAB);
+	set_bit(meta->flags, PG_SLAB);
 	slot_size = sizeof(struct kmalloc_header) + cache->obj_size;
 	cursor = ALIGN_UP((uintptr_t)page + sizeof(*slab),
 			  alignof(struct kmalloc_header));
 	nr_objs = ((uintptr_t)page + PAGE_SIZE - cursor) / slot_size;
 	if (unlikely(nr_objs == 0)) {
-		page_clear_flag(meta, PG_SLAB);
+		clr_bit(meta->flags, PG_SLAB);
 		free_page(page, 0);
 		return;
 	}
@@ -148,7 +148,7 @@ static void slab_reclaim_detach_locked(struct slab_page_header *slab)
 		list_del(node);
 	}
 
-	page_clear_flag(meta, PG_SLAB);
+	clr_bit(meta->flags, PG_SLAB);
 }
 
 __always_inline __must_check __const

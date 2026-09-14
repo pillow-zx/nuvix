@@ -1,6 +1,3 @@
-/*
- * arch/riscv/sbi.c - OpenSBI ecall 封装
- */
 
 #include <arch/sbi.h>
 #include <arch/system.h>
@@ -74,7 +71,6 @@ struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base)
 			 hart_mask_base, 0, 0, 0);
 }
 
-/* Extensions nuvix reports in its boot banner, in display order. */
 static const struct {
 	uint64_t eid;
 	const char *name;
@@ -96,8 +92,6 @@ BOOTINFO_BLOCK(
 		BROW("SBI Version", "unavailable (error=%lld)",
 		     (long long)ret.error);
 	} else {
-		/* Spec version encodes major in the high byte and minor in
-		 * the low 24 bits, e.g. SBI 3.0 -> 0x30000. */
 		BROW("SBI Version", "%llu.%llu",
 		     (unsigned long long)(ret.value >> 24),
 		     (unsigned long long)(ret.value & 0xFFFFFF));

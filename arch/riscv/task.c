@@ -1,6 +1,3 @@
-/*
- * arch/riscv/task.c - RISC-V task context helpers
- */
 
 #include <nuvix/sched.h>
 #include <nuvix/task.h>

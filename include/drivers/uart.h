@@ -5,9 +5,8 @@
 #ifndef _NUVIX_DRIVERS_UART_H
 #define _NUVIX_DRIVERS_UART_H
 
+#include <nuvix/config.h>
 #include <nuvix/types.h>
-
-#define UART_BASE	0x10000000UL
 
 #define UART_THR	0
 #define UART_RBR	0
