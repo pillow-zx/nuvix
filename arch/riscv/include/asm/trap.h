@@ -1,7 +1,6 @@
 #ifndef _NUVIX_ASM_TRAP_H
 #define _NUVIX_ASM_TRAP_H
 
-
 #include <nuvix/types.h>
 
 #define IRQ_S_SOFT   1UL

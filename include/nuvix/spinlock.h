@@ -44,7 +44,6 @@ typedef struct spinlock {
 #define LOCK_RANK_VIRTIO_SUBMIT    210
 #define LOCK_RANK_EVENTPOLL        220
 #define LOCK_RANK_PIPE             230
-#define LOCK_RANK_FUTEX_BUCKET     240
 #define LOCK_RANK_WAIT_CHANNEL     250
 #define LOCK_RANK_ALLOC_BUDDY      260
 #define LOCK_RANK_ALLOC_SLAB       270
@@ -116,6 +115,7 @@ static inline bool spinlock_held_by_current(const spinlock_t *lock)
  */
 static const uint16_t lock_instance_ordered_ranks[] __unused = {
 	LOCK_RANK_PIPE,
+	LOCK_RANK_RUNQUEUE,
 };
 
 static inline bool lock_rank_is_instance_ordered(uint16_t rank)

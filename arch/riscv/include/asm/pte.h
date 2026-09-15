@@ -1,7 +1,6 @@
 #ifndef _NUVIX_ASM_PTE_H
 #define _NUVIX_ASM_PTE_H
 
-
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
 #include <nuvix/bitops.h>

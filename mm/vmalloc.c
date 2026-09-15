@@ -60,7 +60,7 @@ static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 		spin_unlock(&vmalloc_pt_lock);
 		tlb_flush_all();
 		if (smp_booted())
-			mm_flush_kernel_all();
+			mm_flush_all();
 		for (size_t i = 0; i < count; i++)
 			free_page(pages[i], 0);
 	}
@@ -268,7 +268,7 @@ void *vmalloc(size_t size, enum alloc_mode mode)
 	}
 	tlb_flush_all();
 	if (smp_booted())
-		mm_flush_kernel_all();
+		mm_flush_all();
 
 	return (void *)start;
 

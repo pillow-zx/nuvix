@@ -217,7 +217,7 @@ void mm_unmap_user_pages_locked(struct mm_struct *mm,
 		pte_t *pte = pt_lookup(mm->pgd, va);
 		paddr_t *release;
 
-		if (!pte || !pte_user_page(*pte))
+		if (!pte || !pte_upage(*pte))
 			continue;
 		if (teardown->nr_release == MM_RELEASE_BATCH) {
 			mm_teardown_sync(mm, teardown, false);
@@ -310,48 +310,6 @@ struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr)
 			return vma;
 	}
 	return NULL;
-}
-
-int mm_map_id_get_locked(struct mm_struct *mm, uintptr_t addr,
-			 struct mm_map_id *id)
-{
-	struct vm_area_struct *vma;
-
-	if (!mm)
-		return -EFAULT;
-	memset(id, 0, sizeof(*id));
-	vma = find_vma(mm, addr);
-	if (!vma)
-		return -EFAULT;
-	if (!vma->vm_anon) {
-		id->kind = MM_MAPPING_PRIVATE;
-		return 0;
-	}
-	id->kind = MM_MAPPING_SHARED_ANON;
-	id->anon = vma->vm_anon;
-	id->pgoff = vma_offset_at(vma, addr);
-	mm_anon_get(id->anon);
-	return 0;
-}
-
-int mm_map_id_get(struct mm_struct *mm, uintptr_t addr, struct mm_map_id *id)
-{
-	int ret;
-
-	if (!mm)
-		return -EFAULT;
-	mm_lock(mm);
-	ret = mm_map_id_get_locked(mm, addr, id);
-	mm_unlock(mm);
-	return ret;
-}
-
-void mm_map_id_put(struct mm_map_id *id)
-{
-	if (!id)
-		return;
-	mm_anon_put(id->anon);
-	memset(id, 0, sizeof(*id));
 }
 
 uintptr_t mm_brk(struct mm_struct *mm, uintptr_t addr)
@@ -591,7 +549,7 @@ int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
 
 	mm_lock(mm);
 	pte = pt_lookup(mm->pgd, va);
-	if ((pte && pte_user_page(*pte)) || mm_private_find(mm, va)) {
+	if ((pte && pte_upage(*pte)) || mm_private_find(mm, va)) {
 		mm_unlock(mm);
 		return -EEXIST;
 	}
@@ -786,7 +744,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 		struct mm_page_slot *slot = mm_private_find(mm, va);
 		pgprot_t flags = mm_prot_to_pte_flags(prot);
 
-		if (!pte || !pte_user_page(*pte))
+		if (!pte || !pte_upage(*pte))
 			continue;
 		if (!vma->vm_shared && (!slot || slot->cow))
 			flags = pgprot_ro(flags);

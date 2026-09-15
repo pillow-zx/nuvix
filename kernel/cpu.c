@@ -73,7 +73,10 @@ void cpu_boot_init(struct task_struct *idles)
 
 		cpu->flags = 0;
 		cpu->idle_task = &idles[id];
-		cpu->current_task = NULL;
+		/* sched_init snapshots this before secondary harts start. Both
+		 * CPU-local and runqueue current must name the same initial idle;
+		 * online/schedulable publication separately controls admission. */
+		cpu->current_task = &idles[id];
 		cpu->preempt_count = 0;
 		cpu->irq_nesting = 0;
 		cpu->lock_depth = 0;
@@ -85,5 +88,4 @@ void cpu_boot_init(struct task_struct *idles)
 		}
 #endif
 	}
-	cpu_table[0].current_task = idles;
 }

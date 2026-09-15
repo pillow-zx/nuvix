@@ -1,196 +1,77 @@
 #ifndef _NUVIX_SCHED_H
 #define _NUVIX_SCHED_H
 
-/**
- * @file sched.h
- * @brief Scheduler entry points and preemption counters.
- */
-
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
-#include <nuvix/list.h>
-#include <nuvix/spinlock.h>
 #include <nuvix/task.h>
 #include <arch/processor.h>
 
-/* Boot policy keeps ordinary Tasks schedulable on logical CPU 0. */
 #define SCHED_BOOT_AFFINITY_CPU 0u
 
 enum sched_park_result {
 	SCHED_PARK_INVALID = -EINVAL,
-	SCHED_PARK_STATE_DENIED = -EAGAIN,
-	SCHED_PARK_RACE = 0,
-	SCHED_PARKED = 1,
+	SCHED_PARK_RACE,
+	SCHED_PARKED,
 };
 
-/**
- * @brief Initialize scheduler queues and policy state.
- */
 void sched_init(void);
-
-/**
- * @brief Switch from current task to the next runnable task.
- *
- * The caller must be in a task context, with no held spinlock, a zero
- * preemption-disable depth, and local IRQs enabled. IRQ-disabled callers must
- * use schedule_irqoff(). Invalid callers trigger a diagnostic.
- */
-void schedule(void);
-
-/** Scheduler/interrupt-return entry with local IRQs already disabled. */
-void schedule_irqoff(void);
-
-/**
- * @brief Switch task contexts and activate the next address space.
- *
- * The scheduler owns this seam. Callers must have local IRQs disabled and
- * hold no spinlock; the function does not establish these preconditions.
- * The return value is the physical Last Task whose context was saved.
- */
-__nonnull(1, 2)
-struct task_struct *task_switch(struct task_struct *prev,
-				struct task_struct *next,
-				uintptr_t next_pgroot);
-
-/** First Dispatch Gateway for a Task without a suspended scheduler frame. */
-__noreturn
-void sched_first_dispatch(struct task_struct *last);
-
-/**
- * @brief Request a reschedule of the current task without switching.
- */
-void sched_request(void);
-
-/**
- * @brief Account one timer tick and request reschedule when needed.
- */
-void sched_tick(void);
-
-/**
- * @brief Voluntarily yield the CPU from the current task.
- */
-void sched_yield(void);
-
-/**
- * @brief Initialize scheduler fields in a new task.
- * @param task Task being initialized.
- */
-__nonnull(1) __access_no_size(read_write, 1)
 void sched_task_init(struct task_struct *task);
-
-/**
- * @brief Insert a runnable task into the scheduler.
- * @param task Task in TASK_RUNNING state.
- */
 void sched_enqueue_new(struct task_struct *task);
-
+void schedule(void);
+void schedule_irqoff(void);
+void sched_request(void);
+void sched_tick(void);
+void sched_yield(void);
 bool sched_has_runnable(void);
+void sched_idle(void);
+__noreturn void sched_first_dispatch(struct task_struct *last);
+__noreturn void sched_exit_current(void);
 
-/**
- * Block the current Task for one wait generation.
- *
- * A race means the wait condition changed before the park and needs only a
- * caller recheck.  A state denial means Task lifecycle or run state prevented
- * parking; the scheduler crosses an interrupt-enabled scheduling point before
- * returning that distinct result.
- */
-__must_check enum sched_park_result
-sched_block_current(struct task_wait *wait);
-
-/** Wake a task only when it still belongs to the supplied wait generation. */
+/* Current-only arm/finish; referenced remote notify is IRQ-safe. */
+uint64_t sched_park_arm(struct task_struct *task,
+			enum task_wait_policy policy, uint64_t signal_set);
+void sched_park_finish(struct task_struct *task);
+enum sched_park_result sched_block_current(uint64_t generation);
 bool sched_wake(struct task_struct *task, uint64_t generation);
+bool sched_wake_event(struct task_struct *task, uint64_t generation);
+bool sched_wake_signal(struct task_struct *task, bool fatal);
+bool sched_take_event(struct task_struct *task);
+bool sched_wait_accepts_signal(struct task_struct *task, uint64_t mask);
 
-/** Wake a task waiting on a scheduler-owned completion channel. */
-bool sched_wake_external(struct task_struct *task);
-
-int sched_set_affinity(struct task_struct *task, const cpumask_t *requested);
-
-cpumask_t sched_get_affinity(struct task_struct *task);
-
-/**
- * Widen a kernel-origin Task to the full schedulable set when it becomes a
- * user process.  Called once at the init-origin boundary, before the Task
- * is ever enqueued; replaces the kernel-thread default pin to CPU 0.
- */
-void sched_task_allow_all_cpus(struct task_struct *task);
-
-/** Snapshot a parent's scheduler-owned affinity into an unpublished child. */
-void sched_task_inherit_affinity(struct task_struct *child,
-				 struct task_struct *parent);
-
-/**
- * Transfer one retired Task to the independent reaper.
- *
- * Removing a Task from this queue is the scheduler's Retirement witness:
- * the CPU handoff has completed, so TASK_DEAD is no longer the only proof
- * needed before the reaper inspects or frees its stack.
- */
-__must_check
-bool sched_retired_pop(struct task_struct **task);
-
-/** Leave the current task forever after its task/proc cleanup is complete. */
-__noreturn
-void sched_exit_current(void);
-
-/**
- * @brief Remove a task from its runqueue.
- * @param task Task that may currently be queued.
- */
-void sched_dequeue(struct task_struct *task);
-
-/** Move a stopped task back to the runnable state. */
-bool sched_resume(struct task_struct *task);
-
-/** Mark a live task stopped and remove it from its runqueue. */
+/* Stop is current-only and must be serialized with group continue. */
 bool sched_stop(struct task_struct *task);
+bool sched_resume(struct task_struct *task);
+bool sched_task_stopped(struct task_struct *task);
+int sched_set_affinity(struct task_struct *task, const cpumask_t *requested);
+cpumask_t sched_get_affinity(struct task_struct *task);
+void sched_task_inherit_affinity(struct task_struct *child,
+				struct task_struct *parent);
+void sched_activate_mm(struct mm_struct *mm);
 
-__always_inline
+bool sched_retired_pop(struct task_struct **task);
+void sched_notify_reaper(void);
+void sched_reaper_sleep(void);
+
 static inline void preempt_disable(void)
 {
 	cpu_inc_preempt_count(current_cpu());
 }
 
-__always_inline __pure
 static inline bool preemptible(void)
 {
 	return cpu_preempt_count(current_cpu()) == 0;
 }
 
-/**
- * @brief Test whether the current context may enter the scheduler.
- *
- * This read-only guard describes the schedule() entry contract. It requires a
- * current task, no hard-IRQ context, no held spinlock, and a zero
- * preemption-disable depth. Local IRQ state is not part of this guard.
- */
 static inline bool sched_context_can_schedule(void)
 {
 	return current_task() && !in_irq() && preemptible() && !spinlock_held();
 }
 
-/**
- * @brief Re-enable preemption and consume a safe deferred reschedule.
- */
 static inline void preempt_enable(void)
 {
-	struct task_struct *task = current_task();
-
 	cpu_dec_preempt_count(current_cpu());
-	if (preemptible() && !irqs_disabled() && task &&
-	    task_need_resched(task) && sched_context_can_schedule())
+	if (!irqs_disabled() && sched_context_can_schedule() &&
+	    task_need_resched(current_task()))
 		schedule();
 }
-
-/**
- * @brief Test whether a CPU must receive an MM shootdown.
- *
- * The identity comparison and the switching state are read while holding the
- * target runqueue lock.  Callers must not dereference an MM obtained from this
- * observation.
- */
-bool sched_cpu_mm_targets(uint32_t cpu_id, struct mm_struct *mm);
-
-/** Publish the MM after the current CPU has activated its page table. */
-void sched_publish_active_mm(struct mm_struct *mm);
-
 #endif

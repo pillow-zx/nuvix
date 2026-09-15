@@ -6,11 +6,11 @@
 #include <nuvix/errno.h>
 #include <nuvix/fdtable.h>
 #include <nuvix/string.h>
+#include <nuvix/slab.h>
 #include <nuvix/fork.h>
 #include <nuvix/fs_struct.h>
 #include <nuvix/mm.h>
 #include <nuvix/proc.h>
-#include <nuvix/rseq.h>
 #include <nuvix/sched.h>
 #include <nuvix/session.h>
 #include <nuvix/signal.h>
@@ -25,14 +25,14 @@
 	(CLONE_EXIT_SIGNAL_MASK | CLONE_VM | CLONE_FS | CLONE_FILES |          \
 	 CLONE_SIGHAND | CLONE_VFORK | CLONE_PARENT | CLONE_THREAD |           \
 	 CLONE_SYSVSEM | CLONE_SETTLS | CLONE_PARENT_SETTID |                  \
-	 CLONE_CHILD_CLEARTID | CLONE_DETACHED | CLONE_UNTRACED |              \
+	 CLONE_DETACHED | CLONE_UNTRACED |              \
 	 CLONE_CHILD_SETTID)
 
 #define CLONE_UNSUPPORTED_FLAGS                                                \
 	(CLONE_NEWTIME | CLONE_PIDFD | CLONE_PTRACE | CLONE_NEWNS |            \
 	 CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER |       \
 	 CLONE_NEWPID | CLONE_NEWNET | CLONE_IO | CLONE_CLEAR_SIGHAND |        \
-	 CLONE_INTO_CGROUP)
+	 CLONE_INTO_CGROUP | CLONE_CHILD_CLEARTID)
 
 static bool clone_wants_thread(unsigned long flags)
 {
@@ -50,12 +50,9 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 	if ((flags & CLONE_SIGHAND) && !(flags & CLONE_VM))
 		return -EINVAL;
 	if ((flags & CLONE_THREAD) &&
-	    (!(flags & CLONE_VM) || !(flags & CLONE_SIGHAND) || exit_signal))
+	    (!(flags & CLONE_VM) || !(flags & CLONE_SIGHAND)))
 		return -EINVAL;
-	if ((flags & CLONE_VFORK) && (flags & CLONE_THREAD))
-		return -EINVAL;
-	if ((flags & CLONE_VM) && child_stack == 0)
-		return -EINVAL;
+	(void)child_stack;
 	if (!clone_wants_thread(flags) && exit_signal != 0 &&
 	    !sig_valid((int)exit_signal))
 		return -EINVAL;
@@ -88,14 +85,10 @@ static void clone_copy_task_signal(struct task_struct *child,
 static int clone_copy_mm(struct task_struct *child, unsigned long flags)
 {
 	struct task_struct *task = current_task();
-	struct mm_struct *parent_mm = task->proc ? task->proc->mm : NULL;
+	struct mm_struct *parent_mm = task->mm;
 	struct mm_struct *mm;
 	struct mm_struct *oldmm;
 
-	if (clone_wants_thread(flags)) {
-		/* Threads share their Proc-owned MM. */
-		return 0;
-	}
 	if (flags & CLONE_VM) {
 		mm = parent_mm;
 		if (parent_mm)
@@ -106,7 +99,7 @@ static int clone_copy_mm(struct task_struct *child, unsigned long flags)
 			return -ENOMEM;
 		/* dup_mm inherits fixed mappings, including the signal trampoline. */
 	}
-	oldmm = proc_replace_mm(child->proc, mm);
+	oldmm = task_replace_mm(child, mm);
 	mm_put(oldmm);
 	return 0;
 }
@@ -135,44 +128,50 @@ static int clone_prepare_proc(struct task_struct *child, unsigned long flags,
 {
 	struct proc_struct *parent = current_task()->proc;
 	struct proc_struct *proc;
-	int ret;
 
-	*new_proc = false;
-	if (clone_wants_thread(flags)) {
-		if (!parent)
-			return -EINVAL;
-		ret = proc_attach_task(parent, child, false);
-		if (ret < 0)
-			return ret;
+	*new_proc = !(flags & CLONE_THREAD);
+	if (!*new_proc) {
+		proc_get(parent);
+		child->proc = parent;
 		return 0;
 	}
-	proc = proc_alloc((flags & CLONE_PARENT) && parent ? parent->parent
-							   : parent,
-			  child->tid);
+	if (flags & CLONE_PARENT)
+		parent = proc_parent_get(parent);
+	else
+		proc_get(parent);
+	proc = proc_alloc(parent, child->tid);
+	proc_put(parent);
 	if (!proc)
 		return -ENOMEM;
-	proc_inherit_user_process(proc, parent);
-	ret = proc_attach_task(proc, child, true);
-	if (ret < 0) {
-		proc_put(proc);
-		return ret;
-	}
-	ret = proc_link_child(proc->parent, proc);
-	if (ret < 0) {
-		proc_detach_task(proc, child);
-		proc->lifecycle = PROC_DEAD;
-		proc_put(proc);
-		return ret;
-	}
-	proc_put(proc); /* task membership owns the proc reference */
-	*new_proc = true;
+	child->proc = proc;
+	proc_inherit_user_process(proc, current_task()->proc);
 	return 0;
 }
 
 static int clone_copy_resources(struct task_struct *child, unsigned long flags,
 				bool new_proc)
 {
+	struct task_struct *parent = current_task();
 	int ret;
+
+	/* Group membership does not imply sharing either resource. The child
+	 * owns these references even when it joins the parent's thread group. */
+	if (flags & CLONE_FILES) {
+		child->files = parent->files;
+		files_get(child->files);
+	} else {
+		child->files = files_dup(parent->files);
+		if (!child->files)
+			return -ENOMEM;
+	}
+	if (flags & CLONE_FS) {
+		child->fs = parent->fs;
+		fs_get(child->fs);
+	} else {
+		child->fs = fs_dup(parent->fs);
+		if (!child->fs)
+			return -ENOMEM;
+	}
 
 	if (!new_proc) {
 		clone_copy_task_signal(child, current_task(),
@@ -180,14 +179,6 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags,
 		return 0;
 	}
 	ret = proc_clone_rlimits(child->proc, current_task()->proc);
-	if (ret < 0)
-		return ret;
-	ret = copy_files(current_task()->proc, child->proc,
-			 (flags & CLONE_FILES) != 0);
-	if (ret < 0)
-		return ret;
-	ret = copy_fs(current_task()->proc, child->proc,
-		      (flags & CLONE_FS) != 0);
 	if (ret < 0)
 		return ret;
 	ret = sig_task_clone(child, (flags & CLONE_SIGHAND) != 0, false);
@@ -212,7 +203,13 @@ static int clone_copy_cred(struct task_struct *child)
 	return 0;
 }
 
-static void clone_wait_for_vfork(struct proc_struct *proc)
+static void vfork_put(struct vfork_completion *vfork)
+{
+	if (vfork && refcount_dec_and_test(&vfork->refs))
+		kfree(vfork);
+}
+
+static void clone_wait_for_vfork(struct vfork_completion *vfork)
 {
 	const struct wait_deadline deadline = wait_deadline_none();
 
@@ -225,12 +222,12 @@ static void clone_wait_for_vfork(struct proc_struct *proc)
 
 		ret = wait_scope_begin(&scope, WAIT_FLAG_KILLABLE, &deadline);
 		BUG_ON(ret < 0);
-		spin_lock_irqsave(&proc->vfork.lock, &flags);
-		completed = proc->vfork.completed;
+		spin_lock_irqsave(&vfork->lock, &flags);
+		completed = vfork->completed;
 		if (!completed)
 			ret = wait_scope_prepare(&scope,
-						 &proc->vfork.channel, true);
-		spin_unlock_irqrestore(&proc->vfork.lock, flags);
+						 &vfork->channel, true);
+		spin_unlock_irqrestore(&vfork->lock, flags);
 		if (ret < 0) {
 			wait_scope_complete(&scope);
 			BUG_ON(ret < 0);
@@ -250,11 +247,11 @@ static void clone_wait_for_vfork(struct proc_struct *proc)
 
 int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 			 uintptr_t child_stack, uintptr_t tls,
-			 int *clear_child_tid, struct kernel_clone *clone)
+			 int *child_tid, struct kernel_clone *clone)
 {
 	struct task_struct *task = current_task();
 	struct task_struct *child;
-	bool new_proc;
+	bool new_proc = false;
 	int ret;
 
 	if (!clone || !task)
@@ -280,29 +277,32 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 	ret = clone_copy_resources(child, flags, new_proc);
 	if (ret < 0)
 		goto fail_proc;
-	if ((flags & CLONE_CHILD_CLEARTID) && clear_child_tid)
-		child->signal.clear_child_tid = clear_child_tid;
 	if (flags & CLONE_CHILD_SETTID)
-		child->signal.set_child_tid = clear_child_tid;
-	rseq_clone(child, task, flags);
+		child->signal.set_child_tid = child_tid;
 	if (new_proc) {
 		child->proc->wait_state.exit_signal =
 			(int)(flags & CLONE_EXIT_SIGNAL_MASK);
-		child->proc->wait_state.creator_tid =
-			task->tid ? task->tid->nr : 0;
-		if (flags & CLONE_VFORK) {
-			child->proc->vfork.active = true;
-			child->proc->vfork.completed = false;
-		}
+		child->proc->wait_state.creator_id = (flags & CLONE_PARENT) ?
+			task->proc->wait_state.creator_id : task->identity;
 		ret = session_process_clone_prepare(child, task, false);
 		if (ret < 0)
 			goto fail_proc;
+	}
+	if (flags & CLONE_VFORK) {
+		child->vfork = kzalloc(sizeof(*child->vfork), ALLOC_NOWAIT);
+		if (!child->vfork) {
+			ret = -ENOMEM;
+			goto fail_proc;
+		}
+		refcount_set(&child->vfork->refs, 1);
+		spin_lock_init(&child->vfork->lock, LOCK_RANK_VFORK, LOCK_IRQ_TASK_ONLY);
+		wait_channel_init(&child->vfork->channel);
 	}
 	clone->task = child;
 	clone->flags = flags;
 	clone->pid = child->tid->nr;
 	clone->new_proc = new_proc;
-	clone->child_tid = clear_child_tid;
+	clone->child_tid = child_tid;
 	return 0;
 
 fail_proc:
@@ -316,23 +316,24 @@ fail:
 
 pid_t kernel_clone_commit(struct kernel_clone *clone)
 {
-	struct task_struct *child;
-	struct proc_struct *proc;
-	bool wait_for_vfork;
+	struct task_struct *child = clone->task;
+	struct vfork_completion *vfork = child->vfork;
+	int ret;
 
-	if (!clone || !clone->task)
-		return -EINVAL;
-	child = clone->task;
-	proc = child->proc;
-	wait_for_vfork = (clone->flags & CLONE_VFORK) != 0;
-	if (wait_for_vfork)
-		proc_get(proc);
-	task_publish(child);
-	sched_enqueue_new(child);
+	if (vfork)
+		refcount_inc(&vfork->refs);
+	ret = task_publish(child);
+
+	if (ret < 0) {
+		if (vfork)
+			vfork_put(vfork);
+		kernel_clone_abort(clone);
+		return ret;
+	}
 	clone->task = NULL;
-	if (wait_for_vfork) {
-		clone_wait_for_vfork(proc);
-		proc_put(proc);
+	if (vfork) {
+		clone_wait_for_vfork(vfork);
+		vfork_put(vfork);
 	}
 	return clone->pid;
 }
@@ -341,26 +342,20 @@ void kernel_clone_abort(struct kernel_clone *clone)
 {
 	if (!clone || !clone->task)
 		return;
-	session_process_abort(clone->task);
 	clone_abort_task(clone->task, clone->new_proc);
 	clone->task = NULL;
 }
 
 void kernel_clone_complete_vfork(struct task_struct *task)
 {
-	struct proc_vfork_state *vfork;
-	bool wake = false;
+	struct vfork_completion *vfork = task->vfork;
 
-	if (!task || !task->proc)
+	if (!vfork)
 		return;
-	vfork = &task->proc->vfork;
+	task->vfork = NULL;
 	spin_lock(&vfork->lock);
-	if (vfork->active && !vfork->completed) {
-		vfork->completed = true;
-		vfork->active = false;
-		wake = true;
-	}
+	vfork->completed = true;
 	spin_unlock(&vfork->lock);
-	if (wake)
-		wait_channel_wake_all(&vfork->channel);
+	wait_channel_wake_all(&vfork->channel);
+	vfork_put(vfork);
 }

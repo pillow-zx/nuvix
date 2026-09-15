@@ -264,7 +264,7 @@ bool pgtable_take_upage(pte_t *root, uintptr_t *cursor, paddr_t *pa)
 		for (unsigned int i = (va >> PAGE_SHIFT) & 0x1ff;
 		     i < 512 && va < TASK_SIZE; i++, va += PAGE_SIZE) {
 			entry = leaves[i];
-			if (!pte_user_page(entry))
+			if (!pte_upage(entry))
 				continue;
 			leaves[i] = 0;
 			*pa = PTE_TO_PA(entry);

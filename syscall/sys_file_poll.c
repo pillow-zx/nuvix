@@ -17,6 +17,7 @@
 #include <nuvix/page.h>
 #include <nuvix/trap.h>
 #include <nuvix/time.h>
+#include <nuvix/slab.h>
 #include <nuvix/tools.h>
 #include <nuvix/wait.h>
 #include <uapi/eventpoll.h>
@@ -238,8 +239,15 @@ typedef int (*poll_scan_fn)(struct task_wait *wait, void *arg);
 static int poll_wait(poll_scan_fn scan, void *arg,
 		     const struct wait_deadline *deadline, int *ready)
 {
+	struct wait_entry *entries __cleanup_with(kfree) =
+		kmalloc_array(2 * NR_OPEN, sizeof(*entries), ALLOC_NOWAIT);
+
+	if (!entries)
+		return -ENOMEM;
 	for (;;) {
-		struct wait_scope scope __wait_scope = {};
+		struct wait_scope scope __wait_scope = {
+			.entries = entries, .capacity = 2 * NR_OPEN,
+		};
 		wait_outcome_t outcome;
 		int ret;
 

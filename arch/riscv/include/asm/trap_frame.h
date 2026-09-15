@@ -1,7 +1,6 @@
 #ifndef _NUVIX_ASM_TRAP_FRAME_H
 #define _NUVIX_ASM_TRAP_FRAME_H
 
-
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
 #include <asm/asm_offsets.h>

@@ -10,7 +10,6 @@
 #include <nuvix/atomic.h>
 #include <nuvix/cpu.h>
 #include <nuvix/errno.h>
-#include <nuvix/rseq.h>
 #include <nuvix/sched.h>
 #include <nuvix/timer.h>
 #include <nuvix/printk.h>
@@ -21,8 +20,6 @@
 
 enum ipi_sync_family {
 	IPI_SYNC_SHOOTDOWN,
-	IPI_SYNC_MEMBARRIER,
-	IPI_SYNC_CORE_FENCE,
 	IPI_SYNC_FAMILY_COUNT,
 };
 
@@ -43,10 +40,6 @@ static uint32_t ipi_sync_family_mask(int reasons)
 
 	if (reasons & (IPI_SHOOTDOWN | IPI_FENCE_I))
 		families |= BIT(IPI_SYNC_SHOOTDOWN);
-	if (reasons & (IPI_MEMBARRIER | IPI_RSEQ))
-		families |= BIT(IPI_SYNC_MEMBARRIER);
-	if (reasons & IPI_SYNC_CORE)
-		families |= BIT(IPI_SYNC_CORE_FENCE);
 	return families;
 }
 
@@ -98,12 +91,6 @@ void ipi_handle(void)
 			tlb_flush_all();
 		if (reasons & IPI_FENCE_I)
 			flush_icache();
-		if (reasons & (IPI_MEMBARRIER | IPI_SYNC_CORE | IPI_RSEQ))
-			arch_mb();
-		if (reasons & IPI_SYNC_CORE)
-			flush_icache();
-		if (reasons & IPI_RSEQ)
-			rseq_request_restart(current_task(), RSEQ_EVENT_FORCE);
 		for (uint32_t family = 0; family < IPI_SYNC_FAMILY_COUNT;
 		     family++)
 			if (families & BIT(family))

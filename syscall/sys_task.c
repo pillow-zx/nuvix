@@ -71,7 +71,7 @@ ssize_t sys_wait4(struct trap_frame *tf)
 	int *wstatus = (int *)syscall_arg(tf, 1);
 	int options = (int)syscall_arg(tf, 2);
 	struct rusage *urusage = (struct rusage *)syscall_arg(tf, 3);
-	struct wait4_result result = {0};
+	struct proc_wait_info result = {0};
 	int ret;
 
 	ret = kernel_wait4(pid, options, &result);
@@ -97,10 +97,8 @@ ssize_t sys_wait4(struct trap_frame *tf)
 	}
 
 	pid_t waited_pid = result.pid;
-	kernel_wait4_finish(&result);
 	return waited_pid;
 
 fault:
-	kernel_wait4_abort(&result);
 	return -EFAULT;
 }

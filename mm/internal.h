@@ -105,7 +105,6 @@ struct mm_struct {
 	uintptr_t brk;
 	uintptr_t code_start;
 	uintptr_t code_end;
-	atomic_t membarrier_registrations;
 	uint64_t map_sequence;
 	struct rb_root vmas;
 	struct list_head vma_spares;

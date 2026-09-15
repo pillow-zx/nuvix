@@ -10,14 +10,19 @@
 #include <asm/trap.h>
 #include <asm/trap_frame.h>
 
+struct task_struct;
+
 void trap_cpu_init(void);
 
 void trap_handler(struct trap_frame *tf);
+
+struct trap_frame *trap_prepare_return(struct trap_frame *tf);
+
 void __trapret(void);
 
 __noreturn
 void trapret_to_user(struct trap_frame *tf) ;
-struct task_struct;
+
 
 struct task_struct *switch_to(struct context *prev, struct context *next,
 			      uintptr_t next_satp,

@@ -252,18 +252,14 @@ int session_process_getsid(pid_t pid)
 	return session_process_get_identity(pid, true);
 }
 
-static void session_process_cleanup(struct task_struct *task)
+void session_process_exit(struct task_struct *task)
 {
 	struct session_process_identity identity;
 	struct tty_ctty_state detached = {0};
 
 	if (!task || !task->proc)
 		return;
-	/* Session/TTY cleanup belongs to the dying process, not to the group
-	 * leader: a leader exit with live siblings must keep the attachment
-	 * and the foreground pgrp. Only the last task of the proc detaches. */
-	if (!proc_is_last_task(task->proc, task))
-		return;
+	/* Called by the unique final-member retirement owner. */
 
 	mutex_lock(&session_lock);
 	if (proc_snapshot_topology(task->proc, &identity.pgid, &identity.sid) ==
@@ -281,11 +277,6 @@ static void session_process_cleanup(struct task_struct *task)
 	}
 	mutex_unlock(&session_lock);
 	session_signal_hangup(&detached);
-}
-
-void session_process_exit(struct task_struct *task)
-{
-	session_process_cleanup(task);
 }
 
 /*
@@ -312,11 +303,6 @@ void session_process_reaper(struct proc_struct *proc)
 	}
 	proc_session_put(session);
 	tty_ctty_state_release(&detached);
-}
-
-void session_process_abort(struct task_struct *task)
-{
-	session_process_cleanup(task);
 }
 
 int session_console_acquire(int steal)

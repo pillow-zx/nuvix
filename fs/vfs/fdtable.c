@@ -5,14 +5,13 @@
 #include <nuvix/errno.h>
 #include <nuvix/blkdev.h>
 #include <nuvix/fdtable.h>
-#include <nuvix/proc.h>
 #include <nuvix/slab.h>
 #include <nuvix/task.h>
 #include <nuvix/vfs.h>
 
 static struct files_struct *current_files(void)
 {
-	return current_task()->proc ? current_task()->proc->files : NULL;
+	return current_task()->files;
 }
 
 struct files_struct *files_alloc(void)
@@ -204,36 +203,6 @@ void files_close_on_exec(struct files_struct *files)
 		file_put(closing[fd]);
 }
 
-int files_prepare_exec(const struct proc_struct *proc,
-		       struct files_struct **prepared)
-{
-	struct files_struct *old;
-
-	if (!proc || !prepared)
-		return -EINVAL;
-	*prepared = NULL;
-
-	old = proc->files;
-	*prepared = files_dup(old);
-	if (!*prepared)
-		return -ENOMEM;
-	return 0;
-}
-
-void files_commit_exec(struct proc_struct *proc, struct files_struct *prepared)
-{
-	struct files_struct *old;
-
-	BUG_ON(!proc || !prepared);
-	old = proc_replace_files(proc, prepared);
-	files_put(old);
-}
-
-void files_abort_exec(struct files_struct *prepared)
-{
-	files_put(prepared);
-}
-
 int fd_close(int fd)
 {
 	struct files_struct *files = current_files();
@@ -355,58 +324,4 @@ int fd_dup2(int oldfd, int newfd, int cloexec)
 	file_put(file);
 
 	return newfd;
-}
-
-int init_files(struct proc_struct *proc)
-{
-	struct files_struct *files;
-	struct files_struct *old;
-
-	if (!proc)
-		return -EINVAL;
-
-	files = files_alloc();
-	if (!files)
-		return -ENOMEM;
-
-	files_install_standard_fds(files);
-	old = proc_replace_files(proc, files);
-	files_put(old);
-	return 0;
-}
-
-int copy_files(const struct proc_struct *source, struct proc_struct *dest,
-	       bool share)
-{
-	struct files_struct *files;
-	struct files_struct *old;
-
-	if (!dest)
-		return -EINVAL;
-
-	if (share) {
-		files = source ? source->files : NULL;
-		if (!files)
-			return init_files(dest);
-		files_get(files);
-	} else {
-		files = files_dup(source ? source->files : NULL);
-		if (!files)
-			return -ENOMEM;
-	}
-
-	old = proc_replace_files(dest, files);
-	files_put(old);
-	return 0;
-}
-
-void close_files(struct proc_struct *proc)
-{
-	struct files_struct *files;
-
-	if (!proc)
-		return;
-
-	files = proc_replace_files(proc, NULL);
-	files_put(files);
 }

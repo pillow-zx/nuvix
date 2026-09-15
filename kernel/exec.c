@@ -6,15 +6,14 @@
 #include <nuvix/errno.h>
 #include <nuvix/buddy.h>
 #include <nuvix/exec.h>
+#include <nuvix/exit.h>
 #include <nuvix/fdtable.h>
 #include <nuvix/fork.h>
-#include <nuvix/futex.h>
 #include <nuvix/fs.h>
 #include <nuvix/mm.h>
 #include <nuvix/printk.h>
 #include <nuvix/proc.h>
 #include <nuvix/random.h>
-#include <nuvix/rseq.h>
 #include <nuvix/sched.h>
 #include <nuvix/signal.h>
 #include <nuvix/slab.h>
@@ -631,17 +630,16 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 			    vaddr_t entry, vaddr_t sp)
 {
 	struct task_struct *task = current_task();
-	struct proc_struct *proc = task->proc;
 	struct mm_struct *oldmm;
 
-	oldmm = proc_replace_mm(proc, mm);
+	oldmm = task_replace_mm(task, mm);
 	task->arch.tf = tf;
 
-	active_pgtable(mm_pgroot(mm));
-	sched_publish_active_mm(mm);
+	sched_activate_mm(mm);
 	mm_put(oldmm);
 
 	memset(tf, 0, sizeof(*tf));
+	memset(&task->arch.fpu, 0, sizeof(task->arch.fpu));
 	trap_setup_user_return(tf, entry, sp);
 }
 
@@ -681,6 +679,7 @@ int execve(const char *path, const struct exec_args_envp *args,
 	vaddr_t sp;
 	const struct wait_deadline deadline = wait_deadline_none();
 	bool exec_started = false;
+	bool irreversible = false;
 	int ret;
 
 	if (!path || !args || !tf || !task || !proc)
@@ -702,21 +701,18 @@ int execve(const char *path, const struct exec_args_envp *args,
 	}
 	exec_started = true;
 
-	ret = files_prepare_exec(proc, &prepared_files);
-	if (ret < 0)
-		goto abort_exec;
-	ret = sig_exec_prepare(task, &prepared_sighand);
-	if (ret < 0)
-		goto abort_exec;
 	ret = proc_exec_request_siblings(proc, task);
 	if (ret < 0)
 		goto abort_exec;
+	/* Siblings may now have exited. An ordinary error return can no
+	 * longer restore the old process, even though its mm still exists. */
+	irreversible = true;
 
 	for (;;) {
 		struct wait_scope scope __wait_scope = {};
 		wait_outcome_t outcome;
 
-		ret = wait_scope_begin(&scope, 0, &deadline);
+		ret = wait_scope_begin(&scope, WAIT_FLAG_KILLABLE, &deadline);
 		if (ret < 0)
 			goto abort_exec;
 		ret = proc_exec_wait(proc, scope.wait);
@@ -732,14 +728,32 @@ int execve(const char *path, const struct exec_args_envp *args,
 		wait_scope_complete(&scope);
 		if (ret < 0)
 			goto abort_exec;
-		BUG_ON(outcome != WAIT_OUTCOME_EVENT);
+		if (outcome == WAIT_OUTCOME_SIGNAL) {
+			ret = -EINTR;
+			goto abort_exec;
+		}
 	}
 
-	/* After this point every operation is a non-failing commit operation.
-	 */
+	/* Snapshot after sibling cleanup: their completed changes to a shared
+	 * table must not disappear from the new image. The caller's binding
+	 * stays stable while duplication takes the fdtable's sleeping lock. */
+	prepared_files = files_dup(task->files);
+	if (!prepared_files) {
+		ret = -ENOMEM;
+		goto abort_exec;
+	}
+	ret = sig_exec_prepare(task, &prepared_sighand);
+	if (ret < 0)
+		goto abort_exec;
+
 	BUG_ON(proc_exec_adopt_pid(proc, task) < 0);
 	files_close_on_exec(prepared_files);
-	files_commit_exec(proc, prepared_files);
+	{
+		struct files_struct *old_files = task->files;
+
+		task->files = prepared_files;
+		files_put(old_files);
+	}
 	prepared_files = NULL;
 	sig_exec_commit(task, prepared_sighand);
 	prepared_sighand = NULL;
@@ -747,18 +761,7 @@ int execve(const char *path, const struct exec_args_envp *args,
 	install_exec_mm(mm, tf, entry, sp);
 	proc_mark_user_process(proc);
 	restart_clear(task);
-	rseq_execve(task);
-	/* Thread-local registrations point into the old address space: drop
-	 * them with the old mm instead of writing into released memory on a
-	 * later exit.  No wake is published for exec. */
-	{
-		irq_flags_t flags;
-
-		spin_lock_irqsave(&task->wait.lock, &flags);
-		task_set_robust_list(task, NULL, 0);
-		spin_unlock_irqrestore(&task->wait.lock, flags);
-	}
-	task_set_clear_child_tid(task, NULL);
+	task->signal.set_child_tid = NULL;
 
 	kernel_clone_complete_vfork(task);
 	proc_exec_end(proc, task);
@@ -767,9 +770,11 @@ int execve(const char *path, const struct exec_args_envp *args,
 
 abort_exec:
 	sig_exec_abort(prepared_sighand);
-	files_abort_exec(prepared_files);
+	files_put(prepared_files);
 	if (exec_started)
 		proc_exec_end(proc, task);
 	mm_put(mm);
+	if (irreversible)
+		do_exit_signal(SIGSEGV);
 	return ret;
 }

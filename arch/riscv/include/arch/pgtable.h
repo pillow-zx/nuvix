@@ -24,22 +24,28 @@ int pgtable_prepare_range(pte_t *root, uintptr_t start, uintptr_t end);
 
 void active_pgtable(uintptr_t root);
 
-__must_check pte_t *kpgtable(void);
+__must_check
+pte_t *kpgtable(void);
 
 extern atomic_isize_t pt_boot_token;
 
-__must_check uintptr_t pt_boot_token_acquire(void);
+__must_check
+uintptr_t pt_boot_token_acquire(void);
 
-__must_check bool pt_boot_token_valid(void);
+__must_check
+bool pt_boot_token_valid(void);
 
-__must_check __nonnull(1) pte_t *pt_lookup(pte_t *root, uintptr_t va);
+__must_check __nonnull(1)
+pte_t *pt_lookup(pte_t *root, uintptr_t va);
 
-__must_check __nonnull(1) int map_page(pte_t *root, uintptr_t va, uintptr_t pa,
-				       uint64_t perm);
+__must_check __nonnull(1)
+int map_page(pte_t *root, uintptr_t va, uintptr_t pa, uint64_t perm);
 
-__must_check int arch_upgd_region(vaddr_t *start, vaddr_t *end);
+__must_check
+int arch_upgd_region(vaddr_t *start, vaddr_t *end);
 
-__must_check int arch_upgd_init(pte_t *root);
+__must_check
+int arch_upgd_init(pte_t *root);
 
 #define pgprot_user(read, write, exec)                                         \
 	((pgprot_t)(PTE_V | PTE_U | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
@@ -53,19 +59,19 @@ __must_check int arch_upgd_init(pte_t *root);
 
 #define pte_present(pte) (((pte) & PTE_V) != 0)
 
-#define pte_user_page(pte)                                                     \
+#define pte_upage(pte)                                                         \
 	({                                                                     \
 		pte_t __pte_value = (pte);                                     \
 		(__pte_value & PTE_U) != 0 && PTE_TO_PA(__pte_value) != 0;     \
 	})
 
-#define pte_user_read(pte)                                                     \
+#define pte_uread(pte)                                                         \
 	(((pte) & (PTE_V | PTE_U | PTE_R)) == (PTE_V | PTE_U | PTE_R))
 
-#define pte_user_write(pte)                                                    \
+#define pte_uwrite(pte)                                                        \
 	(((pte) & (PTE_V | PTE_U | PTE_W)) == (PTE_V | PTE_U | PTE_W))
 
-#define pte_user_exec(pte)                                                     \
+#define pte_uexec(pte)                                                         \
 	(((pte) & (PTE_V | PTE_U | PTE_X)) == (PTE_V | PTE_U | PTE_X))
 
 #define pte_prot(pte) ((pgprot_t)((pte) & MASK(PTE_PPN_SHIFT)))

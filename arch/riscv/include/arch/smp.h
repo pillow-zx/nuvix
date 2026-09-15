@@ -1,6 +1,7 @@
 #ifndef _NUVIX_ARCH_RISCV_SMP_H
 #define _NUVIX_ARCH_RISCV_SMP_H
 
+#include <nuvix/types.h>
 
 struct smp_hart_status {
 	int64_t error;

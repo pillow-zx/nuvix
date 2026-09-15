@@ -7,6 +7,7 @@
 #include <nuvix/init.h>
 #include <nuvix/printk.h>
 #include <nuvix/task.h>
+#include <nuvix/proc.h>
 
 void init_process(void *arg)
 {

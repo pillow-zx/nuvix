@@ -67,9 +67,6 @@
 	X(SYS_utimensat, "utimensat", sys_utimensat)                           \
 	X(SYS_exit, "exit", sys_exit)                                          \
 	X(SYS_exit_group, "exit_group", sys_exit_group)                        \
-	X(SYS_set_tid_addr, "set_tid_addr", sys_set_tid_addr)                  \
-	X(SYS_futex, "futex", sys_futex)                                       \
-	X(SYS_set_robust_list, "set_robust_list", sys_set_robust_list)         \
 	X(SYS_nanosleep, "nanosleep", sys_nanosleep)                           \
 	X(SYS_clock_settime, "clock_settime", sys_clock_settime)               \
 	X(SYS_clock_gettime, "clock_gettime", sys_clock_gettime)               \
@@ -122,9 +119,7 @@
 	X(SYS_prlimit64, "prlimit64", sys_prlimit64)                           \
 	X(SYS_renameat2, "renameat2", sys_renameat2)                           \
 	X(SYS_getrandom, "getrandom", sys_getrandom)                           \
-	X(SYS_membarrier, "membarrier", sys_membarrier)                        \
 	X(SYS_statx, "statx", sys_statx)                                       \
-	X(SYS_rseq, "rseq", sys_rseq)                                          \
 	X(SYS_faccessat2, "faccessat2", sys_faccessat2)                        \
 	X(SYS_fchmodat2, "fchmodat2", sys_fchmodat2)
 

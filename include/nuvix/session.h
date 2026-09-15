@@ -37,7 +37,6 @@ void session_process_exit(struct task_struct *task);
  */
 void session_process_reaper(struct proc_struct *proc);
 
-void session_process_abort(struct task_struct *task);
 
 __must_check
 int session_console_acquire(int steal);

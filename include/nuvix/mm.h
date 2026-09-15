@@ -11,20 +11,9 @@
 #include <nuvix/types.h>
 #include <nuvix/fs.h>
 
-enum mm_mapping_kind {
-	MM_MAPPING_PRIVATE,
-	MM_MAPPING_SHARED_ANON,
-};
-
 struct anon_shared;
 void mm_anon_get(struct anon_shared *anon);
 void mm_anon_put(struct anon_shared *anon);
-
-struct mm_map_id {
-	enum mm_mapping_kind kind;
-	struct anon_shared *anon;
-	uint64_t pgoff;
-};
 
 /* Bounded retirement storage: clearing mappings never allocates. */
 #define MM_RELEASE_BATCH 32
@@ -38,34 +27,31 @@ struct mm_teardown {
 struct uaccess_txn {
 	struct mm_struct *mm;
 	struct mm_teardown teardown;
-	/* Debug witness of the most recent prepare: a prepared load must
-	 * fall inside it, because prepared loads cannot fault. */
-	IFDEF(CONFIG_DEBUG_CONTEXT, uintptr_t prepared_addr;)
-	IFDEF(CONFIG_DEBUG_CONTEXT, size_t prepared_size;)
+
 };
 
 /**
  * @brief Create an empty, unpublished user address space.
  *
  * The returned address space is BUILDING.  The caller must finish all
- * construction and transfer its ownership to proc_replace_mm(), which
+ * construction and transfer its ownership to task_replace_mm(), which
  * performs the publication commit.
  * @return New mm with a user page table, or NULL on allocation failure.
  */
 __must_check struct mm_struct *mm_create_user(void);
 
 /**
- * @brief Publish an address space into one Proc-owned MM slot.
+ * @brief Publish an address space into one thread-owned MM slot.
  *
  * The first publication commits a BUILDING address space as ACTIVE. Shared
- * address spaces may have more than one Proc publication. Publication is
- * performed by proc_replace_mm(); callers must hold the MM reference that
- * becomes the Proc's ownership reference.
+ * address spaces may have more than one thread publication. Publication is
+ * performed by task_replace_mm(); callers must hold the MM reference that
+ * becomes the thread's ownership reference.
  */
 __nonnull(1) void mm_publish(struct mm_struct *mm);
 
 /**
- * @brief Withdraw one Proc publication of an address space.
+ * @brief Withdraw one thread publication of an address space.
  *
  * The final withdrawal changes the address space to RETIRING. References held
  * by the scheduler or in-flight operations may keep it alive until mm_put()
@@ -99,11 +85,6 @@ CLEANUP_DEFINE(mm_ref, struct mm_struct *, if (_T) mm_put(_T));
 __must_check
 	__pure __nonnull(1) int mm_refcount_read(const struct mm_struct *mm);
 
-void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd);
-
-__must_check __pure uint32_t
-mm_membarrier_registrations(const struct mm_struct *mm);
-
 /**
  * @brief Duplicate a user address space for fork/clone.
  * @param oldmm Source address space.
@@ -123,32 +104,6 @@ __must_check struct mm_struct *dup_mm(struct mm_struct *oldmm);
  */
 __must_check uintptr_t mm_pgroot(const struct mm_struct *mm);
 
-
-/**
- * @brief Snapshot the backing identity of a user mapping.
- * @param mm Address space containing @p addr.
- * @param addr User virtual address to resolve.
- * @param identity Receives the mapping kind and, for a file mapping, a held
- *                  file reference that keeps @c mapping valid.
- * @return 0 on success, or a negative errno.
- *
- * The helper serializes the VMA lookup with @c mmap_lock. Callers must release
- * a successful file-backed result with mm_map_id_put().
- */
-__must_check __nonnull(3) int mm_map_id_get(struct mm_struct *mm,
-					    uintptr_t addr,
-					    struct mm_map_id *id);
-
-/** Resolve a mapping while the caller already holds mmap_lock. */
-__must_check __nonnull(3) int mm_map_id_get_locked(struct mm_struct *mm,
-						   uintptr_t addr,
-						   struct mm_map_id *id);
-
-/**
- * @brief Release a mapping identity acquired by mm_map_id_get().
- * @param id Mapping identity to release; may be NULL.
- */
-void mm_map_id_put(struct mm_map_id *id);
 
 __must_check int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page,
 			     int prot);
@@ -267,37 +222,6 @@ __must_check __nonnull(1, 2, 3) int uaccess_copy_to(struct uaccess_txn *txn,
 						    void *to, const void *from,
 						    size_t n);
 
-/** Conditional acquire-release update of one user u32 in @p txn. */
-__must_check __nonnull(1, 2) int uaccess_cmpxchg_u32(struct uaccess_txn *txn,
-						     volatile uint32_t *addr,
-						     uint32_t expected,
-						     uint32_t desired,
-						     uint32_t *observed);
-
-/** Fault-safe acquire load prepared for a following write in @p txn. */
-__must_check __nonnull(1, 2) int uaccess_load_u32(struct uaccess_txn *txn,
-						  const volatile uint32_t *addr,
-						  uint32_t *value);
-
-/**
- * Load a u32 whose mapping was prepared earlier in the same transaction.
- * Performs no fault handling, so it may run with spinlocks held or
- * interrupts disabled.  The transaction's mmap_lock must still be held
- * (checked via txn->mm) and @p addr must have been prepared in this
- * transaction (asserted in debug builds); ending the transaction
- * invalidates every preparation.
- *
- * The mapping cannot change between prepare and load: mmap_lock is a full
- * mutex, every PTE mutation for the address space (fault, COW replacement,
- * unmap) serializes on it, and there is no reclaim, so holding it pins the
- * prepared translation.  A load that faults anyway (contract violated)
- * recovers through the user-access exception table and returns -EFAULT
- * instead of panicking.
- */
-__must_check int uaccess_load_u32_prepared(struct uaccess_txn *txn,
-					   const volatile uint32_t *addr,
-					   uint32_t *value);
-
 /** Copy from an explicitly supplied address space in one transaction. */
 __must_check __nonnull(1, 2, 3) int uaccess_copy_from_mm(struct mm_struct *mm,
 							 void *to,
@@ -366,6 +290,6 @@ void mm_flush_remote(struct mm_struct *mm, bool flush_icache);
  * Sends a synchronous TLB shootdown IPI to all online non-self CPUs and waits
  * for their acks. Used for kernel-range (vmalloc) PTE updates.
  */
-void mm_flush_kernel_all(void);
+void mm_flush_all(void);
 
 #endif

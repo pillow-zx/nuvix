@@ -59,9 +59,6 @@
 #define SYS_exit	       93
 #define SYS_exit_group	       94
 #define SYS_waitid	       95
-#define SYS_set_tid_addr       96
-#define SYS_futex	       98
-#define SYS_set_robust_list    99
 #define SYS_nanosleep	       101
 #define SYS_getitimer	       102
 #define SYS_setitimer	       103
@@ -88,7 +85,6 @@
 #define SYS_rt_sigprocmask     135
 #define SYS_rt_sigpending      136
 #define SYS_rt_sigtimedwait    137
-#define SYS_rt_sigqueueinfo    138
 #define SYS_rt_sigreturn       139
 #define SYS_reboot	       142
 #define SYS_setgid	       144
@@ -127,9 +123,7 @@
 #define SYS_process_vm_writev  271
 #define SYS_renameat2	       276
 #define SYS_getrandom	       278
-#define SYS_membarrier	       283
 #define SYS_statx	       291
-#define SYS_rseq	       293
 #define SYS_faccessat2	       439
 #define SYS_fchmodat2	       452
 
@@ -153,8 +147,6 @@ _Static_assert(SYS_timer_settime == 110,
 _Static_assert(SYS_timer_delete == 111, "timer_delete syscall number mismatch");
 _Static_assert(SYS_waitid == 95, "waitid syscall number mismatch");
 _Static_assert(SYS_restart_syscall == 128, "restart_syscall number mismatch");
-_Static_assert(SYS_rt_sigqueueinfo == 138,
-	       "rt_sigqueueinfo syscall number mismatch");
 _Static_assert(SYS_riscv_hwprobe == 258,
 	       "riscv_hwprobe syscall number mismatch");
 _Static_assert(SYS_riscv_flush_icache == 259,

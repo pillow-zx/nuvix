@@ -12,6 +12,7 @@
 #include <nuvix/printk.h>
 #include <nuvix/signal.h>
 #include <nuvix/task.h>
+#include <nuvix/proc.h>
 #include <nuvix/page.h>
 #include <nuvix/pgtable.h>
 #include <nuvix/trap.h>
@@ -38,16 +39,16 @@ static inline bool check_vma_permission(int access, struct vm_area_struct *vma)
 __always_inline __pure
 static inline bool pte_allows_fault(int access, pte_t pte)
 {
-	if (!pte_user_page(pte))
+	if (!pte_upage(pte))
 		return false;
 
 	switch (access) {
 	case USER_FAULT_EXEC:
-		return pte_user_exec(pte);
+		return pte_uexec(pte);
 	case USER_FAULT_READ:
-		return pte_user_read(pte);
+		return pte_uread(pte);
 	case USER_FAULT_WRITE:
-		return pte_user_write(pte);
+		return pte_uwrite(pte);
 	default:
 		return false;
 	}
@@ -195,7 +196,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 				return ret;
 			}
 		}
-		if (pte && pte_user_page(*pte)) {
+		if (pte && pte_upage(*pte)) {
 			mm_replace_user_pte_locked(mm, vma, va, pte,
 				pte_make(__pa((uintptr_t)page_to_virt(page)), prot),
 				PTE_TO_PA(*pte), teardown);
@@ -260,7 +261,7 @@ __hot void do_page_fault(struct trap_frame *tf)
 	vaddr_t fault_addr = trap_fault_addr(tf);
 	const char *fault_name = trap_fault_name(tf);
 	bool from_user_mode = trap_frame_from_user(tf);
-	struct mm_struct *mm = current_task()->proc ? current_task()->proc->mm : NULL;
+	struct mm_struct *mm = current_task()->mm;
 	int access = (int)trap_fault_access(tf);
 
 	/* The trap-access and user-fault enums are compared after a naked

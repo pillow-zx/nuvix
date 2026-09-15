@@ -5,25 +5,15 @@
  * @file proc.h
  * @brief Process-owned resources, topology, and wait-visible lifecycle.
  *
- * A proc is the owner of everything that describes a POSIX process as a
- * system entity.  A task only owns execution-context state and points at its
- * proc.  The lists in this header are structural membership; references are
- * acquired explicitly when an object crosses an owner lock.
- *
- * Locking: topology membership and proc lifecycle are guarded by the
- * module-private proc_topology_lock (LOCK_RANK_TOPOLOGY, 60), acquired
- * inside session (10) / TTY (20) and before the proc wait state lock (310).
- * Lock-held sections detach objects and move references only; release every
- * acquired reference (proc/pgrp/session/task/pid) outside the lock.  The
- * two-phase wait claim (proc_wait_claim/commit/abort) hands out strong
- * parent/child references; the caller must commit or abort exactly once and
- * drop the references outside any lock. A claim keeps the old-parent
- * reference, but reparenting may change the child's current parent; abort
- * resolves that current parent for wakeup. pgrp/session snapshot events
- * (proc_orphan_event, proc_parent_event) carry their own references and are
- * released with the matching release function outside locks.
+ * Process topology and wait results are serialized by proc_topology_lock.
+ * Group signal state is embedded; only the action table can be shared.
+ * Threads own address-space, files, filesystem and credential bindings.
+ * Index membership does not own references. Snapshot events carry explicit
+ * references, released outside locks. wait consumes a result under topology
+ * protection; a failed userspace copy does not republish that result.
  */
 
+#include <nuvix/atomic.h>
 #include <nuvix/cputime.h>
 #include <nuvix/list.h>
 #include <nuvix/pid.h>
@@ -32,13 +22,19 @@
 #include <nuvix/wait.h>
 #include <nuvix/types.h>
 #include <uapi/resource.h>
+#include <uapi/signal.h>
 
-struct files_struct;
-struct fs_struct;
 struct mm_struct;
 struct pid_identity;
 struct sighand_struct;
-struct signal_struct;
+/* Embedded group signal state; never shared or separately reference counted. */
+struct signal_struct {
+	spinlock_t siglock;
+	uint64_t shared_pending;
+	siginfo_t shared_pending_info[NSIG + 1];
+	bool group_stopped;
+	int group_stop_sig;
+};
 struct task_struct;
 struct tty_endpoint;
 
@@ -61,36 +57,18 @@ enum proc_wait_event {
 
 /**
  * @struct proc_wait_state
- * @brief Persistent process events consumed by wait4 in two phases.
- *
- * Exit is a durable event. Stop and continue are edge events latched until a
- * successful wait claim is committed. No heap event record is used, so a
- * failed userspace copy can only release a claim and cannot lose an event.
+ * @brief Persistent process events consumed under topology protection.
+ * Stop and continue latch until consumed; exit remains until reaping.
  */
 struct proc_wait_state {
-	spinlock_t lock;
 	struct wait_channel channel;
-	uint64_t generation;
-	uint64_t exit_generation;
-	uint64_t stop_generation;
-	uint64_t continue_generation;
-	uint64_t claimed_exit_generation;
-	uint64_t claimed_stop_generation;
-	uint64_t claimed_continue_generation;
 	uint32_t pending;
 	int exit_status;
 	int stop_status;
 	int continue_status;
 	int exit_signal;
-	pid_t creator_tid;
+	uint64_t creator_id;
 	uid_t exit_uid;
-};
-
-struct proc_vfork_state {
-	spinlock_t lock;
-	struct wait_channel channel;
-	bool active;
-	bool completed;
 };
 
 /**
@@ -104,6 +82,7 @@ struct pgrp_struct {
 	struct session_struct *session;
 	struct list_head members;
 	struct list_head session_node;
+	struct list_head orphan_node;
 	bool orphaned;
 };
 
@@ -121,7 +100,7 @@ struct session_struct {
 
 /**
  * @struct proc_struct
- * @brief Process object and the sole owner of process-wide state.
+ * @brief Thread-group object, topology, and shared control state.
  */
 struct proc_struct {
 	refcount_t refs;
@@ -130,17 +109,19 @@ struct proc_struct {
 	enum proc_lifecycle lifecycle;
 	bool published;
 
-	struct mm_struct *mm;
-	struct files_struct *files;
-	struct fs_struct *fs;
 	struct sighand_struct *sighand;
-	struct signal_struct *signal;
+	struct signal_struct signal;
 	struct rlimit64 rlimits[RLIM_NLIMITS];
 
 	struct list_head tasks;
 	uint32_t nr_tasks;
 	struct task_struct *leader;
 	bool job_stopped;
+	/* Odd = requested stop; even = continued. Published by the signal owner
+	 * under siglock but re-read under proc_topology_lock, so the value is
+	 * release/acquire paired across the two locks rather than protected by
+	 * either one alone. */
+	atomic64_t stop_sequence;
 
 	struct proc_struct *parent;
 	struct list_head children;
@@ -149,7 +130,6 @@ struct proc_struct {
 	struct list_head pgrp_node;
 
 	struct proc_wait_state wait_state;
-	struct proc_vfork_state vfork;
 	struct wait_channel exec_channel;
 	struct task_struct *exec_owner;
 	struct task_cputime cputime;
@@ -214,25 +194,6 @@ int proc_clone_rlimits(struct proc_struct *proc, struct proc_struct *source);
 
 void proc_release_resources(struct proc_struct *proc);
 
-/**
- * Replace the Proc-owned address space and return its previous reference.
- *
- * The incoming reference is transferred to the Proc.  This is the sole MM
- * publication boundary: a BUILDING MM becomes ACTIVE here, and the old
- * publication is withdrawn after the new pointer is visible.
- */
-struct mm_struct *proc_replace_mm(struct proc_struct *proc,
-				  struct mm_struct *mm);
-
-/** Take a stable reference to the proc-owned address space, if any. */
-struct mm_struct *proc_mm_get(struct proc_struct *proc);
-
-struct files_struct *proc_replace_files(struct proc_struct *proc,
-					struct files_struct *files);
-
-struct fs_struct *proc_replace_fs(struct proc_struct *proc,
-				  struct fs_struct *fs);
-
 int proc_publish(struct proc_struct *proc);
 
 int proc_publish_with_task(struct proc_struct *proc, struct task_struct *task);
@@ -252,9 +213,6 @@ void proc_cputime_snapshot(struct proc_struct *proc,
 /** Task membership and process topology. */
 int proc_attach_task(struct proc_struct *proc, struct task_struct *task,
 		     bool leader);
-
-bool proc_is_last_task(const struct proc_struct *proc,
-		       const struct task_struct *task);
 
 bool proc_detach_task(struct proc_struct *proc, struct task_struct *task);
 
@@ -283,6 +241,8 @@ struct proc_orphan_event {
 };
 
 void proc_orphan_event_release(struct proc_orphan_event *event);
+bool proc_orphan_pop(struct proc_orphan_event *event);
+void proc_record_thread_exit(struct task_struct *task, int status);
 
 /** Parent notification snapshot held until proc_parent_event_release(). */
 struct proc_parent_event {
@@ -324,6 +284,10 @@ typedef void (*proc_task_callback_t)(struct task_struct *task, void *arg);
 
 void proc_for_each_task(struct proc_struct *proc, proc_task_callback_t callback,
 			void *arg);
+/* Referenced, bounded batches; callback runs outside topology locks.
+ * Caller must close creation before requesting a group-wide transition. */
+void proc_notify_tasks(struct proc_struct *proc, proc_task_callback_t callback,
+		       void *arg);
 
 size_t proc_pgrp_task_snapshot(struct pgrp_struct *pgrp,
 			       struct session_struct *session,
@@ -335,7 +299,7 @@ bool proc_begin_group_exit(struct proc_struct *proc, int status);
 __must_check bool proc_group_exit_pending(const struct proc_struct *proc,
 					  int *status);
 
-void proc_publish_stop(struct proc_struct *proc, int sig,
+void proc_publish_stop(struct proc_struct *proc, int sig, uint64_t sequence,
 		       struct proc_parent_event *event);
 
 void proc_publish_continue(struct proc_struct *proc,
@@ -380,35 +344,25 @@ enum proc_wait_child_class {
 struct proc_wait_selector {
 	pid_t pid;
 	pid_t pgid;
-	pid_t creator_tid;
+	uint64_t creator_id;
 	enum proc_wait_child_class child_class;
 	bool creator_only;
 };
 
-struct proc_wait_claim {
-	struct proc_struct *parent;
-	struct proc_struct *child;
-	uint64_t generation;
+struct proc_wait_info {
+	struct task_cputime cputime;
+	pid_t pid;
+	uid_t uid;
 	uint32_t event;
 	int status;
-	/** Heap snapshot of orphan events, allocated by the syscall layer. */
-	struct proc_orphan_event *orphan_events;
-	size_t orphan_capacity;
-	size_t orphan_count;
 };
 
-enum proc_wait_result proc_wait_claim(struct proc_struct *parent,
-				      const struct proc_wait_selector *selector,
-				      uint32_t event_mask,
-				      struct proc_wait_claim *claim);
-
+enum proc_wait_result proc_wait_take(struct proc_struct *parent,
+	const struct proc_wait_selector *selector, uint32_t events,
+	bool consume, struct proc_wait_info *info);
 int proc_wait_watch(struct proc_struct *parent,
-		    const struct proc_wait_selector *selector,
-		    uint32_t event_mask, struct task_wait *wait);
-
-bool proc_wait_commit(struct proc_wait_claim *claim);
-
-void proc_wait_abort(struct proc_wait_claim *claim);
+	const struct proc_wait_selector *selector, uint32_t events,
+	struct task_wait *wait);
 
 /** Process-group/session topology. */
 int proc_join_pgrp(struct proc_struct *proc, pid_t pgid,

@@ -1,5 +1,7 @@
 
 #include <nuvix/sched.h>
+#include <nuvix/mm.h>
+#include <nuvix/pgtable.h>
 #include <nuvix/task.h>
 #include <nuvix/tools.h>
 #include <uapi/sched.h>
@@ -32,6 +34,7 @@ void task_setup_clone_frame(struct task_struct *child,
 	struct trap_frame *child_tf = task_kernel_tf(child);
 
 	trap_clone_frame(child_tf, parent_tf);
+	child->arch.fpu = current_task()->arch.fpu;
 	trap_set_clone_return(child_tf);
 	if (child_stack != 0)
 		trap_set_user_sp(child_tf, child_stack);
@@ -45,9 +48,9 @@ void task_setup_clone_frame(struct task_struct *child,
 
 struct task_struct *arch_task_switch(struct task_struct *prev,
 				     struct task_struct *next,
-				     uintptr_t next_pgroot)
+				     struct mm_struct *mm)
 {
-	return switch_to(&prev->arch.ctx, &next->arch.ctx, next_pgroot, prev);
+	return switch_to(&prev->arch.ctx, &next->arch.ctx, mm ? mm_pgroot(mm) : kpgroot, prev);
 }
 
 bool task_trap_frome_user(const struct task_struct *task)
@@ -55,4 +58,9 @@ bool task_trap_frome_user(const struct task_struct *task)
 	const struct trap_frame *tf = task->arch.tf;
 
 	return tf && trap_frame_from_user(tf);
+}
+
+void activate_mm(struct mm_struct *mm)
+{
+	active_pgtable(mm ? mm_pgroot(mm) : kpgroot);
 }

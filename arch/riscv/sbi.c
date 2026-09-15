@@ -130,9 +130,9 @@ const char *sbi_hsm_status_name(uint64_t value)
 	}
 }
 
-void system_reset(enum system_reset_mode mode)
+void system_reset(enum reset_mode mode)
 {
-	uint32_t type = mode == ARCH_SYSTEM_RESET_RESTART
+	uint32_t type = mode == RESET_RESTART
 				? SBI_RESET_TYPE_COLD_REBOOT
 				: SBI_RESET_TYPE_SHUTDOWN;
 	struct sbi_ret ret;

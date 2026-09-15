@@ -7,6 +7,7 @@
 #include <nuvix/exit.h>
 #include <nuvix/session.h>
 #include <nuvix/task.h>
+#include <nuvix/proc.h>
 #include <nuvix/trap.h>
 
 ssize_t sys_getpid(struct trap_frame *tf)

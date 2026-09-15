@@ -3,9 +3,9 @@
 ARCH_OBJS = \
 	arch/riscv/boot.o              \
 	arch/riscv/entry.o             \
-	arch/riscv/uaccess.o           \
 	arch/riscv/uaccess_fixup.o     \
 	arch/riscv/switch.o            \
+	arch/riscv/fpu.o               \
 	arch/riscv/trap.o              \
 	arch/riscv/task.o              \
 	arch/riscv/timer.o             \
@@ -38,7 +38,6 @@ KERNEL_OBJS = \
 	kernel/printk.o         \
 	kernel/smp.o            \
 	kernel/ipi.o            \
-	kernel/membarrier.o     \
 	kernel/stacktrace.o     \
 	kernel/mutex.o          \
 	kernel/rwlock.o         \
@@ -46,8 +45,6 @@ KERNEL_OBJS = \
 	kernel/task.o           \
 	kernel/proc.o           \
 	kernel/fork.o           \
-	kernel/futex.o          \
-	kernel/rseq.o           \
 	kernel/random.o         \
 	kernel/reboot.o         \
 	kernel/user_return.o    \
@@ -64,8 +61,7 @@ KERNEL_OBJS = \
 	kernel/init_process.o
 
 SCHED_OBJS = \
-	sched/sched.o \
-	sched/rr.o
+	sched/sched.o
 
 MM_OBJS = \
 	mm/buddy.o      \
@@ -126,12 +122,9 @@ SYSCALL_OBJS = \
 	syscall/sys_exec.o         \
 	syscall/sys_mm.o           \
 	syscall/sys_signal.o       \
-	syscall/sys_futex.o        \
 	syscall/sys_log.o          \
-	syscall/sys_membarrier.o   \
 	syscall/sys_misc.o         \
 	syscall/sys_sched.o        \
-	syscall/sys_rseq.o         \
 	syscall/sys_time.o
 
 LIB_OBJS = \

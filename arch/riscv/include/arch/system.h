@@ -3,13 +3,13 @@
 
 #include <nuvix/compiler.h>
 
-enum system_reset_mode {
-	ARCH_SYSTEM_RESET_RESTART,
-	ARCH_SYSTEM_RESET_HALT,
-	ARCH_SYSTEM_RESET_POWER_OFF,
+enum reset_mode {
+	RESET_RESTART,
+	RESET_HALT,
+	RESET_POWEROFF,
 };
 
 __noreturn
-void system_reset(enum system_reset_mode mode);
+void system_reset(enum reset_mode mode);
 
 #endif

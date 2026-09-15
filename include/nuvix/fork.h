@@ -11,6 +11,13 @@
 
 struct trap_frame;
 
+struct vfork_completion {
+	refcount_t refs;
+	spinlock_t lock;
+	struct wait_channel channel;
+	bool completed;
+};
+
 /**
  * @struct kernel_clone
  * @brief Prepared clone operation staged between allocation and publication.
@@ -34,13 +41,13 @@ struct kernel_clone {
  * @param flags Linux clone flags.
  * @param child_stack Optional userspace child stack pointer.
  * @param tls Optional TLS value.
- * @param clear_child_tid Optional userspace futex clear address.
+ * @param child_tid Optional userspace child TID output address.
  * @param clone Output staging object.
  * @return 0 on success, or a negative errno.
  */
 int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 			 uintptr_t child_stack, uintptr_t tls,
-			 int *clear_child_tid, struct kernel_clone *clone);
+			 int *child_tid, struct kernel_clone *clone);
 
 /**
  * @brief Publish a prepared clone as runnable.

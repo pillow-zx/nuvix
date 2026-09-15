@@ -1,25 +1,24 @@
 #ifndef _NUVIX_ASM_CSR_H
 #define _NUVIX_ASM_CSR_H
 
-
 #include <nuvix/types.h>
 #include <nuvix/bitops.h>
 
-#define SSTATUS_SPP  BIT(8)
-#define SSTATUS_SPIE BIT(5)
-#define SSTATUS_SIE  BIT(1)
+#define SSTATUS_SPP	 BIT(8)
+#define SSTATUS_SPIE	 BIT(5)
+#define SSTATUS_SIE	 BIT(1)
 #define SSTATUS_FS_SHIFT 13
-#define SSTATUS_FS_MASK  (3UL << SSTATUS_FS_SHIFT)
-#define SSTATUS_SUM  BIT(18)
+#define SSTATUS_FS_MASK	 (3UL << SSTATUS_FS_SHIFT)
+#define SSTATUS_SUM	 BIT(18)
 
-#define SIE_SSIE BIT(1)
-#define SIP_SSIP BIT(1)
-#define SIE_STIE BIT(5)
-#define SIE_SEIE BIT(9)
+#define SIE_SSIE        BIT(1)
+#define SIP_SSIP        BIT(1)
+#define SIE_STIE        BIT(5)
+#define SIE_SEIE        BIT(9)
 
-#define SATP_MODE_SV39 (8UL << 60)
-#define SATP_PPN_BITS  44
-#define SATP_PPN_MASK  MASK(SATP_PPN_BITS)
+#define SATP_MODE_SV39  (8UL << 60)
+#define SATP_PPN_BITS   44
+#define SATP_PPN_MASK   MASK(SATP_PPN_BITS)
 
 #define csr_read(csr)                                                          \
 	({                                                                     \

@@ -4,24 +4,24 @@
 
 #include <nuvix/types.h>
 
-#define SBI_EID_BASE		0x10
-#define SBI_EID_HSM		0x48534D
-#define SBI_EID_IPI		0x735049
-#define SBI_EID_TIME		0x54494D45
-#define SBI_EID_RFNC		0x52464E43
+#define SBI_EID_BASE			0x10
+#define SBI_EID_HSM			0x48534D
+#define SBI_EID_IPI			0x735049
+#define SBI_EID_TIME			0x54494D45
+#define SBI_EID_RFNC			0x52464E43
 
-#define SBI_FID_BASE_SPEC_VERSION 0
-#define SBI_FID_BASE_PROBE_EXT	3
-#define SBI_FID_HSM_HART_START	0
-#define SBI_FID_HSM_HART_GET_STATUS 2
-#define SBI_FID_IPI_SEND	0
+#define SBI_FID_BASE_SPEC_VERSION	0
+#define SBI_FID_BASE_PROBE_EXT		3
+#define SBI_FID_HSM_HART_START		0
+#define SBI_FID_HSM_HART_GET_STATUS	2
+#define SBI_FID_IPI_SEND		0
 
-#define SBI_HSM_STARTED	      0
-#define SBI_HSM_STOPPED	      1
-#define SBI_HSM_START_PENDING 2
-#define SBI_HSM_STOP_PENDING  3
-#define SBI_HSM_SUSPENDED     4
-#define SBI_HSM_RESUME_PENDING 5
+#define SBI_HSM_STARTED			0
+#define SBI_HSM_STOPPED			1
+#define SBI_HSM_START_PENDING		2
+#define SBI_HSM_STOP_PENDING		3
+#define SBI_HSM_SUSPENDED		4
+#define SBI_HSM_RESUME_PENDING		5
 
 struct sbi_ret {
 	int64_t error;

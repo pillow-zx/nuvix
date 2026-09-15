@@ -2,6 +2,7 @@
 #include <asm/asm_offsets.h>
 
 	.section .text.entry
+	.option arch, +f, +d
 	.globl switch_to
 	.globl active_pgtable  
 	.align 4

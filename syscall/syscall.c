@@ -4,13 +4,11 @@
 
 #include <nuvix/syscall.h>
 #include <nuvix/errno.h>
-#include <nuvix/futex.h>
 #include <nuvix/printk.h>
 #include <nuvix/signal.h>
 #include <nuvix/syscall_table.h>
 #include <nuvix/task.h>
 #include <nuvix/trap.h>
-#include <uapi/futex.h>
 #include <uapi/syscall.h>
 
 typedef ssize_t (*syscall_fn_t)(struct trap_frame *);
@@ -42,7 +40,6 @@ void do_syscall(struct trap_frame *tf)
 
 void syscall_init(void)
 {
-	futex_init();
 
 #define INSTALL_SYSCALL(nr, name, fn) syscall_table[nr] = fn;
 	SYSCALL_TABLE(INSTALL_SYSCALL)

@@ -4,7 +4,6 @@
 
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
-#include <nuvix/futex.h>
 #include <nuvix/fs.h>
 #include <nuvix/fs_struct.h>
 #include <nuvix/mm.h>
@@ -125,12 +124,6 @@ ssize_t sys_uname(struct trap_frame *tf)
 	return 0;
 }
 
-ssize_t sys_set_tid_addr(struct trap_frame *tf)
-{
-	task_set_clear_child_tid(current_task(), (int *)syscall_arg(tf, 0));
-	return current_task()->tid ? (ssize_t)current_task()->tid->nr : 0;
-}
-
 /*
  * SYSCALL_SUPPORT(B): setuid
  * Current: root may set any uid; non-root may only set its current uid.
@@ -228,7 +221,7 @@ ssize_t sys_umask(struct trap_frame *tf)
 	uint32_t mask = (uint32_t)syscall_arg(tf, 0) & 0777;
 
 	return fs_set_umask(
-		current_task()->proc ? current_task()->proc->fs : NULL, mask);
+		current_task()->fs, mask);
 }
 
 /*

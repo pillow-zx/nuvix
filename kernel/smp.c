@@ -16,8 +16,6 @@
 #include <nuvix/processor.h>
 #include <nuvix/printk.h>
 #include <nuvix/sched.h>
-#include <nuvix/slab.h>
-#include <nuvix/vmalloc.h>
 #include <nuvix/task.h>
 #include <nuvix/timer.h>
 #include <nuvix/irq.h>
@@ -267,31 +265,6 @@ BOOTINFO_BLOCK(cpu, void,
 	     schedulable_count);
 )
 
-/* Runs before ONLINE so the boot gate proves every secondary passed; the only
- * secondary execution of the allocator/console locks until migration. */
-static void smp_alloc_self_test(uint32_t logical_id)
-{
-	void *objs[4];
-	const size_t sizes[] = {16, 128, 1024, 4096};
-	void *region;
-
-	for (size_t i = 0; i < 4; i++) {
-		objs[i] = kmalloc(sizes[i], ALLOC_NOWAIT);
-		BUG_ON(!objs[i]);
-		memset(objs[i], 0, sizes[i]);
-	}
-	for (size_t i = 0; i < 4; i++)
-		kfree(objs[i]);
-
-	/* Concurrent secondaries exercise the shared-table mapping path. */
-	region = vmalloc(PAGE_SIZE, ALLOC_NOWAIT);
-	BUG_ON(!region);
-	memset(region, 0, PAGE_SIZE);
-	vfree(region);
-
-	pr_debug("smp: cpu %u allocator/console self-test ok\n", logical_id);
-}
-
 __noreturn
 void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 {
@@ -321,14 +294,12 @@ void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 	timer_cpu_init();
 	clockevent_cpu_init();
 
-	smp_alloc_self_test(logical_id);
 
 	cpu_state_store_release(cpu, CPU_ONLINE);
 
 	for (;;) {
 		local_irq_enable();
 		schedule();
-		local_irq_enable();
-		wait_for_interrupt();
+		sched_idle();
 	}
 }

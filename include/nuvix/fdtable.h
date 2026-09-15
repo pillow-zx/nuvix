@@ -28,8 +28,6 @@ struct files_struct {
 	struct file *fd[NR_OPEN];
 };
 
-struct proc_struct;
-
 /**
  * @brief Allocate an anonymous file object.
  * @param f_op Operations for the file.
@@ -72,22 +70,6 @@ void files_get(struct files_struct *files);
 void files_put(struct files_struct *files);
 void files_install_standard_fds(struct files_struct *files);
 void files_close_on_exec(struct files_struct *files);
-
-/**
- * @brief Prepare a private fdtable for an exec transaction.
- * @param proc Proc replacing its image.
- * @param prepared Receives the uncommitted fdtable.
- * @return 0, or a negative errno.
- *
- * The current proc fdtable is not modified.  The caller must either commit or
- * abort the returned table.
- */
-__must_check
-int files_prepare_exec(const struct proc_struct *proc,
-			       struct files_struct **prepared);
-void files_commit_exec(struct proc_struct *proc,
-			       struct files_struct *prepared);
-void files_abort_exec(struct files_struct *prepared);
 
 /**
  * @brief Install a referenced file in the lowest free fd slot.
@@ -133,14 +115,6 @@ int fd_dup_from(int oldfd, unsigned long minfd, int cloexec);
 
 __must_check
 int fd_dup2(int oldfd, int newfd, int cloexec);
-
-__must_check
-int init_files(struct proc_struct *proc);
-__must_check
-int copy_files(const struct proc_struct *source, struct proc_struct *dest,
-		       bool share);
-
-void close_files(struct proc_struct *proc);
 
 CLEANUP_DEFINE(file, struct file *, if (_T) file_put(_T));
 #endif

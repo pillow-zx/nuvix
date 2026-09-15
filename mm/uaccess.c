@@ -6,8 +6,8 @@
 #include <nuvix/math.h>
 #include <nuvix/errno.h>
 #include <nuvix/string.h>
-#include <nuvix/proc.h>
 #include <nuvix/task.h>
+#include <nuvix/proc.h>
 #include <nuvix/page.h>
 #include <nuvix/uaccess_arch.h>
 
@@ -36,7 +36,7 @@ int user_range_probe(const void *addr, size_t size, bool write)
 		return 0;
 	if (!access_ok(addr, size))
 		return -EFAULT;
-	mm = task->proc ? task->proc->mm : NULL;
+	mm = task->mm;
 	if (!mm)
 		return -EFAULT;
 
@@ -67,10 +67,8 @@ static int uaccess_begin_current(struct uaccess_txn *txn)
 	if (!task || !task->proc)
 		return -EFAULT;
 
-	/* The reference is taken under the proc lock only; mmap_lock is
-	 * acquired after it is dropped.  Every later access in this
-	 * transaction uses txn->mm, never current_task()->proc->mm. */
-	mm = proc_mm_get(task->proc);
+	/* Keep the address space alive across the whole access. */
+	mm = task_mm_get(task);
 	if (!mm)
 		return -EFAULT;
 
@@ -112,8 +110,8 @@ static int uaccess_copy(struct uaccess_txn *txn, void *to, const void *from,
 		/* This is the uaccess boundary: translation and permission remain
 		 * stable through this page's copy, including a non-current mm. */
 		pte = pt_lookup(txn->mm->pgd, uaddr);
-		if (!pte || (to_user ? !pte_user_write(*pte) :
-				      !pte_user_read(*pte)))
+		if (!pte || (to_user ? !pte_uwrite(*pte) :
+				      !pte_uread(*pte)))
 			return -EFAULT;
 		data = (uint8_t *)__va(PTE_TO_PA(*pte)) + offset;
 		if (to_user) {
@@ -163,94 +161,6 @@ int uaccess_copy_from_mm(struct mm_struct *mm, void *to, const void *from,
 	ret = uaccess_copy_from(&txn, to, from, n);
 	uaccess_end(&txn);
 	return ret;
-}
-
-/* Shared validity guard for the u32 access helpers in this file. */
-__always_inline __must_check
-static inline int uaccess_u32_valid(struct uaccess_txn *txn,
-				    const volatile void *addr)
-{
-	if (!txn || !txn->mm)
-		return -EFAULT;
-	if (((uintptr_t)addr & (sizeof(uint32_t) - 1)) != 0)
-		return -EINVAL;
-	return 0;
-}
-
-/* Record @addr as faulted in for @txn so later prepared loads can be
- * debug-checked against it. */
-__always_inline
-static inline void uaccess_u32_set_prepared(struct uaccess_txn *txn,
-					    const volatile void *addr)
-{
-	IFDEF(CONFIG_DEBUG_CONTEXT,
-	      txn->prepared_addr = (uintptr_t)addr;
-	      txn->prepared_size = sizeof(uint32_t);)
-	IFNDEF(CONFIG_DEBUG_CONTEXT, (void)txn; (void)addr;)
-}
-
-static int uaccess_prepare_u32(struct uaccess_txn *txn,
-			       const volatile void *addr)
-{
-	int ret;
-
-	ret = uaccess_u32_valid(txn, addr);
-	if (ret < 0)
-		return ret;
-	ret = fault_in_user_range_locked(txn->mm, (uintptr_t)addr,
-					  sizeof(uint32_t), USER_FAULT_WRITE,
-					  &txn->teardown);
-	if (ret == 0)
-		uaccess_u32_set_prepared(txn, addr);
-	return ret;
-}
-
-int uaccess_cmpxchg_u32(struct uaccess_txn *txn, volatile uint32_t *addr,
-			uint32_t expected, uint32_t desired, uint32_t *observed)
-{
-	int ret;
-
-	if (!observed)
-		return -EFAULT;
-	ret = uaccess_prepare_u32(txn, addr);
-	if (ret < 0)
-		return ret;
-	return user_u32_cmpxchg_acq_rel(addr, expected, desired, observed);
-}
-
-int uaccess_load_u32(struct uaccess_txn *txn, const volatile uint32_t *addr,
-		     uint32_t *value)
-{
-	int ret;
-
-	if (!value)
-		return -EFAULT;
-	ret = uaccess_prepare_u32(txn, addr);
-	if (ret < 0)
-		return ret;
-	return user_u32_load_acquire(addr, value);
-}
-
-int uaccess_load_u32_prepared(struct uaccess_txn *txn,
-			      const volatile uint32_t *addr,
-			      uint32_t *value)
-{
-	int ret;
-
-	if (!value)
-		return -EFAULT;
-	ret = uaccess_u32_valid(txn, addr);
-	if (ret < 0)
-		return ret;
-	/* No fault handling: this load is safe only while the transaction's
-	 * mmap_lock is still held (txn->mm non-NULL) and the address was
-	 * prepared earlier in this transaction.  Debug builds enforce the
-	 * prepared range; uaccess_end() invalidates the preparation. */
-	IFDEF(CONFIG_DEBUG_CONTEXT,
-	      BUG_ON((uintptr_t)addr < txn->prepared_addr ||
-		     (uintptr_t)addr + sizeof(uint32_t) >
-			     txn->prepared_addr + txn->prepared_size);)
-	return user_u32_load_acquire(addr, value);
 }
 
 size_t copy_to_user(void *to, const void *from, size_t n)

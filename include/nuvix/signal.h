@@ -95,7 +95,7 @@ int sig_task_init(struct task_struct *task);
 
 /**
  * Close task-directed signal admission and enter TASK_EXITING atomically.
- * The signal-enabled path takes siglock before task->wait.lock; callers do
+ * The signal-enabled path takes siglock before task->lock; callers do
  * not take either lock around this seam.
  */
 __must_check __access_no_size(read_write, 1)

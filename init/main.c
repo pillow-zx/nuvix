@@ -114,7 +114,6 @@ void kernel_main(uint64_t hartid)
 	while (true) {
 		local_irq_enable();
 		schedule();
-		local_irq_enable();
-		wait_for_interrupt();
+		sched_idle();
 	}
 }

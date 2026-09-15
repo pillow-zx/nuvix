@@ -15,12 +15,7 @@
 #define IPI_RESCHEDULE BIT(0)
 #define IPI_SHOOTDOWN  BIT(1)
 #define IPI_FENCE_I    BIT(2)
-#define IPI_MEMBARRIER BIT(3)
-#define IPI_SYNC_CORE  BIT(4)
-#define IPI_RSEQ       BIT(5)
-#define IPI_REASON_MASK                                                       \
-	(IPI_RESCHEDULE | IPI_SHOOTDOWN | IPI_FENCE_I | IPI_MEMBARRIER |      \
-	 IPI_SYNC_CORE | IPI_RSEQ)
+#define IPI_REASON_MASK (IPI_RESCHEDULE | IPI_SHOOTDOWN | IPI_FENCE_I)
 
 /*
  * Deliver one or more reasons to an online, non-self CPU. The scheduler uses

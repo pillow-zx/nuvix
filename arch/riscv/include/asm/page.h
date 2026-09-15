@@ -1,7 +1,6 @@
 #ifndef _NUVIX_ASM_PAGE_H
 #define _NUVIX_ASM_PAGE_H
 
-
 #include <arch/config.h>
 #include <nuvix/types.h>
 

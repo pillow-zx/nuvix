@@ -51,8 +51,7 @@ static const size_t cache_sizes[NR_CACHES] = {16,  32,	64,   128,
 					      256, 512, 1024, 2048};
 
 static struct kmem_cache caches[NR_CACHES];
-static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC_SLAB,
-			   LOCK_IRQ_TASK_ONLY);
+static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC_SLAB, LOCK_IRQ_TASK_ONLY);
 
 __always_inline __must_check __pure
 static inline int find_cache(size_t size)
@@ -197,10 +196,9 @@ void slab_init(void)
 }
 
 BOOTINFO_BLOCK(slab, void,
-	BROW("Slab Caches", "%u (%u..%u B)", NR_CACHES,
-	     (unsigned)cache_sizes[0],
-	     (unsigned)cache_sizes[NR_CACHES - 1]);
-)
+	       BROW("Slab Caches", "%u (%u..%u B)", NR_CACHES,
+		    (unsigned)cache_sizes[0],
+		    (unsigned)cache_sizes[NR_CACHES - 1]);)
 
 __hot
 void *kmalloc(size_t size, enum alloc_mode mode)

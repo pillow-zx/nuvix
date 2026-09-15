@@ -191,5 +191,6 @@ __trapret:
 	sret
 
 trapret_to_user:
+	call    trap_prepare_return
 	mv      sp, a0
 	j       __trapret

@@ -8,6 +8,7 @@
 #include <nuvix/slab.h>
 #include <nuvix/string.h>
 #include <nuvix/wait.h>
+#include <nuvix/sched.h>
 
 #include "internal.h"
 
@@ -182,7 +183,6 @@ struct mm_struct *mm_alloc(void)
 	refcount_set(&mm->refcount, 1);
 	atomic64_set_relaxed(&mm->lifecycle,
 			     mm_lifecycle_pack(MM_LIFECYCLE_BUILDING, 0));
-	atomic_set_relaxed(&mm->membarrier_registrations, 0);
 	INIT_LIST_HEAD(&mm->vma_spares);
 	mutex_init_semantic(&mm->mmap_lock, LOCK_RANK_MM_MMAP,
 			    SLEEP_RANK_MM_MMAP, LOCK_IRQ_TASK_ONLY);
@@ -289,6 +289,7 @@ void mm_put(struct mm_struct *mm)
 		spin_lock_irqsave(&mm_retired_lock, &flags);
 		list_add_tail(&mm->retirement, &mm_retired);
 		spin_unlock_irqrestore(&mm_retired_lock, flags);
+		sched_notify_reaper();
 	}
 }
 
@@ -297,27 +298,14 @@ int mm_refcount_read(const struct mm_struct *mm)
 	return refcount_read(&mm->refcount);
 }
 
-void mm_membarrier_register(struct mm_struct *mm, uint32_t cmd)
-{
-	BUG_ON(!mm);
-	atomic_fetch_or_order(&mm->membarrier_registrations, (int32_t)cmd,
-			      ATOMIC_ORDER_RELEASE);
-}
-
-uint32_t mm_membarrier_registrations(const struct mm_struct *mm)
-{
-	BUG_ON(!mm);
-	return (uint32_t)atomic_read_acquire(&mm->membarrier_registrations);
-}
-
 uintptr_t mm_pgroot(const struct mm_struct *mm)
 {
 	BUG_ON(!mm || !mm->pgd);
 	return pt_token(mm->pgd);
 }
 
-__must_check __nonnull(1) int mm_map_user_pte_like(pte_t *root, uintptr_t va,
-						   paddr_t pa, pte_t old_entry)
+__must_check __nonnull(1)
+int mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa, pte_t old_entry)
 {
 	pgprot_t perm = pte_prot(old_entry);
 	int ret;
@@ -359,9 +347,6 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 	newmm->brk = oldmm->brk;
 	newmm->code_start = oldmm->code_start;
 	newmm->code_end = oldmm->code_end;
-	atomic_set_relaxed(
-		&newmm->membarrier_registrations,
-		atomic_read_relaxed(&oldmm->membarrier_registrations));
 	for_each_vma(vma, oldmm)
 	{
 		struct vm_area_struct *copy = vma_alloc_slot(newmm);
@@ -388,7 +373,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 		     va += PAGE_SIZE) {
 			pte_t *pte = pt_lookup(oldmm->pgd, va);
 
-			if (!pte || !pte_user_page(*pte))
+			if (!pte || !pte_upage(*pte))
 				continue;
 			if (mm_map_user_pte_like(newmm->pgd, va,
 						 PTE_TO_PA(*pte), *pte) < 0)
@@ -402,8 +387,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 	/* Logical slots own the child's contents. Child translations are
 	 * demand populated, so fork needs no child leaf/page-table copies.
 	 * No fallible operation follows the parent's COW transition. */
-	for_each_vma(vma, oldmm)
-	{
+	for_each_vma (vma, oldmm) {
 		if (vma->vm_shared)
 			continue;
 		for (uintptr_t va = vma->vm_start; va < vma->vm_end;
@@ -411,7 +395,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 			pte_t *pte = pt_lookup(oldmm->pgd, va);
 			pte_t entry;
 
-			if (!pte || !pte_user_page(*pte))
+			if (!pte || !pte_upage(*pte))
 				continue;
 			entry = mm_private_child_pte(*pte);
 			if (entry != *pte) {
@@ -459,7 +443,8 @@ static void mm_finish_retirement(struct mm_struct *mm)
 	kfree(mm);
 }
 
-__cold void mm_destroy(struct mm_struct *mm)
+__cold
+void mm_destroy(struct mm_struct *mm)
 {
 	if (!mm)
 		return;

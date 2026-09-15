@@ -27,7 +27,7 @@ void mm_flush_remote(struct mm_struct *mm, bool flush_icache)
 	}
 }
 
-void mm_flush_kernel_all(void)
+void mm_flush_all(void)
 {
 	uint32_t self_id = current_cpu()->id;
 	uint64_t online = cpu_online_mask();

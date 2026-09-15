@@ -6,31 +6,26 @@
  * @brief The schedulable execution-context object.
  *
  * `task_struct` is deliberately not a process object.  Process identity,
- * shared resources, parentage, and process wait state live in `proc_struct`;
- * this object owns only task lifecycle, run state, architecture context,
- * task-local signal state, credentials, and accounting.
+ * parentage, and process wait state live in `proc_struct`. This object owns
+ * execution state, task-local signals, credentials, accounting, and its
+ * independently shareable file-table and filesystem-context references.
  *
- * Locking and lifetime: lifecycle transitions run under the task's own
- * wait lock (LOCK_RANK_WAIT, 310), except signal-enabled exit admission uses
- * the signal subsystem's siglock -> wait.lock transaction; run state, on_rq,
- * and CPU assignment are scheduler-owned.  task_get()/task_put() are plain
- * refcount operations, but
- * a final put destroys storage (kernel stack, TID role): never call
- * task_put() while holding any lock.  task_try_get_live() pairs a refcount
- * acquire with a wait-lock lifecycle read (pid lock 20 before wait lock 40).
- * task_reap_unpublish() is reserved for the independent reaper.
+ * Process code owns lifecycle and bindings under task->lock; the home
+ * runqueue owns execution state and placement. Signal admission nests the
+ * group signal lock before task->lock. Wait registrations are current-only.
+ * Publication holds the execution root until retirement; final puts from
+ * atomic contexts defer storage destruction to the independent reaper.
  */
 
 #include <nuvix/atomic.h>
 #include <nuvix/cleanup.h>
 #include <nuvix/compiler.h>
 #include <nuvix/cpu.h>
+#include <nuvix/cputime.h>
 #include <nuvix/list.h>
 #include <nuvix/pid.h>
 #include <nuvix/printk.h>
-#include <nuvix/proc.h>
 #include <nuvix/refcount.h>
-#include <nuvix/rseq_types.h>
 #include <nuvix/task_access.h>
 #include <nuvix/wait.h>
 #include <nuvix/types.h>
@@ -45,6 +40,9 @@ enum task_lifecycle {
 };
 
 enum task_run_state {
+	TASK_DORMANT,
+	TASK_MIGRATING,
+	TASK_RETIRED,
 	TASK_RUNNABLE,
 	TASK_RUNNING,
 	TASK_BLOCKED,
@@ -82,12 +80,13 @@ struct task_sleep_lock_entry {
 #define KSTACK_ORDER ARCH_KSTACK_ORDER
 #define KSTACK_SIZE  ARCH_KSTACK_SIZE
 
+struct proc_struct;
+struct vfork_completion;
 struct files_struct;
 struct fs_struct;
 struct mm_struct;
 struct sighand_struct;
 struct signal_struct;
-struct robust_list_head;
 struct signal_frame_state;
 struct trap_frame;
 
@@ -119,8 +118,7 @@ struct task_signal_context {
 	uint64_t blocked;
 	/* Task-directed signal state (blocked/pending/forced_pending/
 	 * pending_info) is guarded by the owning thread group's
-	 * signal_struct.siglock, not by wait.lock.  wait.lock remains owned by
-	 * the wait subsystem.  Consumers that read the fact bits lock-free must
+	 * signal.siglock.  Consumers that read the fact bits lock-free must
 	 * treat them as hints validated under siglock. */
 	uint64_t pending;
 	uint64_t forced_pending;
@@ -136,10 +134,6 @@ struct task_signal_context {
 	bool restore_mask_pending;
 	struct stack_t sas;
 	int *set_child_tid;
-	int *clear_child_tid;
-	struct robust_list_head *robust_list;
-	size_t robust_list_len;
-	bool robust_cleanup_done;
 };
 
 struct restart_context {
@@ -153,6 +147,17 @@ struct restart_context {
 struct task_sched_entity {
 	struct list_head run_node;
 	atomic_t need_resched;
+	/* Read from sched_notify_reaper() without the home rq lock. */
+	atomic64_t park_generation;
+	bool park_active;
+	bool notified;
+	bool event_fired;
+	enum task_wait_policy park_policy;
+	uint64_t park_signal_set;
+	uint64_t runtime_start;
+	uint64_t slice_left;
+	struct list_head affinity_waiters;
+	uint64_t affinity_sequence;
 };
 
 /**
@@ -161,26 +166,31 @@ struct task_sched_entity {
  *
  * The architecture state remains first because `entry.S` consumes fixed
  * offsets generated for this prefix.  Scheduler-owned fields are present
- * from the first build even though ordinary tasks currently run only on
- * logical CPU 0.
+ * for every schedulable CPU.
  */
 struct task_struct {
 	struct task_state arch;
 
 	refcount_t refs;
+	spinlock_t lock;
+	uint64_t identity;
+	struct mm_struct *mm;
 	struct pid_identity *tid;
 	struct proc_struct *proc;
 	struct cred *cred;
+	/* Each task owns one reference per binding. Only current or an
+	 * unpublished constructor may replace them; no remote borrowed reads.
+	 * Sharing is selected independently by CLONE_FILES and CLONE_FS.
+	 * Resource contents remain protected by their own module locks. */
+	struct files_struct *files;
+	struct fs_struct *fs;
 
 	enum task_lifecycle lifecycle;
 	enum task_exit_request exit_request;
 	enum task_run_state run_state;
 	uint32_t flags;
 	struct cpu *cpu;
-	bool on_rq;
-	bool on_cpu;
-	cpumask_t requested_affinity;
-	cpumask_t effective_affinity;
+	cpumask_t allowed_cpus;
 
 	struct task_sched_entity sched;
 	struct task_wait wait;
@@ -189,14 +199,13 @@ struct task_struct {
 	      uint32_t sleep_lock_depth;)
 	struct task_signal_context signal;
 	struct restart_context restart;
-	struct rseq_task_context rseq;
 	struct task_cputime cputime;
 
 	int exit_code;
 	struct list_head proc_node;
 	struct list_head retired_node;
 	/* Proc reference retained until the reaper publishes process exit. */
-	struct proc_struct *reap_proc;
+	struct vfork_completion *vfork;
 	bool published;
 };
 
@@ -245,7 +254,17 @@ int task_init_resources(struct task_struct *task);
 
 void task_release_resources(struct task_struct *task);
 
-void task_publish(struct task_struct *task);
+/* Current-task exit or unpublished teardown only. May sleep; no caller
+ * locks. Detaches both bindings before dropping their owned references. */
+void task_release_file_context(struct task_struct *task);
+
+/* Replacement consumes mm's reference; returns the withdrawn reference.
+ * Only current, an unpublished constructor, or the off-CPU reaper writes. */
+struct mm_struct *task_replace_mm(struct task_struct *task, struct mm_struct *mm);
+struct mm_struct *task_mm_get(struct task_struct *task);
+
+int task_publish(struct task_struct *task);
+void task_reap_deferred(void);
 
 void task_unpublish(struct task_struct *task);
 
@@ -342,7 +361,6 @@ static inline void task_sleep_lock_release(const void *lock,
 __must_check
 bool task_begin_exit(struct task_struct *task);
 
-__must_check
 bool task_request_exec_exit(struct task_struct *task);
 
 bool task_request_group_exit(struct task_struct *task);
@@ -409,7 +427,7 @@ static inline bool task_is_blocked(const struct task_struct *task)
 
 static inline bool task_is_queued(const struct task_struct *task)
 {
-	return task && task->on_rq;
+	return task && task->run_state == TASK_RUNNABLE;
 }
 
 static inline uint8_t task_need_resched(const struct task_struct *task)

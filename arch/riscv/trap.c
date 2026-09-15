@@ -6,6 +6,7 @@
 #include <nuvix/types.h>
 #include <nuvix/sched.h>
 #include <nuvix/task.h>
+#include <nuvix/proc.h>
 #include <nuvix/timer.h>
 #include <nuvix/syscall.h>
 #include <nuvix/mm.h>
@@ -111,12 +112,24 @@ static void trap_user_return(struct trap_frame *tf)
 {
 	/* Signal delivery and child-TID stores may fault, sleep, or shoot down
 	 * remote translations. Keep IPIs serviceable until the final return. */
-	local_irq_enable();
-	user_return_work(tf);
-	local_irq_disable();
-	if (current_task() && task_need_resched(current_task()))
+	for (;;) {
+		local_irq_enable();
+		user_return_work(tf);
+		local_irq_disable();
+		if (!task_need_resched(current_task()))
+			break;
 		schedule_irqoff();
+	}
+	fpu_restore(&current_task()->arch.fpu);
+	tf->sstatus = (tf->sstatus & ~SSTATUS_FS_MASK) | (2UL << SSTATUS_FS_SHIFT);
 	BUG_ON(!irqs_disabled());
+}
+
+struct trap_frame *trap_prepare_return(struct trap_frame *tf)
+{
+	if (trap_frame_from_user(tf))
+		trap_user_return(tf);
+	return tf;
 }
 
 void trap_handler(struct trap_frame *tf)
@@ -129,8 +142,10 @@ void trap_handler(struct trap_frame *tf)
 
 	/* Nested kernel interrupts must not replace the user register frame
 	 * used by fork, signals, and user-return work. */
-	if (task && user)
+	if (task && user) {
 		task->arch.tf = tf;
+		fpu_save(&task->arch.fpu);
+	}
 
 	if (is_interrupt) {
 		irq_enter();
@@ -140,12 +155,16 @@ void trap_handler(struct trap_frame *tf)
 			irq_exit();
 			if (user)
 				trap_user_return(tf);
+			else if (sched_context_can_schedule() && task_need_resched(task))
+				schedule_irqoff();
 			return;
 		case IRQ_S_TIMER:
 			handle_timer_irq();
 			irq_exit();
 			if (user)
 				trap_user_return(tf);
+			else if (sched_context_can_schedule() && task_need_resched(task))
+				schedule_irqoff();
 			return;
 		default:
 			irq_exit();
@@ -175,11 +194,15 @@ void trap_handler(struct trap_frame *tf)
 			do_syscall(tf);
 			if (user)
 				trap_user_return(tf);
+			else if (sched_context_can_schedule() && task_need_resched(task))
+				schedule_irqoff();
 			return;
 		case TRAP_EXCEPTION_PAGE_FAULT:
 			do_page_fault(tf);
 			if (user)
 				trap_user_return(tf);
+			else if (sched_context_can_schedule() && task_need_resched(task))
+				schedule_irqoff();
 			return;
 		case TRAP_EXCEPTION_USER_SIGNAL:
 			if (exception.info.si_code == SI_KERNEL)

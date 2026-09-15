@@ -11,17 +11,28 @@
 #include <asm/trap_frame.h>
 
 struct task_struct;
+struct mm_struct;
+
+struct fpu_state {
+	uint64_t registers[32];
+	uint32_t fcsr;
+};
+void fpu_save(struct fpu_state *state);
+void fpu_restore(const struct fpu_state *state);
+
+void activate_mm(struct mm_struct *mm);
 
 struct task_state {
 	struct context ctx;
 	struct trap_frame *tf;
 	void *kstack;
+	struct fpu_state fpu;
 };
 
 __nonnull(1, 2)
 struct task_struct *arch_task_switch(struct task_struct *prev,
 				     struct task_struct *next,
-				     uintptr_t next_pgroot);
+				     struct mm_struct *mm);
 
 static_assert(ARCH_KSTACK_SIZE == TASK_KSTACK_SIZE,
 	      "entry.S __trapret kstack arithmetic is out of sync");
