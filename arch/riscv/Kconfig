@@ -1,3 +1,9 @@
+# Architecture identity.  This file is sourced only when ARCH=riscv, so the
+# symbol always holds in a configured tree.
+config ARCH_RISCV
+	bool
+	default y
+
 menu "Platform"
 
 config PLATFORM_QEMU_VIRT

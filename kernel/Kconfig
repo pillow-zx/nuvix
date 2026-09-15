@@ -78,14 +78,9 @@ config GC_SECTIONS
 	  Place functions and data into separate sections and ask the linker to
 	  drop unreferenced sections from the final kernel image.
 
-config LTO
-	bool "Link-time optimization"
-	default n
-
 config FRAME_POINTER
 	bool "Frame pointer"
 	default y
-
 
 config DEBUG_INFO
 	bool "Debug information"
@@ -104,5 +99,11 @@ config UBSAN
 	default n
 	help
 	  Enable kernel-side undefined behavior sanitizer trap instrumentation.
+
+endmenu
+
+menu "Feature"
+
+comment "No kernel feature switches are defined yet."
 
 endmenu

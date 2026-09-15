@@ -40,7 +40,6 @@ enum variable_flavor {
 	VAR_RECURSIVE,
 	VAR_APPEND,
 };
-void env_write_dep(FILE *f, const char *auto_conf_name);
 void variable_add(const char *name, const char *value,
 		  enum variable_flavor flavor);
 void variable_all_del(void);

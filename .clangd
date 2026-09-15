@@ -1,4 +1,0 @@
-CompileFlags:
-  Remove:
-    - -fsanitize=undefined
-    - -fipa-pta

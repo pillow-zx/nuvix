@@ -122,47 +122,6 @@ static int make_parent_dir(const char *path)
 	return 0;
 }
 
-static char depfile_path[PATH_MAX];
-static size_t depfile_prefix_len;
-
-/* touch depfile for symbol 'name' */
-static int conf_touch_dep(const char *name)
-{
-	int fd, ret;
-	const char *s;
-	char *d, c;
-
-	/* check overflow: prefix + name + ".h" + '\0' must fit in buffer. */
-	if (depfile_prefix_len + strlen(name) + 3 > sizeof(depfile_path))
-		return -1;
-
-	d = depfile_path + depfile_prefix_len;
-	s = name;
-
-	while ((c = *s++))
-		*d++ = (c == '_') ? '/' : tolower(c);
-	strcpy(d, ".h");
-
-	/* Assume directory path already exists. */
-	fd = open(depfile_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-	if (fd == -1) {
-		if (errno != ENOENT)
-			return -1;
-
-		ret = make_parent_dir(depfile_path);
-		if (ret)
-			return ret;
-
-		/* Try it again. */
-		fd = open(depfile_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-		if (fd == -1)
-			return -1;
-	}
-	close(fd);
-
-	return 0;
-}
-
 struct conf_printer {
 	void (*print_symbol)(FILE *, struct symbol *, const char *, void *);
 	void (*print_comment)(FILE *, const char *, void *);
@@ -459,15 +418,12 @@ load:
 
 			sym = sym_find(line + strlen(CONFIG_));
 			if (!sym) {
-				if (def == S_DEF_AUTO)
-					/*
-					 * Reading from include/config/auto.conf
-					 * If CONFIG_FOO previously existed in
-					 * auto.conf but it is missing now,
-					 * include/config/foo.h must be touched.
-					 */
-					conf_touch_dep(line + strlen(CONFIG_));
-				else
+				/*
+				 * auto.conf is regenerated in full, so a
+				 * symbol that disappeared from it needs no
+				 * separate bookkeeping.
+				 */
+				if (def != S_DEF_AUTO)
 					sym_add_change_count(1);
 				continue;
 			}
@@ -936,106 +892,14 @@ next:
 	return 0;
 }
 
-/* write a dependency file as used by kbuild to track dependencies */
-static int conf_write_dep(const char *name)
+/*
+ * Load the previous auto.conf as the "auto" defaults.  The values are only
+ * read; the file itself is rewritten wholesale by conf_write_autoconf().
+ */
+static void conf_read_auto_defaults(void)
 {
-	struct file *file;
-	FILE *out;
-
-	out = fopen("..config.tmp", "w");
-	if (!out)
-		return 1;
-	fprintf(out, "deps_config := \\\n");
-	for (file = file_list; file; file = file->next) {
-		if (file->next)
-			fprintf(out, "\t%s \\\n", file->name);
-		else
-			fprintf(out, "\t%s\n", file->name);
-	}
-	fprintf(out, "\n%s: \\\n"
-		     "\t$(deps_config)\n\n", conf_get_autoconfig_name());
-
-	env_write_dep(out, conf_get_autoconfig_name());
-
-	fprintf(out, "\n$(deps_config): ;\n");
-	fclose(out);
-
-	if (make_parent_dir(name))
-		return 1;
-	rename("..config.tmp", name);
-	return 0;
-}
-
-static int conf_touch_deps(void)
-{
-	const char *name;
-	struct symbol *sym;
-	int res, i;
-
-	strcpy(depfile_path, "include/config/");
-	depfile_prefix_len = strlen(depfile_path);
-
-	name = conf_get_autoconfig_name();
-	conf_read_simple(name, S_DEF_AUTO);
+	conf_read_simple(conf_get_autoconfig_name(), S_DEF_AUTO);
 	sym_calc_value(modules_sym);
-
-	for_all_symbols(i, sym) {
-		sym_calc_value(sym);
-		if ((sym->flags & SYMBOL_NO_WRITE) || !sym->name)
-			continue;
-		if (sym->flags & SYMBOL_WRITE) {
-			if (sym->flags & SYMBOL_DEF_AUTO) {
-				/*
-				 * symbol has old and new value,
-				 * so compare them...
-				 */
-				switch (sym->type) {
-				case S_BOOLEAN:
-				case S_TRISTATE:
-					if (sym_get_tristate_value(sym) ==
-					    sym->def[S_DEF_AUTO].tri)
-						continue;
-					break;
-				case S_STRING:
-				case S_HEX:
-				case S_INT:
-					if (!strcmp(sym_get_string_value(sym),
-						    sym->def[S_DEF_AUTO].val))
-						continue;
-					break;
-				default:
-					break;
-				}
-			} else {
-				/*
-				 * If there is no old value, only 'no' (unset)
-				 * is allowed as new value.
-				 */
-				switch (sym->type) {
-				case S_BOOLEAN:
-				case S_TRISTATE:
-					if (sym_get_tristate_value(sym) == no)
-						continue;
-					break;
-				default:
-					break;
-				}
-			}
-		} else if (!(sym->flags & SYMBOL_DEF_AUTO))
-			/* There is neither an old nor a new value. */
-			continue;
-		/* else
-		 *	There is an old value, but no new value ('no' (unset)
-		 *	isn't saved in auto.conf, so the old value is always
-		 *	different from 'no').
-		 */
-
-		res = conf_touch_dep(sym->name);
-		if (res)
-			return res;
-	}
-
-	return 0;
 }
 
 int conf_write_autoconf(int overwrite)
@@ -1049,10 +913,7 @@ int conf_write_autoconf(int overwrite)
 	if (!overwrite && is_present(autoconf_name))
 		return 0;
 
-	conf_write_dep("include/config/auto.conf.cmd");
-
-	if (conf_touch_deps())
-		return 1;
+	conf_read_auto_defaults();
 
 	out = fopen(".tmpconfig", "w");
 	if (!out)

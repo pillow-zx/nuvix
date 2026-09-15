@@ -18,10 +18,10 @@ typedef struct {
 
 #define MUTEX_INIT(name, rank_value, irq_policy_value)                         \
 	{                                                                      \
-		.lock = SPINLOCK_INIT(rank_value, irq_policy_value),            \
+		.lock = SPINLOCK_INIT(rank_value, irq_policy_value),           \
 		.owner = NULL,                                                 \
 		.wait = WAIT_CHANNEL_INIT((name).wait),                        \
-		.semantic_rank = (rank_value),                                  \
+		.semantic_rank = (rank_value),                                 \
 	}
 #define DEFINE_MUTEX(name, rank_value, irq_policy_value)                       \
 	mutex_t name = MUTEX_INIT(name, rank_value, irq_policy_value);
@@ -29,23 +29,23 @@ typedef struct {
 #define mutex_init_semantic(mutex, state_rank_value, semantic_rank_value,      \
 			    irq_policy_value)                                  \
 	do {                                                                   \
-		spin_lock_init(&(mutex)->lock, state_rank_value,                 \
-			       irq_policy_value);                                  \
+		spin_lock_init(&(mutex)->lock, state_rank_value,               \
+			       irq_policy_value);                              \
 		(mutex)->owner = NULL;                                         \
-		(mutex)->semantic_rank = (semantic_rank_value);                 \
+		(mutex)->semantic_rank = (semantic_rank_value);                \
 		wait_channel_init(&(mutex)->wait);                             \
 	} while (0)
 
 #define mutex_init(mutex, rank_value, irq_policy_value)                        \
 	mutex_init_semantic(mutex, rank_value, rank_value, irq_policy_value)
 
-__nonnull(1) __access_no_size(read_write, 1)
+__nonnull(1)
 void mutex_lock(mutex_t *mutex);
 
-__must_check __nonnull(1) __access_no_size(read_write, 1)
+__must_check __nonnull(1)
 bool mutex_trylock(mutex_t *mutex);
 
-__nonnull(1) __access_no_size(read_write, 1)
+__nonnull(1)
 void mutex_unlock(mutex_t *mutex);
 
 #endif

@@ -4,16 +4,12 @@ menu "General setup"
 
 comment "nuvix uses a single .config in the repository root."
 
-config ARCH_RISCV
-	bool
-	default y
-
 endmenu
 
 source "kernel/Kconfig"
 
-if ARCH_RISCV
-source "arch/riscv/Kconfig"
-endif
+# ARCH comes from the build system, which selects the architecture before any
+# other target is built.
+source "arch/$(ARCH)/Kconfig"
 
 source "fs/Kconfig"

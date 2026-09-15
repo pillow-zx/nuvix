@@ -52,13 +52,6 @@ static void env_add(const char *name, const char *value)
 	list_add_tail(&e->node, &env_list);
 }
 
-static void env_del(struct env *e)
-{
-	list_del(&e->node);
-	free(e->name);
-	free(e->value);
-	free(e);
-}
 
 /* The returned pointer must be freed when done */
 static char *env_expand(const char *name)
@@ -78,26 +71,12 @@ static char *env_expand(const char *name)
 	if (!value)
 		return NULL;
 
-	/*
-	 * We need to remember all referenced environment variables.
-	 * They will be written out to include/config/auto.conf.cmd
-	 */
+	/* Remember the result so repeated expansions stay consistent. */
 	env_add(name, value);
 
 	return xstrdup(value);
 }
 
-void env_write_dep(FILE *f, const char *autoconfig_name)
-{
-	struct env *e, *tmp;
-
-	list_for_each_entry_safe(e, tmp, &env_list, node) {
-		fprintf(f, "ifneq \"$(%s)\" \"%s\"\n", e->name, e->value);
-		fprintf(f, "%s: FORCE\n", autoconfig_name);
-		fprintf(f, "endif\n");
-		env_del(e);
-	}
-}
 
 /*
  * Built-in functions
