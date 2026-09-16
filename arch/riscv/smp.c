@@ -10,7 +10,7 @@
 
 extern char secondary_entry[];
 
-uintptr_t smp_secondary_entry_pa(void)
+uintptr_t smp_secondary_entry(void)
 {
 	return __pa((uintptr_t)&secondary_entry);
 }

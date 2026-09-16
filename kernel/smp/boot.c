@@ -73,16 +73,15 @@ static void smp_boot_fail(uint32_t id, const char *reason,
 }
 
 __noreturn
-static void smp_gate_fail(uint64_t secondary_mask,
-				     uint64_t timer_seen, uint64_t ipi_observed,
+static void smp_gate_fail(uint64_t secondary_mask, uint64_t timer_seen, uint64_t ipi_observed,
 				     const char *what)
 {
 	pr_err("smp: boot gate failed: %s\n"
 	       "smp:   secondary expected=0x%lx online=0x%lx "
 	       "schedulable=0x%lx\n"
 	       "smp:   timer_seen=0x%lx ipi_seen=0x%lx\n",
-	       what, secondary_mask, cpu_online_mask(),
-	       cpu_schedulable_mask(), timer_seen, ipi_observed);
+	       what, secondary_mask, cpu_online_mask(), cpu_schedulable_mask(),
+	       timer_seen, ipi_observed);
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
 		struct cpu *cpu = &cpu_table[id];
 
@@ -128,16 +127,16 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 			if (id != boot_id && cpu_timer_seen(id))
 				timer_seen |= (1ULL << id);
 		if ((int64_t)(deadline - timer_now()) < 0)
-			smp_gate_fail(secondary_mask, timer_seen,
-				      ipi_observed, "timer-seen");
+			smp_gate_fail(secondary_mask, timer_seen, ipi_observed,
+				      "timer-seen");
 	}
 
 	for (id = 0; id < nr_cpus; id++) {
 		if (id == boot_id)
 			continue;
 		if (ipi_send(id, IPI_RESCHEDULE) != 0)
-			smp_gate_fail(secondary_mask, timer_seen,
-				      ipi_observed, "ipi-send");
+			smp_gate_fail(secondary_mask, timer_seen, ipi_observed,
+				      "ipi-send");
 	}
 
 	deadline = timer_now() + MTIME_FREQ;
@@ -147,8 +146,8 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 			if (id != boot_id && ipi_seen(id))
 				ipi_observed |= (1ULL << id);
 		if ((int64_t)(deadline - timer_now()) < 0)
-			smp_gate_fail(secondary_mask, timer_seen,
-				      ipi_observed, "ipi-seen");
+			smp_gate_fail(secondary_mask, timer_seen, ipi_observed,
+				      "ipi-seen");
 	}
 
 out:
@@ -196,7 +195,8 @@ static void smp_wait_online(uint32_t id)
 
 void smp_prepare(void)
 {
-	/* Platform contract checks panic here; no reduced-CPU fallback exists. */
+	/* Platform contract checks panic here; no reduced-CPU fallback exists.
+	 */
 	smp_basic_prepare();
 }
 
@@ -208,7 +208,8 @@ void smp_boot_cpus(void)
 	uint64_t ipi_seen;
 
 	BUG_ON(!nr_cpu_ids || nr_cpu_ids > NR_CPUS);
-	/* Secondaries switch to the kernel page table, so it must be published. */
+	/* Secondaries switch to the kernel page table, so it must be published.
+	 */
 	BUG_ON(!pt_boot_token_valid());
 
 	boot_id = 0;
@@ -223,9 +224,7 @@ void smp_boot_cpus(void)
 			continue;
 		smp_boot_errors[id] = SMP_BOOT_ERR_NONE;
 		cpu_state_store_release(cpu, CPU_BOOTING);
-		if (smp_start_cpu(cpu->hartid,
-				       smp_secondary_entry_pa(),
-				       id) != 0) {
+		if (smp_start_cpu(cpu->hartid, smp_secondary_entry(), id) != 0) {
 			smp_boot_errors[id] = SMP_BOOT_ERR_HSM_START;
 			smp_boot_fail(id, "hsm-start", CPU_BOOTING);
 		}
@@ -237,7 +236,8 @@ void smp_boot_cpus(void)
 	smp_boot_gate(boot_id, &timer_seen, &ipi_seen);
 	/* The boot gate is the publication boundary for ordinary Task SMP.  A
 	 * configured secondary cannot receive placement before it proved local
-	 * timer and IPI readiness; afterwards every online CPU is schedulable. */
+	 * timer and IPI readiness; afterwards every online CPU is schedulable.
+	 */
 	for (id = 0; id < nr_cpu_ids; id++)
 		if (cpu_is_online(id))
 			cpu_set_schedulable(id);
@@ -274,7 +274,6 @@ void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 	trap_cpu_init();
 	timer_cpu_init();
 	clockevent_cpu_init();
-
 
 	cpu_state_store_release(cpu, CPU_ONLINE);
 

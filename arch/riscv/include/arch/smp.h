@@ -16,7 +16,7 @@ struct smp_hart_status smp_hart_status(uint32_t hartid);
 
 const char *smp_hart_status_name(uint64_t value);
 
-uintptr_t smp_secondary_entry_pa(void);
+uintptr_t smp_secondary_entry(void);
 
 int smp_ipi_notify(uint32_t hartid);
 
