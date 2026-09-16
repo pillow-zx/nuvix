@@ -282,7 +282,15 @@ __nonnull(1) void do_page_fault(struct trap_frame *tf);
  * acknowledgements. User root entry also flushes locally; no scheduler
  * snapshot is needed. The caller's local TLB is NOT flushed.
  */
+#ifdef CONFIG_SMP
 void mm_flush_remote(struct mm_struct *mm, bool flush_icache);
+#else
+/* Local invalidation remains the caller's responsibility in UP builds. */
+__always_inline
+static inline void mm_flush_remote(struct mm_struct *mm, bool flush_icache)
+{
+}
+#endif
 
 /**
  * @brief Flush the whole TLB on every other online CPU (kernel mappings).
@@ -290,6 +298,13 @@ void mm_flush_remote(struct mm_struct *mm, bool flush_icache);
  * Sends a synchronous TLB shootdown IPI to all online non-self CPUs and waits
  * for their acks. Used for kernel-range (vmalloc) PTE updates.
  */
+#ifdef CONFIG_SMP
 void mm_flush_all(void);
+#else
+__always_inline
+static inline void mm_flush_all(void)
+{
+}
+#endif
 
 #endif

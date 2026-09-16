@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/cpu.h>
+#include <nuvix/bootinfo.h>
 #include <nuvix/errno.h>
 #include <nuvix/task.h>
 
@@ -15,6 +16,26 @@ uint32_t nr_cpu_ids;
  * so an online target remains able to consume an IPI selected from a snapshot. */
 static atomic64_t online_cpu_mask;
 static atomic64_t schedulable_cpu_mask;
+
+int cpu_prepare(uint32_t boot_hartid)
+{
+	struct cpu_topology_entry entries[NR_CPUS];
+	uint32_t count;
+	int ret;
+
+	ret = platform_cpu_entries(boot_hartid, entries, &count);
+	if (ret < 0 || !count || count > NR_CPUS)
+		return -EINVAL;
+	return cpu_topology_init(entries, count);
+}
+
+void cpu_boot_online(void)
+{
+	BUG_ON(!nr_cpu_ids || current_cpu() != &cpu_table[0]);
+	cpu_state_store_release(&cpu_table[0], CPU_ONLINE);
+	cpu_set_online(0);
+	cpu_set_schedulable(0);
+}
 
 uint64_t cpu_online_mask(void)
 {
@@ -89,3 +110,25 @@ void cpu_boot_init(struct task_struct *idles)
 #endif
 	}
 }
+
+/* Called after CPU startup has published the final masks. */
+BOOTINFO_BLOCK(cpu, void,
+	char table[128];
+	size_t off = 0;
+	uint32_t schedulable_count = 0;
+
+	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
+		off = bootinfo_append(table, sizeof(table), off, "%s%u->%u",
+				      off ? " " : "", id, cpu_table[id].hartid);
+		if (cpu_is_schedulable(id))
+			schedulable_count++;
+	}
+
+	BROW("CPU Table", "%s", table);
+	IFDEF(CONFIG_SMP,
+		BROW("SMP", "%u harts online, %u schedulable", nr_cpu_ids,
+		     schedulable_count);)
+	IFNDEF(CONFIG_SMP,
+		BROW("SMP", "disabled, %u hart online, %u schedulable", nr_cpu_ids,
+		     schedulable_count);)
+)

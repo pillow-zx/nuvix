@@ -27,7 +27,7 @@ void active_pgtable(uintptr_t root);
 __must_check
 pte_t *kpgtable(void);
 
-extern atomic_isize_t pt_boot_token;
+extern atomic64_t pt_boot_token;
 
 __must_check
 uintptr_t pt_boot_token_acquire(void);

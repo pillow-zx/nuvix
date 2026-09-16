@@ -135,6 +135,16 @@ static_assert(offsetof(struct cpu, entry_scratch) == CPU_ENTRY_SCRATCH,
 extern struct cpu cpu_table[NR_CPUS];
 extern uint32_t nr_cpu_ids;
 
+/* Platform enumeration maps the boot hart to logical CPU 0. */
+int platform_cpu_entries(uint32_t boot_hartid,
+			 struct cpu_topology_entry *entries, uint32_t *count);
+
+/* Publish topology before task, scheduler, and local interrupt setup. */
+int cpu_prepare(uint32_t boot_hartid);
+
+/* Publish logical CPU 0 after its idle task and local interrupts are ready. */
+void cpu_boot_online(void);
+
 /*
  * One-shot topology publication. Validates the entry count against NR_CPUS and
  * the entries themselves (unique logical IDs, unique hart IDs) before filling

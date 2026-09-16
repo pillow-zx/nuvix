@@ -11,7 +11,7 @@
 
 uintptr_t kpgroot;
 
-atomic_isize_t pt_boot_token;
+atomic64_t pt_boot_token;
 
 extern char _end[];
 
@@ -104,7 +104,7 @@ int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
 
 uintptr_t pt_boot_token_acquire(void)
 {
-	return (uintptr_t)atomic_isize_read_acquire(&pt_boot_token);
+	return (uintptr_t)atomic64_read_acquire(&pt_boot_token);
 }
 
 bool pt_boot_token_valid(void)
@@ -177,7 +177,7 @@ void *pgtable_init(void)
 	kpgroot = satp_val;
 
 	active_pgtable(satp_val);
-	atomic_isize_set_release(&pt_boot_token, (isize)satp_val);
+	atomic64_set_release(&pt_boot_token, (isize)satp_val);
 
 	pr_debug("page_table: switched to kernel page table (root=%p, "
 		"bootmem=%p)\n",

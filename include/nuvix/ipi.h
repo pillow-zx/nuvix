@@ -12,6 +12,7 @@
 #include <nuvix/bitops.h>
 #include <nuvix/types.h>
 
+#ifdef CONFIG_SMP
 #define IPI_RESCHEDULE BIT(0)
 #define IPI_SHOOTDOWN  BIT(1)
 #define IPI_FENCE_I    BIT(2)
@@ -40,5 +41,7 @@ int ipi_pending_reasons(uint32_t cpu_id);
  * Requires task context, enabled interrupts, and no held spinlocks.
  * reasons must be non-empty and within IPI_REASON_MASK. */
 void ipi_send_sync(uint32_t cpu_id, int reasons);
+
+#endif /* CONFIG_SMP */
 
 #endif

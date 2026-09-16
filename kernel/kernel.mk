@@ -1,8 +1,6 @@
 # Core kernel services: printing, SMP, synchronisation, tasks, and processes.
 
 obj-y += kernel/printk.o
-obj-y += kernel/smp.o
-obj-y += kernel/ipi.o
 obj-y += kernel/stacktrace.o
 obj-y += kernel/mutex.o
 obj-y += kernel/rwlock.o
@@ -24,3 +22,6 @@ obj-y += kernel/waitqueue.o
 obj-y += kernel/time.o
 obj-y += kernel/worker.o
 obj-y += kernel/init_process.o
+
+
+include kernel/smp/smp.mk

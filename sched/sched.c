@@ -17,7 +17,7 @@ struct runqueue {
 	struct mm_struct *old_mm;
 	atomic_t load;
 	uint32_t id;
-	uint64_t balance_due;
+	IFDEF(CONFIG_SMP, uint64_t balance_due;)
 };
 
 struct affinity_waiter {
@@ -53,8 +53,12 @@ static struct runqueue *lock_task(struct task_struct *task, irq_flags_t *flags)
 
 static void kick(uint32_t cpu)
 {
+#ifdef CONFIG_SMP
 	if (cpu != current_cpu()->id)
 		(void)ipi_send(cpu, IPI_RESCHEDULE);
+#else
+	BUG_ON(cpu != current_cpu()->id);
+#endif
 }
 
 static uint32_t select_cpu(const cpumask_t *mask, uint32_t preferred)
@@ -384,6 +388,7 @@ bool sched_task_stopped(struct task_struct *task)
 	return stopped;
 }
 
+#ifdef CONFIG_SMP
 static void balance(void)
 {
 	struct runqueue *dst = &runqueues[current_cpu()->id];
@@ -427,6 +432,8 @@ static void balance(void)
 		local_irq_restore(flags);
 	}
 }
+
+#endif
 
 void sched_notify_reaper(void)
 {
@@ -565,7 +572,7 @@ static void switch_core(bool terminal)
 void schedule(void)
 {
 	BUG_ON(!sched_context_can_schedule() || irqs_disabled());
-	balance();
+	IFDEF(CONFIG_SMP, balance();)
 	switch_core(false);
 }
 
@@ -603,8 +610,8 @@ void sched_tick(void)
 		else
 			task->cputime.stime_ticks++;
 		if ((!list_empty(&rq->ready) &&
-		     timer_now() - task->sched.runtime_start >= task->sched.slice_left) ||
-		    timer_now() >= rq->balance_due)
+		     timer_now() - task->sched.runtime_start >= task->sched.slice_left)
+		    IFDEF(CONFIG_SMP, || timer_now() >= rq->balance_due))
 			task_set_need_resched(task, 1);
 	} else if (!list_empty(&rq->ready)) {
 		task_set_need_resched(task, 1);

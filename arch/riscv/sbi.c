@@ -52,6 +52,7 @@ struct sbi_ret sbi_probe_extension(uint64_t extension_id)
 			 0, 0, 0);
 }
 
+#ifdef CONFIG_SMP
 struct sbi_ret sbi_hsm_hart_start(uint64_t hartid, uint64_t start_addr,
 				  uint64_t opaque)
 {
@@ -70,6 +71,8 @@ struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base)
 	return sbi_ecall(SBI_EID_IPI, SBI_FID_IPI_SEND, hart_mask,
 			 hart_mask_base, 0, 0, 0);
 }
+
+#endif
 
 static const struct {
 	uint64_t eid;
@@ -110,6 +113,7 @@ BOOTINFO_BLOCK(
 	if (found == 0) BROW("SBI Extensions", "none");
 	else BROW("SBI Extensions", "%s", extensions);)
 
+#ifdef CONFIG_SMP
 const char *sbi_hsm_status_name(uint64_t value)
 {
 	switch (value) {
@@ -129,6 +133,8 @@ const char *sbi_hsm_status_name(uint64_t value)
 		return NULL;
 	}
 }
+
+#endif
 
 void system_reset(enum reset_mode mode)
 {

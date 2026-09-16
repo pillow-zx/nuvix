@@ -14,12 +14,11 @@
 
 #define ATOMIC_DEFINE_TYPE(name, value_type)                                   \
 	typedef struct {                                                       \
-		value_type counter;              \
+		value_type counter;                                            \
 	} name
 
 ATOMIC_DEFINE_TYPE(atomic_t, int32_t);
 ATOMIC_DEFINE_TYPE(atomic64_t, int64_t);
-ATOMIC_DEFINE_TYPE(atomic_isize_t, isize);
 
 #undef ATOMIC_DEFINE_TYPE
 
@@ -552,7 +551,6 @@ static_assert(compiler_atomic_always_lock_free(sizeof(isize), 0),
 
 ATOMIC_DEFINE_API(atomic, atomic_t, int32_t)
 ATOMIC_DEFINE_API(atomic64, atomic64_t, int64_t)
-ATOMIC_DEFINE_API(atomic_isize, atomic_isize_t, isize)
 
 #undef ATOMIC_DEFINE_API
 #undef ATOMIC_DEFINE_RMW_DEFAULT

@@ -32,11 +32,13 @@ void sbi_console_putchar(int ch);
 
 struct sbi_ret sbi_base_spec_version(void);
 struct sbi_ret sbi_probe_extension(uint64_t extension_id);
+#ifdef CONFIG_SMP
 struct sbi_ret sbi_hsm_hart_start(uint64_t hartid, uint64_t start_addr,
 				  uint64_t opaque);
 struct sbi_ret sbi_hsm_hart_get_status(uint64_t hartid);
 struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base);
 
 const char *sbi_hsm_status_name(uint64_t value);
+#endif
 
 #endif

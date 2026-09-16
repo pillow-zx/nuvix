@@ -51,6 +51,7 @@
 
 #define BOOTINFO_DECL(name, ...) void bootinfo_##name(__VA_ARGS__);
 BOOTINFO_BLOCKS(BOOTINFO_DECL)
+#undef BOOTINFO_DECL
 
 /* Define a block emitter whose body is the BROW/BBLANK statements after the
  * signature, one per line, each ending in ';'. */

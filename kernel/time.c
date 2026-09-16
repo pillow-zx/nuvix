@@ -7,6 +7,7 @@
 #include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/sched.h>
+#include <nuvix/smp.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/time.h>
 #include <nuvix/timer.h>
@@ -31,15 +32,8 @@ static struct realtime_clock realtime_clock = {
 };
 
 static struct clockevent_cpu clockevents[NR_CPUS];
-/* Boot-health: set once per CPU after a local scheduler tick was handled. */
-static atomic_isize_t clockevent_timer_seen[NR_CPUS];
 /* Release-published on every local timer interrupt. */
 static atomic64_t clockevent_heartbeat[NR_CPUS];
-
-bool cpu_timer_seen(uint32_t id)
-{
-	return atomic_isize_read_acquire(&clockevent_timer_seen[id]) != 0;
-}
 
 uint64_t cpu_timer_heartbeat(uint32_t id)
 {
@@ -122,10 +116,9 @@ void clockevent_handle_irq(uint64_t now)
 
 	/* Boot-health: publish the first handled local scheduler tick after
 	 * reprogramming the next timer, proving this CPU's Sstc path works
-	 * end to end. Logical CPU 0 reads this only through cpu_timer_seen(). */
+	 * end to end for the SMP boot gate. */
 	if (tick)
-		atomic_isize_set_release(&clockevent_timer_seen[current_cpu()->id],
-					 1);
+		smp_timer_tick();
 }
 
 static bool timespec_is_valid(const struct timespec *ts)

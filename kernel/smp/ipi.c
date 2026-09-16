@@ -1,5 +1,5 @@
 /*
- * kernel/ipi.c - generic IPI reason protocol
+ * kernel/smp/ipi.c - generic IPI reason protocol
  *
  * Protocol: sender release-ORs reasons then sends; receiver clears SSIP,
  * acquire-exchanges the pending bits, dispatches, and release-publishes an
@@ -24,9 +24,9 @@ enum ipi_sync_family {
 };
 
 /* Pending reasons per CPU; publication release, consumption acquire. */
-static atomic_isize_t ipi_pending[NR_CPUS];
+static atomic64_t ipi_pending[NR_CPUS];
 /* Boot-health: set once per CPU after a reason was handled. */
-static atomic_isize_t ipi_seen_flags[NR_CPUS];
+static atomic64_t ipi_seen_flags[NR_CPUS];
 /* Each synchronous family uses request and completion sequences.  A receiver
  * snapshots the request sequence before executing the operation, then
  * release-publishes exactly that sequence after completion.  A later request
@@ -54,7 +54,7 @@ int ipi_send(uint32_t cpu_id, int reasons)
 	 * Once selected, a target cannot disappear before consuming the reason. */
 	if (!cpu || cpu == current_cpu() || !cpu_is_online(cpu_id))
 		return -EINVAL;
-	atomic_isize_or_fetch_release(&ipi_pending[cpu_id], (isize)reasons);
+	atomic64_or_fetch_release(&ipi_pending[cpu_id], (isize)reasons);
 	return smp_ipi_notify(cpu->hartid);
 }
 
@@ -72,7 +72,7 @@ void ipi_handle(void)
 		 * during dispatch is consumed by the next iteration; a send after
 		 * the final empty exchange leaves SSIP set for a later visit. */
 		smp_ipi_ack();
-		reasons = atomic_isize_xchg_acquire(&ipi_pending[cpu->id], 0);
+		reasons = atomic64_xchg_acquire(&ipi_pending[cpu->id], 0);
 		if (!reasons)
 			break;
 		handled = true;
@@ -100,17 +100,17 @@ void ipi_handle(void)
 	}
 	/* Boot-health flag: set once per CPU after any reason was handled. */
 	if (handled)
-		atomic_isize_set_release(&ipi_seen_flags[cpu->id], 1);
+		atomic64_set_release(&ipi_seen_flags[cpu->id], 1);
 }
 
 bool ipi_seen(uint32_t cpu_id)
 {
-	return atomic_isize_read_acquire(&ipi_seen_flags[cpu_id]) != 0;
+	return atomic64_read_acquire(&ipi_seen_flags[cpu_id]) != 0;
 }
 
 int ipi_pending_reasons(uint32_t cpu_id)
 {
-	return (int)atomic_isize_read_acquire(&ipi_pending[cpu_id]);
+	return (int)atomic64_read_acquire(&ipi_pending[cpu_id]);
 }
 
 void ipi_send_sync(uint32_t cpu_id, int reasons)

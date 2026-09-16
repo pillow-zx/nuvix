@@ -659,7 +659,7 @@ void task_init(void)
 		idle->arch.kstack = (void *)__pa(idle_stacks[id]);
 		/* Idle Tasks are never enqueued, so their CPU assignment is
 		 * fixed at construction time; the topology is already
-		 * published by smp_prepare(). */
+		 * published by cpu_prepare(). */
 		if (id < nr_cpu_ids)
 			idle->cpu = &cpu_table[id];
 	}

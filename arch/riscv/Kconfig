@@ -21,14 +21,14 @@ config DRAM_SIZE_MB
 	  DRAM_BASE, so larger memory sizes require boot mapping changes.
 
 config QEMU_CPUS
-	int "QEMU CPU count"
+	int "QEMU CPU count" if SMP
 	range 1 8
+	default 1 if !SMP
 	default 8
 	help
-	  Number of QEMU virt harts to boot. Controls both QEMU -smp and the
-	  exact number of required kernel CPUs: every configured hart must
-	  reach its idle loop through SBI HSM or the kernel panics. The virt
-	  platform table enumerates harts 0..7; the first N entries are
-	  required.
+	  Number of CPUs used by the kernel. Pass the same count to QEMU
+	  with -smp; keeping the launch arguments consistent is the user's
+	  responsibility. With SMP enabled, every configured hart must
+	  start successfully. With SMP disabled, the kernel uses one CPU.
 
 endmenu

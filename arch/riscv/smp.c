@@ -19,11 +19,6 @@ void smp_basic_prepare(void)
 {
 	struct sbi_ret ret;
 
-	ret = sbi_base_spec_version();
-	if (ret.error != 0 || ret.value < 0x20000)
-		panic("sbi: BASE required but unavailable (error=%ld "
-		      "version=0x%lx)\n", ret.error, ret.value);
-
 	if (nr_cpu_ids > 1) {
 		ret = sbi_probe_extension(SBI_EID_HSM);
 		if (ret.error != 0 || ret.value == 0)

@@ -26,7 +26,11 @@ void trap_cpu_init(void)
 	csr_write(sscratch, 0);
 	csr_set(sie, SIE_STIE);
 	csr_clear(sip, SIP_SSIP);
+#ifdef CONFIG_SMP
 	csr_set(sie, SIE_SSIE);
+#else
+	csr_clear(sie, SIE_SSIE);
+#endif
 }
 
 static const char *trap_origin(const struct trap_frame *tf)
@@ -150,6 +154,7 @@ void trap_handler(struct trap_frame *tf)
 	if (is_interrupt) {
 		irq_enter();
 		switch (code) {
+#ifdef CONFIG_SMP
 		case IRQ_S_SOFT:
 			ipi_handle();
 			irq_exit();
@@ -158,6 +163,7 @@ void trap_handler(struct trap_frame *tf)
 			else if (sched_context_can_schedule() && task_need_resched(task))
 				schedule_irqoff();
 			return;
+#endif
 		case IRQ_S_TIMER:
 			handle_timer_irq();
 			irq_exit();

@@ -104,6 +104,11 @@ endmenu
 
 menu "Feature"
 
-comment "No kernel feature switches are defined yet."
+config SMP
+	bool "Symmetric multiprocessing"
+	default y
+	help
+	  Enable secondary CPU startup and inter-processor coordination.
+	  If disabled, the kernel uses only the boot CPU.
 
 endmenu

@@ -23,6 +23,7 @@
 #include <nuvix/irq.h>
 #include <nuvix/tty.h>
 #include <nuvix/smp.h>
+#include <nuvix/cpu.h>
 
 void kernel_main(uint64_t hartid)
 {
@@ -54,7 +55,8 @@ void kernel_main(uint64_t hartid)
 
 	/* Platform enumeration validates the boot hart and fills the
 	 * topology; every configured hart is required to start later. */
-	BUG_ON(smp_prepare((uint32_t)hartid) < 0);
+	BUG_ON(cpu_prepare((uint32_t)hartid) < 0);
+	smp_prepare();
 
 	/* Global initialization: every static queue and slot is reset once. */
 	task_init();
@@ -72,10 +74,9 @@ void kernel_main(uint64_t hartid)
 	timer_cpu_init();
 	clockevent_cpu_init();
 
-	/* Boot every configured secondary into its isolated idle loop
-	 * before any syscall/VFS/device/thread initialization. The boot
-	 * CPU's online/schedulable publication happens inside smp_boot_cpus().
-	 */
+	/* The boot CPU is ready in both UP and SMP builds. Start secondaries
+	 * before any syscall/VFS/device/thread initialization. */
+	cpu_boot_online();
 	smp_boot_cpus();
 	/* Local trap/timer state and the current idle task are ready, and
 	 * all online CPUs can service IPIs. Filesystem initialization below

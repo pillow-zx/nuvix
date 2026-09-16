@@ -4,10 +4,9 @@
 /*
  * include/nuvix/smp.h - CPU bring-up coordination
  *
- * The two module seams: the platform CPU-data module feeds compile-time
- * topology entries; the generic bring-up module validates, starts, and
- * waits for secondary harts. RISC-V SBI/HSM operations are the arch
- * adapter, never visible to init/main.c.
+ * Secondary CPU preparation and startup. Common topology and boot CPU
+ * initialization belong to cpu.h. RISC-V SBI/HSM operations stay in the
+ * architecture adapter.
  */
 
 /* Boot-error codes. Pure defines so boot.S may include this header. */
@@ -20,25 +19,20 @@
 #ifndef __ASSEMBLER__
 
 #include <nuvix/types.h>
-#include <arch/smp.h>
 
-struct cpu_topology_entry;
-
+#ifdef CONFIG_SMP
 /*
- * Platform CPU-data module: the sole owner of hart enumeration. It maps the
- * SBI boot hart to logical CPU 0 and fills the caller-provided entries.
- */
-int platform_cpu_entries(uint32_t boot_hartid,
-			 struct cpu_topology_entry *entries, uint32_t *count);
-
-/*
- * Generic bring-up. smp_prepare() validates the boot hart and topology;
+ * Generic bring-up. smp_prepare() checks secondary CPU boot requirements
+ * after cpu_prepare() has published the topology;
  * smp_boot_cpus() starts secondaries and waits for ONLINE, panicking on any
  * mismatch or timeout. Both run on logical CPU 0, which is the SBI boot
  * hart for this boot.
  */
-int smp_prepare(uint32_t boot_hartid);
+void smp_prepare(void);
 void smp_boot_cpus(void);
+
+/* Report a completed local scheduler tick to the secondary boot gate. */
+void smp_timer_tick(void);
 
 /* Secondary entry from the assembly trampoline; never returns. */
 __noreturn
@@ -51,6 +45,29 @@ extern uint32_t smp_boot_errors[];
  * CPU 0 runs with IRQs disabled and cannot acknowledge shootdown IPIs, so
  * global-flush helpers must skip remote shootdown. */
 bool smp_booted(void);
+#else
+__always_inline
+static inline void smp_prepare(void)
+{
+}
+
+__always_inline
+static inline void smp_boot_cpus(void)
+{
+}
+
+__always_inline
+static inline void smp_timer_tick(void)
+{
+}
+
+/* No remote CPUs ever need a shootdown in a uniprocessor build. */
+__always_inline
+static inline bool smp_booted(void)
+{
+	return false;
+}
+#endif
 
 #endif /* !__ASSEMBLER__ */
 #endif

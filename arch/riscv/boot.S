@@ -55,6 +55,7 @@ _start:
 	mv	tp, t0
 	tail	kernel_main
 
+#ifdef CONFIG_SMP
 	.section .text.secondary
 	.globl secondary_entry
 	.balign 4096
@@ -107,6 +108,7 @@ secondary_entry:
 	wfi
 	j	.Lsec_park
 
+#endif
 	.section .bss
 	.align	12
 tmp_root:

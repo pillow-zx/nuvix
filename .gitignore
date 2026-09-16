@@ -12,6 +12,7 @@
 !drivers/
 !syscall/
 !kernel/
+!kernel/smp/
 !sched/
 !block/
 !init/

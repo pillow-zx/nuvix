@@ -1,16 +1,16 @@
 /*
- * kernel/smp.c - generic CPU bring-up and secondary idle
+ * kernel/smp/boot.c - generic secondary CPU bring-up and idle
  *
- * Logical CPU 0 coordinates topology publication, HSM start, and the acquire
+ * Logical CPU 0 coordinates HSM start and the acquire
  * wait for each secondary's self-published ONLINE state. Secondary harts stay
  * unschedulable through the boot gate, then enter the ordinary scheduler once
  * every configured hart has proved local timer and IPI readiness.
  */
 
 #include <nuvix/smp.h>
+#include <arch/smp.h>
 #include <nuvix/bootinfo.h>
 #include <nuvix/cpu.h>
-#include <nuvix/errno.h>
 #include <nuvix/ipi.h>
 #include <nuvix/pgtable.h>
 #include <nuvix/processor.h>
@@ -29,6 +29,19 @@ uint32_t smp_boot_errors[NR_CPUS];
 /* Set after the boot gate; acquire semantics pairs with the release in
  * smp_boot_cpus(). */
 static atomic_t smp_boot_done;
+
+/* Published after a CPU has handled and rearmed its first scheduler tick. */
+static atomic64_t smp_timer_seen[NR_CPUS];
+
+void smp_timer_tick(void)
+{
+	atomic64_set_release(&smp_timer_seen[current_cpu()->id], 1);
+}
+
+static bool cpu_timer_seen(uint32_t id)
+{
+	return atomic64_read_acquire(&smp_timer_seen[id]) != 0;
+}
 
 bool smp_booted(void)
 {
@@ -181,21 +194,10 @@ static void smp_wait_online(uint32_t id)
 	cpu_set_online(id);
 }
 
-int smp_prepare(uint32_t boot_hartid)
+void smp_prepare(void)
 {
-	struct cpu_topology_entry entries[NR_CPUS];
-	uint32_t count;
-	int ret;
-
-	ret = platform_cpu_entries(boot_hartid, entries, &count);
-	if (ret < 0 || !count || count > NR_CPUS)
-		return -EINVAL;
-	ret = cpu_topology_init(entries, count);
-	if (ret < 0)
-		return ret;
 	/* Platform contract checks panic here; no reduced-CPU fallback exists. */
 	smp_basic_prepare();
-	return 0;
 }
 
 void smp_boot_cpus(void)
@@ -211,10 +213,8 @@ void smp_boot_cpus(void)
 
 	boot_id = 0;
 
-	/* Boot CPU local state (idle/current) was prepared before this call. */
-	cpu_state_store_release(&cpu_table[boot_id], CPU_ONLINE);
-	cpu_set_online(boot_id);
-	cpu_set_schedulable(boot_id);
+	/* Common CPU initialization has already published the boot CPU. */
+	BUG_ON(!cpu_is_online(boot_id) || !cpu_is_schedulable(boot_id));
 
 	for (id = 0; id < nr_cpu_ids; id++) {
 		struct cpu *cpu = &cpu_table[id];
@@ -245,25 +245,6 @@ void smp_boot_cpus(void)
 	smp_probe_record(timer_seen, ipi_seen);
 	atomic_set_release(&smp_boot_done, 1);
 }
-
-/* Banner is only meaningful after smp_boot_cpus() published the masks. */
-BOOTINFO_BLOCK(cpu, void,
-
-	char table[128];
-	size_t off = 0;
-	uint32_t schedulable_count = 0;
-
-	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
-		off = bootinfo_append(table, sizeof(table), off, "%s%u->%u",
-				      off ? " " : "", id, cpu_table[id].hartid);
-		if (cpu_is_schedulable(id))
-			schedulable_count++;
-	}
-
-	BROW("CPU Table", "%s", table);
-	BROW("SMP", "%u harts online, %u schedulable", nr_cpu_ids,
-	     schedulable_count);
-)
 
 __noreturn
 void smp_secondary_main(uint32_t hartid, uint32_t logical_id)

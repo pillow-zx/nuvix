@@ -17,7 +17,11 @@
 
 #define ARCH_KSTACK_ORDER       2
 #define ARCH_KSTACK_SIZE        (PAGE_SIZE << ARCH_KSTACK_ORDER)
+#ifdef CONFIG_SMP
 #define NR_CPUS		        CONFIG_QEMU_CPUS
+#else
+#define NR_CPUS                  1
+#endif
 #define QEMU_VIRT_MAX_CPUS      8
 
 #define MTIME_FREQ              10000000ULL
