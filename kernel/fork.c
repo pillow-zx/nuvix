@@ -21,18 +21,20 @@
 
 #define CLONE_EXIT_SIGNAL_MASK 0xffULL
 
+/* Temporary libc compatibility: accept CLONE_CHILD_CLEARTID, but ignore its
+ * clear-on-exit and futex-wakeup semantics until they are implemented. */
 #define CLONE_SUPPORTED_FLAGS                                                  \
 	(CLONE_EXIT_SIGNAL_MASK | CLONE_VM | CLONE_FS | CLONE_FILES |          \
 	 CLONE_SIGHAND | CLONE_VFORK | CLONE_PARENT | CLONE_THREAD |           \
 	 CLONE_SYSVSEM | CLONE_SETTLS | CLONE_PARENT_SETTID |                  \
-	 CLONE_DETACHED | CLONE_UNTRACED |              \
+	 CLONE_CHILD_CLEARTID | CLONE_DETACHED | CLONE_UNTRACED |              \
 	 CLONE_CHILD_SETTID)
 
 #define CLONE_UNSUPPORTED_FLAGS                                                \
 	(CLONE_NEWTIME | CLONE_PIDFD | CLONE_PTRACE | CLONE_NEWNS |            \
 	 CLONE_NEWCGROUP | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWUSER |       \
 	 CLONE_NEWPID | CLONE_NEWNET | CLONE_IO | CLONE_CLEAR_SIGHAND |        \
-	 CLONE_INTO_CGROUP | CLONE_CHILD_CLEARTID)
+	 CLONE_INTO_CGROUP)
 
 static bool clone_wants_thread(unsigned long flags)
 {
@@ -277,6 +279,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 	ret = clone_copy_resources(child, flags, new_proc);
 	if (ret < 0)
 		goto fail_proc;
+	/* CLONE_CHILD_CLEARTID is intentionally accepted but ignored for now. */
 	if (flags & CLONE_CHILD_SETTID)
 		child->signal.set_child_tid = child_tid;
 	if (new_proc) {

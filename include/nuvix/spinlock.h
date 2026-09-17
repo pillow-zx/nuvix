@@ -219,8 +219,10 @@ static inline void spin_lock_irqsave(spinlock_t *lock, irq_flags_t *flags)
 	IFDEF(CONFIG_DEBUG_CONTEXT, BUG_ON(spinlock_held_by_current(lock));)
 	IFDEF(CONFIG_DEBUG_CONTEXT, BUG_ON(lock_depth() >= CPU_LOCK_MAX);)
 
-	cpu_inc_preempt_count(current_cpu());
 	*flags = local_irq_save();
+	/* current_cpu() and its per-CPU preempt count must be sampled after
+	 * migration has been excluded. */
+	cpu_inc_preempt_count(current_cpu());
 	do {
 		expected = 0;
 		if (!atomic_try_cmpxchg_acquire(&lock->locked, &expected, 1) &&
@@ -256,6 +258,7 @@ static inline void spin_unlock_irqrestore(spinlock_t *lock, irq_flags_t flags)
  */
 static inline void spin_lock(spinlock_t *lock)
 {
+	irq_flags_t flags;
 	int expected;
 
 	BUG_ON(!lock);
@@ -264,7 +267,11 @@ static inline void spin_lock(spinlock_t *lock)
 	IFDEF(CONFIG_DEBUG_CONTEXT, BUG_ON(lock_depth() >= CPU_LOCK_MAX);)
 
 
+	/* A plain lock preserves IRQ state, but still needs an atomic per-CPU
+	 * preempt-count update before migration is disabled by that count. */
+	flags = local_irq_save();
 	cpu_inc_preempt_count(current_cpu());
+	local_irq_restore(flags);
 	do {
 		expected = 0;
 		if (!atomic_try_cmpxchg_acquire(&lock->locked, &expected, 1) &&

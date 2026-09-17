@@ -72,6 +72,20 @@ struct sbi_ret sbi_ipi_send(uint64_t hart_mask, uint64_t hart_mask_base)
 			 hart_mask_base, 0, 0, 0);
 }
 
+struct sbi_ret sbi_remote_fence_i(uint64_t hart_mask,
+				  uint64_t hart_mask_base)
+{
+	return sbi_ecall(SBI_EID_RFENCE, SBI_FID_RFENCE_REMOTE_FENCE_I, hart_mask,
+			 hart_mask_base, 0, 0, 0);
+}
+
+struct sbi_ret sbi_remote_sfence_vma(uint64_t hart_mask,
+				     uint64_t hart_mask_base,
+				     uintptr_t start, size_t size)
+{
+	return sbi_ecall(SBI_EID_RFENCE, SBI_FID_RFENCE_REMOTE_SFENCE_VMA,
+			 hart_mask, hart_mask_base, start, size, 0);
+}
 #endif
 
 static const struct {
@@ -79,8 +93,9 @@ static const struct {
 	const char *name;
 } sbi_extensions[] = {
 	{SBI_EID_BASE, "base"}, {SBI_EID_HSM, "hsm"},
-	{SBI_EID_IPI, "ipi"},	{SBI_EID_TIME, "time"},
-	{SBI_EID_RFNC, "rfnc"}, {SBI_EID_SYSTEM_RESET, "srst"},
+	{SBI_EID_IPI, "ipi"}, {SBI_EID_TIME, "time"},
+	{SBI_EID_RFENCE, "rfence"},
+	{SBI_EID_SYSTEM_RESET, "srst"},
 };
 
 BOOTINFO_BLOCK(

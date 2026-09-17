@@ -30,6 +30,11 @@ void smp_basic_prepare(void)
 			panic("sbi: IPI extension required for %u CPUs but "
 			      "not probed (error=%ld value=%ld)\n",
 			      nr_cpu_ids, ret.error, ret.value);
+		ret = sbi_probe_extension(SBI_EID_RFENCE);
+		if (ret.error != 0 || ret.value == 0)
+			panic("sbi: RFENCE extension required for %u CPUs but "
+			      "not probed (error=%ld value=%ld)\n",
+			      nr_cpu_ids, ret.error, ret.value);
 	}
 
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {

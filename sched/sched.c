@@ -55,7 +55,7 @@ static void kick(uint32_t cpu)
 {
 #ifdef CONFIG_SMP
 	if (cpu != current_cpu()->id)
-		(void)ipi_send(cpu, IPI_RESCHEDULE);
+		(void)ipi_send(cpu);
 #else
 	BUG_ON(cpu != current_cpu()->id);
 #endif

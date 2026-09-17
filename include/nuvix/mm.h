@@ -289,9 +289,9 @@ void do_page_fault(struct trap_frame *tf);
  * @param mm Address space to flush on remote CPUs. Caller holds mm->mmap_lock.
  * @param flush_icache Also shoot down instruction caches if true.
  *
- * The architecture broadcasts to online non-self CPUs and waits for their
- * acknowledgements. User root entry also flushes locally; no scheduler
- * snapshot is needed. The caller's local TLB is NOT flushed.
+ * The architecture uses its remote-fence service for every online CPU,
+ * including the caller, so migration cannot create a gap between local and
+ * remote invalidation. No scheduler translation-ownership snapshot is needed.
  */
 #ifdef CONFIG_SMP
 void mm_flush_remote(struct mm_struct *mm, bool flush_icache);
@@ -303,10 +303,10 @@ static inline void mm_flush_remote(struct mm_struct *mm, bool flush_icache)
 #endif
 
 /**
- * @brief Flush the whole TLB on every other online CPU (kernel mappings).
+ * @brief Flush the whole TLB on every online CPU (kernel mappings).
  *
- * Sends a synchronous TLB shootdown IPI to all online non-self CPUs and waits
- * for their acks. Used for kernel-range (vmalloc) PTE updates.
+ * Uses the architecture remote-fence service, including for the caller. Used
+ * for kernel-range (vmalloc) PTE updates.
  */
 #ifdef CONFIG_SMP
 void mm_flush_all(void);

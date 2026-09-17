@@ -187,10 +187,10 @@ void trap_handler(struct trap_frame *tf)
 
 		struct trap_exception exception = trap_classify_exception(tf);
 
-		/* User exceptions run in sleepable task context. In particular,
-		 * concurrent page faults must receive each other's shootdown IPIs.
-		 * Kernel faults retain their entry IRQ state and uaccess fixups
-		 * have already returned above. */
+		/* User exceptions run in sleepable task context. Concurrent page
+		 * faults may block on MM locks and invoke synchronous remote-fence
+		 * services. Kernel faults retain their entry IRQ state and uaccess
+		 * fixups have already returned above. */
 		if (user)
 			local_irq_enable();
 

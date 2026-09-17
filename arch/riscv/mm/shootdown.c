@@ -4,43 +4,61 @@
 
 #include <nuvix/mm.h>
 #include <nuvix/cpu.h>
-#include <nuvix/ipi.h>
+#include <nuvix/printk.h>
+#include <arch/sbi.h>
 
+static uint64_t online_hart_mask(void)
+{
+	uint64_t online = cpu_online_mask();
+	uint64_t harts = 0;
+
+	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
+		uint32_t hartid;
+
+		if (!(online & BIT_U64(id)))
+			continue;
+		hartid = cpu_table[id].hartid;
+		BUG_ON(hartid >= sizeof(harts) * 8);
+		harts |= BIT_U64(hartid);
+	}
+	return harts;
+}
 
 void mm_flush_remote(struct mm_struct *mm, bool flush_icache)
 {
-	uint32_t self_id = current_cpu()->id;
-	uint64_t online = cpu_online_mask();
-	int reasons = IPI_SHOOTDOWN;
+	struct sbi_ret ret;
+	uint64_t harts;
 
 	/* No ASIDs: every entry into a user root flushes locally. Broadcast
-	 * covers CPUs already running it, including concurrent handoffs,
-	 * without borrowing a scheduler snapshot as translation ownership. */
+	 * covers every online hart, including the caller, without borrowing a
+	 * scheduler snapshot as translation ownership. Including the caller keeps
+	 * the operation correct if this task migrates around the local flush. */
 	(void)mm;
-	if (flush_icache)
-		reasons |= IPI_FENCE_I;
+	harts = online_hart_mask();
+	if (!harts)
+		return;
 
-	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
-		if (id == self_id || !(online & (1ULL << id)))
-			continue;
-		ipi_send_sync(id, reasons);
-	}
+	ret = sbi_remote_sfence_vma(harts, 0, 0, 0);
+	if (ret.error != 0)
+		panic("sbi: remote SFENCE.VMA failed (harts=0x%lx error=%ld)",
+		      harts, ret.error);
+	if (!flush_icache)
+		return;
+	ret = sbi_remote_fence_i(harts, 0);
+	if (ret.error != 0)
+		panic("sbi: remote FENCE.I failed (harts=0x%lx error=%ld)",
+		      harts, ret.error);
 }
 
 void mm_flush_all(void)
 {
-	uint32_t self_id = current_cpu()->id;
-	uint64_t online = cpu_online_mask();
-	uint64_t targets;
+	struct sbi_ret ret;
+	uint64_t harts = online_hart_mask();
 
-	/* Exclude self from targets. */
-	targets = online & ~(1ULL << self_id);
-
-	if (targets == 0)
+	if (!harts)
 		return;
-
-	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
-		if (targets & (1ULL << id))
-			ipi_send_sync(id, IPI_SHOOTDOWN);
-	}
+	ret = sbi_remote_sfence_vma(harts, 0, 0, 0);
+	if (ret.error != 0)
+		panic("sbi: remote SFENCE.VMA failed (harts=0x%lx error=%ld)",
+		      harts, ret.error);
 }

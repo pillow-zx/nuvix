@@ -86,10 +86,9 @@ static void smp_gate_fail(uint64_t secondary_mask, uint64_t timer_seen, uint64_t
 		struct cpu *cpu = &cpu_table[id];
 
 		pr_err("smp:   cpu %u: hart=%u state=%u boot_error=%u "
-		       "timer_seen=%d ipi_seen=%d pending=0x%x\n",
+		       "timer_seen=%d ipi_seen=%d\n",
 		       id, cpu->hartid, cpu_state_load_acquire(cpu),
-		       smp_boot_errors[id], cpu_timer_seen(id), ipi_seen(id),
-		       ipi_pending_reasons(id));
+		       smp_boot_errors[id], cpu_timer_seen(id), ipi_seen(id));
 	}
 	panic("smp: boot gate failed: %s\n", what);
 	unreachable();
@@ -134,7 +133,7 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 	for (id = 0; id < nr_cpus; id++) {
 		if (id == boot_id)
 			continue;
-		if (ipi_send(id, IPI_RESCHEDULE) != 0)
+		if (ipi_send(id) != 0)
 			smp_gate_fail(secondary_mask, timer_seen, ipi_observed,
 				      "ipi-send");
 	}
