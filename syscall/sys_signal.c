@@ -13,10 +13,8 @@
 
 /*
  * SYSCALL_SUPPORT(B): kill
- * Current: delivers to a positive pid, the caller's process group for pid 0,
- * a selected process group for pid < -1, or all eligible processes for -1.
- * Permission follows the caller's real/effective UID, the target's real/saved
- * UID, root privilege, and the same-session SIGCONT exception.
+ * Current: supports positive process IDs only. Permission follows the
+ * caller's real/effective UID, the target's real/saved UID, and root.
  */
 ssize_t sys_kill(struct trap_frame *tf)
 {
@@ -24,22 +22,6 @@ ssize_t sys_kill(struct trap_frame *tf)
 	int sig = (int)syscall_arg(tf, 1);
 
 	return sig_kill(pid, sig);
-}
-
-/*
- * SYSCALL_SUPPORT(B): tkill
- * Current: delivers to a positive tid with the same permission policy as
- * kill().  tid <= 0 returns -EINVAL; missing targets return -ESRCH.
- */
-ssize_t sys_tkill(struct trap_frame *tf)
-{
-	long tid = (long)syscall_arg(tf, 0);
-	int sig = (int)syscall_arg(tf, 1);
-
-	if (tid <= 0)
-		return -EINVAL;
-
-	return sig_tkill(tid, sig);
 }
 
 /*
@@ -181,25 +163,6 @@ ssize_t sys_sigpending(struct trap_frame *tf)
 	if (copy_to_user(set, &pending, sizeof(pending)) != 0)
 		return -EFAULT;
 	return 0;
-}
-
-/*
- * SYSCALL_SUPPORT(B): rt_sigsuspend
- * Current: replaces the calling mask while waiting for an unblocked signal,
- * then returns -EINTR and restores the prior mask after handler return.
- * Unsupported: real-time signals 32..64 return -EINVAL.
- */
-ssize_t sys_sigsuspend(struct trap_frame *tf)
-{
-	const uint64_t *uset = (const uint64_t *)syscall_arg(tf, 0);
-	size_t sigsetsize = (size_t)syscall_arg(tf, 1);
-	uint64_t set;
-
-	if (sigsetsize != sizeof(unsigned long))
-		return -EINVAL;
-	if (copy_from_user(&set, uset, sizeof(set)) != 0)
-		return -EFAULT;
-	return sig_suspend(set);
 }
 
 /*

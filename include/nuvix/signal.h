@@ -16,11 +16,32 @@ struct proc_struct;
 struct mm_struct;
 struct pgrp_struct;
 struct session_struct;
-struct sighand_struct;
 struct task_wait;
 struct timespec;
-struct proc_orphan_event;
 struct proc_parent_event;
+
+/* Compact kernel representation of the siginfo classes nuvix produces.
+ * The 128-byte Linux siginfo_t layout exists only at the userspace boundary. */
+struct ksiginfo {
+	int code;
+	union {
+		struct {
+			pid_t pid;
+			uid_t uid;
+		} sender;
+		struct {
+			uintptr_t addr;
+			int trapno;
+		} fault;
+		struct {
+			pid_t pid;
+			uid_t uid;
+			int status;
+			long utime;
+			long stime;
+		} child;
+	};
+};
 
 /**
  * @struct sigchld_exit_policy
@@ -56,7 +77,7 @@ __access_no_size(read_write, 1)
 void sig_defer_mask_restore(struct task_struct *task, uint64_t mask);
 
 /**
- * @brief Deliver one signal to every task of an already-snapshot pgrp.
+ * @brief Deliver one process-directed signal to every process in a pgrp.
  * @param sig Signal number, or 0 for an existence probe.
  * @param info Signal info; must be non-NULL when @p sig is non-zero.
  * @param pgrp Snapshot pgrp reference held by the caller.
@@ -71,9 +92,6 @@ __access_no_size(read_only, 2)
 __access_no_size(read_only, 3) __access_no_size(read_only, 4)
 int sig_send_pgrp(int sig, const siginfo_t *info, struct pgrp_struct *pgrp,
 		struct session_struct *session);
-
-__access_no_size(read_only, 1)
-void sig_orphan_pgrp(const struct proc_orphan_event *event);
 
 __access_no_size(read_only, 1)
 void sig_notify_parent(const struct proc_parent_event *event);
@@ -112,26 +130,11 @@ __must_check
 int sig_mm_init(struct mm_struct *mm);
 
 __must_check __access_no_size(read_write, 1)
-int sig_task_clone(struct task_struct *child, bool share_sighand, bool disable_altstack);
+int sig_task_clone(struct task_struct *child, bool disable_altstack);
 
-/**
- * @brief Prepare the private signal-handler table required by exec.
- * @param task Task replacing its image.
- * @param prepared Receives the uncommitted handler table.
- * @return 0, or a negative errno.
- *
- * The current proc handler table is not modified.  The caller must either
- * commit or abort the returned table.
- */
-__must_check
-__access_no_size(read_only, 1) __access_no_size( write_only, 2)
-int sig_exec_prepare(const struct task_struct *task, struct sighand_struct **prepared);
-
-__nonnull(1, 2) __access_no_size(read_write, 1)
-void sig_exec_commit(struct task_struct *task, struct sighand_struct *prepared);
-
-__access_no_size(read_write, 1)
-void sig_exec_abort(struct sighand_struct *prepared);
+/** Reset caught dispositions and per-image signal state after exec commits. */
+__nonnull(1) __access_no_size(read_write, 1)
+void sig_exec_commit(struct task_struct *task);
 
 __access_no_size(read_write, 1)
 void sig_task_release(struct task_struct *task);
@@ -153,23 +156,13 @@ __cold
 void sig_init(void);
 
 /**
- * @brief Implement Linux kill() process and process-group signal semantics.
- * @param pid Positive process ID, zero for the caller's process group, -1 for
- *        the supported broadcast policy, or a negative process-group ID.
+ * @brief Send a process-directed signal through the supported kill() subset.
+ * @param pid Positive process ID. Other Linux selector forms are unsupported.
  * @param sig Signal number, or 0 for permission/existence probe.
  * @return 0 on success, or a negative errno.
  */
 __must_check
 int sig_kill(pid_t pid, int sig);
-
-/**
- * @brief Implement tkill() thread-directed signal semantics.
- * @param tid Target thread id.
- * @param sig Signal number.
- * @return 0 on success, or a negative errno.
- */
-__must_check
-int sig_tkill(pid_t tid, int sig);
 
 /**
  * @brief Implement tgkill() thread-group-qualified signal semantics.
@@ -212,18 +205,6 @@ int sig_action(int sig, const struct sigaction *act, struct sigaction *oldact);
 __must_check
 __access_no_size(read_only, 2) __access_no_size(write_only, 3)
 int sig_procmask(int how, const uint64_t *set, uint64_t *oldset);
-
-/**
- * @brief Temporarily replace the signal mask and wait for interruption.
- * @param mask Replacement blocked signal mask.
- * @return Always -EINTR after an unblocked signal is observed, or a negative
- *         errno from the wait subsystem.
- *
- * The previous mask is restored through the signal-frame path after a caught
- * signal handler returns to userspace.
- */
-__must_check
-int sig_suspend(uint64_t mask);
 
 /**
  * @brief Synchronously consume or wait for a pending signal in a set.

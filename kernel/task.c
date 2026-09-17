@@ -326,7 +326,8 @@ int task_prepare_user_proc(struct task_struct *task, struct proc_struct *proc)
 	ret = proc_attach_task(proc, task, true);
 	if (ret < 0)
 		return ret;
-	if (!proc->sighand && (ret = proc_init_resources(proc)) < 0) {
+	if (!proc->resources_initialized &&
+	    (ret = proc_init_resources(proc)) < 0) {
 		proc_detach_task(proc, task);
 		return ret;
 	}

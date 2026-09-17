@@ -59,7 +59,7 @@ abort:
 
 /*
  * SYSCALL_SUPPORT(B): wait4
- * Current: supports all pid selectors, WNOHANG/WUNTRACED/WCONTINUED and the
+ * Current: supports all pid selectors, WNOHANG and the
  * Linux internal __WNOTHREAD/__WCLONE/__WALL filters. It can return rusage;
  * SA_RESTART replays an interrupted blocking wait after its handler returns.
  * Unsupported errno: unknown option bits return -EINVAL; no wait target

@@ -26,6 +26,7 @@
 #include <nuvix/pid.h>
 #include <nuvix/printk.h>
 #include <nuvix/refcount.h>
+#include <nuvix/signal.h>
 #include <nuvix/task_access.h>
 #include <nuvix/wait.h>
 #include <nuvix/types.h>
@@ -85,7 +86,6 @@ struct vfork_completion;
 struct files_struct;
 struct fs_struct;
 struct mm_struct;
-struct sighand_struct;
 struct signal_struct;
 struct signal_frame_state;
 struct trap_frame;
@@ -122,18 +122,18 @@ struct task_signal_context {
 	 * treat them as hints validated under siglock. */
 	uint64_t pending;
 	uint64_t forced_pending;
-	siginfo_t pending_info[NSIG + 1];
+	/* Only standard signals 1..SIGRTMIN-1 are supported.  Do not reserve
+	 * storage for the unsupported real-time signal range. */
+	struct ksiginfo pending_info[SIGRTMIN];
 	/* Fact bits maintained by one centralized recalc under the thread-group
 	 * siglock and read atomically by wait predicates.  The interruptible bit
 	 * means a pending signal is currently deliverable to this Task; blocked
 	 * pending signals do not interrupt ordinary waits. */
 	atomic_t has_pending_signal;
 	atomic_t has_fatal_pending;
-	struct signal_frame_state *signal_frames;
 	uint64_t restore_mask;
 	bool restore_mask_pending;
 	struct stack_t sas;
-	int *set_child_tid;
 };
 
 struct restart_context {
@@ -199,6 +199,8 @@ struct task_struct {
 	      uint32_t sleep_lock_depth;)
 	struct task_signal_context signal;
 	struct restart_context restart;
+	/* clone/user-return state is task lifecycle state, not signal state. */
+	int *set_child_tid;
 	struct task_cputime cputime;
 
 	int exit_code;

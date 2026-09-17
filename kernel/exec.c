@@ -674,7 +674,6 @@ int execve(const char *path, const struct exec_args_envp *args,
 	struct proc_struct *proc = task ? task->proc : NULL;
 	struct mm_struct *mm;
 	struct files_struct *prepared_files = NULL;
-	struct sighand_struct *prepared_sighand = NULL;
 	vaddr_t entry;
 	vaddr_t sp;
 	const struct wait_deadline deadline = wait_deadline_none();
@@ -742,10 +741,6 @@ int execve(const char *path, const struct exec_args_envp *args,
 		ret = -ENOMEM;
 		goto abort_exec;
 	}
-	ret = sig_exec_prepare(task, &prepared_sighand);
-	if (ret < 0)
-		goto abort_exec;
-
 	BUG_ON(proc_exec_adopt_pid(proc, task) < 0);
 	files_close_on_exec(prepared_files);
 	{
@@ -755,13 +750,12 @@ int execve(const char *path, const struct exec_args_envp *args,
 		files_put(old_files);
 	}
 	prepared_files = NULL;
-	sig_exec_commit(task, prepared_sighand);
-	prepared_sighand = NULL;
+	sig_exec_commit(task);
 
 	install_exec_mm(mm, tf, entry, sp);
 	proc_mark_user_process(proc);
 	restart_clear(task);
-	task->signal.set_child_tid = NULL;
+	task->set_child_tid = NULL;
 
 	kernel_clone_complete_vfork(task);
 	proc_exec_end(proc, task);
@@ -769,7 +763,6 @@ int execve(const char *path, const struct exec_args_envp *args,
 	return 0;
 
 abort_exec:
-	sig_exec_abort(prepared_sighand);
 	files_put(prepared_files);
 	if (exec_started)
 		proc_exec_end(proc, task);

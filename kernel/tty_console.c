@@ -189,8 +189,6 @@ static int console_signal_for_char(const struct termios *termios, char ch)
 		return SIGINT;
 	if (console_cc_eq(termios, VQUIT, ch))
 		return SIGQUIT;
-	if (console_cc_eq(termios, VSUSP, ch))
-		return SIGTSTP;
 	return 0;
 }
 

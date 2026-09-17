@@ -17,23 +17,12 @@
 static DEFINE_SPINLOCK(proc_topology_lock, LOCK_RANK_TOPOLOGY,
 		       LOCK_IRQ_TASK_ONLY);
 
-static LIST_HEAD(orphan_pending);
-
 void proc_parent_event_release(struct proc_parent_event *event)
 {
 	if (!event)
 		return;
 	proc_put(event->child);
 	proc_put(event->parent);
-	memset(event, 0, sizeof(*event));
-}
-
-void proc_orphan_event_release(struct proc_orphan_event *event)
-{
-	if (!event)
-		return;
-	proc_pgrp_put(event->pgrp);
-	proc_session_put(event->session);
 	memset(event, 0, sizeof(*event));
 }
 
@@ -150,8 +139,6 @@ static struct pgrp_struct *pgrp_alloc(struct pid_identity *pgid,
 	spin_lock_init(&pgrp->lock, LOCK_RANK_TOPOLOGY, LOCK_IRQ_TASK_ONLY);
 	INIT_LIST_HEAD(&pgrp->members);
 	INIT_LIST_HEAD(&pgrp->session_node);
-	INIT_LIST_HEAD(&pgrp->orphan_node);
-	pgrp->orphaned = true;
 	pgrp->pgid = pgid;
 	pgrp->session = session;
 	pid_get(pgid);
@@ -168,98 +155,6 @@ static struct pgrp_struct *pgrp_alloc(struct pid_identity *pgid,
 	return pgrp;
 }
 
-static bool proc_pgrp_is_orphaned_locked(const struct pgrp_struct *pgrp)
-{
-	const struct proc_struct *member;
-
-	list_for_each_entry (member, &pgrp->members, pgrp_node) {
-		const struct proc_struct *parent = member->parent;
-
-		if (parent && parent->pgrp &&
-		    parent->pgrp->session == pgrp->session &&
-		    parent->pgrp != pgrp)
-			return false;
-	}
-	return true;
-}
-
-static bool proc_pgrp_has_stopped_member_locked(const struct pgrp_struct *pgrp)
-{
-	const struct proc_struct *member;
-
-	list_for_each_entry (member, &pgrp->members, pgrp_node)
-		if (member->job_stopped)
-			return true;
-	return false;
-}
-
-static void proc_orphan_event_add_locked(struct pgrp_struct *pgrp,
-					 struct proc_orphan_event *events,
-					 size_t capacity, size_t *count)
-{
-	pid_t pgid;
-	pid_t sid;
-
-	if (!pgrp || !pgrp->pgid || !pgrp->session || !pgrp->session->sid)
-		return;
-	if (!events || !count || *count >= capacity) {
-		if (list_empty(&pgrp->orphan_node)) {
-			proc_pgrp_get(pgrp);
-			list_add_tail(&pgrp->orphan_node, &orphan_pending);
-			sched_notify_reaper();
-		}
-		return;
-	}
-	pgid = pgrp->pgid->nr;
-	sid = pgrp->session->sid->nr;
-	for (size_t index = 0; index < *count; index++)
-		if (events[index].pgid == pgid && events[index].sid == sid)
-			return;
-	proc_pgrp_get(pgrp);
-	proc_session_get(pgrp->session);
-	events[(*count)++] = (struct proc_orphan_event){
-		.pgid = pgid,
-		.sid = sid,
-		.pgrp = pgrp,
-		.session = pgrp->session,
-	};
-}
-
-bool proc_orphan_pop(struct proc_orphan_event *event)
-{
-	struct pgrp_struct *pgrp;
-
-	spin_lock(&proc_topology_lock);
-	if (list_empty(&orphan_pending)) {
-		spin_unlock(&proc_topology_lock);
-		return false;
-	}
-	pgrp = list_first_entry(&orphan_pending, struct pgrp_struct, orphan_node);
-	list_del_init(&pgrp->orphan_node);
-	proc_session_get(pgrp->session);
-	*event = (struct proc_orphan_event){
-		.pgid = pgrp->pgid->nr, .sid = pgrp->session->sid->nr,
-		.pgrp = pgrp, .session = pgrp->session,
-	};
-	spin_unlock(&proc_topology_lock);
-	return true;
-}
-
-static void proc_update_pgrp_orphaned_locked(struct pgrp_struct *pgrp,
-					     struct proc_orphan_event *events,
-					     size_t capacity, size_t *count)
-{
-	bool orphaned;
-
-	if (!pgrp)
-		return;
-	orphaned = proc_pgrp_is_orphaned_locked(pgrp);
-	if (!pgrp->orphaned && orphaned &&
-	    proc_pgrp_has_stopped_member_locked(pgrp))
-		proc_orphan_event_add_locked(pgrp, events, capacity, count);
-	pgrp->orphaned = orphaned;
-}
-
 static void proc_wait_init(struct proc_wait_state *wait)
 {
 	wait_channel_init(&wait->channel);
@@ -269,8 +164,6 @@ static void proc_wait_init(struct proc_wait_state *wait)
 
 	wait->pending = 0;
 	wait->exit_status = 0;
-	wait->stop_status = 0;
-	wait->continue_status = 0;
 	wait->exit_signal = SIGCHLD;
 	wait->creator_id = 0;
 }
@@ -312,7 +205,6 @@ struct proc_struct *proc_alloc(struct proc_struct *parent,
 	proc->exit_auto_reap = false;
 	proc->exit_sigchld_notify = false;
 	proc->user_process = false;
-	proc->job_stopped = false;
 
 	if (parent) {
 		if (!proc_try_get(parent))
@@ -383,10 +275,8 @@ static void proc_destroy(struct proc_struct *proc)
 		struct pgrp_struct *pgrp = proc->pgrp;
 
 		spin_lock(&proc_topology_lock);
-		if (!list_empty(&proc->pgrp_node)) {
+		if (!list_empty(&proc->pgrp_node))
 			list_del_init(&proc->pgrp_node);
-			proc_update_pgrp_orphaned_locked(pgrp, NULL, 0, NULL);
-		}
 		spin_unlock(&proc_topology_lock);
 		proc_pgrp_put(pgrp);
 		proc->pgrp = NULL;
@@ -408,9 +298,12 @@ int proc_init_resources(struct proc_struct *proc)
 {
 	if (!proc)
 		return -EINVAL;
+	if (proc->resources_initialized)
+		return 0;
 	if (sig_proc_init(proc) < 0)
 		return -ENOMEM;
 	rlimits_init(proc->rlimits);
+	proc->resources_initialized = true;
 	return 0;
 }
 
@@ -429,8 +322,10 @@ int proc_clone_rlimits(struct proc_struct *proc,
 
 void proc_release_resources(struct proc_struct *proc)
 {
-	if (proc)
+	if (proc && proc->resources_initialized) {
 		sig_proc_release(proc);
+		proc->resources_initialized = false;
+	}
 }
 
 int proc_publish(struct proc_struct *proc)
@@ -627,29 +522,24 @@ int proc_link_child(struct proc_struct *parent, struct proc_struct *child)
 	}
 	if (list_empty(&child->sibling))
 		list_add_tail(&child->sibling, &parent->children);
-	proc_update_pgrp_orphaned_locked(child->pgrp, NULL, 0, NULL);
 	spin_unlock(&proc_topology_lock);
 	return 0;
 }
 
-size_t proc_unlink_child(struct proc_struct *child,
-			 struct proc_orphan_event *events, size_t capacity)
+void proc_unlink_child(struct proc_struct *child)
 {
 	struct proc_struct *parent;
-	size_t count = 0;
 
 	if (!child)
-		return 0;
+		return;
 	spin_lock(&proc_topology_lock);
 	parent = child->parent;
 	child->parent = NULL;
 	if (!list_empty(&child->sibling))
 		list_del_init(&child->sibling);
-	proc_update_pgrp_orphaned_locked(child->pgrp, events, capacity, &count);
 	spin_unlock(&proc_topology_lock);
 	if (parent)
 		proc_put(parent);
-	return count;
 }
 
 struct proc_struct *proc_parent_get(struct proc_struct *proc)
@@ -821,36 +711,60 @@ void proc_notify_tasks(struct proc_struct *proc, proc_task_callback_t callback,
 	}
 }
 
-size_t proc_pgrp_task_snapshot(struct pgrp_struct *pgrp,
-			       struct session_struct *session,
-			       struct task_struct **tasks, size_t capacity)
+void proc_notify_pgrp(struct pgrp_struct *pgrp, struct session_struct *session,
+		      proc_task_callback_t callback, void *arg)
 {
-	struct proc_struct *member;
-	size_t count = 0;
+	pid_t cursor = 0;
 
-	if (!pgrp || !session || !tasks || capacity == 0)
-		return 0;
-	spin_lock(&proc_topology_lock);
-	if (pgrp->session != session)
-		goto out;
-	/* Per-proc target must be a live task: an exiting leader must not
-	 * make the whole process unreachable for process-directed signals. */
-	list_for_each_entry (member, &pgrp->members, pgrp_node) {
-		struct task_struct *task;
+	if (!pgrp || !session || !callback)
+		return;
+	for (;;) {
+		struct task_struct *batch[8];
+		size_t count = 0;
+		bool exhausted = false;
 
-		if (member->lifecycle >= PROC_ZOMBIE)
-			continue;
-		list_for_each_entry (task, &member->tasks, proc_node) {
-			if (count == capacity || task->lifecycle != TASK_LIVE)
-				continue;
-			if (task_try_get(task))
-				tasks[count++] = task;
-			break;
+		spin_lock(&proc_topology_lock);
+		if (pgrp->session != session) {
+			spin_unlock(&proc_topology_lock);
+			return;
 		}
+		while (count < ARRLEN(batch)) {
+			struct proc_struct *member, *next = NULL;
+			struct task_struct *target;
+			bool found_task = false;
+
+			list_for_each_entry(member, &pgrp->members, pgrp_node) {
+				pid_t pid;
+
+				if (!member->pid || member->lifecycle >= PROC_ZOMBIE)
+					continue;
+				pid = member->pid->nr;
+				if (pid > cursor &&
+				    (!next || pid < next->pid->nr))
+					next = member;
+			}
+			if (!next) {
+				exhausted = true;
+				break;
+			}
+			cursor = next->pid->nr;
+			list_for_each_entry(target, &next->tasks, proc_node) {
+				if (target->lifecycle == TASK_LIVE) {
+					found_task = true;
+					break;
+				}
+			}
+			if (found_task && task_try_get(target))
+				batch[count++] = target;
+		}
+		spin_unlock(&proc_topology_lock);
+		for (size_t index = 0; index < count; index++) {
+			callback(batch[index], arg);
+			task_put(batch[index]);
+		}
+		if (exhausted)
+			return;
 	}
-out:
-	spin_unlock(&proc_topology_lock);
-	return count;
 }
 
 static struct proc_struct *proc_reaper_locked(void)
@@ -858,18 +772,16 @@ static struct proc_struct *proc_reaper_locked(void)
 	return init_task ? init_task->proc : NULL;
 }
 
-size_t proc_reparent_children(struct proc_struct *proc,
-			      struct proc_orphan_event *events, size_t capacity)
+static void proc_reparent_children(struct proc_struct *proc)
 {
 	struct proc_struct *reaper;
 	struct list_head *pos;
 	struct list_head *next;
 	size_t old_parent_refs = 0;
-	size_t count = 0;
 	bool wake_reaper = false;
 
 	if (!proc)
-		return 0;
+		return;
 	spin_lock(&proc_topology_lock);
 	reaper = proc_reaper_locked();
 	if (reaper == proc)
@@ -895,13 +807,8 @@ size_t proc_reparent_children(struct proc_struct *proc,
 			proc_get(reaper);
 			list_add_tail(&child->sibling, &reaper->children);
 		}
-		if (reaper) {
-
-
+		if (reaper)
 			wake_reaper |= child->wait_state.pending != 0;
-		}
-		proc_update_pgrp_orphaned_locked(child->pgrp, events, capacity,
-						 &count);
 	}
 	spin_unlock(&proc_topology_lock);
 	for (size_t index = 0; index < old_parent_refs; index++)
@@ -910,7 +817,6 @@ size_t proc_reparent_children(struct proc_struct *proc,
 		wait_channel_wake_all(&reaper->wait_state.channel);
 	if (reaper)
 		proc_put(reaper);
-	return count;
 }
 
 bool proc_begin_group_exit(struct proc_struct *proc, int status)
@@ -987,87 +893,6 @@ static void proc_parent_event_fill_locked(struct proc_struct *proc, int code,
 	proc_parent_event_cputime_locked(proc, &event->cputime);
 }
 
-static bool proc_all_tasks_stopped_locked(const struct proc_struct *proc)
-{
-	const struct task_struct *task;
-
-	list_for_each_entry (task, &proc->tasks, proc_node) {
-		if (!sched_task_stopped((struct task_struct *)task) &&
-		    task->lifecycle < TASK_EXITING)
-			return false;
-	}
-	return true;
-}
-
-static bool proc_has_stopped_task_locked(const struct proc_struct *proc)
-{
-	const struct task_struct *task;
-
-	list_for_each_entry (task, &proc->tasks, proc_node) {
-		if (sched_task_stopped((struct task_struct *)task))
-			return true;
-	}
-	return false;
-}
-
-void proc_publish_stop(struct proc_struct *proc, int sig, uint64_t sequence,
-		       struct proc_parent_event *event)
-{
-	bool publish = false;
-
-	proc_parent_event_init(event);
-	if (!proc)
-		return;
-	/* Task stop transitions are aggregated: the wait-visible event only fires
-	 * once the whole Proc is stopped (an exiting task counts as stopped). */
-	spin_lock(&proc_topology_lock);
-	if (!proc->job_stopped && (sequence & 1) &&
-	    (uint64_t)atomic64_read_acquire(&proc->stop_sequence) == sequence &&
-	    proc_all_tasks_stopped_locked(proc)) {
-
-
-		proc->job_stopped = true;
-		publish = true;
-		proc->wait_state.stop_status = (sig << 8) | 0x7f;
-		proc->wait_state.pending |= PROC_WAIT_STOP;
-
-	}
-	if (publish)
-		proc_parent_event_fill_locked(
-			proc, CLD_STOPPED, sig,
-			proc->leader ? task_uid(proc->leader) : 0, event);
-	spin_unlock(&proc_topology_lock);
-}
-
-void proc_publish_continue(struct proc_struct *proc,
-			   struct proc_parent_event *event)
-{
-	bool publish = false;
-
-	proc_parent_event_init(event);
-	if (!proc)
-		return;
-	spin_lock(&proc_topology_lock);
-	/* Clear only when no task remains stopped, so CLD_CONTINUED matches
-	 * the whole-proc resume state. */
-	if (proc->job_stopped &&
-	    !((uint64_t)atomic64_read_acquire(&proc->stop_sequence) & 1) &&
-	    !proc_has_stopped_task_locked(proc)) {
-
-
-		proc->job_stopped = false;
-		publish = true;
-		proc->wait_state.continue_status = 0xffff;
-		proc->wait_state.pending |= PROC_WAIT_CONTINUE;
-
-	}
-	if (publish)
-		proc_parent_event_fill_locked(
-			proc, CLD_CONTINUED, SIGCONT,
-			proc->leader ? task_uid(proc->leader) : 0, event);
-	spin_unlock(&proc_topology_lock);
-}
-
 void proc_prepare_exit(struct proc_struct *proc, int status, uid_t uid,
 		       bool auto_reap, bool notify_sigchld)
 
@@ -1096,11 +921,9 @@ void proc_prepare_exit(struct proc_struct *proc, int status, uid_t uid,
 	spin_unlock(&proc_topology_lock);
 }
 
-size_t proc_publish_exit(struct proc_struct *proc,
-			 struct proc_orphan_event *events, size_t capacity,
-			 struct proc_parent_event *parent_event)
+void proc_publish_exit(struct proc_struct *proc,
+		       struct proc_parent_event *parent_event)
 {
-	size_t orphan_count;
 	bool has_parent;
 	int status;
 	uid_t uid;
@@ -1110,7 +933,7 @@ size_t proc_publish_exit(struct proc_struct *proc,
 
 
 	if (!proc)
-		return 0;
+		return;
 	proc_parent_event_init(parent_event);
 	spin_lock(&proc_topology_lock);
 	BUG_ON(proc->nr_tasks != 0);
@@ -1131,53 +954,25 @@ size_t proc_publish_exit(struct proc_struct *proc,
 	proc_parent_event_fill_locked(proc, code, info_status, uid,
 				      parent_event);
 	spin_unlock(&proc_topology_lock);
-	orphan_count = proc_reparent_children(proc, events, capacity);
+	proc_reparent_children(proc);
 	spin_lock(&proc_topology_lock);
 	proc->wait_state.exit_status = status;
 	if (!auto_reap)
 		proc->wait_state.pending |= PROC_WAIT_EXIT;
 
 	proc->lifecycle = has_parent && !auto_reap ? PROC_ZOMBIE : PROC_DEAD;
-	/* An exiting proc leaves its pgrp immediately: orphan evaluation must
-	 * not wait for reaping, because a zombie keeps its parent reference
-	 * until wait4 and would otherwise delay the SIGHUP/SIGCONT event. */
-	if (!list_empty(&proc->pgrp_node)) {
+	if (!list_empty(&proc->pgrp_node))
 		list_del_init(&proc->pgrp_node);
-		proc_update_pgrp_orphaned_locked(proc->pgrp, events, capacity,
-						 &orphan_count);
-	}
 	spin_unlock(&proc_topology_lock);
 	if (!has_parent || auto_reap) {
-		if (orphan_count < capacity)
-			orphan_count +=
-				proc_unlink_child(proc, &events[orphan_count],
-						  capacity - orphan_count);
-		else
-			(void)proc_unlink_child(proc, NULL, 0);
+		proc_unlink_child(proc);
 		proc_unpublish(proc);
 	}
-	return orphan_count;
 }
 
 bool proc_can_reap(const struct proc_struct *proc)
 {
 	return proc && proc->lifecycle == PROC_ZOMBIE && proc->nr_tasks == 0;
-}
-
-size_t proc_mark_reaped(struct proc_struct *proc,
-			struct proc_orphan_event *events, size_t capacity)
-{
-	size_t count;
-
-	if (!proc)
-		return 0;
-	spin_lock(&proc_topology_lock);
-	BUG_ON(!proc_can_reap(proc));
-	proc->lifecycle = PROC_DEAD;
-	spin_unlock(&proc_topology_lock);
-	proc_unpublish(proc);
-	count = proc_unlink_child(proc, events, capacity);
-	return count;
 }
 
 int proc_exec_begin(struct proc_struct *proc, struct task_struct *owner)
@@ -1336,12 +1131,6 @@ static uint32_t proc_wait_first_event(const struct proc_wait_state *wait,
 	if ((event_mask & PROC_WAIT_EXIT) &&
 	    (wait->pending & PROC_WAIT_EXIT))
 		return PROC_WAIT_EXIT;
-	if ((event_mask & PROC_WAIT_STOP) &&
-	    (wait->pending & PROC_WAIT_STOP))
-		return PROC_WAIT_STOP;
-	if ((event_mask & PROC_WAIT_CONTINUE) &&
-	    (wait->pending & PROC_WAIT_CONTINUE))
-		return PROC_WAIT_CONTINUE;
 	return 0;
 }
 
@@ -1387,9 +1176,7 @@ enum proc_wait_result proc_wait_take(struct proc_struct *parent,
 		info->pid = child->pid->nr;
 		info->uid = child->wait_state.exit_uid;
 		info->event = event;
-		info->status = event == PROC_WAIT_EXIT ? child->wait_state.exit_status :
-			event == PROC_WAIT_STOP ? child->wait_state.stop_status :
-			child->wait_state.continue_status;
+		info->status = child->wait_state.exit_status;
 		if (consume)
 			child->wait_state.pending &= ~event;
 		proc_cputime_snapshot(child, &time);
@@ -1552,8 +1339,7 @@ out:
 	return found;
 }
 
-int proc_join_pgrp(struct proc_struct *proc, pid_t pgid,
-		   struct proc_orphan_event *event)
+int proc_join_pgrp(struct proc_struct *proc, pid_t pgid)
 {
 	struct pgrp_struct *new_pgrp;
 	struct pgrp_struct *old_pgrp;
@@ -1562,8 +1348,6 @@ int proc_join_pgrp(struct proc_struct *proc, pid_t pgid,
 	bool moved = false;
 	int ret = 0;
 
-	if (event)
-		memset(event, 0, sizeof(*event));
 	if (!proc || !proc->pgrp || pgid <= 0)
 		return -EINVAL;
 	spin_lock(&proc_topology_lock);
@@ -1599,13 +1383,6 @@ int proc_join_pgrp(struct proc_struct *proc, pid_t pgid,
 			list_del_init(&proc->pgrp_node);
 		proc->pgrp = new_pgrp;
 		list_add_tail(&proc->pgrp_node, &new_pgrp->members);
-		{
-			size_t count = 0;
-
-			proc_update_pgrp_orphaned_locked(old_pgrp, event,
-							 event ? 1 : 0, &count);
-		}
-		proc_update_pgrp_orphaned_locked(new_pgrp, NULL, 0, NULL);
 		moved = true;
 	}
 	spin_unlock(&proc_topology_lock);
@@ -1622,27 +1399,17 @@ out_refs:
 	return ret;
 }
 
-int proc_create_session(struct proc_struct *proc, pid_t *sid,
-			struct proc_orphan_event *events, size_t capacity,
-			size_t *event_count)
+int proc_create_session(struct proc_struct *proc, pid_t *sid)
 {
 	struct session_struct *session;
 	struct pgrp_struct *pgrp;
 	struct pgrp_struct *old_pgrp;
 	struct session_struct *old_session;
 	struct pid_identity *identity;
-	size_t count = 0;
 	bool moved = false;
 	bool pgid_match = false;
 	int ret = 0;
 
-	/* Each pgrp owns a distinct PID identity. PID_COUNT therefore bounds
-	 * every distinct orphan transition in this single PID namespace. */
-	BUG_ON(!events || capacity < PID_COUNT);
-	if (event_count)
-		*event_count = 0;
-	if (events && capacity)
-		memset(events, 0, capacity * sizeof(*events));
 	if (!proc || !proc->pid || !sid)
 		return -EINVAL;
 	identity = proc->pid;
@@ -1677,21 +1444,10 @@ int proc_create_session(struct proc_struct *proc, pid_t *sid,
 	if (proc->pgrp != old_pgrp || proc->lifecycle >= PROC_EXITING) {
 		ret = -ESRCH;
 	} else {
-		struct pgrp_struct *iter;
-
 		if (!list_empty(&proc->pgrp_node))
 			list_del_init(&proc->pgrp_node);
 		proc->pgrp = pgrp;
 		list_add_tail(&proc->pgrp_node, &pgrp->members);
-		/* The caller leaves the whole session, so every pgrp that
-		 * relied on the caller as its only same-session outside
-		 * parent may now be orphaned: re-evaluate all pgrps of the
-		 * old session, not just the caller's former group. */
-		if (old_session)
-			list_for_each_entry (iter, &old_session->pgrps,
-					     session_node)
-				proc_update_pgrp_orphaned_locked(
-					iter, events, capacity, &count);
 		moved = true;
 	}
 	spin_unlock(&proc_topology_lock);
@@ -1707,7 +1463,5 @@ out_old:
 		proc_pgrp_put(old_pgrp);
 	proc_session_put(old_session);
 	pid_put(identity);
-	if (event_count)
-		*event_count = count;
 	return ret < 0 ? ret : *sid;
 }

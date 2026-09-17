@@ -6,7 +6,7 @@
  * @brief Process-owned resources, topology, and wait-visible lifecycle.
  *
  * Process topology and wait results are serialized by proc_topology_lock.
- * Group signal state is embedded; only the action table can be shared.
+ * Group signal state and the action table are embedded in the process.
  * Threads own address-space, files, filesystem and credential bindings.
  * Index membership does not own references. Snapshot events carry explicit
  * references, released outside locks. wait consumes a result under topology
@@ -18,6 +18,7 @@
 #include <nuvix/list.h>
 #include <nuvix/pid.h>
 #include <nuvix/refcount.h>
+#include <nuvix/signal.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/wait.h>
 #include <nuvix/types.h>
@@ -26,14 +27,13 @@
 
 struct mm_struct;
 struct pid_identity;
-struct sighand_struct;
 /* Embedded group signal state; never shared or separately reference counted. */
 struct signal_struct {
 	spinlock_t siglock;
+	struct sigaction actions[SIGRTMIN];
 	uint64_t shared_pending;
-	siginfo_t shared_pending_info[NSIG + 1];
-	bool group_stopped;
-	int group_stop_sig;
+	/* Real-time signals are intentionally unsupported. */
+	struct ksiginfo shared_pending_info[SIGRTMIN];
 };
 struct task_struct;
 struct tty_endpoint;
@@ -51,21 +51,17 @@ enum proc_lifecycle {
 
 enum proc_wait_event {
 	PROC_WAIT_EXIT = 1u << 0,
-	PROC_WAIT_STOP = 1u << 1,
-	PROC_WAIT_CONTINUE = 1u << 2,
 };
 
 /**
  * @struct proc_wait_state
  * @brief Persistent process events consumed under topology protection.
- * Stop and continue latch until consumed; exit remains until reaping.
+ * Exit remains pending until reaping.
  */
 struct proc_wait_state {
 	struct wait_channel channel;
 	uint32_t pending;
 	int exit_status;
-	int stop_status;
-	int continue_status;
 	int exit_signal;
 	uint64_t creator_id;
 	uid_t exit_uid;
@@ -82,8 +78,6 @@ struct pgrp_struct {
 	struct session_struct *session;
 	struct list_head members;
 	struct list_head session_node;
-	struct list_head orphan_node;
-	bool orphaned;
 };
 
 /**
@@ -108,20 +102,14 @@ struct proc_struct {
 	struct pid_identity *pid;
 	enum proc_lifecycle lifecycle;
 	bool published;
+	bool resources_initialized;
 
-	struct sighand_struct *sighand;
 	struct signal_struct signal;
 	struct rlimit64 rlimits[RLIM_NLIMITS];
 
 	struct list_head tasks;
 	uint32_t nr_tasks;
 	struct task_struct *leader;
-	bool job_stopped;
-	/* Odd = requested stop; even = continued. Published by the signal owner
-	 * under siglock but re-read under proc_topology_lock, so the value is
-	 * release/acquire paired across the two locks rather than protected by
-	 * either one alone. */
-	atomic64_t stop_sequence;
 
 	struct proc_struct *parent;
 	struct list_head children;
@@ -234,15 +222,6 @@ void proc_inherit_user_process(struct proc_struct *child,
 
 int proc_link_child(struct proc_struct *parent, struct proc_struct *child);
 
-struct proc_orphan_event {
-	pid_t pgid;
-	pid_t sid;
-	struct pgrp_struct *pgrp;
-	struct session_struct *session;
-};
-
-void proc_orphan_event_release(struct proc_orphan_event *event);
-bool proc_orphan_pop(struct proc_orphan_event *event);
 void proc_record_thread_exit(struct task_struct *task, int status);
 
 /** Parent notification snapshot held until proc_parent_event_release(). */
@@ -259,12 +238,7 @@ struct proc_parent_event {
 
 void proc_parent_event_release(struct proc_parent_event *event);
 
-size_t proc_unlink_child(struct proc_struct *child,
-			 struct proc_orphan_event *events, size_t capacity);
-
-size_t proc_reparent_children(struct proc_struct *proc,
-			      struct proc_orphan_event *events,
-			      size_t capacity);
+void proc_unlink_child(struct proc_struct *child);
 
 __must_check struct proc_struct *proc_parent_get(struct proc_struct *proc);
 
@@ -290,9 +264,10 @@ void proc_for_each_task(struct proc_struct *proc, proc_task_callback_t callback,
 void proc_notify_tasks(struct proc_struct *proc, proc_task_callback_t callback,
 		       void *arg);
 
-size_t proc_pgrp_task_snapshot(struct pgrp_struct *pgrp,
-			       struct session_struct *session,
-			       struct task_struct **tasks, size_t capacity);
+/* Visit one referenced live task from every process in a process group.
+ * Callbacks run outside topology locks in bounded batches. */
+void proc_notify_pgrp(struct pgrp_struct *pgrp, struct session_struct *session,
+		      proc_task_callback_t callback, void *arg);
 
 /** Proc lifecycle and wait-visible event operations. */
 bool proc_begin_group_exit(struct proc_struct *proc, int status);
@@ -300,23 +275,13 @@ bool proc_begin_group_exit(struct proc_struct *proc, int status);
 __must_check bool proc_group_exit_pending(const struct proc_struct *proc,
 					  int *status);
 
-void proc_publish_stop(struct proc_struct *proc, int sig, uint64_t sequence,
-		       struct proc_parent_event *event);
-
-void proc_publish_continue(struct proc_struct *proc,
-			   struct proc_parent_event *event);
-
 void proc_prepare_exit(struct proc_struct *proc, int status, uid_t uid,
 		       bool auto_reap, bool notify_sigchld);
 
-size_t proc_publish_exit(struct proc_struct *proc,
-			 struct proc_orphan_event *events, size_t capacity,
-			 struct proc_parent_event *parent_event);
+void proc_publish_exit(struct proc_struct *proc,
+		       struct proc_parent_event *parent_event);
 
 __must_check bool proc_can_reap(const struct proc_struct *proc);
-
-size_t proc_mark_reaped(struct proc_struct *proc,
-			struct proc_orphan_event *events, size_t capacity);
 
 /** Serialize exec and de-threading through proc-owned task membership. */
 int proc_exec_begin(struct proc_struct *proc, struct task_struct *owner);
@@ -366,21 +331,9 @@ int proc_wait_watch(struct proc_struct *parent,
 	struct task_wait *wait);
 
 /** Process-group/session topology. */
-int proc_join_pgrp(struct proc_struct *proc, pid_t pgid,
-		   struct proc_orphan_event *event);
+int proc_join_pgrp(struct proc_struct *proc, pid_t pgid);
 
-/*
- * Create a new session for @p proc.  The caller leaves the whole old
- * session, so every pgrp of the old session is re-evaluated for an orphan
- * transition. The caller must provide a @p PID_COUNT event buffer: one pgrp
- * consumes one PID identity in the current namespace, so that capacity is
- * complete. Events with pgrp/session references are counted in @p event_count
- * (may be NULL). Release each event with proc_orphan_event_release() outside
- * any lock.
- */
-int proc_create_session(struct proc_struct *proc, pid_t *sid,
-			struct proc_orphan_event *events, size_t capacity,
-			size_t *event_count);
+int proc_create_session(struct proc_struct *proc, pid_t *sid);
 
 /**
  * @brief Whether a session has no pgrp with remaining members.

@@ -19,14 +19,14 @@ static void write_child_tid(struct task_struct *task)
 
 	if (!task)
 		return;
-	child_tid = task->signal.set_child_tid;
+	child_tid = task->set_child_tid;
 	if (!child_tid)
 		return;
 	tid = task->tid ? task->tid->nr : 0;
 	if (copy_to_user(child_tid, &tid, sizeof(tid)) != 0)
 		pr_debug("signal: CLONE_CHILD_SETTID write failed for tid=%d\n",
 			 tid);
-	task->signal.set_child_tid = NULL;
+	task->set_child_tid = NULL;
 }
 
 void user_return_work(struct trap_frame *tf)

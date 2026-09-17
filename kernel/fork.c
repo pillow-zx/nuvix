@@ -49,7 +49,9 @@ static int validate_clone_flags(unsigned long flags, uintptr_t child_stack)
 		return -EINVAL;
 	if (flags & CLONE_UNSUPPORTED_FLAGS)
 		return -EINVAL;
-	if ((flags & CLONE_SIGHAND) && !(flags & CLONE_VM))
+	/* Signal dispositions are process-owned. Threads share them by sharing
+	 * proc; separate processes cannot share the embedded action table. */
+	if ((flags & CLONE_SIGHAND) && !(flags & CLONE_THREAD))
 		return -EINVAL;
 	if ((flags & CLONE_THREAD) &&
 	    (!(flags & CLONE_VM) || !(flags & CLONE_SIGHAND)))
@@ -75,7 +77,6 @@ static void clone_copy_task_signal(struct task_struct *child,
 	       sizeof(child->signal.pending_info));
 	child->signal.restore_mask = 0;
 	child->signal.restore_mask_pending = false;
-	child->signal.signal_frames = NULL;
 	if (disable_altstack)
 		child->signal.sas.ss_flags = SS_DISABLE;
 	else {
@@ -116,7 +117,7 @@ static void clone_abort_task(struct task_struct *child, bool new_proc)
 	if (proc) {
 		if (new_proc) {
 			proc_release_resources(proc);
-			(void)proc_unlink_child(proc, NULL, 0);
+			proc_unlink_child(proc);
 			proc->lifecycle = PROC_DEAD;
 		}
 		proc_detach_task(proc, child);
@@ -183,7 +184,7 @@ static int clone_copy_resources(struct task_struct *child, unsigned long flags,
 	ret = proc_clone_rlimits(child->proc, current_task()->proc);
 	if (ret < 0)
 		return ret;
-	ret = sig_task_clone(child, (flags & CLONE_SIGHAND) != 0, false);
+	ret = sig_task_clone(child, false);
 	if (ret < 0)
 		return ret;
 	return 0;
@@ -281,7 +282,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 		goto fail_proc;
 	/* CLONE_CHILD_CLEARTID is intentionally accepted but ignored for now. */
 	if (flags & CLONE_CHILD_SETTID)
-		child->signal.set_child_tid = child_tid;
+		child->set_child_tid = child_tid;
 	if (new_proc) {
 		child->proc->wait_state.exit_signal =
 			(int)(flags & CLONE_EXIT_SIGNAL_MASK);

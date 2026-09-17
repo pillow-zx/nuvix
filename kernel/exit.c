@@ -28,13 +28,8 @@
 
 static uint32_t wait4_event_mask(int options)
 {
-	uint32_t event_mask = PROC_WAIT_EXIT;
-
-	if (options & WUNTRACED)
-		event_mask |= PROC_WAIT_STOP;
-	if (options & WCONTINUED)
-		event_mask |= PROC_WAIT_CONTINUE;
-	return event_mask;
+	(void)options;
+	return PROC_WAIT_EXIT;
 }
 
 static void account_task_to_proc(struct proc_struct *proc,
@@ -66,16 +61,11 @@ static void task_reaper_thread(void *arg)
 	(void)arg;
 	for (;;) {
 		struct task_struct *task;
-		struct proc_orphan_event event;
 
 		mm_reap_retired();
 		task_reap_deferred();
 		while (sched_retired_pop(&task))
 			release_task(task);
-		while (proc_orphan_pop(&event)) {
-			sig_orphan_pgrp(&event);
-			proc_orphan_event_release(&event);
-		}
 		sched_reaper_sleep();
 	}
 }
@@ -173,7 +163,7 @@ void release_task(struct task_struct *task)
 					  sigchld && policy.notify);
 			proc_put(parent);
 			proc_release_resources(proc);
-			(void)proc_publish_exit(proc, NULL, 0, &event);
+			proc_publish_exit(proc, &event);
 			sig_notify_parent(&event);
 			proc_parent_event_release(&event);
 			session_process_reaper(proc);
@@ -232,7 +222,7 @@ static int wait_child(pid_t pid, int options, uint32_t events,
 
 int kernel_wait4(pid_t pid, int options, struct proc_wait_info *result)
 {
-	if (options & ~(WNOHANG | WUNTRACED | WCONTINUED | __WNOTHREAD |
+	if (options & ~(WNOHANG | __WNOTHREAD |
 			__WCLONE | __WALL))
 		return -EINVAL;
 	return wait_child(pid, options, wait4_event_mask(options), result);
@@ -242,14 +232,10 @@ int kernel_waitid(pid_t pid, int options, struct proc_wait_info *result)
 {
 	uint32_t events = 0;
 
-	if (options & ~(WNOHANG | WSTOPPED | WCONTINUED | WEXITED | WNOWAIT |
+	if (options & ~(WNOHANG | WEXITED | WNOWAIT |
 			__WNOTHREAD | __WCLONE | __WALL))
 		return -EINVAL;
 	if (options & WEXITED)
 		events |= PROC_WAIT_EXIT;
-	if (options & WSTOPPED)
-		events |= PROC_WAIT_STOP;
-	if (options & WCONTINUED)
-		events |= PROC_WAIT_CONTINUE;
 	return events ? wait_child(pid, options, events, result) : -EINVAL;
 }

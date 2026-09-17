@@ -7,7 +7,6 @@
 #include <nuvix/proc.h>
 #include <nuvix/session.h>
 #include <nuvix/signal.h>
-#include <nuvix/slab.h>
 #include <nuvix/mutex.h>
 #include <nuvix/task.h>
 #include <uapi/signal.h>
@@ -34,14 +33,6 @@ static int session_send_foreground_signal(int sig,
 
 static void session_signal_hangup(struct tty_ctty_state *detached)
 {
-	if (!detached || !detached->session || !detached->foreground) {
-		tty_ctty_state_release(detached);
-		return;
-	}
-	(void)session_send_foreground_signal(SIGHUP, detached->foreground,
-					     detached->session);
-	(void)session_send_foreground_signal(SIGCONT, detached->foreground,
-					     detached->session);
 	tty_ctty_state_release(detached);
 }
 
@@ -81,7 +72,7 @@ int session_process_clone_prepare(struct task_struct *child,
 	if (ret == 0)
 		ret = proc_snapshot_topology(parent->proc, &pgid, &sid);
 	if (ret == 0) {
-		ret = proc_join_pgrp(child->proc, pgid, NULL);
+		ret = proc_join_pgrp(child->proc, pgid);
 		joined = ret == 0 && child_pgid != pgid;
 	}
 	if (ret == 0 && !share_thread_group) {
@@ -89,7 +80,7 @@ int session_process_clone_prepare(struct task_struct *child,
 		if (ret < 0 && joined)
 			/* proc_join_pgrp changed the child's pgrp before the TTY
 			 * allocation failed; restore the unpublished clone's topology. */
-			BUG_ON(proc_join_pgrp(child->proc, child_pgid, NULL) < 0);
+			BUG_ON(proc_join_pgrp(child->proc, child_pgid) < 0);
 	}
 	mutex_unlock(&session_lock);
 	return ret;
@@ -99,26 +90,18 @@ int session_process_setsid(struct task_struct *task)
 {
 	struct proc_struct *proc;
 	struct session_process_identity old_identity;
-	struct proc_orphan_event *orphan_events;
 	struct tty_ctty_state detached = {0};
-	size_t orphan_count = 0;
 	pid_t new_sid;
 	int ret;
 
 	if (!task || !task->proc)
 		return -ESRCH;
 	proc = task->proc;
-	orphan_events = kmalloc_array(PID_COUNT, sizeof(*orphan_events),
-				      ALLOC_NOWAIT);
-	if (!orphan_events)
-		return -ENOMEM;
-
 	mutex_lock(&session_lock);
 	ret = proc_snapshot_topology(proc, &old_identity.pgid,
 				     &old_identity.sid);
 	if (ret == 0)
-		ret = proc_create_session(proc, &new_sid, orphan_events,
-					  PID_COUNT, &orphan_count);
+		ret = proc_create_session(proc, &new_sid);
 	if (ret > 0) {
 		tty_ctty_remove_proc(proc, old_identity.sid,
 				     TTY_CTTY_REMOVE_TASK, &detached);
@@ -126,11 +109,6 @@ int session_process_setsid(struct task_struct *task)
 				    &detached);
 	}
 	mutex_unlock(&session_lock);
-	for (size_t index = 0; index < orphan_count; index++)
-		sig_orphan_pgrp(&orphan_events[index]);
-	for (size_t index = 0; index < orphan_count; index++)
-		proc_orphan_event_release(&orphan_events[index]);
-	kfree(orphan_events);
 	tty_ctty_state_release(&detached);
 	return ret;
 }
@@ -142,7 +120,6 @@ int session_process_setpgid(pid_t pid, pid_t pgid)
 	struct proc_struct *target;
 	struct proc_struct *parent = NULL;
 	struct session_process_identity old_identity;
-	struct proc_orphan_event orphan = {0};
 	struct tty_ctty_state detached = {0};
 	bool put_target = false;
 	int ret;
@@ -184,7 +161,7 @@ int session_process_setpgid(pid_t pid, pid_t pgid)
 		ret = -EPERM;
 		goto out_locked;
 	}
-	ret = proc_join_pgrp(target, pgid, &orphan);
+	ret = proc_join_pgrp(target, pgid);
 	if (ret == 0)
 		session_clear_empty(old_identity.sid, old_identity.pgid, NULL,
 				    &detached);
@@ -194,9 +171,6 @@ out_locked:
 	proc_put(parent);
 	if (put_target)
 		proc_put(target);
-	if (orphan.pgid > 0)
-		sig_orphan_pgrp(&orphan);
-	proc_orphan_event_release(&orphan);
 	tty_ctty_state_release(&detached);
 	return ret;
 }
