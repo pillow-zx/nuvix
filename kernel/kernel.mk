@@ -1,5 +1,6 @@
 # Core kernel services: printing, SMP, synchronisation, tasks, and processes.
 
+obj-y += kernel/blkdev.o
 obj-y += kernel/printk.o
 obj-y += kernel/stacktrace.o
 obj-y += kernel/mutex.o

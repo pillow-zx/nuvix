@@ -24,9 +24,6 @@ struct pgcache *pgcache_get_mapping(struct page_mapping *mapping, uint64_t index
 __must_check
 struct pgcache *pgcache_get_block(dev_t dev, uint64_t block);
 
-__must_check
-struct pgcache *pgcache_get_data(void *data);
-
 void pgcache_put_page(struct pgcache *page);
 
 __must_check __pure
@@ -41,16 +38,6 @@ __must_check
 bool pgcache_is_dirty(const struct pgcache *page);
 
 void pgcache_mark_dirty(struct pgcache *page);
-
-/* Shared-mapping and mutation lifecycle helpers. */
-__must_check
-int pgcache_shared_write_begin(struct pgcache *page);
-void pgcache_shared_write_end(struct pgcache *page);
-__must_check
-bool pgcache_has_shared_writers(const struct pgcache *page);
-__must_check
-int pgcache_mutation_begin(struct pgcache *page);
-void pgcache_mutation_end(struct pgcache *page, bool dirty);
 
 __must_check
 int pgcache_sync_page(struct pgcache *page);

@@ -43,11 +43,6 @@ static bool pgcache_has_mapping_index_locked(struct pgcache *page,
 	return false;
 }
 
-void pgcache_wb_init(void)
-{
-	/* Writeback snapshots are allocated by their producer. */
-}
-
 static int pgcache_write_snapshot(struct pgcache *page, uint8_t *snapshot)
 {
 	struct blkdev *bdev;
@@ -62,8 +57,7 @@ static int pgcache_write_snapshot(struct pgcache *page, uint8_t *snapshot)
 	return ret;
 }
 
-static int pgcache_sync_page_snapshot(struct pgcache *page,
-					  bool allow_writable_lease)
+static int pgcache_sync_page_snapshot(struct pgcache *page)
 {
 	uint8_t *snapshot;
 	irq_flags_t flags;
@@ -76,8 +70,7 @@ static int pgcache_sync_page_snapshot(struct pgcache *page,
 	if (!snapshot)
 		return -ENOMEM;
 	spin_lock_irqsave(&pgcache_lock, &flags);
-	if (page->writeback || page->filling || page->invalidating ||
-	    (!allow_writable_lease && page->writable_pte_count != 0)) {
+	if (page->writeback || page->filling) {
 		spin_unlock_irqrestore(&pgcache_lock, flags);
 		free_page(snapshot, 0);
 		return -EBUSY;
@@ -91,7 +84,6 @@ static int pgcache_sync_page_snapshot(struct pgcache *page,
 	page->dirty_generation++;
 	page->writeback = true;
 	generation = page->dirty_generation;
-	page->wb_generation = generation;
 	page->refcount++; /* producer reference */
 	memcpy(snapshot, page->data, BLOCK_SIZE);
 	spin_unlock_irqrestore(&pgcache_lock, flags);
@@ -100,8 +92,7 @@ static int pgcache_sync_page_snapshot(struct pgcache *page,
 	page->writeback = false;
 	if (ret < 0)
 		page->error = ret;
-	else if (page->dirty_generation == generation &&
-		 page->writable_pte_count == 0)
+	else if (page->dirty_generation == generation)
 		pgcache_clear_dirty_locked(page);
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	wait_channel_wake_all(&page->waitq);
@@ -112,7 +103,7 @@ static int pgcache_sync_page_snapshot(struct pgcache *page,
 
 int pgcache_sync_page(struct pgcache *page)
 {
-	return pgcache_sync_page_snapshot(page, false);
+	return pgcache_sync_page_snapshot(page);
 }
 
 int pgcache_wb_run(struct pgcache *start, struct page_mapping *mapping)
@@ -141,9 +132,7 @@ static int pgcache_msync_run(struct pgcache *page,
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	if (!associated)
 		return -ENOENT;
-	/* ponytail: CPU0-only non-preemptible tasks make this snapshot stable;
-	 * add write protection or a page sequence before concurrent user writes. */
-	return pgcache_sync_page_snapshot(page, true);
+	return pgcache_sync_page_snapshot(page);
 }
 
 int pgcache_sync_mapping(struct page_mapping *mapping)

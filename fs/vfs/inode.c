@@ -16,8 +16,8 @@
 #define ICACHE_HASH_SIZE  (1u << ICACHE_HASH_BITS)
 #define ICACHE_NR_ENTRIES 512U
 
-HASH_TABLE_DECLARE_STATIC(inode_hashtable, ICACHE_HASH_BITS);
-LIST_HEAD_STATIC(inode_lru);
+static HASH_TABLE(inode_hashtable, ICACHE_HASH_BITS);
+static LIST_HEAD(inode_lru);
 static uint32_t inode_entries;
 
 extern spinlock_t vfs_cache_lock;

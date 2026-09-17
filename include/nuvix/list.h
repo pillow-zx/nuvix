@@ -36,13 +36,6 @@ struct list_head {
  */
 #define LIST_HEAD(name) struct list_head name = LIST_HEAD_INIT(name)
 
-/**
- * @def LIST_HEAD_STATIC
- * @brief Static define and initialize a list head variable.
- * @param name Variable name.
- */
-#define LIST_HEAD_STATIC(name) static struct list_head name = LIST_HEAD_INIT(name)
-
 static inline void INIT_LIST_HEAD(struct list_head *list)
 {
 	list->prev = list;

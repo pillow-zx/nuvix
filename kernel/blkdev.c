@@ -1,4 +1,4 @@
-/* block/blkdev.c - block-device registration and lookup */
+/* kernel/blkdev.c - block-device registration and lookup */
 
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>

@@ -14,12 +14,9 @@ struct pgcache {
 	bool dirty;
 	bool writeback;
 	bool filling;
-	bool invalidating;
 	bool dropped;
 	int error;
 	uint64_t dirty_generation;
-	uint64_t wb_generation;
-	uint32_t writable_pte_count;
 	struct wait_channel waitq;
 	struct hlist_node hash_node;
 	struct list_head lru_node;
@@ -34,24 +31,20 @@ struct pgcache_assoc {
 	struct list_head mapping_node;
 };
 
-/* Resident PTEs hold plain references and writable shared PTEs hold leases,
- * so any of these pins (or in-flight I/O) blocks a mapping change.  Eviction
- * uses its own stricter predicate; only truncate/invalidate share this one. */
+/* References and in-flight I/O block a mapping change.  Eviction uses its
+ * own stricter predicate. */
 static inline bool pgcache_mapping_change_locked(const struct pgcache *page)
 {
-	return page->refcount != 0 || page->writable_pte_count != 0 ||
-	       page->writeback || page->filling || page->invalidating;
+	return page->refcount != 0 || page->writeback || page->filling;
 }
 
 void pgcache_init(void);
-void pgcache_wb_init(void);
 struct pgcache *pgcache_find(dev_t dev, uint64_t block);
 struct pgcache *pgcache_find_mapping(struct page_mapping *mapping,
 					   uint64_t index);
 void pgcache_clear_dirty(struct pgcache *page);
 void pgcache_clear_dirty_locked(struct pgcache *page);
 struct pgcache *pgcache_dirty_any(void);
-struct pgcache *pgcache_dirty_any_locked(void);
 int pgcache_wb_run(struct pgcache *start, struct page_mapping *mapping);
 void pgcache_assoc_remove_mapping(struct page_mapping *mapping);
 void pgcache_assoc_remove_page_locked(struct pgcache *page,

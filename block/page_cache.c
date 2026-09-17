@@ -12,8 +12,8 @@
 #define PGCACHE_HASH_BITS	7
 #define PGCACHE_NR_PAGES	512U
 
-HASH_TABLE_DECLARE_STATIC(pgcache_hashtable, PGCACHE_HASH_BITS);
-LIST_HEAD_STATIC(pgcache_lru);
+static HASH_TABLE(pgcache_hashtable, PGCACHE_HASH_BITS);
+static LIST_HEAD(pgcache_lru);
 LIST_HEAD(pgcache_dirty_list);
 LIST_HEAD(pgcache_associations);
 DEFINE_SPINLOCK(pgcache_lock, LOCK_RANK_PAGE_CACHE, LOCK_IRQ_TASK_ONLY);
@@ -33,7 +33,6 @@ void pgcache_init(void)
 	INIT_LIST_HEAD(&pgcache_lru);
 	INIT_LIST_HEAD(&pgcache_dirty_list);
 	INIT_LIST_HEAD(&pgcache_associations);
-	pgcache_wb_init();
 	page_cache_ready = true;
 }
 
@@ -49,34 +48,6 @@ struct pgcache *pgcache_find(dev_t dev, uint64_t block)
 			return page;
 	}
 	return NULL;
-}
-
-struct pgcache *pgcache_get_data(void *data)
-{
-	struct hlist_node *pos;
-	struct pgcache *page = NULL;
-	irq_flags_t flags;
-
-	if (!data)
-		return NULL;
-	spin_lock_irqsave(&pgcache_lock, &flags);
-	for (uint32_t bucket = 0;
-	     bucket < HASH_TABLE_SIZE(pgcache_hashtable.bits) && !page;
-	     bucket++) {
-		hlist_for_each (pos, &pgcache_hashtable.buckets[bucket]) {
-			struct pgcache *candidate =
-				hlist_entry(pos, struct pgcache, hash_node);
-
-			if (candidate->data != data)
-				continue;
-			candidate->refcount++;
-			list_move_tail(&candidate->lru_node, &pgcache_lru);
-			page = candidate;
-			break;
-		}
-	}
-	spin_unlock_irqrestore(&pgcache_lock, flags);
-	return page;
 }
 
 struct pgcache *pgcache_find_mapping(struct page_mapping *mapping,
@@ -137,8 +108,7 @@ static struct pgcache *pgcache_evict_one_locked(struct list_head *removed)
 			list_entry(pos, struct pgcache, lru_node);
 		if (refcount_read(&virt_to_page(page->data)->refcount) != 1 ||
 		    page->refcount || page->dirty || page->writeback ||
-		    page->filling || page->invalidating ||
-		    page->writable_pte_count != 0)
+		    page->filling)
 			continue;
 		pgcache_detach_page_locked(page, removed);
 		return page;
@@ -198,8 +168,7 @@ static int pgcache_wait_producer(struct pgcache *page)
 		if (ret < 0)
 			return ret;
 		spin_lock_irqsave(&pgcache_lock, &flags);
-		pending =
-			page->filling || page->writeback || page->invalidating;
+		pending = page->filling || page->writeback;
 		if (pending)
 			ret = wait_scope_prepare(&scope, &page->waitq, true);
 		spin_unlock_irqrestore(&pgcache_lock, flags);

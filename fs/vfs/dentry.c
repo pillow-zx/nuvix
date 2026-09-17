@@ -11,8 +11,8 @@
 #define DCACHE_HASH_SIZE  (1u << DCACHE_HASH_BITS)
 #define DCACHE_NR_ENTRIES 256U
 
-HASH_TABLE_DECLARE_STATIC(dentry_hashtable, DCACHE_HASH_BITS);
-LIST_HEAD_STATIC(dentry_lru);
+static HASH_TABLE(dentry_hashtable, DCACHE_HASH_BITS);
+static LIST_HEAD(dentry_lru);
 
 DEFINE_SPINLOCK(vfs_cache_lock, LOCK_RANK_VFS_CACHE, LOCK_IRQ_TASK_ONLY);
 static uint32_t dentry_entries;

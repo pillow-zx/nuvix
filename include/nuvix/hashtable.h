@@ -16,16 +16,9 @@ struct hash_table {
 
 #define HASH_TABLE_SIZE(hash_bits) (1u << (hash_bits))
 
-#define HASH_TABLE_DECLARE(name, hash_bits)                                    \
+#define HASH_TABLE(name, hash_bits)					       \
 	struct hlist_head name##_buckets[HASH_TABLE_SIZE(hash_bits)];          \
 	struct hash_table name = {                                             \
-		.buckets = name##_buckets,                                     \
-		.bits = (hash_bits),                                           \
-	}
-
-#define HASH_TABLE_DECLARE_STATIC(name, hash_bits)                             \
-	static struct hlist_head name##_buckets[HASH_TABLE_SIZE(hash_bits)];   \
-	static struct hash_table name = {                                      \
 		.buckets = name##_buckets,                                     \
 		.bits = (hash_bits),                                           \
 	}
