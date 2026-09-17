@@ -60,7 +60,7 @@
 
 #define TASK_KSTACK 120
 
-#define TASK_KSTACK_SIZE 1024 * 16
+#define TASK_KSTACK_SIZE (1024 * 32)
 
 #define CPU_STATE	   8
 #define CPU_CURRENT_TASK  24

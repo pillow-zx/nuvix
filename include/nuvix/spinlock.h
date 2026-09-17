@@ -80,7 +80,7 @@ typedef struct spinlock {
  * context state. Debug builds additionally make individual lock membership
  * queryable through spinlock_is_held_by_current().
  */
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool spinlock_held(void)
 {
 	return lock_depth() != 0;
@@ -93,7 +93,7 @@ static inline bool spinlock_held(void)
  * no membership information, so callers must use spinlock_held() instead.
  */
 #ifdef CONFIG_DEBUG_CONTEXT
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline bool spinlock_held_by_current(const spinlock_t *lock)
 {
 	const struct cpu *cpu = current_cpu();
@@ -131,7 +131,7 @@ static inline bool lock_rank_is_instance_ordered(uint16_t rank)
 #endif
 
 #ifdef CONFIG_DEBUG_CONTEXT
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void spinlock_track_acquire(spinlock_t *lock, irq_flags_t flags, bool irqsave)
 {
 	struct cpu *cpu = current_cpu();
@@ -182,7 +182,7 @@ static inline void spinlock_track_acquire(spinlock_t *lock, irq_flags_t flags, b
 #endif
 
 #ifdef CONFIG_DEBUG_CONTEXT
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void spinlock_track_release(const spinlock_t *lock, irq_flags_t flags, bool irqsave)
 {
 	struct cpu *cpu = current_cpu();
@@ -209,7 +209,6 @@ static inline void spinlock_track_release(const spinlock_t *lock, irq_flags_t fl
 }
 #endif
 
-__always_inline
 static inline void spin_lock_irqsave(spinlock_t *lock, irq_flags_t *flags)
 {
 	int expected;
@@ -234,7 +233,6 @@ static inline void spin_lock_irqsave(spinlock_t *lock, irq_flags_t *flags)
 	IFDEF(CONFIG_DEBUG_CONTEXT, spinlock_track_acquire(lock, *flags, true);)
 }
 
-__always_inline
 static inline void spin_unlock_irqrestore(spinlock_t *lock, irq_flags_t flags)
 {
 	int old;
@@ -256,7 +254,6 @@ static inline void spin_unlock_irqrestore(spinlock_t *lock, irq_flags_t flags)
  * Plain locks still disable kernel preemption.  Callers that can race with
  * an interrupt handler must use the irqsave variant instead.
  */
-__always_inline
 static inline void spin_lock(spinlock_t *lock)
 {
 	int expected;
@@ -280,7 +277,6 @@ static inline void spin_lock(spinlock_t *lock)
 	IFDEF(CONFIG_DEBUG_CONTEXT, spinlock_track_acquire(lock, 0, false);)
 }
 
-__always_inline
 static inline void spin_unlock(spinlock_t *lock)
 {
 	int old;
