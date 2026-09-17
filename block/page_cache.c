@@ -154,7 +154,7 @@ static struct pgcache *pgcache_alloc(dev_t dev, uint64_t block)
 	if (!page)
 		return NULL;
 	memset(page, 0, sizeof(*page));
-	page->data = get_free_page(0, ALLOC_NOWAIT);
+	page->data = get_page(0, ALLOC_NOWAIT);
 	if (!page->data) {
 		kfree(page);
 		return NULL;

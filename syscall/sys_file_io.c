@@ -205,7 +205,7 @@ static ssize_t write_user_buffer_pos(struct file *file, const void *buf,
 
 		if (len == 0)
 			return 0;
-		pipe_buf = get_free_page(0, ALLOC_NOWAIT);
+		pipe_buf = get_page(0, ALLOC_NOWAIT);
 		if (!pipe_buf)
 			return -ENOMEM;
 		if (copy_from_user(pipe_buf, buf, len) != 0) {
@@ -310,7 +310,7 @@ static ssize_t write_pipe_iovec_prefix(struct file *file,
 	atomic = total <= PIPE_BUF;
 	request = atomic ? total : PIPE_BUF + 1;
 	*request_len = request;
-	buffer = atomic ? get_free_page(0, ALLOC_NOWAIT) :
+	buffer = atomic ? get_page(0, ALLOC_NOWAIT) :
 		kmalloc(request, ALLOC_NOWAIT);
 	if (!buffer)
 		return -ENOMEM;

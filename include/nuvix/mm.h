@@ -12,8 +12,8 @@
 #include <nuvix/fs.h>
 
 struct anon_shared;
-void mm_anon_get(struct anon_shared *anon);
-void mm_anon_put(struct anon_shared *anon);
+void anon_shared_get(struct anon_shared *anon);
+void anon_shared_put(struct anon_shared *anon);
 
 /* Bounded retirement storage: clearing mappings never allocates. */
 #define MM_RELEASE_BATCH 32
@@ -39,7 +39,7 @@ struct uaccess_txn {
  * @return New mm with a user page table, or NULL on allocation failure.
  */
 __must_check __malloc
-struct mm_struct *mm_create_user(void);
+struct mm_struct *mm_create(void);
 
 /**
  * @brief Publish an address space into one thread-owned MM slot.

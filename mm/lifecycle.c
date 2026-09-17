@@ -33,10 +33,10 @@ static enum mm_lifecycle mm_lifecycle_state_value(int64_t value)
 
 static enum mm_lifecycle mm_lifecycle_state(const struct mm_struct *mm)
 {
-	return mm_lifecycle_state_value(atomic64_read_acquire(&mm->lifecycle));
+	return (enum mm_lifecycle)((uint64_t)(atomic64_read_acquire(&mm->lifecycle) >> MM_LIFECYCLE_STATE_SHIFT));
 }
 
-static uint32_t mm_lifecycle_publishers(int64_t value)
+static uint32_t mm_lifecycle_publish(int64_t value)
 {
 	return (uint32_t)(uint64_t)value;
 }
@@ -139,7 +139,7 @@ int mm_install_fixed_page(struct mm_struct *mm, uintptr_t va, void *page,
 
 	if (!mm || mm_lifecycle_state(mm) != MM_LIFECYCLE_BUILDING ||
 	    !mm->pgd || !page || (va & (PAGE_SIZE - 1)) || va >= TASK_SIZE ||
-	    PAGE_SIZE > TASK_SIZE - va || !mm_prot_is_valid(prot))
+	    PAGE_SIZE > TASK_SIZE - va || !mm_root_is_valid(prot))
 		return -EINVAL;
 	end = va + PAGE_SIZE;
 
@@ -162,7 +162,7 @@ int mm_install_fixed_page(struct mm_struct *mm, uintptr_t va, void *page,
 		goto out;
 
 	ret = map_page(mm->pgd, va, __pa((uintptr_t)page),
-		       mm_prot_to_pte_flags(prot));
+		       mm_root_to_pte_flags(prot));
 	if (ret < 0)
 		mm_layout_release(mm, va, end, MM_REGION_FIXED);
 	else
@@ -193,14 +193,14 @@ struct mm_struct *mm_alloc(void)
 	return mm;
 }
 
-struct mm_struct *mm_create_user(void)
+struct mm_struct *mm_create(void)
 {
 	struct mm_struct *mm = mm_alloc();
 
 	if (!mm)
 		return NULL;
 
-	mm->pgd = mm_create_user_pgd(mm);
+	mm->pgd = create_pgd(mm);
 	if (!mm->pgd) {
 		mm_put(mm);
 		return NULL;
@@ -214,7 +214,7 @@ void mm_publish(struct mm_struct *mm)
 	for (;;) {
 		int64_t old = atomic64_read_acquire(&mm->lifecycle);
 		enum mm_lifecycle state = mm_lifecycle_state_value(old);
-		uint32_t publishers = mm_lifecycle_publishers(old);
+		uint32_t publishers = mm_lifecycle_publish(old);
 		int64_t desired;
 
 		BUG_ON(state != MM_LIFECYCLE_BUILDING &&
@@ -233,7 +233,7 @@ void mm_unpublish(struct mm_struct *mm)
 	for (;;) {
 		int64_t old = atomic64_read_acquire(&mm->lifecycle);
 		enum mm_lifecycle state = mm_lifecycle_state_value(old);
-		uint32_t publishers = mm_lifecycle_publishers(old);
+		uint32_t publishers = mm_lifecycle_publish(old);
 		enum mm_lifecycle next_state;
 		int64_t desired;
 
@@ -253,7 +253,7 @@ static void mm_begin_retirement(struct mm_struct *mm)
 	for (;;) {
 		int64_t old = atomic64_read_acquire(&mm->lifecycle);
 		enum mm_lifecycle state = mm_lifecycle_state_value(old);
-		uint32_t publishers = mm_lifecycle_publishers(old);
+		uint32_t publishers = mm_lifecycle_publish(old);
 		int64_t desired;
 
 		BUG_ON(publishers != 0);
@@ -304,17 +304,16 @@ uintptr_t mm_pgroot(const struct mm_struct *mm)
 	return pt_token(mm->pgd);
 }
 
-__must_check __nonnull(1)
-int mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa, pte_t old_entry)
+__must_check __nonnull(1) int map_pte_like(pte_t *root, uintptr_t va,
+					    paddr_t pa, pte_t old_entry)
 {
-	pgprot_t perm = pte_prot(old_entry);
+	pgroot_t perm = pte_root(old_entry);
 	int ret;
 	pte_t *pte;
 
 	ret = map_page(root, va, pa,
-		       pte_present(old_entry)
-			       ? perm
-			       : pgprot_user(true, false, false));
+		       pte_present(old_entry) ? perm
+					      : upgroot(true, false, false));
 	if (ret < 0)
 		return ret;
 
@@ -329,7 +328,7 @@ static pte_t mm_private_child_pte(pte_t entry)
 	if (!pte_present(entry))
 		return entry;
 
-	return pte_make(PTE_TO_PA(entry), pgprot_ro(pte_prot(entry)));
+	return pte_make(PTE_TO_PA(entry), pgroot_ro(pte_root(entry)));
 }
 
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
@@ -339,7 +338,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 	if (!oldmm)
 		return NULL;
-	newmm = mm_create_user();
+	newmm = mm_create();
 	if (!newmm)
 		return NULL;
 
@@ -347,8 +346,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 	newmm->brk = oldmm->brk;
 	newmm->code_start = oldmm->code_start;
 	newmm->code_end = oldmm->code_end;
-	for_each_vma(vma, oldmm)
-	{
+	for_each_vma (vma, oldmm) {
 		struct vm_area_struct *copy = vma_alloc_slot(newmm);
 
 		if (!copy)
@@ -358,7 +356,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 		copy->used = false;
 		copy->anon_registered = false;
 		file_get(copy->vm_file);
-		mm_anon_get(copy->vm_anon);
+		anon_shared_get(copy->vm_anon);
 		vma_publish(copy);
 	}
 	for (int i = 0; i < NR_MM_REGIONS; i++) {
@@ -375,10 +373,10 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 			if (!pte || !pte_upage(*pte))
 				continue;
-			if (mm_map_user_pte_like(newmm->pgd, va,
-						 PTE_TO_PA(*pte), *pte) < 0)
+			if (map_pte_like(newmm->pgd, va, PTE_TO_PA(*pte),
+					  *pte) < 0)
 				goto fail;
-			mm_pte_mapping_get(PTE_TO_PA(*pte));
+			pte_mapping_get(PTE_TO_PA(*pte));
 		}
 	}
 	if (mm_private_clone(newmm, oldmm) < 0)
@@ -416,7 +414,7 @@ fail:
 	return NULL;
 }
 
-pte_t *mm_create_user_pgd(struct mm_struct *mm)
+pte_t *create_pgd(struct mm_struct *mm)
 {
 	vaddr_t start, end;
 
@@ -425,7 +423,7 @@ pte_t *mm_create_user_pgd(struct mm_struct *mm)
 	if (arch_upgd_region(&start, &end) < 0 ||
 	    mm_layout_reserve(mm, start, end, MM_REGION_ARCH_SHARED) < 0)
 		return NULL;
-	return pgtable_ucreate();
+	return pgtable_create();
 }
 
 static void mm_finish_retirement(struct mm_struct *mm)
@@ -433,13 +431,13 @@ static void mm_finish_retirement(struct mm_struct *mm)
 	pte_t *pgd;
 
 	mm_begin_retirement(mm);
-	mm_destroy_mappings(mm);
+	destroy_mappings(mm);
 	mm_private_remove(mm, 0, TASK_SIZE);
 	vma_discard_spares(mm);
 	pgd = mm->pgd;
 	mm->pgd = NULL;
 	if (pgd)
-		pgtable_udestroy(pgd);
+		pgtable_destroy(pgd);
 	kfree(mm);
 }
 

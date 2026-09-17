@@ -7,19 +7,19 @@
  */
 
 /** @def PROT_READ Mapping permits loads. */
-#define PROT_READ 0x1
+#define PROOT_READ 0x1
 /** @def PROT_WRITE Mapping permits stores. */
-#define PROT_WRITE 0x2
+#define PROOT_WRITE 0x2
 /** @def PROT_EXEC Mapping permits instruction fetch. */
-#define PROT_EXEC 0x4
+#define PROOT_EXEC 0x4
 /** @def PROT_SEM Mapping may be used for atomic operations. */
-#define PROT_SEM 0x8
+#define PROOT_SEM 0x8
 /** @def PROT_NONE Mapping has no user access permissions. */
-#define PROT_NONE 0x0
+#define PROOT_NONE 0x0
 /** @def PROT_GROWSDOWN Extend mprotect toward lower addresses. */
-#define PROT_GROWSDOWN 0x01000000
+#define PROOT_GROWSDOWN 0x01000000
 /** @def PROT_GROWSUP Extend mprotect toward higher addresses. */
-#define PROT_GROWSUP 0x02000000
+#define PROOT_GROWSUP 0x02000000
 
 /** @def MAP_SHARED File mapping is shared with other mappings. */
 #define MAP_SHARED 0x01

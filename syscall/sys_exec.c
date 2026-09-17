@@ -120,7 +120,7 @@ ssize_t sys_execve(struct trap_frame *tf)
 	ssize_t path_len;
 	int ret;
 
-	path = get_free_page(0, ALLOC_NOWAIT);
+	path = get_page(0, ALLOC_NOWAIT);
 	if (!path)
 		return -ENOMEM;
 

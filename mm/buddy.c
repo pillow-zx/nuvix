@@ -124,7 +124,7 @@ BOOTINFO_BLOCK(buddy, void,
 )
 
 __hot
-void *get_free_page(uint32_t order, enum alloc_mode mode)
+void *get_page(uint32_t order, enum alloc_mode mode)
 {
 	struct list_head *node;
 	struct page *page;

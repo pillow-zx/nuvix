@@ -91,7 +91,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		struct pgcache *cached = NULL;
 		uint64_t sequence, index;
 		bool cow = false, private = false;
-		pgprot_t prot;
+		pgroot_t prot;
 		pte_t *pte;
 		int ret = 0;
 
@@ -107,7 +107,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		index = vma_page_index(vma, va);
 		anon = vma->vm_anon;
 		file = vma->vm_file;
-		mm_anon_get(anon);
+		anon_shared_get(anon);
 		file_get(file);
 		slot = anon ? NULL : mm_private_find(mm, va);
 		if (slot) {
@@ -120,15 +120,15 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		if (file && index >= DIV_ROUND_UP(file->f_inode->i_size, PAGE_SIZE)) {
 			ret = -EIO;
 		} else if (anon) {
-			page = mm_anon_page(anon, index);
+			page = anon_shared_page(anon, index);
 		} else if (source && (access != USER_FAULT_WRITE || !cow)) {
 			page = source;
 			page_get(page);
 			if (cow)
-				prot = pgprot_ro(prot);
+				prot = pgroot_ro(prot);
 		} else if (!source && !file && access != USER_FAULT_WRITE) {
 			page = mm_zero_page();
-			prot = pgprot_ro(prot);
+			prot = pgroot_ro(prot);
 		} else {
 			const void *contents = source ? page_to_virt(source) : NULL;
 
@@ -145,9 +145,9 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 					mm_zero_page();
 				if (cached)
 					page_get(page);
-				prot = pgprot_ro(prot);
+				prot = pgroot_ro(prot);
 			} else if (!ret) {
-				void *data = get_free_page(0, ALLOC_NOWAIT);
+				void *data = get_page(0, ALLOC_NOWAIT);
 
 				if (data) {
 					if (contents)
@@ -175,13 +175,13 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			if (source)
 				page_put(source);
 			file_put(file);
-			mm_anon_put(anon);
+				anon_shared_put(anon);
 			continue;
 		}
 		if (source)
 			page_put(source);
 		file_put(file);
-		mm_anon_put(anon);
+		anon_shared_put(anon);
 		if (ret < 0)
 			return ret;
 		pte = pt_lookup(mm->pgd, va);
@@ -197,7 +197,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			}
 		}
 		if (pte && pte_upage(*pte)) {
-			mm_replace_user_pte_locked(mm, vma, va, pte,
+			replace_pte_locked(mm, vma, va, pte,
 				pte_make(__pa((uintptr_t)page_to_virt(page)), prot),
 				PTE_TO_PA(*pte), teardown);
 		} else {

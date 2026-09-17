@@ -36,8 +36,8 @@ void vma_publish(struct vm_area_struct *vma)
 	rb_insert_color(&vma->node, &vma->owner->vmas);
 	vma->used = true;
 	vma->owner->map_sequence++;
-	mm_anon_register(vma);
-	mm_anon_update(vma);
+	anon_shared_register(vma);
+	anon_shared_update(vma);
 }
 
 int vma_reserve(struct mm_struct *mm, int count)
@@ -122,9 +122,9 @@ void vma_free_slot(struct vm_area_struct *vma)
 		rb_erase(&vma->node, &vma->owner->vmas);
 		vma->owner->map_sequence++;
 	}
-	mm_anon_unregister(vma);
+	anon_shared_unregister(vma);
 	file_put(vma->vm_file);
-	mm_anon_put(vma->vm_anon);
+	anon_shared_put(vma->vm_anon);
 	kfree(vma);
 }
 
@@ -170,7 +170,7 @@ void vma_merge_all(struct mm_struct *mm)
 		struct vm_area_struct *b = vma_next(a);
 		if (b && vma_can_merge(a, b)) {
 			a->vm_end = b->vm_end;
-			mm_anon_update(a);
+			anon_shared_update(a);
 			mm->map_sequence++;
 			vma_free_slot(b);
 		} else {
@@ -195,7 +195,7 @@ int vma_split_at(struct mm_struct *mm, struct vm_area_struct *vma,
 	*tail = *vma;
 	tail->used = false;
 	tail->anon_registered = false;
-	mm_anon_get(tail->vm_anon);
+	anon_shared_get(tail->vm_anon);
 	if (tail->vm_anon)
 		tail->vm_offset = vma_offset_at(vma, addr);
 	if (tail->vm_file) {
@@ -205,7 +205,7 @@ int vma_split_at(struct mm_struct *mm, struct vm_area_struct *vma,
 	tail->vm_start = addr;
 	vma->vm_end = addr;
 	vma_publish(tail);
-	mm_anon_update(vma);
+	anon_shared_update(vma);
 	return 0;
 }
 
@@ -329,7 +329,7 @@ int vma_unmap_range(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (trim_end == vma->vm_end) {
 		vma->vm_end = trim_start;
 		mm->map_sequence++;
-		mm_anon_update(vma);
+		anon_shared_update(vma);
 		return 1;
 	}
 

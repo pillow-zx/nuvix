@@ -223,7 +223,7 @@ struct task_struct *task_alloc(void)
 	task = kzalloc(sizeof(*task), ALLOC_NOWAIT);
 	if (!task)
 		return NULL;
-	kstack = get_free_page(KSTACK_ORDER, ALLOC_NOWAIT);
+	kstack = get_page(KSTACK_ORDER, ALLOC_NOWAIT);
 	if (!kstack)
 		goto fail_task;
 	tid = pid_alloc();

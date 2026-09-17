@@ -918,7 +918,7 @@ static int signal_map_trampoline(struct mm_struct *mm)
 		return -ENOMEM;
 
 	return mm_install_fixed_page(mm, SIGNAL_TRAMPOLINE_ADDR,
-				     trampoline_page, PROT_READ | PROT_EXEC);
+				     trampoline_page, PROOT_READ | PROOT_EXEC);
 }
 
 int sig_mm_init(struct mm_struct *mm)
@@ -1976,7 +1976,7 @@ void sig_init(void)
 
 	if (trampoline_page)
 		return;
-	trampoline_page = get_free_page(0, ALLOC_NOWAIT);
+	trampoline_page = get_page(0, ALLOC_NOWAIT);
 	BUG_ON(!trampoline_page);
 	memset(trampoline_page, 0, PAGE_SIZE);
 	memcpy(trampoline_page, code, sizeof(code));

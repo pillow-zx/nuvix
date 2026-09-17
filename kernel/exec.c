@@ -67,11 +67,11 @@ static int elf_flags_to_prot(uint32_t p_flags)
 	int prot = 0;
 
 	if (p_flags & PF_R)
-		prot |= PROT_READ;
+		prot |= PROOT_READ;
 	if (p_flags & PF_W)
-		prot |= PROT_WRITE;
+		prot |= PROOT_WRITE;
 	if (p_flags & PF_X)
-		prot |= PROT_EXEC;
+		prot |= PROOT_EXEC;
 
 	return prot;
 }
@@ -377,7 +377,7 @@ static int create_exec_mm(struct mm_struct **mm_out)
 		return -EINVAL;
 	*mm_out = NULL;
 
-	mm = mm_create_user();
+	mm = mm_create();
 	if (!mm)
 		return -ENOMEM;
 	ret = sig_mm_init(mm);
@@ -448,7 +448,7 @@ static int map_segment_page(struct exec_image *image, struct mm_struct *mm,
 	void *page;
 	int ret;
 
-	page = get_free_page(0, ALLOC_NOWAIT);
+	page = get_page(0, ALLOC_NOWAIT);
 	if (!page)
 		return -ENOMEM;
 	memset(page, 0, PAGE_SIZE);

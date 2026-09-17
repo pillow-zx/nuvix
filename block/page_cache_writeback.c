@@ -72,7 +72,7 @@ static int pgcache_sync_page_snapshot(struct pgcache *page,
 
 	if (!page)
 		return -EINVAL;
-	snapshot = get_free_page(0, ALLOC_NOWAIT);
+	snapshot = get_page(0, ALLOC_NOWAIT);
 	if (!snapshot)
 		return -ENOMEM;
 	spin_lock_irqsave(&pgcache_lock, &flags);

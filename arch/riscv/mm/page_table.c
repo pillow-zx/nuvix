@@ -27,7 +27,7 @@ static int pgtable_walk_create(pte_t *root, vaddr_t va, pte_t **out)
 	pte_t *l1;
 
 	if (!(*l2e & PTE_V)) {
-		l1 = get_free_page(0, ALLOC_NOWAIT);
+		l1 = get_page(0, ALLOC_NOWAIT);
 		if (!l1)
 			return -ENOMEM;
 		memset(l1, 0, PAGE_SIZE);
@@ -43,7 +43,7 @@ static int pgtable_walk_create(pte_t *root, vaddr_t va, pte_t **out)
 	pte_t *l0;
 
 	if (!(*l1e & PTE_V)) {
-		l0 = get_free_page(0, ALLOC_NOWAIT);
+		l0 = get_page(0, ALLOC_NOWAIT);
 		/* An attached empty table stays owned by the root. Hardware may
 		 * already be walking it; root retirement releases it safely. */
 		if (!l0)
@@ -187,7 +187,7 @@ void *pgtable_init(void)
 }
 
 __cold
-void pgtable_udestroy(pte_t *pgd)
+void pgtable_destroy(pte_t *pgd)
 {
 	for (int i = 0; i < 256; i++) {
 		if (!pte_present(pgd[i]))
@@ -211,9 +211,9 @@ void pgtable_udestroy(pte_t *pgd)
 }
 
 /* The caller owns the root; shared kernel entries are borrowed. */
-pte_t *pgtable_ucreate(void)
+pte_t *pgtable_create(void)
 {
-	pte_t *root = get_free_page(0, ALLOC_NOWAIT);
+	pte_t *root = get_page(0, ALLOC_NOWAIT);
 	pte_t *kernel = kpgtable();
 
 	if (!root)
@@ -222,7 +222,7 @@ pte_t *pgtable_ucreate(void)
 	for (int i = 256; i < 512; i++)
 		root[i] = kernel[i];
 	if (arch_upgd_init(root) < 0) {
-		pgtable_udestroy(root);
+		pgtable_destroy(root);
 		return NULL;
 	}
 	return root;

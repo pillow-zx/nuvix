@@ -55,7 +55,7 @@ void buddy_init(void *mem_start);
  * @return Direct-map virtual address of the block, or NULL.
  */
 __must_check __malloc
-void *get_free_page(uint32_t order, enum alloc_mode mode);
+void *get_page(uint32_t order, enum alloc_mode mode);
 
 
 /**

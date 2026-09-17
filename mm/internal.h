@@ -31,10 +31,9 @@ struct anon_shared {
 	struct list_head mappings;
 };
 
-#define VM_READ	 BIT_U32(0)
-#define VM_WRITE BIT_U32(1)
-#define VM_EXEC	 BIT_U32(2)
-
+#define VM_READ	  BIT_U32(0)
+#define VM_WRITE  BIT_U32(1)
+#define VM_EXEC	  BIT_U32(2)
 #define VMA_CODE  BIT_U32(0)
 #define VMA_HEAP  BIT_U32(1)
 #define VMA_STACK BIT_U32(2)
@@ -119,8 +118,7 @@ static inline uint64_t vma_offset_at(const struct vm_area_struct *vma, const uin
 }
 
 __must_check __pure __nonnull(1)
-static inline uint64_t vma_page_index(const struct vm_area_struct *vma,
-                                      const uintptr_t page_addr)
+static inline uint64_t vma_page_index(const struct vm_area_struct *vma, const uintptr_t page_addr)
 {
 	uintptr_t base = vma->vm_start & PAGE_MASK;
 	uint64_t file_base = vma->vm_offset & PAGE_MASK;
@@ -128,13 +126,13 @@ static inline uint64_t vma_page_index(const struct vm_area_struct *vma,
 	return (file_base + (page_addr - base)) / PAGE_SIZE;
 }
 
-__nonnull(1)
+__nonnull(1) __nonnull(1)
 static inline void mm_lock(struct mm_struct *mm)
 {
 	mutex_lock(&mm->mmap_lock);
 }
 
-__nonnull(1)
+__nonnull(1) __nonnull(1)
 static inline void mm_unlock(struct mm_struct *mm)
 {
 	mutex_unlock(&mm->mmap_lock);
@@ -148,18 +146,16 @@ SCOPE_GUARD_DEFINE(mm_guard, struct mm_struct *, mm_lock(_T), mm_unlock(_T))
  * layout mutation is possible.
  */
 __must_check __nonnull(1)
-int mm_layout_reserve(struct mm_struct *mm, vaddr_t start, vaddr_t end,
-                        enum mm_region_kind kind);
+int mm_layout_reserve(struct mm_struct *mm, vaddr_t start, vaddr_t end, enum mm_region_kind kind);
 
-void mm_layout_release(struct mm_struct *mm, vaddr_t start, vaddr_t end,
-		       enum mm_region_kind kind);
+__nonnull(1)
+void mm_layout_release(struct mm_struct *mm, vaddr_t start, vaddr_t end, enum mm_region_kind kind);
 
 __must_check __nonnull(1)
 int mm_layout_init(struct mm_struct *mm);
 
 __must_check __pure __nonnull(1)
-bool mm_layout_contains(const struct mm_struct *mm,
-						    vaddr_t addr);
+bool mm_layout_contains(const struct mm_struct *mm, vaddr_t addr);
 
 __must_check __pure __nonnull(1)
 bool mm_layout_overlaps(const struct mm_struct *mm, vaddr_t start, vaddr_t end);
@@ -168,10 +164,10 @@ struct vm_area_struct *vma_first(struct mm_struct *mm);
 
 struct vm_area_struct *vma_next(struct vm_area_struct *vma);
 
-#define for_each_vma(vma, mm)                                           \
-	for (struct vm_area_struct *vma = vma_first(mm),                \
-	     *_vma##_next = vma_next(vma); vma;                         \
-	     vma = _vma##_next, _vma##_next = vma_next(vma))
+#define for_each_vma(vma, mm)                                                  \
+	for (struct vm_area_struct *vma = vma_first(mm),                       \
+				   *_vma##_next = vma_next(vma);               \
+	     vma; vma = _vma##_next, _vma##_next = vma_next(vma))
 
 int vma_reserve(struct mm_struct *mm, int count);
 
@@ -180,48 +176,45 @@ void vma_publish(struct vm_area_struct *vma);
 void vma_discard_spares(struct mm_struct *mm);
 
 __must_check __const
-static inline bool mm_prot_is_valid(int prot)
+static inline bool mm_root_is_valid(int proot)
 {
-	return (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) == 0;
+	return (proot & ~(PROOT_READ | PROOT_WRITE | PROOT_EXEC)) == 0;
 }
 
 __must_check __const
-static inline uint32_t mm_prot_to_vm_flags(int prot)
+static inline uint32_t mm_root_to_vm_flags(int proot)
 {
 	uint32_t flags = 0;
 
-	if (prot & PROT_READ)
+	if (proot & PROOT_READ)
 		flags |= VM_READ;
-	if (prot & PROT_WRITE)
+	if (proot & PROOT_WRITE)
 		flags |= VM_READ | VM_WRITE;
-	if (prot & PROT_EXEC)
+	if (proot & PROOT_EXEC)
 		flags |= VM_EXEC;
 
 	return flags;
 }
 
 __must_check __const
-static inline pgprot_t mm_prot_to_pte_flags(int prot)
+static inline pgroot_t mm_root_to_pte_flags(int proot)
 {
-	return pgprot_user((prot & PROT_READ) != 0, (prot & PROT_WRITE) != 0,
-			   (prot & PROT_EXEC) != 0);
+	return upgroot((proot & PROOT_READ) != 0, (proot & PROOT_WRITE) != 0,
+		       (proot & PROOT_EXEC) != 0);
 }
 
 __must_check __const
-static inline pgprot_t vma_flags_to_pte(uint32_t vm_flags)
+static inline pgroot_t vma_flags_to_pte(uint32_t vm_flags)
 {
-	return pgprot_user((vm_flags & VM_READ) != 0,
-			   (vm_flags & VM_WRITE) != 0,
-			   (vm_flags & VM_EXEC) != 0);
+	return upgroot((vm_flags & VM_READ) != 0, (vm_flags & VM_WRITE) != 0, (vm_flags & VM_EXEC) != 0);
 }
 
-void mm_pte_mapping_get(paddr_t pa);
+void pte_mapping_get(paddr_t pa);
 
-void mm_pte_mapping_put(const struct vm_area_struct *vma, paddr_t pa);
+void pte_mapping_put(paddr_t pa);
 
-__must_check __pure __nonnull( 1)
-static inline bool vma_overlaps(const struct vm_area_struct *vma, const uintptr_t start,
-				const uintptr_t end)
+__must_check __pure __nonnull(1)
+static inline bool vma_overlaps(const struct vm_area_struct *vma, const uintptr_t start, const uintptr_t end)
 {
 	return vma->used && start < vma->vm_end && end > vma->vm_start;
 }
@@ -242,7 +235,7 @@ static inline bool vma_is_anonymous(const struct vm_area_struct *vma)
 
 __must_check __pure
 static inline bool vma_covers_range(const struct vm_area_struct *vma, const uintptr_t start,
-		                    const uintptr_t end)
+                const uintptr_t end)
 {
 	return vma && vma->used && start >= vma->vm_start && end <= vma->vm_end;
 }
@@ -254,19 +247,16 @@ __cold
 void mm_destroy(struct mm_struct *mm);
 
 __cold __nonnull(1)
-void mm_destroy_mappings(struct mm_struct *mm);
+void destroy_mappings(struct mm_struct *mm);
 
 __must_check __malloc
-pte_t *mm_create_user_pgd(struct mm_struct *mm);
-
-
-__must_check
-struct vm_area_struct *find_vma(struct mm_struct *mm,
-					     uintptr_t addr);
+pte_t *create_pgd(struct mm_struct *mm);
 
 __must_check
-int mm_range_end_page_aligned(uintptr_t start, size_t length,
-					   uintptr_t *end);
+struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr);
+
+__must_check
+int mm_range_end_page_aligned(uintptr_t start, size_t length, uintptr_t *end);
 
 __must_check __nonnull(1)
 int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size, int access);
@@ -274,8 +264,7 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size, int a
 /* Caller holds mm->mmap_lock across the call and must run
  * mm_teardown_release() after unlocking. */
 __must_check __nonnull(1, 5)
-int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr, size_t size, int access,
-	                        struct mm_teardown *teardown);
+int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr, size_t size, int access, struct mm_teardown *teardown);
 
 __must_check __nonnull(1)
 struct vm_area_struct *vma_alloc_slot(struct mm_struct *mm);
@@ -289,8 +278,7 @@ __must_check __pure __nonnull(1)
 bool vma_range_overlaps(struct mm_struct *mm, uintptr_t start, uintptr_t end);
 
 __must_check __pure __nonnull(1, 2)
-bool vma_range_overlaps_other(struct mm_struct *mm, const struct vm_area_struct *skip,
-                uintptr_t start, uintptr_t end);
+bool vma_range_overlaps_other(struct mm_struct *mm, const struct vm_area_struct *skip, uintptr_t start, uintptr_t end);
 
 __must_check __nonnull(1, 2)
 int vma_split_at(struct mm_struct *mm, struct vm_area_struct *vma, uintptr_t addr);
@@ -315,38 +303,36 @@ void vma_update_flags_range(struct mm_struct *mm, uintptr_t start, uintptr_t end
 
 __must_check __nonnull(1, 2)
 int vma_unmap_range(struct mm_struct *mm, struct vm_area_struct *vma,
-                uintptr_t start, uintptr_t end, uintptr_t *unmap_start,
-                uintptr_t *unmap_end);
+		uintptr_t start, uintptr_t end, uintptr_t *unmap_start, uintptr_t *unmap_end);
 
 __nonnull(1, 2, 5)
-void mm_unmap_user_pages_locked(struct mm_struct *mm, const struct vm_area_struct *vma,
-				uintptr_t start, uintptr_t end, struct mm_teardown *teardown);
+void unmap_pages_locked(struct mm_struct *mm, const struct vm_area_struct *vma,
+		uintptr_t start, uintptr_t end, struct mm_teardown *teardown);
 
 __nonnull(1)
-void mm_teardown_sync(struct mm_struct *mm, struct mm_teardown *teardown,
-		        bool flush_icache);
+void mm_teardown_sync(struct mm_struct *mm, struct mm_teardown *teardown, bool flush_icache);
 
 void mm_teardown_release(struct mm_teardown *teardown);
 
 __nonnull(1, 4)
-void mm_replace_user_pte_locked(struct mm_struct *mm, const struct vm_area_struct *vma,
-				uintptr_t va, pte_t *pte, pte_t new_entry, paddr_t old_pa,
-				struct mm_teardown *teardown);
+void replace_pte_locked(struct mm_struct *mm, const struct vm_area_struct *vma,
+                uintptr_t va, pte_t *pte, pte_t new_entry, paddr_t old_pa, struct mm_teardown *teardown);
 
 struct mm_page_slot *mm_private_find(struct mm_struct *mm, uintptr_t va);
-int mm_private_set(struct mm_struct *mm, uintptr_t va, struct page *page, bool cow);
+int mm_private_set(struct mm_struct *mm, uintptr_t va, struct page *page,
+		   bool cow);
 void mm_private_remove(struct mm_struct *mm, uintptr_t start, uintptr_t end);
 int mm_private_clone(struct mm_struct *child, struct mm_struct *parent);
 __must_check __malloc
-struct anon_shared *mm_anon_create(void);
+struct anon_shared *anon_shared_create(void);
 /* Caller holds the owning mm lock; unregister follows PTE retirement. */
-void mm_anon_register(struct vm_area_struct *vma);
-void mm_anon_update(struct vm_area_struct *vma);
-void mm_anon_unregister(struct vm_area_struct *vma);
+void anon_shared_register(struct vm_area_struct *vma);
+void anon_shared_update(struct vm_area_struct *vma);
+void anon_shared_unregister(struct vm_area_struct *vma);
 struct page *mm_zero_page(void);
-struct page *mm_anon_page(struct anon_shared *anon, uintptr_t index);
+struct page *anon_shared_page(struct anon_shared *anon, uintptr_t index);
 
 __must_check __nonnull(1)
-int mm_map_user_pte_like(pte_t *root, uintptr_t va, paddr_t pa, pte_t old_entry);
+int map_pte_like(pte_t *root, uintptr_t va, paddr_t pa, pte_t old_entry);
 
 #endif

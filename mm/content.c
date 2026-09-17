@@ -100,7 +100,7 @@ int mm_private_clone(struct mm_struct *child, struct mm_struct *parent)
 	return 0;
 }
 
-struct anon_shared *mm_anon_create(void)
+struct anon_shared *anon_shared_create(void)
 {
 	struct anon_shared *anon = kmalloc(sizeof(*anon), ALLOC_NOWAIT);
 
@@ -113,13 +113,13 @@ struct anon_shared *mm_anon_create(void)
 	return anon;
 }
 
-void mm_anon_get(struct anon_shared *anon)
+void anon_shared_get(struct anon_shared *anon)
 {
 	if (anon)
 		refcount_inc(&anon->refs);
 }
 
-void mm_anon_put(struct anon_shared *anon)
+void anon_shared_put(struct anon_shared *anon)
 {
 	struct rb_node *node, *next;
 
@@ -136,7 +136,7 @@ void mm_anon_put(struct anon_shared *anon)
 }
 
 /* Return a held page. Allocation never happens under the object spinlock. */
-struct page *mm_anon_page(struct anon_shared *anon, uintptr_t index)
+struct page *anon_shared_page(struct anon_shared *anon, uintptr_t index)
 {
 	struct mm_page_slot *slot, *prepared;
 	struct page *page;
@@ -158,7 +158,7 @@ struct page *mm_anon_page(struct anon_shared *anon, uintptr_t index)
 	prepared = kmalloc(sizeof(*prepared), ALLOC_NOWAIT);
 	if (!prepared)
 		return NULL;
-	data = get_free_page(0, ALLOC_NOWAIT);
+	data = get_page(0, ALLOC_NOWAIT);
 	if (!data) {
 		kfree(prepared);
 		return NULL;
@@ -206,7 +206,7 @@ struct page *mm_zero_page(void)
 	spin_unlock(&zero_lock);
 	if (page)
 		return page;
-	data = get_free_page(0, ALLOC_NOWAIT);
+	data = get_page(0, ALLOC_NOWAIT);
 	if (!data)
 		return NULL;
 	memset(data, 0, PAGE_SIZE);
@@ -255,7 +255,7 @@ static void anon_prune(struct anon_shared *anon)
 	}
 }
 
-void mm_anon_register(struct vm_area_struct *vma)
+void anon_shared_register(struct vm_area_struct *vma)
 {
 	struct anon_shared *anon = vma->vm_anon;
 
@@ -270,7 +270,7 @@ void mm_anon_register(struct vm_area_struct *vma)
 	spin_unlock(&anon->lock);
 }
 
-void mm_anon_update(struct vm_area_struct *vma)
+void anon_shared_update(struct vm_area_struct *vma)
 {
 	struct anon_shared *anon = vma->vm_anon;
 
@@ -284,7 +284,7 @@ void mm_anon_update(struct vm_area_struct *vma)
 	spin_unlock(&anon->lock);
 }
 
-void mm_anon_unregister(struct vm_area_struct *vma)
+void anon_shared_unregister(struct vm_area_struct *vma)
 {
 	struct anon_shared *anon = vma->vm_anon;
 

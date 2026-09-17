@@ -71,7 +71,7 @@ static inline int find_cache(size_t size)
 static void refill_cache_alloc(struct kmem_cache *cache, uint32_t cache_idx,
 			       enum alloc_mode mode, struct list_head *batch)
 {
-	void *page = get_free_page(0, mode);
+	void *page = get_page(0, mode);
 	struct slab_page_header *slab;
 	struct page *meta;
 	uintptr_t cursor;
@@ -173,7 +173,7 @@ static void *kmalloc_large(size_t size, enum alloc_mode mode)
 	if (order > MAX_ORDER)
 		return NULL;
 
-	hdr = get_free_page(order, mode);
+	hdr = get_page(order, mode);
 	if (!hdr)
 		return NULL;
 

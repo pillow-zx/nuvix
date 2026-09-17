@@ -220,7 +220,7 @@ static struct pipe_buffer *pipe_buffer_alloc(void)
 	memset(pipe, 0, sizeof(*pipe));
 	spin_lock_init(&pipe->lock, LOCK_RANK_PIPE, LOCK_IRQ_TASK_ONLY);
 	refcount_set(&pipe->refs, 1); /* construction reference */
-	pipe->data = get_free_page(0, ALLOC_NOWAIT);
+	pipe->data = get_page(0, ALLOC_NOWAIT);
 	if (!pipe->data) {
 		kfree(pipe);
 		return NULL;
@@ -553,7 +553,7 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 		struct pipe_consume_token token;
 
 		if (!buffer) {
-			buffer = get_free_page(0, ALLOC_NOWAIT);
+			buffer = get_page(0, ALLOC_NOWAIT);
 			if (!buffer)
 				return done ? (ssize_t)done : -ENOMEM;
 		}

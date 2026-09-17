@@ -9,12 +9,12 @@
 #include <asm/pte.h>
 #include <asm/tlb.h>
 
-typedef pte_t pgprot_t;
+typedef pte_t pgroot_t;
 
 extern uintptr_t kpgroot;
 
-pte_t *pgtable_ucreate(void);
-void pgtable_udestroy(pte_t *root);
+pte_t *pgtable_create(void);
+void pgtable_destroy(pte_t *root);
 /* Caller exclusively owns user mappings. Clears the next user leaf, including
  * software non-present leaves. Transfers its reference to the caller, which
  * must finish shootdown before releasing it. Cursor starts at zero. */
@@ -47,15 +47,15 @@ int arch_upgd_region(vaddr_t *start, vaddr_t *end);
 __must_check
 int arch_upgd_init(pte_t *root);
 
-#define pgprot_user(read, write, exec)                                         \
-	((pgprot_t)(PTE_V | PTE_U | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
+#define upgroot(read, write, exec)                                             \
+	((pgroot_t)(PTE_V | PTE_U | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
 		    ((write) ? (PTE_R | PTE_W) : 0) | ((exec) ? PTE_X : 0)))
 
-#define pgprot_kernel(read, write, exec)                                       \
-	((pgprot_t)(PTE_V | PTE_G | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
+#define kpgroot(read, write, exec)                                             \
+	((pgroot_t)(PTE_V | PTE_G | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
 		    ((write) ? (PTE_R | PTE_W) : 0) | ((exec) ? PTE_X : 0)))
 
-#define pgprot_ro(prot) ((pgprot_t)((prot) & ~PTE_W))
+#define pgroot_ro(prot) ((pgroot_t)((prot) & ~PTE_W))
 
 #define pte_present(pte) (((pte) & PTE_V) != 0)
 
@@ -74,7 +74,7 @@ int arch_upgd_init(pte_t *root);
 #define pte_uexec(pte)                                                         \
 	(((pte) & (PTE_V | PTE_U | PTE_X)) == (PTE_V | PTE_U | PTE_X))
 
-#define pte_prot(pte) ((pgprot_t)((pte) & MASK(PTE_PPN_SHIFT)))
+#define pte_root(pte) ((pgroot_t)((pte) & MASK(PTE_PPN_SHIFT)))
 
 #define pte_make(pa, prot) ((pte_t)(PA_TO_PTE(pa) | (prot)))
 
