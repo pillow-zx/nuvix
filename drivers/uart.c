@@ -5,13 +5,12 @@
 #include <drivers/uart.h>
 #include <nuvix/tools.h>
 
-__always_inline
 static inline void uart_write_reg(int reg, uint8_t val)
 {
 	MMIO_WRITE(uint8_t, UART_BASE + reg, val);
 }
 
-__always_inline __must_check
+__must_check
 static inline uint8_t uart_read_reg(int reg)
 {
 	return MMIO_READ(uint8_t, UART_BASE + reg);

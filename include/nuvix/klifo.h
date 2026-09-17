@@ -105,25 +105,25 @@ static inline int klifo_init(struct klifo *lifo, void *storage, size_t elem_size
 	return 0;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline bool klifo_empty(const struct klifo *lifo)
 {
 	return lifo->count == 0;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline bool klifo_full(const struct klifo *lifo)
 {
 	return lifo->count == lifo->capacity;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline size_t klifo_size(const struct klifo *lifo)
 {
 	return lifo->count;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline size_t klifo_capacity(const struct klifo *lifo)
 {
 	return lifo->capacity;
@@ -142,7 +142,7 @@ static inline int klifo_reset(struct klifo *lifo)
 	return 0;
 }
 
-__always_inline __pure __nonnull(1)
+__pure __nonnull(1)
 static inline void *klifo_slot(const struct klifo *lifo, size_t index)
 {
 	return (char *)lifo->storage + index * lifo->elem_size;

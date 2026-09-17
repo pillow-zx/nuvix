@@ -21,7 +21,7 @@
 #include "arch/config.h"
 #include "internal.h"
 
-__always_inline __pure
+__pure
 static inline bool check_vma_permission(int access, struct vm_area_struct *vma)
 {
 	switch (access) {
@@ -36,7 +36,7 @@ static inline bool check_vma_permission(int access, struct vm_area_struct *vma)
 	}
 }
 
-__always_inline __pure
+__pure
 static inline bool pte_allows_fault(int access, pte_t pte)
 {
 	if (!pte_upage(pte))
@@ -219,7 +219,8 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 /* Caller holds mm->mmap_lock and owns @teardown release after unlocking.
  * The whole range must be covered: VMA segments are checked for coverage
  * and permission, then faulted in page by page. */
-__hot int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr,
+__hot
+int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr,
 				     size_t size, int access,
 				     struct mm_teardown *teardown)
 {
@@ -243,7 +244,8 @@ __hot int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr,
 	return 0;
 }
 
-__hot int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
+__hot
+int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 			      int access)
 {
 	struct mm_teardown teardown = {0};
@@ -256,7 +258,8 @@ __hot int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 	return ret;
 }
 
-__hot void do_page_fault(struct trap_frame *tf)
+__hot
+void do_page_fault(struct trap_frame *tf)
 {
 	vaddr_t fault_addr = trap_fault_addr(tf);
 	const char *fault_name = trap_fault_name(tf);

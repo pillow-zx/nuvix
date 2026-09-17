@@ -153,8 +153,9 @@ struct proc_cputime_snapshot {
 };
 
 /** Process construction/publication and references. */
-__must_check struct proc_struct *proc_alloc(struct proc_struct *parent,
-					    struct pid_identity *pid);
+__must_check __malloc
+struct proc_struct *proc_alloc(struct proc_struct *parent,
+			       struct pid_identity *pid);
 
 void proc_get(struct proc_struct *proc);
 

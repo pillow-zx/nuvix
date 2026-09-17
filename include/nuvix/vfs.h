@@ -14,7 +14,7 @@ struct vfs_at_lookup_result {
 	bool empty_path;
 };
 
-__must_check
+__must_check __malloc
 struct inode *inode_alloc(struct super_block *sb, uint64_t ino);
 
 __must_check
@@ -26,7 +26,7 @@ __must_check
 int inode_evict(struct inode *inode);
 void icache_init(void);
 
-__must_check
+__must_check __malloc
 struct dentry *dentry_alloc(struct dentry *parent,
 					 const char *name, size_t namelen);
 
@@ -154,7 +154,7 @@ struct file_system_type *get_filesystem_type(const char *name);
 __must_check
 struct file_system_type *get_next_filesystem_type(struct file_system_type *prev);
 
-__must_check
+__must_check __malloc
 struct super_block *super_alloc(struct file_system_type *fs_type,
 						     dev_t dev);
 void vfs_super_destroy(struct super_block *sb);

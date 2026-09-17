@@ -214,7 +214,7 @@ extern struct task_struct *init_task;
 /* Idle tasks are static per-CPU storage: they carry no PID, credentials,
  * reference count, or reaper lifecycle. task_is_idle() is the only generic
  * identity test; it is null-safe. */
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool task_is_idle(const struct task_struct *task)
 {
 	return task && (task->flags & TASK_FLAG_IDLE);
@@ -223,10 +223,10 @@ static inline bool task_is_idle(const struct task_struct *task)
 #include <arch/task_access.h>
 
 /* Credentials. */
-__must_check
+__must_check __malloc
 struct cred *cred_alloc_root(void);
 
-__must_check
+__must_check __malloc
 struct cred *cred_dup(const struct cred *source);
 
 void cred_get(struct cred *cred);
@@ -296,7 +296,6 @@ void task_free(struct task_struct *task);
  * non-debug builds pay no external call on every lock fast path.
  */
 #ifdef CONFIG_DEBUG_CONTEXT
-__always_inline
 static inline void task_sleep_lock_acquire(const void *lock, uint16_t rank,
 					   enum task_sleep_lock_kind kind)
 {
@@ -323,7 +322,6 @@ static inline void task_sleep_lock_acquire(const void *lock, uint16_t rank,
 	task->sleep_lock_depth = depth + 1;
 }
 
-__always_inline
 static inline void task_sleep_lock_release(const void *lock,
 					   enum task_sleep_lock_kind kind)
 {

@@ -85,7 +85,7 @@ int task_reaper_start(void)
 	return kernel_thread(task_reaper_thread, NULL) ? 0 : -ENOMEM;
 }
 
-__noreturn
+__noreturn __cold
 static void exit_schedule(void)
 {
 	sched_exit_current();

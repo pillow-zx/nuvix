@@ -22,26 +22,26 @@ struct hlist_head {
 #define HLIST_HEAD_INIT	 {.first = NULL}
 #define HLIST_HEAD(name) struct hlist_head name = HLIST_HEAD_INIT
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void INIT_HLIST_HEAD(struct hlist_head *head)
 {
 	head->first = NULL;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void INIT_HLIST_NODE(struct hlist_node *node)
 {
 	node->next = NULL;
 	node->pprev = NULL;
 }
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool hlist_empty(const struct hlist_head *head)
 {
 	return head->first == NULL;
 }
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool hlist_unhashed(const struct hlist_node *node)
 {
 	return node->pprev == NULL;
@@ -72,7 +72,7 @@ static inline void hlist_del(struct hlist_node *node)
 	node->pprev = NULL;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void hlist_del_init(struct hlist_node *node)
 {
 	hlist_del(node);

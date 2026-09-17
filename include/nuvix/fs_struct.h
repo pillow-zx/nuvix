@@ -34,7 +34,7 @@ struct fs_struct {
  * @brief Allocate a filesystem context.
  * @return New fs_struct, or NULL.
  */
-__must_check
+__must_check __malloc
 struct fs_struct *fs_alloc(void);
 
 /**
@@ -42,7 +42,7 @@ struct fs_struct *fs_alloc(void);
  * @param old Source context.
  * @return New context with referenced paths, or NULL.
  */
-__must_check
+__must_check __malloc
 struct fs_struct *fs_dup(struct fs_struct *old);
 void fs_get(struct fs_struct *fs);
 void fs_put(struct fs_struct *fs);

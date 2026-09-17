@@ -53,7 +53,7 @@ static const size_t cache_sizes[NR_CACHES] = {16,  32,	64,   128,
 static struct kmem_cache caches[NR_CACHES];
 static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC_SLAB, LOCK_IRQ_TASK_ONLY);
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline int find_cache(size_t size)
 {
 	if (size == 0)
@@ -150,7 +150,7 @@ static void slab_reclaim_detach_locked(struct slab_page_header *slab)
 	clr_bit(meta->flags, PG_SLAB);
 }
 
-__always_inline __must_check __const
+__must_check __const
 static inline uint32_t kmalloc_large_order(size_t size)
 {
 	if (size > UINT64_MAX - sizeof(struct kmalloc_header))

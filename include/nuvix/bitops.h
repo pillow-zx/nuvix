@@ -44,7 +44,7 @@
 		       static_assert((lo) >= 0, "BITS: lo must be >= 0");      \
 		       (((x) >> (lo)) & MASK((hi) - (lo) + 1));)
 
-__always_inline __must_check
+__must_check
 static inline int32_t ffz(uint64_t x)
 {
 	if (~x == 0)
@@ -52,7 +52,7 @@ static inline int32_t ffz(uint64_t x)
 	return ctzll(~x);
 }
 
-__always_inline __must_check
+__must_check
 static inline int32_t fls(uint64_t x)
 {
 	if (!x)

@@ -2,13 +2,13 @@
 
 #include <nuvix/rbtree.h>
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void rb_set_red(struct rb_node *node)
 {
 	node->color = true;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void rb_set_black(struct rb_node *node)
 {
 	node->color = false;

@@ -18,7 +18,7 @@ static inline  struct trap_frame *task_kernel_tf(struct task_struct *task)
 	return (struct trap_frame *)frame;
 }
 
-__always_inline __must_check
+__must_check
 static inline void *task_kernel_stack_take(struct task_struct *task)
 {
 	void *kstack;

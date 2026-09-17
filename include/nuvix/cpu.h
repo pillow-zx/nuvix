@@ -22,27 +22,27 @@ typedef struct cpumask {
 	uint64_t bits[CPUMASK_WORDS];
 } cpumask_t;
 
-__always_inline __must_check __const
+__must_check __const
 static inline size_t cpumask_size(void)
 {
 	return sizeof(cpumask_t);
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpumask_zero(cpumask_t *mask)
 {
 	for (uint32_t word = 0; word < CPUMASK_WORDS; word++)
 		mask->bits[word] = 0;
 }
 
-__always_inline __nonnull(1, 2)
+__nonnull(1, 2)
 static inline void cpumask_copy(cpumask_t *to, const cpumask_t *from)
 {
 	for (uint32_t word = 0; word < CPUMASK_WORDS; word++)
 		to->bits[word] = from->bits[word];
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpumask_set_cpu(cpumask_t *mask, uint32_t cpu)
 {
 	if (cpu < NR_CPUS)
@@ -50,21 +50,21 @@ static inline void cpumask_set_cpu(cpumask_t *mask, uint32_t cpu)
 			BIT_U64(cpu % CPUMASK_WORD_BITS);
 }
 
-__always_inline __must_check __nonnull(1)
+__must_check __nonnull(1)
 static inline bool cpumask_test_cpu(const cpumask_t *mask, uint32_t cpu)
 {
 	return cpu < NR_CPUS && (mask->bits[cpu / CPUMASK_WORD_BITS] &
 		BIT_U64(cpu % CPUMASK_WORD_BITS));
 }
 
-__always_inline __nonnull(1, 2, 3)
+__nonnull(1, 2, 3)
 static inline void cpumask_and(cpumask_t *to, const cpumask_t *left, const cpumask_t *right)
 {
 	for (uint32_t word = 0; word < CPUMASK_WORDS; word++)
 		to->bits[word] = left->bits[word] & right->bits[word];
 }
 
-__always_inline __must_check __nonnull(1)
+__must_check __nonnull(1)
 static inline bool cpumask_empty(const cpumask_t *mask)
 {
 	for (uint32_t word = 0; word < CPUMASK_WORDS; word++)
@@ -73,7 +73,7 @@ static inline bool cpumask_empty(const cpumask_t *mask)
 	return true;
 }
 
-__always_inline __must_check __nonnull(1)
+__must_check __nonnull(1)
 static inline uint32_t cpumask_first(const cpumask_t *mask)
 {
 	for (uint32_t word = 0; word < CPUMASK_WORDS; word++) {
@@ -163,13 +163,13 @@ void cpu_boot_init(struct task_struct *idle_tasks);
  * CPU state publication/observation. State transitions are release stores;
  * observation is acquire. Callers never read struct cpu.state directly.
  */
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpu_state_store_release(struct cpu *cpu, uint32_t state)
 {
 	atomic_set_release(&cpu->state, (int)state);
 }
 
-__always_inline __must_check __nonnull(1)
+__must_check __nonnull(1)
 static inline uint32_t cpu_state_load_acquire(const struct cpu *cpu)
 {
 	return (uint32_t)atomic_read_acquire(&cpu->state);
@@ -189,111 +189,110 @@ uint64_t cpu_schedulable_mask(void);
 void cpu_set_online(uint32_t id);
 void cpu_set_schedulable(uint32_t id);
 
-__always_inline __must_check __pure __returns_nonnull __hot
+__must_check __pure __returns_nonnull __hot
 static inline struct cpu *current_cpu(void)
 {
 	return arch_current_cpu();
 }
-__always_inline __must_check __pure
+__must_check __pure
 static inline struct cpu *cpu_by_id(uint32_t id)
 {
 	return id < nr_cpu_ids ? &cpu_table[id] : NULL;
 }
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool cpu_is_online(uint32_t id)
 {
 	return id < nr_cpu_ids && (cpu_online_mask() & (1ULL << id));
 }
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool cpu_is_schedulable(uint32_t id)
 {
 	return id < nr_cpu_ids && (cpu_schedulable_mask() & (1ULL << id));
 }
 
-__always_inline __must_check __pure __nonnull(1) __hot
+__must_check __pure __nonnull(1) __hot
 static inline struct task_struct *cpu_current_task(const struct cpu *cpu)
 {
 	return cpu->current_task;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpu_set_task(struct cpu *cpu, struct task_struct *task)
 {
 	cpu->current_task = task;
 }
 
-__always_inline __must_check __pure __hot
+__must_check __pure __hot
 static inline struct task_struct *current_task(void)
 {
 	return cpu_current_task(current_cpu());
 }
 
-__always_inline
 static inline void set_current_task(struct task_struct *task)
 {
 	cpu_set_task(current_cpu(), task);
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline struct task_struct *cpu_idle_task(const struct cpu *cpu)
 {
 	return cpu->idle_task;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline int cpu_preempt_count(const struct cpu *cpu)
 {
 	return cpu->preempt_count;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpu_set_preempt_count(struct cpu *cpu, int count)
 {
 	BUG_ON(count < 0);
 	cpu->preempt_count = count;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpu_inc_preempt_count(struct cpu *cpu)
 {
 	BUG_ON(cpu_preempt_count(cpu) == INT32_MAX);
 	cpu->preempt_count++;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpu_dec_preempt_count(struct cpu *cpu)
 {
 	BUG_ON(cpu_preempt_count(cpu) <= 0);
 	cpu->preempt_count--;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uint32_t cpu_lock_depth(const struct cpu *cpu)
 {
 	return cpu->lock_depth;
 }
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline uint32_t lock_depth(void)
 {
 	return cpu_lock_depth(current_cpu());
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uint32_t cpu_irq_nesting(const struct cpu *cpu)
 {
 	return cpu->irq_nesting;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpu_inc_irq_nesting(struct cpu *cpu)
 {
 	cpu->irq_nesting++;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void cpu_dec_irq_nesting(struct cpu *cpu)
 {
 	cpu->irq_nesting--;

@@ -11,7 +11,7 @@
  * This is read-only CPU-local state. It does not inspect or change hardware
  * IRQ state or preempt_count, and it is valid only on the current CPU.
  */
-__always_inline __must_check __pure
+__must_check __pure
 static inline uint32_t irq_nesting(void)
 {
 	return cpu_irq_nesting(current_cpu());
@@ -22,7 +22,7 @@ static inline uint32_t irq_nesting(void)
  *
  * This query is independent from IRQ nesting and hardware IRQ state.
  */
-__always_inline __must_check __pure
+__must_check __pure
 static inline int preempt_count(void)
 {
 	return cpu_preempt_count(current_cpu());
@@ -34,7 +34,7 @@ static inline int preempt_count(void)
  * The query has no side effects, cannot block, and does not imply that local
  * IRQs are disabled or that preemption is disabled.
  */
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool in_irq(void)
 {
 	return irq_nesting() != 0;
@@ -47,7 +47,7 @@ static inline bool in_irq(void)
  * only IRQ condition excluded here; preempt_count and hardware IRQ state are
  * intentionally queried independently.
  */
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool in_task_context(void)
 {
 	struct cpu *cpu = current_cpu();
@@ -64,7 +64,6 @@ static inline bool in_task_context(void)
  * nor preempt_count, cannot sleep, allocate, migrate, or acquire locks, and
  * BUG_ONs if the nesting counter would overflow.
  */
-__always_inline
 static inline void irq_enter(void)
 {
 	struct cpu *cpu = current_cpu();
@@ -80,7 +79,6 @@ static inline void irq_enter(void)
  * This helper neither changes hardware IRQ enable state nor preempt_count,
  * cannot sleep, allocate, migrate, or acquire locks, and BUG_ONs on underflow.
  */
-__always_inline
 static inline void irq_exit(void)
 {
 	struct cpu *cpu = current_cpu();

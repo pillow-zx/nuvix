@@ -30,14 +30,14 @@ struct hash_table {
 		.bits = (hash_bits),                                           \
 	}
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void hash_table_init(struct hash_table *table)
 {
 	for (uint32_t i = 0; i < HASH_TABLE_SIZE(table->bits); i++)
 		INIT_HLIST_HEAD(&table->buckets[i]);
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline struct hlist_head *hash_table_bucket(struct hash_table *table,
 						   uint64_t hash)
 {
@@ -45,14 +45,14 @@ static inline struct hlist_head *hash_table_bucket(struct hash_table *table,
 			       (HASH_TABLE_SIZE(table->bits) - 1u)];
 }
 
-__always_inline __nonnull(1, 3)
+__nonnull(1, 3)
 static inline void hash_table_add(struct hash_table *table, uint64_t hash,
 				  struct hlist_node *node)
 {
 	hlist_add_head(node, hash_table_bucket(table, hash));
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void hash_table_del(struct hlist_node *node)
 {
 	hlist_del_init(node);

@@ -8,7 +8,7 @@
 #define SORT_INSERTION_THRESHOLD 16
 #define SORT_HOLE_MAX		 64
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline unsigned char *sort_element(unsigned char *base, size_t index, size_t size)
 {
 	return base + index * size;

@@ -46,23 +46,19 @@ extern uint32_t smp_boot_errors[];
  * global-flush helpers must skip remote shootdown. */
 bool smp_booted(void);
 #else
-__always_inline
 static inline void smp_prepare(void)
 {
 }
 
-__always_inline
 static inline void smp_boot_cpus(void)
 {
 }
 
-__always_inline
 static inline void smp_timer_tick(void)
 {
 }
 
 /* No remote CPUs ever need a shootdown in a uniprocessor build. */
-__always_inline
 static inline bool smp_booted(void)
 {
 	return false;

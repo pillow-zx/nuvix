@@ -28,13 +28,13 @@ struct task_struct *switch_to(struct context *prev, struct context *next,
 			      uintptr_t next_satp,
 			      struct task_struct *outgoing);
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline size_t syscall_nr(const struct trap_frame *tf)
 {
 	return tf->a7;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline size_t syscall_arg(const struct trap_frame *tf, uint32_t nr)
 {
 	switch (nr) {
@@ -55,61 +55,61 @@ static inline size_t syscall_arg(const struct trap_frame *tf, uint32_t nr)
 	}
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void syscall_set_return(struct trap_frame *tf, ssize_t ret)
 {
 	tf->a0 = (size_t)ret;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uintptr_t trap_user_sp(const struct trap_frame *tf)
 {
 	return tf->sp;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uintptr_t trap_user_pc(const struct trap_frame *tf)
 {
 	return tf->sepc;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uintptr_t trap_fault_addr(const struct trap_frame *tf)
 {
 	return tf->stval;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline bool trap_frame_from_user(const struct trap_frame *tf)
 {
 	return (tf->sstatus & SSTATUS_SPP) == 0;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uintptr_t trap_frame_cause(const struct trap_frame *tf)
 {
 	return tf->scause;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uintptr_t trap_status(const struct trap_frame *tf)
 {
 	return tf->sstatus;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_set_status(struct trap_frame *tf, uintptr_t status)
 {
 	tf->sstatus = status;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_disable_user_fpu(struct trap_frame *tf)
 {
 	tf->sstatus &= ~SSTATUS_FS_MASK;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_advance_pc(struct trap_frame *tf, uintptr_t bytes)
 {
 	tf->sepc += bytes;
@@ -148,32 +148,32 @@ static inline const char *trap_fault_name(const struct trap_frame *tf)
 	}
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_set_user_sp(struct trap_frame *tf, uintptr_t sp)
 {
 	tf->sp = sp;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_set_user_pc(struct trap_frame *tf, uintptr_t pc)
 {
 	tf->sepc = pc;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_set_arg0(struct trap_frame *tf, uintptr_t value)
 {
 	tf->a0 = value;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_set_kernel_return(struct trap_frame *tf, uintptr_t pc)
 {
 	tf->sepc = pc;
 	tf->sstatus |= SSTATUS_SPP | SSTATUS_SPIE;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_set_kthread_frame(struct trap_frame *tf, uintptr_t pc, uintptr_t arg0)
 {
 	memset(tf, 0, sizeof(*tf));
@@ -182,25 +182,25 @@ static inline void trap_set_kthread_frame(struct trap_frame *tf, uintptr_t pc, u
 	tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE;
 }
 
-__always_inline __nonnull(1, 2)
+__nonnull(1, 2)
 static inline void trap_clone_frame(struct trap_frame *dst, const struct trap_frame *src)
 {
 	memcpy(dst, src, sizeof(*dst));
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_set_clone_return(struct trap_frame *tf)
 {
 	tf->a0 = 0;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_set_tls(struct trap_frame *tf, uintptr_t tls)
 {
 	tf->tp = tls;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline  void trap_setup_signal_handler(struct trap_frame *tf, uintptr_t handler, uintptr_t restorer,
 	uintptr_t sp, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2)
 {
@@ -212,13 +212,13 @@ static inline  void trap_setup_signal_handler(struct trap_frame *tf, uintptr_t h
 	tf->a2 = arg2;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline  uintptr_t trap_return_value(const struct trap_frame *tf)
 {
 	return tf->a0;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void trap_setup_user_return(struct trap_frame *tf, uintptr_t pc, uintptr_t sp)
 {
 	tf->sepc = pc;

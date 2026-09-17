@@ -79,7 +79,7 @@ static struct vmalloc_area *vmalloc_find_area(uintptr_t start)
 	return NULL;
 }
 
-__always_inline __pure
+__pure
 static inline size_t vmalloc_area_size(const struct vmalloc_area *area)
 {
 	return area->end - area->start;
@@ -109,7 +109,6 @@ static void vmalloc_prepopulate_tables(void)
 	tlb_flush_all();
 }
 
-__always_inline
 static inline struct vmalloc_area *vmalloc_prev_area(struct vmalloc_area *area)
 {
 	if (area->node.prev == &vmalloc_areas)
@@ -117,7 +116,6 @@ static inline struct vmalloc_area *vmalloc_prev_area(struct vmalloc_area *area)
 	return list_entry(area->node.prev, struct vmalloc_area, node);
 }
 
-__always_inline
 static inline struct vmalloc_area *vmalloc_next_area(struct vmalloc_area *area)
 {
 	if (area->node.next == &vmalloc_areas)

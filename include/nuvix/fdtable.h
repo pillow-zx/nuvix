@@ -35,7 +35,7 @@ struct files_struct {
  * @param private_data File-type-private state.
  * @return New referenced file, or NULL.
  */
-__must_check
+__must_check __malloc
 struct file *file_alloc(const struct file_operations *f_op, uint32_t mode, void *private_data);
 
 /**
@@ -45,7 +45,7 @@ struct file *file_alloc(const struct file_operations *f_op, uint32_t mode, void 
  * @param mode FMODE_* access bits.
  * @return New referenced file, or NULL.
  */
-__must_check
+__must_check __malloc
 struct file *file_alloc_path(const struct path *path, uint32_t flags, uint32_t mode);
 
 void file_get(struct file *file);
@@ -56,7 +56,7 @@ void file_put(struct file *file);
  * @brief Allocate an empty fdtable.
  * @return New files_struct, or NULL.
  */
-__must_check
+__must_check __malloc
 struct files_struct *files_alloc(void);
 
 /**
@@ -64,7 +64,7 @@ struct files_struct *files_alloc(void);
  * @param old Source table.
  * @return New table with referenced files, or NULL.
  */
-__must_check
+__must_check __malloc
 struct files_struct *files_dup(struct files_struct *old);
 void files_get(struct files_struct *files);
 void files_put(struct files_struct *files);

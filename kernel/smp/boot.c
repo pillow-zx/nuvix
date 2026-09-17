@@ -55,7 +55,7 @@ static void smp_secondary_park(void)
 		wait_for_interrupt();
 }
 
-__noreturn
+__noreturn __cold
 static void smp_boot_fail(uint32_t id, const char *reason,
 				     uint32_t state)
 {
@@ -72,7 +72,7 @@ static void smp_boot_fail(uint32_t id, const char *reason,
 	unreachable();
 }
 
-__noreturn
+__noreturn __cold
 static void smp_gate_fail(uint64_t secondary_mask, uint64_t timer_seen, uint64_t ipi_observed,
 				     const char *what)
 {

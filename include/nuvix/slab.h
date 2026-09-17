@@ -33,7 +33,7 @@ void *kmalloc(size_t size, enum alloc_mode mode);
  * @param mode Context permission for the allocation.
  * @return Allocated objects, or NULL
  */
-__must_check
+__must_check __malloc __alloc_size(1, 2)
 static inline void *kmalloc_array(size_t n, size_t size,
 				  enum alloc_mode mode)
 {

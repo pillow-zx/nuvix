@@ -6,20 +6,20 @@
 #include <nuvix/sched.h>
 #include <nuvix/task.h>
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool rwlock_read_available(const rwlock_t *lock)
 {
 	return !lock->writer && lock->waiting_writers == 0;
 }
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool rwlock_write_available(const rwlock_t *lock)
 {
 	return !lock->writer && lock->readers == 0 &&
 	       lock->waiting_writers == 0;
 }
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool rwlock_write_free(const rwlock_t *lock)
 {
 	return !lock->writer && lock->readers == 0;

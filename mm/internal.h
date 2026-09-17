@@ -112,13 +112,13 @@ struct mm_struct {
 
 static_assert(NR_MM_REGIONS > 0, "NR_MM_REGIONS must stay positive");
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uint64_t vma_offset_at(const struct vm_area_struct *vma, const uintptr_t va)
 {
 	return vma->vm_offset + (va - vma->vm_start);
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline uint64_t vma_page_index(const struct vm_area_struct *vma,
                                       const uintptr_t page_addr)
 {
@@ -128,13 +128,13 @@ static inline uint64_t vma_page_index(const struct vm_area_struct *vma,
 	return (file_base + (page_addr - base)) / PAGE_SIZE;
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void mm_lock(struct mm_struct *mm)
 {
 	mutex_lock(&mm->mmap_lock);
 }
 
-__always_inline __nonnull(1)
+__nonnull(1)
 static inline void mm_unlock(struct mm_struct *mm)
 {
 	mutex_unlock(&mm->mmap_lock);
@@ -179,13 +179,13 @@ void vma_publish(struct vm_area_struct *vma);
 
 void vma_discard_spares(struct mm_struct *mm);
 
-__always_inline __must_check __const
+__must_check __const
 static inline bool mm_prot_is_valid(int prot)
 {
 	return (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) == 0;
 }
 
-__always_inline __must_check __const
+__must_check __const
 static inline uint32_t mm_prot_to_vm_flags(int prot)
 {
 	uint32_t flags = 0;
@@ -200,14 +200,14 @@ static inline uint32_t mm_prot_to_vm_flags(int prot)
 	return flags;
 }
 
-__always_inline __must_check __const
+__must_check __const
 static inline pgprot_t mm_prot_to_pte_flags(int prot)
 {
 	return pgprot_user((prot & PROT_READ) != 0, (prot & PROT_WRITE) != 0,
 			   (prot & PROT_EXEC) != 0);
 }
 
-__always_inline __must_check __const
+__must_check __const
 static inline pgprot_t vma_flags_to_pte(uint32_t vm_flags)
 {
 	return pgprot_user((vm_flags & VM_READ) != 0,
@@ -219,20 +219,20 @@ void mm_pte_mapping_get(paddr_t pa);
 
 void mm_pte_mapping_put(const struct vm_area_struct *vma, paddr_t pa);
 
-__always_inline __must_check __pure __nonnull( 1)
+__must_check __pure __nonnull( 1)
 static inline bool vma_overlaps(const struct vm_area_struct *vma, const uintptr_t start,
 				const uintptr_t end)
 {
 	return vma->used && start < vma->vm_end && end > vma->vm_start;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline bool vma_contains_split_addr(const struct vm_area_struct *vma, const uintptr_t addr)
 {
 	return vma->used && addr > vma->vm_start && addr < vma->vm_end;
 }
 
-__always_inline __must_check __pure __nonnull(1)
+__must_check __pure __nonnull(1)
 static inline bool vma_is_anonymous(const struct vm_area_struct *vma)
 {
 	return !vma->vm_file &&
@@ -240,14 +240,14 @@ static inline bool vma_is_anonymous(const struct vm_area_struct *vma)
 		vma->vm_type == VMA_MMAP);
 }
 
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool vma_covers_range(const struct vm_area_struct *vma, const uintptr_t start,
 		                    const uintptr_t end)
 {
 	return vma && vma->used && start >= vma->vm_start && end <= vma->vm_end;
 }
 
-__must_check
+__must_check __malloc
 struct mm_struct *mm_alloc(void);
 
 __cold
@@ -256,7 +256,7 @@ void mm_destroy(struct mm_struct *mm);
 __cold __nonnull(1)
 void mm_destroy_mappings(struct mm_struct *mm);
 
-__must_check
+__must_check __malloc
 pte_t *mm_create_user_pgd(struct mm_struct *mm);
 
 
@@ -337,6 +337,7 @@ struct mm_page_slot *mm_private_find(struct mm_struct *mm, uintptr_t va);
 int mm_private_set(struct mm_struct *mm, uintptr_t va, struct page *page, bool cow);
 void mm_private_remove(struct mm_struct *mm, uintptr_t start, uintptr_t end);
 int mm_private_clone(struct mm_struct *child, struct mm_struct *parent);
+__must_check __malloc
 struct anon_shared *mm_anon_create(void);
 /* Caller holds the owning mm lock; unregister follows PTE retirement. */
 void mm_anon_register(struct vm_area_struct *vma);

@@ -154,7 +154,6 @@ struct virtio_blk_outhdr {
  * @param off Register offset.
  * @param val Value to write.
  */
-__always_inline
 static inline void virtio_mmio_write(paddr_t base, uint32_t off, uint32_t val)
 {
 	MMIO_WRITE(uint32_t, base + off, val);
@@ -166,7 +165,7 @@ static inline void virtio_mmio_write(paddr_t base, uint32_t off, uint32_t val)
  * @param off Register offset.
  * @return Register value.
  */
-__always_inline __must_check
+__must_check
 static inline uint32_t virtio_mmio_read(paddr_t base, uint32_t off)
 {
 	return MMIO_READ(uint32_t, base + off);
@@ -178,7 +177,6 @@ static inline uint32_t virtio_mmio_read(paddr_t base, uint32_t off)
  * @param low_off Offset of the low 32-bit register.
  * @param val 64-bit value to split little-word order.
  */
-__always_inline
 static inline void virtio_mmio_write64(paddr_t base, uint32_t low_off,
 				       uint64_t val)
 {
@@ -186,19 +184,16 @@ static inline void virtio_mmio_write64(paddr_t base, uint32_t low_off,
 	virtio_mmio_write(base, low_off + 4, (uint32_t)(val >> 32));
 }
 
-__always_inline
 static inline void virtio_mb(void)
 {
 	arch_mb();
 }
 
-__always_inline
 static inline void virtio_wmb(void)
 {
 	arch_wmb();
 }
 
-__always_inline
 static inline void virtio_rmb(void)
 {
 	arch_rmb();

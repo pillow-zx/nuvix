@@ -87,7 +87,8 @@ static int mmap_parse_flags(int flags, bool *shared, bool *private, bool *fixed,
 	return 0;
 }
 
-__always_inline __must_check __pure static inline int
+__must_check __pure
+static inline int
 mmap_populate_access(const struct vm_area_struct *vma)
 {
 	if (vma->vm_flags & VM_READ)

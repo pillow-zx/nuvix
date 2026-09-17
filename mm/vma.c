@@ -61,7 +61,7 @@ void vma_discard_spares(struct mm_struct *mm)
 }
 
 
-__always_inline __pure
+__pure
 static inline bool vma_can_merge(const struct vm_area_struct *a,
 				 const struct vm_area_struct *b)
 {

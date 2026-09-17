@@ -27,7 +27,7 @@ enum alloc_mode {
  * is not in hard IRQ context and no spinlock is held. SLEEPABLE allocations
  * require an IRQ-enabled, preemptible task context with no held spinlock.
  */
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool alloc_can_allocate(enum alloc_mode mode)
 {
 	if (mode != ALLOC_NOWAIT && mode != ALLOC_SLEEPABLE)
@@ -43,7 +43,7 @@ static inline bool alloc_can_allocate(enum alloc_mode mode)
 /**
  * @brief Test whether the current context may release an allocation.
  */
-__always_inline __must_check __pure
+__must_check __pure
 static inline bool alloc_can_free(void)
 {
 	return !in_irq() && !spinlock_held();
@@ -52,7 +52,6 @@ static inline bool alloc_can_free(void)
 /**
  * @brief Diagnose an invalid allocation context.
  */
-__always_inline
 static inline void alloc_check(enum alloc_mode mode)
 {
 	BUG_ON(!alloc_can_allocate(mode));
@@ -61,7 +60,6 @@ static inline void alloc_check(enum alloc_mode mode)
 /**
  * @brief Diagnose an invalid free context.
  */
-__always_inline
 static inline void alloc_free_check(void)
 {
 	BUG_ON(!alloc_can_free());
