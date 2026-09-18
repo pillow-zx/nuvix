@@ -55,15 +55,7 @@
 #define SYS_utimensat	       88
 #define SYS_exit	       93
 #define SYS_exit_group	       94
-#define SYS_waitid	       95
 #define SYS_nanosleep	       101
-#define SYS_getitimer	       102
-#define SYS_setitimer	       103
-#define SYS_timer_create       107
-#define SYS_timer_gettime      108
-#define SYS_timer_getoverrun   109
-#define SYS_timer_settime      110
-#define SYS_timer_delete       111
 #define SYS_clock_settime      112
 #define SYS_clock_gettime      113
 #define SYS_clock_getres       114
@@ -72,12 +64,9 @@
 #define SYS_sched_setaffinity  122
 #define SYS_sched_getaffinity  123
 #define SYS_sched_yield	       124
-#define SYS_restart_syscall    128
 #define SYS_kill	       129
-#define SYS_tkill	       130
 #define SYS_tgkill	       131
 #define SYS_sigaltstack	       132
-#define SYS_rt_sigsuspend      133
 #define SYS_rt_sigaction       134
 #define SYS_rt_sigprocmask     135
 #define SYS_rt_sigpending      136
@@ -112,12 +101,8 @@
 #define SYS_execve	       221
 #define SYS_mmap	       222
 #define SYS_mprotect	       226
-#define SYS_riscv_hwprobe      258
-#define SYS_riscv_flush_icache 259
 #define SYS_wait4	       260
 #define SYS_prlimit64	       261
-#define SYS_process_vm_readv   270
-#define SYS_process_vm_writev  271
 #define SYS_renameat2	       276
 #define SYS_getrandom	       278
 #define SYS_statx	       291
@@ -129,32 +114,11 @@
 
 /**
  * @def NR_SYSCALL
- * @brief Linux riscv64 syscall table size, including currently unsupported ABI
- * numbers.
+ * @brief Linux riscv64 syscall table size.
  */
 #define NR_SYSCALL 463
 
 #ifndef __ASSEMBLER__
-_Static_assert(SYS_getitimer == 102, "getitimer syscall number mismatch");
-_Static_assert(SYS_setitimer == 103, "setitimer syscall number mismatch");
-_Static_assert(SYS_timer_create == 107, "timer_create syscall number mismatch");
-_Static_assert(SYS_timer_gettime == 108,
-	       "timer_gettime syscall number mismatch");
-_Static_assert(SYS_timer_getoverrun == 109,
-	       "timer_getoverrun syscall number mismatch");
-_Static_assert(SYS_timer_settime == 110,
-	       "timer_settime syscall number mismatch");
-_Static_assert(SYS_timer_delete == 111, "timer_delete syscall number mismatch");
-_Static_assert(SYS_waitid == 95, "waitid syscall number mismatch");
-_Static_assert(SYS_restart_syscall == 128, "restart_syscall number mismatch");
-_Static_assert(SYS_riscv_hwprobe == 258,
-	       "riscv_hwprobe syscall number mismatch");
-_Static_assert(SYS_riscv_flush_icache == 259,
-	       "riscv_flush_icache syscall number mismatch");
-_Static_assert(SYS_process_vm_readv == 270,
-	       "process_vm_readv syscall number mismatch");
-_Static_assert(SYS_process_vm_writev == 271,
-	       "process_vm_writev syscall number mismatch");
 _Static_assert(SYS_getsid == 156, "getsid syscall number mismatch");
 _Static_assert(SYS_setsid == 157, "setsid syscall number mismatch");
 #endif
