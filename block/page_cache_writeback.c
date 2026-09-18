@@ -9,40 +9,6 @@
 #include <nuvix/spinlock.h>
 #include <nuvix/worker.h>
 
-static bool pgcache_has_mapping_locked(struct pgcache *page,
-					  struct page_mapping *mapping)
-{
-	struct list_head *pos;
-
-	if (!mapping)
-		return true;
-	list_for_each (pos, &pgcache_associations) {
-		struct pgcache_assoc *assoc =
-			list_entry(pos, struct pgcache_assoc, mapping_node);
-
-		if (assoc->page == page && assoc->mapping == mapping)
-			return true;
-	}
-	return false;
-}
-
-static bool pgcache_has_mapping_index_locked(struct pgcache *page,
-						struct page_mapping *mapping,
-						uint64_t index)
-{
-	struct list_head *pos;
-
-	list_for_each (pos, &pgcache_associations) {
-		struct pgcache_assoc *assoc = list_entry(
-			pos, struct pgcache_assoc, mapping_node);
-
-		if (assoc->page == page && assoc->mapping == mapping &&
-		    assoc->index == index)
-			return true;
-	}
-	return false;
-}
-
 static int pgcache_write_snapshot(struct pgcache *page, uint8_t *snapshot)
 {
 	struct blkdev *bdev;
@@ -106,35 +72,6 @@ int pgcache_sync_page(struct pgcache *page)
 	return pgcache_sync_page_snapshot(page);
 }
 
-int pgcache_wb_run(struct pgcache *start, struct page_mapping *mapping)
-{
-	irq_flags_t flags;
-	bool associated;
-
-	if (!start)
-		return -EINVAL;
-	spin_lock_irqsave(&pgcache_lock, &flags);
-	associated = pgcache_has_mapping_locked(start, mapping);
-	spin_unlock_irqrestore(&pgcache_lock, flags);
-	if (!associated)
-		return -ENOENT;
-	return pgcache_sync_page(start);
-}
-
-static int pgcache_msync_run(struct pgcache *page,
-				     struct page_mapping *mapping, uint64_t index)
-{
-	irq_flags_t flags;
-	bool associated;
-
-	spin_lock_irqsave(&pgcache_lock, &flags);
-	associated = pgcache_has_mapping_index_locked(page, mapping, index);
-	spin_unlock_irqrestore(&pgcache_lock, flags);
-	if (!associated)
-		return -ENOENT;
-	return pgcache_sync_page_snapshot(page);
-}
-
 int pgcache_sync_mapping(struct page_mapping *mapping)
 {
 	struct pgcache *page;
@@ -145,10 +82,10 @@ int pgcache_sync_mapping(struct page_mapping *mapping)
 	for (;;) {
 		page = NULL;
 		spin_lock_irqsave(&pgcache_lock, &flags);
-		list_for_each (pos, &pgcache_associations) {
+		list_for_each (pos, &mapping->pages) {
 			struct pgcache_assoc *assoc = list_entry(
 				pos, struct pgcache_assoc, mapping_node);
-			if (assoc->mapping != mapping || !assoc->page->dirty)
+			if (!assoc->page->dirty)
 				continue;
 			page = assoc->page;
 			page->refcount++;
@@ -157,7 +94,8 @@ int pgcache_sync_mapping(struct page_mapping *mapping)
 		spin_unlock_irqrestore(&pgcache_lock, flags);
 		if (!page)
 			return 0;
-		int ret = pgcache_wb_run(page, mapping);
+		/* The page reference prevents its association from being removed. */
+		int ret = pgcache_sync_page(page);
 
 		if (ret < 0) {
 			pgcache_put_page(page);
@@ -181,12 +119,11 @@ int pgcache_msync_mapping_range(struct page_mapping *mapping,
 		int ret;
 
 		spin_lock_irqsave(&pgcache_lock, &flags);
-		list_for_each (pos, &pgcache_associations) {
+		list_for_each (pos, &mapping->pages) {
 			struct pgcache_assoc *assoc = list_entry(
 				pos, struct pgcache_assoc, mapping_node);
 
-			if (assoc->mapping != mapping ||
-			    assoc->index < first_page ||
+			if (assoc->index < first_page ||
 			    assoc->index >= end_page || !assoc->page->dirty)
 				continue;
 			if (!page || assoc->index < page_index) {
@@ -200,9 +137,9 @@ int pgcache_msync_mapping_range(struct page_mapping *mapping,
 		if (!page)
 			return 0;
 
-		ret = pgcache_msync_run(page, mapping, page_index);
+		ret = pgcache_sync_page(page);
 		pgcache_put_page(page);
-		if (ret < 0 && ret != -ENOENT)
+		if (ret < 0)
 			return ret;
 		first_page = page_index + 1;
 	}
@@ -218,7 +155,7 @@ int pgcache_sync_all(void)
 {
 	struct pgcache *page;
 	while ((page = pgcache_dirty_any()) != NULL) {
-		int ret = pgcache_wb_run(page, NULL);
+		int ret = pgcache_sync_page(page);
 		pgcache_put_page(page);
 		if (ret < 0)
 			return ret;

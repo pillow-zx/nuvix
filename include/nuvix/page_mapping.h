@@ -20,6 +20,8 @@ struct page_mapping {
 	void *host;
 	dev_t dev;
 	const struct page_mapping_ops *ops;
+	/* Cached associations, protected by pgcache_lock. */
+	struct list_head pages;
 };
 
 static inline void page_mapping_init(struct page_mapping *mapping, void *host, dev_t dev,
@@ -30,6 +32,7 @@ static inline void page_mapping_init(struct page_mapping *mapping, void *host, d
 	mapping->host = host;
 	mapping->dev = dev;
 	mapping->ops = ops;
+	INIT_LIST_HEAD(&mapping->pages);
 }
 
 #endif

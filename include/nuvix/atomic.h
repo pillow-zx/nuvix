@@ -31,7 +31,6 @@ static_assert(compiler_atomic_always_lock_free(sizeof(isize), 0),
 
 #define ATOMIC_INIT(value)	{.counter = (value)}
 #define ATOMIC64_INIT(value)	{.counter = (value)}
-#define ATOMIC_LONG_INIT(value) {.counter = (value)}
 
 /*
  * These primitives are the escape hatch for an operation or memory order

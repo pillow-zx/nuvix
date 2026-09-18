@@ -15,10 +15,9 @@
 static HASH_TABLE(pgcache_hashtable, PGCACHE_HASH_BITS);
 static LIST_HEAD(pgcache_lru);
 LIST_HEAD(pgcache_dirty_list);
-LIST_HEAD(pgcache_associations);
 DEFINE_SPINLOCK(pgcache_lock, LOCK_RANK_PAGE_CACHE, LOCK_IRQ_TASK_ONLY);
-static uint32_t page_cache_pages;
-static bool page_cache_ready;
+static uint32_t pgcache_pages;
+static bool pgcache_ready;
 
 static uint32_t pgcache_hash(dev_t dev, uint64_t block)
 {
@@ -27,13 +26,12 @@ static uint32_t pgcache_hash(dev_t dev, uint64_t block)
 
 void pgcache_init(void)
 {
-	if (page_cache_ready)
+	if (pgcache_ready)
 		return;
 	hash_table_init(&pgcache_hashtable);
 	INIT_LIST_HEAD(&pgcache_lru);
 	INIT_LIST_HEAD(&pgcache_dirty_list);
-	INIT_LIST_HEAD(&pgcache_associations);
-	page_cache_ready = true;
+	pgcache_ready = true;
 }
 
 struct pgcache *pgcache_find(dev_t dev, uint64_t block)
@@ -53,21 +51,17 @@ struct pgcache *pgcache_find(dev_t dev, uint64_t block)
 struct pgcache *pgcache_find_mapping(struct page_mapping *mapping,
 				     uint64_t index)
 {
-	struct list_head *pos;
+	struct pgcache_assoc *assoc;
 	struct pgcache *page = NULL;
 	irq_flags_t flags;
 	if (!mapping)
 		return NULL;
 	spin_lock_irqsave(&pgcache_lock, &flags);
-	list_for_each (pos, &pgcache_associations) {
-		struct pgcache_assoc *assoc =
-			list_entry(pos, struct pgcache_assoc, mapping_node);
-		if (assoc->mapping == mapping && assoc->index == index) {
-			page = assoc->page;
-			page->refcount++;
-			list_move_tail(&page->lru_node, &pgcache_lru);
-			break;
-		}
+	assoc = pgcache_assoc_find_locked(mapping, index);
+	if (assoc) {
+		page = assoc->page;
+		page->refcount++;
+		list_move_tail(&page->lru_node, &pgcache_lru);
 	}
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	return page;
@@ -95,8 +89,8 @@ static void pgcache_detach_page_locked(struct pgcache *page,
 	if (!list_empty(&page->lru_node))
 		list_del_init(&page->lru_node);
 	page->dropped = true;
-	if (page_cache_pages > 0)
-		page_cache_pages--;
+	if (pgcache_pages > 0)
+		pgcache_pages--;
 }
 
 static struct pgcache *pgcache_evict_one_locked(struct list_head *removed)
@@ -135,6 +129,7 @@ static struct pgcache *pgcache_alloc(dev_t dev, uint64_t block)
 	INIT_HLIST_NODE(&page->hash_node);
 	INIT_LIST_HEAD(&page->lru_node);
 	INIT_LIST_HEAD(&page->dirty_node);
+	INIT_LIST_HEAD(&page->associations);
 	wait_channel_init(&page->waitq);
 	return page;
 }
@@ -275,7 +270,7 @@ retry: {
 		spin_unlock_irqrestore(&pgcache_lock, irq_flags);
 		goto read_page;
 	}
-	if (page_cache_pages >= PGCACHE_NR_PAGES) {
+	if (pgcache_pages >= PGCACHE_NR_PAGES) {
 		victim = pgcache_evict_one_locked(&removed);
 		if (!victim)
 			no_room = true;
@@ -325,7 +320,7 @@ retry: {
 	hash_table_add(&pgcache_hashtable, pgcache_hash(dev, block),
 		       &page->hash_node);
 	list_add_tail(&page->lru_node, &pgcache_lru);
-	page_cache_pages++;
+	pgcache_pages++;
 	spin_unlock_irqrestore(&pgcache_lock, irq_flags);
 
 read_page:
@@ -381,11 +376,12 @@ struct pgcache *pgcache_get_mapping(struct page_mapping *mapping,
 		mapping->dev, block,
 		flags | ((flags & PAGE_CACHE_READ) ? PAGE_CACHE_CREATE : 0),
 		&ret);
-	if (page && page_cache_assoc_add(mapping, index, page) < 0) {
-		pgcache_put_page(page);
-		page = NULL;
-		if (error)
-			*error = -ENOMEM;
+	if (page) {
+		ret = page_cache_assoc_add(mapping, index, page);
+		if (ret < 0) {
+			pgcache_put_page(page);
+			page = NULL;
+		}
 	}
 	if (!page && error)
 		*error = ret ? ret : -ENOMEM;
@@ -475,24 +471,20 @@ int pgcache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
 	tail_offset = (uint32_t)(size % BLOCK_SIZE);
 
 	spin_lock_irqsave(&pgcache_lock, &flags);
-	list_for_each (pos, &pgcache_associations) {
+	list_for_each (pos, &mapping->pages) {
 		struct pgcache_assoc *assoc =
 			list_entry(pos, struct pgcache_assoc, mapping_node);
 
-		if (assoc->mapping != mapping)
-			continue;
 		if (pgcache_mapping_change_locked(assoc->page)) {
 			spin_unlock_irqrestore(&pgcache_lock, flags);
 			return -EBUSY;
 		}
 	}
-	list_for_each_safe (pos, next, &pgcache_associations) {
+	list_for_each_safe (pos, next, &mapping->pages) {
 		struct pgcache_assoc *assoc =
 			list_entry(pos, struct pgcache_assoc, mapping_node);
 		struct pgcache *page = assoc->page;
 
-		if (assoc->mapping != mapping)
-			continue;
 		if (assoc->index < tail_index)
 			continue;
 		if (assoc->index == tail_index && tail_offset != 0) {
@@ -505,8 +497,7 @@ int pgcache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
 			page->dirty = true;
 			continue;
 		}
-		list_del_init(&assoc->mapping_node);
-		list_add_tail(&assoc->page_node, &removed);
+		pgcache_assoc_remove_locked(assoc, &removed);
 		if (!pgcache_assoc_has_page_locked(page)) {
 			pgcache_clear_dirty_locked(page);
 			page->uptodate = false;
@@ -520,23 +511,23 @@ int pgcache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
 int pgcache_invalidate_mapping(struct page_mapping *mapping)
 {
 	struct list_head *pos;
+	LIST_HEAD(removed);
 	irq_flags_t flags;
 
 	if (!mapping)
 		return -EINVAL;
 	spin_lock_irqsave(&pgcache_lock, &flags);
-	list_for_each (pos, &pgcache_associations) {
+	list_for_each (pos, &mapping->pages) {
 		struct pgcache_assoc *assoc =
 			list_entry(pos, struct pgcache_assoc, mapping_node);
-		if (assoc->mapping != mapping)
-			continue;
 		if (pgcache_mapping_change_locked(assoc->page)) {
 			spin_unlock_irqrestore(&pgcache_lock, flags);
 			return -EBUSY;
 		}
 	}
+	pgcache_assoc_remove_mapping_locked(mapping, &removed);
 	spin_unlock_irqrestore(&pgcache_lock, flags);
-	pgcache_assoc_remove_mapping(mapping);
+	pgcache_assoc_free_list(&removed);
 	return 0;
 }
 
@@ -566,13 +557,15 @@ int pgcache_discard_device(dev_t dev)
 	irq_flags_t flags;
 
 	spin_lock_irqsave(&pgcache_lock, &flags);
-	list_for_each (pos, &pgcache_associations) {
-		struct pgcache_assoc *assoc =
-			list_entry(pos, struct pgcache_assoc, mapping_node);
+	/* Preflight every page before unlinking any of its associations. */
+	list_for_each (pos, &pgcache_lru) {
+		struct pgcache *page =
+			list_entry(pos, struct pgcache, lru_node);
 
-		if (assoc->page->dev != dev)
+		if (page->dev != dev)
 			continue;
-		if (pgcache_mapping_change_locked(assoc->page)) {
+		if (pgcache_mapping_change_locked(page) ||
+		    !list_empty(&page->dirty_node)) {
 			spin_unlock_irqrestore(&pgcache_lock, flags);
 			return -EBUSY;
 		}
@@ -583,12 +576,6 @@ int pgcache_discard_device(dev_t dev)
 
 		if (page->dev != dev)
 			continue;
-		if (pgcache_mapping_change_locked(page) ||
-		    !list_empty(&page->dirty_node)) {
-			spin_unlock_irqrestore(&pgcache_lock, flags);
-			pgcache_assoc_free_list(&removed);
-			return -EBUSY;
-		}
 		pgcache_detach_page_locked(page, &removed);
 		list_add_tail(&page->lru_node, &victims);
 	}
