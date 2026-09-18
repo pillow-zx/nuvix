@@ -10,7 +10,7 @@
 struct trap_frame;
 
 __must_check
-bool riscv_uaccess_fixup(struct trap_frame *tf);
+bool uaccess_fixup(struct trap_frame *tf);
 
 #define __RISCV_UACCESS_EX_TABLE                                               \
 	".pushsection __ex_table,\"a\"\n\t"                                    \
@@ -68,8 +68,8 @@ static inline int __riscv_user_output_check(const void *out, size_t width)
 			     :                                                 \
 			     : "t0", "t1", "t2", "memory");                    \
 		if (__a0 != 0)                                                 \
-			return -EFAULT;                                          \
-		*out = (type)__a1;                                           \
+			return -EFAULT;                                        \
+		*out = (type)__a1;                                             \
 		return 0;                                                      \
 	}
 
@@ -113,8 +113,8 @@ __RISCV_DEFINE_USER_PUT(64, u64, sd)
 #undef __RISCV_DEFINE_USER_GET
 #undef __RISCV_DEFINE_USER_PUT
 
-__always_inline __must_check
-static inline int __riscv_user_get(void *out, const volatile void *addr, size_t width)
+__always_inline __must_check static inline int
+__riscv_user_get(void *out, const volatile void *addr, size_t width)
 {
 	switch (width) {
 	case sizeof(u8): {
@@ -128,7 +128,8 @@ static inline int __riscv_user_get(void *out, const volatile void *addr, size_t 
 	}
 	case sizeof(u16): {
 		u16 value;
-		int ret = __riscv_user_get_u16(&value, (const volatile u16 *)addr);
+		int ret = __riscv_user_get_u16(&value,
+					       (const volatile u16 *)addr);
 
 		if (ret == 0)
 			*(u16 *)out = value;
@@ -136,7 +137,8 @@ static inline int __riscv_user_get(void *out, const volatile void *addr, size_t 
 	}
 	case sizeof(u32): {
 		u32 value;
-		int ret = __riscv_user_get_u32(&value, (const volatile u32 *)addr);
+		int ret = __riscv_user_get_u32(&value,
+					       (const volatile u32 *)addr);
 
 		if (ret == 0)
 			*(u32 *)out = value;
@@ -144,7 +146,8 @@ static inline int __riscv_user_get(void *out, const volatile void *addr, size_t 
 	}
 	case sizeof(u64): {
 		u64 value;
-		int ret = __riscv_user_get_u64(&value, (const volatile u64 *)addr);
+		int ret = __riscv_user_get_u64(&value,
+					       (const volatile u64 *)addr);
 
 		if (ret == 0)
 			*(u64 *)out = value;
@@ -188,32 +191,6 @@ static inline int __riscv_user_put(u64 value, volatile void *addr, size_t width)
 	statement_expr(__RISCV_USER_WIDTH_ASSERT(ptr);                         \
 		       __riscv_user_put((u64)(x), (volatile void *)(ptr),      \
 					sizeof(*(ptr)));)
-
-#define get_user_u8(x, ptr)                                                    \
-	statement_expr(__riscv_user_get(&(x), (const volatile void *)(ptr),    \
-					sizeof(u8));)
-#define get_user_u16(x, ptr)                                                   \
-	statement_expr(__riscv_user_get(&(x), (const volatile void *)(ptr),    \
-					sizeof(u16));)
-#define get_user_u32(x, ptr)                                                   \
-	statement_expr(__riscv_user_get(&(x), (const volatile void *)(ptr),    \
-					sizeof(u32));)
-#define get_user_u64(x, ptr)                                                   \
-	statement_expr(__riscv_user_get(&(x), (const volatile void *)(ptr),    \
-					sizeof(u64));)
-
-#define put_user_u8(x, ptr)                                                    \
-	statement_expr(__riscv_user_put((u64)(x), (volatile void *)(ptr),      \
-					sizeof(u8));)
-#define put_user_u16(x, ptr)                                                   \
-	statement_expr(__riscv_user_put((u64)(x), (volatile void *)(ptr),      \
-					sizeof(u16));)
-#define put_user_u32(x, ptr)                                                   \
-	statement_expr(__riscv_user_put((u64)(x), (volatile void *)(ptr),      \
-					sizeof(u32));)
-#define put_user_u64(x, ptr)                                                   \
-	statement_expr(__riscv_user_put((u64)(x), (volatile void *)(ptr),      \
-					sizeof(u64));)
 
 __always_inline __must_check
 static inline bool user_access_begin(void)

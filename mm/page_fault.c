@@ -97,7 +97,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 
 		if (!vma || !check_vma_permission(access, vma))
 			return -EFAULT;
-		pte = pt_lookup(mm->pgd, va);
+		pte = pt_lookup(mm->pgroot, va);
 		if (pte && pte_allows_fault(access, *pte))
 			return 0;
 		if (fault_pte)
@@ -184,7 +184,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		anon_shared_put(anon);
 		if (ret < 0)
 			return ret;
-		pte = pt_lookup(mm->pgd, va);
+		pte = pt_lookup(mm->pgroot, va);
 		if (pte && pte_allows_fault(access, *pte)) {
 			page_put(page);
 			return 0;
@@ -201,7 +201,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 				pte_make(__pa((uintptr_t)page_to_virt(page)), prot),
 				PTE_TO_PA(*pte), teardown);
 		} else {
-			ret = map_page(mm->pgd, va,
+			ret = map_page(mm->pgroot, va,
 				__pa((uintptr_t)page_to_virt(page)), prot);
 			if (ret < 0)
 				page_put(page);
@@ -220,7 +220,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
  * The whole range must be covered: VMA segments are checked for coverage
  * and permission, then faulted in page by page. */
 __hot
-int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr,
+int fault_in_urange_locked(struct mm_struct *mm, uintptr_t addr,
 				     size_t size, int access,
 				     struct mm_teardown *teardown)
 {
@@ -252,7 +252,7 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size,
 	int ret;
 
 	mm_lock(mm);
-	ret = fault_in_user_range_locked(mm, addr, size, access, &teardown);
+	ret = fault_in_urange_locked(mm, addr, size, access, &teardown);
 	mm_unlock(mm);
 	mm_teardown_release(&teardown);
 	return ret;

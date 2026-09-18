@@ -42,7 +42,8 @@ static struct printk_ring printk_ring = {
 				LOCK_IRQ_TASK_ONLY),
 };
 
-static size_t printk_ring_normalize_locked(uint64_t *sequence)
+__nonnull(1)
+static inline size_t printk_ring_normalize_locked(uint64_t *sequence)
 {
 	if (*sequence < printk_ring.first_seq)
 		*sequence = printk_ring.first_seq;
@@ -51,14 +52,15 @@ static size_t printk_ring_normalize_locked(uint64_t *sequence)
 	return (size_t)(printk_ring.head_seq - *sequence);
 }
 
-static void printk_ring_copy_locked(char *destination, uint64_t sequence,
-				    size_t size)
+__nonnull(1)
+static void printk_ring_copy_locked(char *destination, uint64_t sequence, size_t size)
 {
 	for (size_t index = 0; index < size; index++)
 		destination[index] = printk_ring.storage[(sequence + index) %
 							 PRINTK_LOG_BUF_SIZE];
 }
 
+__nonnull(1)
 static void printk_ring_append_locked(const char *source, size_t size)
 {
 	for (size_t index = 0; index < size; index++) {
@@ -75,7 +77,8 @@ static void printk_ring_append_locked(const char *source, size_t size)
 	(void)printk_ring_normalize_locked(&printk_ring.clear_seq);
 }
 
-static uint32_t printk_log_level(int level)
+__must_check
+static inline uint32_t printk_log_level(int level)
 {
 	switch (level) {
 	case LOG_ERROR:
@@ -93,8 +96,7 @@ static uint32_t printk_log_level(int level)
 	}
 }
 
-static void printk_ring_append_message(int level, const char *message,
-				       size_t size)
+static void printk_ring_append_message(int level, const char *message, size_t size)
 {
 	const char priority[] = {
 		'<',
@@ -344,7 +346,6 @@ void printk_ring_record(int level, const char *fmt, ...)
 	va_end(ap);
 }
 
-__noreturn
 void __panic(const char *fmt, ...)
 {
 	/* Panic logging must remain usable even when the failure fills

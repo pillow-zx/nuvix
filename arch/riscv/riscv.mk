@@ -9,7 +9,7 @@ ARCH_CC_TARGET    := riscv64-unknown-elf
 
 obj-y += arch/riscv/boot.o
 obj-y += arch/riscv/entry.o
-obj-y += arch/riscv/uaccess_fixup.o
+obj-y += arch/riscv/uaccess.o
 obj-y += arch/riscv/switch.o
 obj-y += arch/riscv/fpu.o
 obj-y += arch/riscv/trap.o

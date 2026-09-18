@@ -88,15 +88,15 @@ ssize_t sys_reboot(struct trap_frame *tf)
 
 	switch (command) {
 	case LINUX_REBOOT_CMD_CAD_OFF:
-		return kernel_reboot(KERNEL_REBOOT_CAD_OFF);
+		return reboot(REBOOT_CAD_OFF);
 	case LINUX_REBOOT_CMD_CAD_ON:
-		return kernel_reboot(KERNEL_REBOOT_CAD_ON);
+		return reboot(REBOOT_CAD_ON);
 	case LINUX_REBOOT_CMD_RESTART:
-		return kernel_reboot(KERNEL_REBOOT_RESTART);
+		return reboot(REBOOT_RESTART);
 	case LINUX_REBOOT_CMD_HALT:
-		return kernel_reboot(KERNEL_REBOOT_HALT);
+		return reboot(REBOOT_HALT);
 	case LINUX_REBOOT_CMD_POWER_OFF:
-		return kernel_reboot(KERNEL_REBOOT_POWER_OFF);
+		return reboot(REBOOT_POWER_OFF);
 	default:
 		return -EINVAL;
 	}

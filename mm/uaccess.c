@@ -9,7 +9,7 @@
 #include <nuvix/task.h>
 #include <nuvix/proc.h>
 #include <nuvix/page.h>
-#include <nuvix/uaccess_arch.h>
+#include <nuvix/uaccess.h>
 
 #include "internal.h"
 
@@ -103,13 +103,13 @@ static int uaccess_copy(struct uaccess_txn *txn, void *to, const void *from,
 		uint8_t *data;
 		int ret;
 
-		ret = fault_in_user_range_locked(txn->mm, uaddr, chunk,
+		ret = fault_in_urange_locked(txn->mm, uaddr, chunk,
 			to_user ? USER_FAULT_WRITE : USER_FAULT_READ, &txn->teardown);
 		if (ret < 0)
 			return ret;
 		/* This is the uaccess boundary: translation and permission remain
 		 * stable through this page's copy, including a non-current mm. */
-		pte = pt_lookup(txn->mm->pgd, uaddr);
+		pte = pt_lookup(txn->mm->pgroot, uaddr);
 		if (!pte || (to_user ? !pte_uwrite(*pte) :
 				      !pte_uread(*pte)))
 			return -EFAULT;
@@ -217,15 +217,14 @@ ssize_t strncpy_from_user(char *dst, const char *src, size_t maxlen)
 		size_t offset = (addr + done) & (PAGE_SIZE - 1);
 		size_t chunk = MIN(PAGE_SIZE - offset, maxlen - done);
 
-		if (fault_in_user_range_locked(txn.mm, page, 1, USER_FAULT_READ,
+		if (fault_in_urange_locked(txn.mm, page, 1, USER_FAULT_READ,
 					       &txn.teardown) < 0)
 			goto fail;
 
 		for (size_t i = 0; i < chunk; i++) {
 			u8 value;
 
-			if (get_user_u8(value,
-					(const volatile u8 *)(addr + done)) < 0)
+			if (get_user(value, (const volatile u8 *)(addr + done)) < 0)
 				goto fail;
 			dst[done++] = (char)value;
 			if (value == '\0') {

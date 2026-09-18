@@ -68,7 +68,7 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 	struct timeval ktv;
 
 	if (utv) {
-		kernel_realtime_now(&kts);
+		krealtime_now(&kts);
 		ktv.tv_sec = kts.tv_sec;
 		ktv.tv_usec = kts.tv_nsec / 1000;
 		if (copy_to_user(utv, &ktv, sizeof(ktv)) != 0)
@@ -94,7 +94,7 @@ ssize_t sys_clock_gettime(struct trap_frame *tf)
 	if (!uts)
 		return -EFAULT;
 	if (clock_id == CLOCK_REALTIME)
-		kernel_realtime_now(&kts);
+		krealtime_now(&kts);
 	else
 		mtime_to_timespec(timer_now(), &kts);
 	if (copy_to_user(uts, &kts, sizeof(kts)) != 0)
@@ -228,5 +228,5 @@ ssize_t sys_clock_settime(struct trap_frame *tf)
 		return -EFAULT;
 	if (task_uid(current_task()) != 0)
 		return -EPERM;
-	return kernel_realtime_set(&kts);
+	return krealtime_set(&kts);
 }

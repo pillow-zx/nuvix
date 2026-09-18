@@ -211,7 +211,7 @@ void unmap_pages_locked(struct mm_struct *mm,
 {
 	(void)vma;
 	for (uintptr_t va = start; va < end; va += PAGE_SIZE) {
-		pte_t *pte = pt_lookup(mm->pgd, va);
+		pte_t *pte = pt_lookup(mm->pgroot, va);
 		paddr_t *release;
 
 		if (!pte || !pte_upage(*pte))
@@ -277,7 +277,7 @@ void destroy_mappings(struct mm_struct *mm)
 	mm_lock(mm);
 	/* Construction can fail between installing a page and publishing its
 	 * VMA. Walk all user leaves, not only the published mapping index. */
-	while (mm->pgd && pgtable_take_upage(mm->pgd, &cursor, &pa)) {
+	while (mm->pgroot && pgtable_take_upage(mm->pgroot, &cursor, &pa)) {
 		teardown.release[teardown.nr_release++] = pa;
 		if (teardown.nr_release == MM_RELEASE_BATCH) {
 			mm_teardown_sync(mm, &teardown, false);
@@ -545,14 +545,14 @@ int mm_map_page(struct mm_struct *mm, uintptr_t va, void *page, int prot)
 		return -EINVAL;
 
 	mm_lock(mm);
-	pte = pt_lookup(mm->pgd, va);
+	pte = pt_lookup(mm->pgroot, va);
 	if ((pte && pte_upage(*pte)) || mm_private_find(mm, va)) {
 		mm_unlock(mm);
 		return -EEXIST;
 	}
 	int ret = mm_private_set(mm, va, virt_to_page(page), false);
 	if (ret == 0)
-		ret = map_page(mm->pgd, va, __pa((uintptr_t)page),
+		ret = map_page(mm->pgroot, va, __pa((uintptr_t)page),
 			       mm_root_to_pte_flags(prot));
 	if (ret < 0)
 		mm_private_remove(mm, va, va + PAGE_SIZE);
@@ -672,7 +672,7 @@ int mm_add_stack(struct mm_struct *mm, const void *stack, size_t stack_size)
 			free_page(page, 0);
 			break;
 		}
-		ret = map_page(mm->pgd, stack_start + offset,
+		ret = map_page(mm->pgroot, stack_start + offset,
 			       __pa((uintptr_t)page),
 			       upgroot(true, true, false));
 		if (ret < 0) {
@@ -736,7 +736,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 	/* PROT_NONE retains a software PTE and its reference. Restoring access
 	 * consults the logical COW state, never the physical refcount. */
 	for (uintptr_t va = addr; va < end; va += PAGE_SIZE) {
-		pte_t *pte = pt_lookup(mm->pgd, va);
+		pte_t *pte = pt_lookup(mm->pgroot, va);
 		struct vm_area_struct *vma = find_vma(mm, va);
 		struct mm_page_slot *slot = mm_private_find(mm, va);
 		pgroot_t flags = mm_root_to_pte_flags(prot);

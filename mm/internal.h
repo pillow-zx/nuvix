@@ -98,7 +98,7 @@ struct mm_struct {
 	 */
 	atomic64_t lifecycle;
 	mutex_t mmap_lock;
-	pte_t *pgd;
+	pte_t *pgroot;
 	struct rb_root private;
 	struct mm_layout layout;
 	uintptr_t brk;
@@ -250,7 +250,7 @@ __cold __nonnull(1)
 void destroy_mappings(struct mm_struct *mm);
 
 __must_check __malloc
-pte_t *create_pgd(struct mm_struct *mm);
+pte_t *create_pgroot(struct mm_struct *mm);
 
 __must_check
 struct vm_area_struct *find_vma(struct mm_struct *mm, uintptr_t addr);
@@ -264,7 +264,7 @@ int fault_in_user_range(struct mm_struct *mm, uintptr_t addr, size_t size, int a
 /* Caller holds mm->mmap_lock across the call and must run
  * mm_teardown_release() after unlocking. */
 __must_check __nonnull(1, 5)
-int fault_in_user_range_locked(struct mm_struct *mm, uintptr_t addr, size_t size, int access, struct mm_teardown *teardown);
+int fault_in_urange_locked(struct mm_struct *mm, uintptr_t addr, size_t size, int access, struct mm_teardown *teardown);
 
 __must_check __nonnull(1)
 struct vm_area_struct *vma_alloc_slot(struct mm_struct *mm);

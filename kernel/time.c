@@ -163,7 +163,7 @@ void mtime_to_timespec(uint64_t ticks, struct timespec *ts)
 	ts->tv_nsec = (int64_t)nsec_from_mtime_remainder(remainder);
 }
 
-void kernel_realtime_now(struct timespec *value)
+void krealtime_now(struct timespec *value)
 {
 	struct timespec monotonic;
 	struct timespec offset;
@@ -194,7 +194,7 @@ saturated:
 	value->tv_nsec = NSEC_PER_SEC - 1;
 }
 
-int kernel_realtime_set(const struct timespec *value)
+int krealtime_set(const struct timespec *value)
 {
 	struct timespec monotonic;
 	struct timespec offset;

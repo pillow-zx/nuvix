@@ -7,20 +7,20 @@
 #include <nuvix/reboot.h>
 #include <nuvix/task.h>
 
-int kernel_reboot(enum kernel_reboot_command command)
+int reboot(enum reboot_command command)
 {
 	if (!current_task() || task_uid(current_task()) != 0)
 		return -EPERM;
 
 	switch (command) {
-	case KERNEL_REBOOT_CAD_OFF:
-	case KERNEL_REBOOT_CAD_ON:
+	case REBOOT_CAD_OFF:
+	case REBOOT_CAD_ON:
 		return 0;
-	case KERNEL_REBOOT_RESTART:
+	case REBOOT_RESTART:
 		system_reset(RESET_RESTART);
-	case KERNEL_REBOOT_HALT:
+	case REBOOT_HALT:
 		system_reset(RESET_HALT);
-	case KERNEL_REBOOT_POWER_OFF:
+	case REBOOT_POWER_OFF:
 		system_reset(RESET_POWEROFF);
 	}
 

@@ -138,7 +138,7 @@ int mm_install_fixed_page(struct mm_struct *mm, uintptr_t va, void *page,
 	int ret;
 
 	if (!mm || mm_lifecycle_state(mm) != MM_LIFECYCLE_BUILDING ||
-	    !mm->pgd || !page || (va & (PAGE_SIZE - 1)) || va >= TASK_SIZE ||
+	    !mm->pgroot || !page || (va & (PAGE_SIZE - 1)) || va >= TASK_SIZE ||
 	    PAGE_SIZE > TASK_SIZE - va || !mm_root_is_valid(prot))
 		return -EINVAL;
 	end = va + PAGE_SIZE;
@@ -151,7 +151,7 @@ int mm_install_fixed_page(struct mm_struct *mm, uintptr_t va, void *page,
 		goto out;
 	}
 
-	pte = pt_lookup(mm->pgd, va);
+	pte = pt_lookup(mm->pgroot, va);
 	if (pte && pte_present(*pte)) {
 		ret = -EEXIST;
 		goto out;
@@ -161,7 +161,7 @@ int mm_install_fixed_page(struct mm_struct *mm, uintptr_t va, void *page,
 	if (ret < 0)
 		goto out;
 
-	ret = map_page(mm->pgd, va, __pa((uintptr_t)page),
+	ret = map_page(mm->pgroot, va, __pa((uintptr_t)page),
 		       mm_root_to_pte_flags(prot));
 	if (ret < 0)
 		mm_layout_release(mm, va, end, MM_REGION_FIXED);
@@ -200,8 +200,8 @@ struct mm_struct *mm_create(void)
 	if (!mm)
 		return NULL;
 
-	mm->pgd = create_pgd(mm);
-	if (!mm->pgd) {
+	mm->pgroot = create_pgroot(mm);
+	if (!mm->pgroot) {
 		mm_put(mm);
 		return NULL;
 	}
@@ -300,12 +300,12 @@ int mm_refcount_read(const struct mm_struct *mm)
 
 uintptr_t mm_pgroot(const struct mm_struct *mm)
 {
-	BUG_ON(!mm || !mm->pgd);
-	return pt_token(mm->pgd);
+	BUG_ON(!mm || !mm->pgroot);
+	return pt_token(mm->pgroot);
 }
 
-__must_check __nonnull(1) int map_pte_like(pte_t *root, uintptr_t va,
-					    paddr_t pa, pte_t old_entry)
+__must_check __nonnull(1)
+int map_pte_like(pte_t *root, uintptr_t va, paddr_t pa, pte_t old_entry)
 {
 	pgroot_t perm = pte_root(old_entry);
 	int ret;
@@ -369,11 +369,11 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 			goto fail;
 		for (uintptr_t va = region->start; va < region->end;
 		     va += PAGE_SIZE) {
-			pte_t *pte = pt_lookup(oldmm->pgd, va);
+			pte_t *pte = pt_lookup(oldmm->pgroot, va);
 
 			if (!pte || !pte_upage(*pte))
 				continue;
-			if (map_pte_like(newmm->pgd, va, PTE_TO_PA(*pte),
+			if (map_pte_like(newmm->pgroot, va, PTE_TO_PA(*pte),
 					  *pte) < 0)
 				goto fail;
 			pte_mapping_get(PTE_TO_PA(*pte));
@@ -390,7 +390,7 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 			continue;
 		for (uintptr_t va = vma->vm_start; va < vma->vm_end;
 		     va += PAGE_SIZE) {
-			pte_t *pte = pt_lookup(oldmm->pgd, va);
+			pte_t *pte = pt_lookup(oldmm->pgroot, va);
 			pte_t entry;
 
 			if (!pte || !pte_upage(*pte))
@@ -414,7 +414,7 @@ fail:
 	return NULL;
 }
 
-pte_t *create_pgd(struct mm_struct *mm)
+pte_t *create_pgroot(struct mm_struct *mm)
 {
 	vaddr_t start, end;
 
@@ -434,8 +434,8 @@ static void mm_finish_retirement(struct mm_struct *mm)
 	destroy_mappings(mm);
 	mm_private_remove(mm, 0, TASK_SIZE);
 	vma_discard_spares(mm);
-	pgd = mm->pgd;
-	mm->pgd = NULL;
+	pgd = mm->pgroot;
+	mm->pgroot = NULL;
 	if (pgd)
 		pgtable_destroy(pgd);
 	kfree(mm);

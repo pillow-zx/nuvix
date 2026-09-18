@@ -19,10 +19,10 @@ __nonnull(2) __access_no_size(write_only, 2)
 void mtime_to_timespec(uint64_t ticks, struct timespec *ts);
 
 __nonnull(1) __access_no_size(write_only, 1)
-void kernel_realtime_now(struct timespec *value);
+void krealtime_now(struct timespec *value);
 
 __must_check __nonnull(1) __access_no_size(read_only, 1)
-int kernel_realtime_set(const struct timespec *value);
+int krealtime_set(const struct timespec *value);
 
 __must_check __access_no_size(read_only, 1)
 __access_no_size(write_only, 2)

@@ -8,12 +8,13 @@
 #define SORT_INSERTION_THRESHOLD 16
 #define SORT_HOLE_MAX		 64
 
-__must_check __pure
+__must_check __pure __nonnull(1)
 static inline unsigned char *sort_element(unsigned char *base, size_t index, size_t size)
 {
 	return base + index * size;
 }
 
+__nonnull(1)
 static void sort_insertion(unsigned char *base, size_t nr, size_t size,
 			   cmp_t compare)
 {
@@ -65,6 +66,7 @@ static void sort_insertion(unsigned char *base, size_t nr, size_t size,
 	}
 }
 
+__nonnull(1)
 static size_t sort_median_of_three(unsigned char *base, size_t nr, size_t size,
 				   cmp_t compare)
 {
@@ -86,6 +88,7 @@ static size_t sort_median_of_three(unsigned char *base, size_t nr, size_t size,
 	return compare(middle_element, last_element) < 0 ? last : middle;
 }
 
+__nonnull(1, 5, 6)
 static void sort_partition(unsigned char *base, size_t nr, size_t size,
 			   cmp_t compare, size_t *less_end,
 			   size_t *greater_begin)
@@ -126,6 +129,7 @@ static void sort_partition(unsigned char *base, size_t nr, size_t size,
 	*greater_begin = greater + 1;
 }
 
+__nonnull(1)
 static void sort_sift_down(unsigned char *base, size_t root, size_t nr,
 			   size_t size, cmp_t compare)
 {
@@ -147,6 +151,7 @@ static void sort_sift_down(unsigned char *base, size_t root, size_t nr,
 	}
 }
 
+__nonnull(1)
 static void sort_heap(unsigned char *base, size_t nr, size_t size,
 		      cmp_t compare)
 {
@@ -164,6 +169,7 @@ static void sort_heap(unsigned char *base, size_t nr, size_t size,
 	}
 }
 
+__nonnull(1)
 static bool is_sorted(unsigned char *base, size_t nr, size_t size,
 		      cmp_t compare)
 {
@@ -179,6 +185,7 @@ static bool is_sorted(unsigned char *base, size_t nr, size_t size,
 	return true;
 }
 
+__nonnull(1)
 static void sort_intro(unsigned char *base, size_t nr, size_t size,
 		       cmp_t compare, size_t depth)
 {

@@ -207,7 +207,7 @@ static int64_t vfs_current_time_sec(void)
 {
 	struct timespec ts;
 
-	kernel_realtime_now(&ts);
+	krealtime_now(&ts);
 	return ts.tv_sec;
 }
 
