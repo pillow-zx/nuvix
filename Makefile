@@ -206,7 +206,6 @@ include mm/mm.mk
 include fs/fs.mk
 include block/block.mk
 include drivers/drivers.mk
-include sched/sched.mk
 include syscall/syscall.mk
 include lib/lib.mk
 

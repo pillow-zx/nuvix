@@ -23,6 +23,7 @@ obj-y += kernel/waitqueue.o
 obj-y += kernel/time.o
 obj-y += kernel/worker.o
 obj-y += kernel/init_process.o
+obj-y += kernel/sched.o
 
 
 include kernel/smp/smp.mk
