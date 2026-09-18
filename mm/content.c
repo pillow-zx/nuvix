@@ -87,15 +87,30 @@ int mm_private_clone(struct mm_struct *child, struct mm_struct *parent)
 	rb_for_each (node, &parent->private) {
 		struct mm_page_slot *slot =
 			rb_entry(node, struct mm_page_slot, node);
-		int ret = mm_private_set(child, slot->index << PAGE_SHIFT,
-					 slot->page, true);
+		struct page *page = slot->page;
+		void *copy = NULL;
+		int ret;
+		/* A device/read request must retain its physical write target.
+		 * Copy the child's snapshot instead of write-protecting the parent. */
+		if (atomic_read(&page->io_write_pins)) {
+			copy = get_page(0, ALLOC_NOWAIT);
+			if (!copy)
+				return -ENOMEM;
+			memcpy(copy, page_to_virt(page), PAGE_SIZE);
+			page = virt_to_page(copy);
+		}
+		ret = mm_private_set(child, slot->index << PAGE_SHIFT,
+				     page, !copy);
+		if (copy)
+			page_put(page);
 		if (ret < 0)
 			return ret;
 	}
 	rb_for_each (node, &parent->private) {
 		struct mm_page_slot *slot =
 			rb_entry(node, struct mm_page_slot, node);
-		slot->cow = true;
+		if (!atomic_read(&slot->page->io_write_pins))
+			slot->cow = true;
 	}
 	return 0;
 }
@@ -108,8 +123,29 @@ struct anon_shared *anon_shared_create(void)
 		return NULL;
 	refcount_set(&anon->refs, 1);
 	anon->pages = RB_ROOT;
+	anon->kernel_page = false;
 	INIT_LIST_HEAD(&anon->mappings);
 	spin_lock_init(&anon->lock, LOCK_RANK_MM_ANON, LOCK_IRQ_TASK_ONLY);
+	return anon;
+}
+
+struct anon_shared *anon_shared_from_page(struct page *page)
+{
+	struct anon_shared *anon = anon_shared_create();
+	struct mm_page_slot *slot;
+	if (!anon)
+		return NULL;
+	slot = kmalloc(sizeof(*slot), ALLOC_NOWAIT);
+	if (!slot) {
+		anon_shared_put(anon);
+		return NULL;
+	}
+	slot->index = 0;
+	slot->page = page;
+	slot->cow = false;
+	page_get(page);
+	anon->kernel_page = true;
+	slot_insert(&anon->pages, slot);
 	return anon;
 }
 
@@ -227,6 +263,8 @@ struct page *mm_zero_page(void)
 static bool anon_covered(struct anon_shared *anon, uintptr_t index)
 {
 	struct list_head *node;
+	if (anon->kernel_page)
+		return index == 0;
 
 	list_for_each (node, &anon->mappings) {
 		struct vm_area_struct *vma =

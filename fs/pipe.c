@@ -16,6 +16,7 @@
 #include <uapi/tty.h>
 #include <nuvix/page.h>
 #include <nuvix/printk.h>
+#include <nuvix/io.h>
 
 #define PIPE_SIZE PAGE_SIZE
 
@@ -36,11 +37,6 @@ struct pipe_buffer {
 	struct wait_channel writers_wq;
 };
 
-struct pipe_write_wait {
-	struct pipe_buffer *pipe;
-	size_t min_space;
-};
-
 static void pipe_put(struct pipe_buffer *pipe);
 
 CLEANUP_DEFINE(pipe_ref, struct pipe_buffer *, if (_T) pipe_put(_T));
@@ -53,11 +49,13 @@ static void pipe_get(struct pipe_buffer *pipe)
 
 static ssize_t pipe_read(struct file *file, char *buf, size_t count, loff_t pos);
 static ssize_t pipe_write(struct file *file, const char *buf, size_t count, loff_t pos);
-static int pipe_poll(struct file *file, uint32_t events, struct task_wait *wait);
+static int pipe_poll(struct file *file, uint32_t events, struct poll_table *wait);
 static int pipe_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 static int pipe_release(struct file *file);
+static ssize_t pipe_try_io(struct file *file, void *buf, size_t count, bool write);
 
 static const struct file_operations pipe_read_fops = {
+	.try_io = pipe_try_io,
 	.read = pipe_read,
 	.poll = pipe_poll,
 	.ioctl = pipe_ioctl,
@@ -65,6 +63,7 @@ static const struct file_operations pipe_read_fops = {
 };
 
 static const struct file_operations pipe_write_fops = {
+	.try_io = pipe_try_io,
 	.write = pipe_write,
 	.poll = pipe_poll,
 	.ioctl = pipe_ioctl,
@@ -250,130 +249,69 @@ static void pipe_put(struct pipe_buffer *pipe)
 
 static ssize_t pipe_read(struct file *file, char *buf, size_t count, loff_t pos)
 {
-	struct pipe_buffer *pipe = file->private_data;
-	struct pipe_buffer *__cleanup_with(pipe_ref) held = NULL;
-	size_t done = 0;
-	irq_flags_t flags;
-
 	(void)pos;
-	if (!pipe)
-		return -EINVAL;
-	pipe_get(pipe);
-	held = pipe;
-
-	while (done < count) {
-		size_t chunk;
-		size_t linear;
-
-		spin_lock_irqsave(&pipe->lock, &flags);
-		if (pipe->consume_active || pipe->used == 0) {
-			if (pipe->consume_active) {
-				spin_unlock_irqrestore(&pipe->lock, flags);
-				if (file->f_flags & O_NONBLOCK)
-					return done ? (ssize_t)done : -EAGAIN;
-				int wait_ret = pipe_wait(pipe, false, 0);
-				if (wait_ret < 0)
-					return done ? (ssize_t)done : wait_ret;
-				continue;
-			}
-			if (pipe->writers == 0 || done > 0) {
-				spin_unlock_irqrestore(&pipe->lock, flags);
-				break;
-			}
-			if (file->f_flags & O_NONBLOCK) {
-				spin_unlock_irqrestore(&pipe->lock, flags);
-				return -EAGAIN;
-			}
-			spin_unlock_irqrestore(&pipe->lock, flags);
-
-			int ret = pipe_wait(pipe, false, 0);
-			if (ret < 0)
-				return done ? (ssize_t)done : ret;
-			continue;
-		}
-
-		chunk = count - done;
-		linear = pipe_linear_tail(pipe);
-
-		if (chunk > linear)
-			chunk = linear;
-
-		memcpy(buf + done, pipe->data + pipe->tail, chunk);
-		pipe_commit_read_locked(pipe, chunk);
-		spin_unlock_irqrestore(&pipe->lock, flags);
-		wait_channel_wake_all(&pipe->writers_wq);
-		done += chunk;
-	}
-
-	return (ssize_t)done;
+	return io_wait_transfer(file, buf, count, false);
 }
 
 static ssize_t pipe_write(struct file *file, const char *buf, size_t count,
 			  loff_t pos)
 {
-	struct pipe_buffer *pipe = file->private_data;
-	struct pipe_buffer *__cleanup_with(pipe_ref) held = NULL;
-	struct pipe_write_wait wait = {
-		.pipe = pipe,
-		.min_space = count <= PIPE_BUF ? count : 1,
-	};
-	bool atomic = count <= PIPE_BUF;
 	size_t done = 0;
-	irq_flags_t flags;
-
 	(void)pos;
-	if (!pipe)
-		return -EINVAL;
-	pipe_get(pipe);
-	held = pipe;
-	if (count == 0)
-		return 0;
-
 	while (done < count) {
-		size_t space;
-
-		spin_lock_irqsave(&pipe->lock, &flags);
-		if (pipe->readers == 0) {
-			spin_unlock_irqrestore(&pipe->lock, flags);
-			if (done == 0)
-				(void)sig_send_self(SIGPIPE);
-			return done ? (ssize_t)done : -EPIPE;
-		}
-
-		space = PIPE_SIZE - pipe->used;
-		if (space < wait.min_space) {
-			if (file->f_flags & O_NONBLOCK) {
-				spin_unlock_irqrestore(&pipe->lock, flags);
-				return done ? (ssize_t)done : -EAGAIN;
-			}
-			spin_unlock_irqrestore(&pipe->lock, flags);
-
-			int ret = pipe_wait(pipe, true, wait.min_space);
-			if (ret < 0)
-				return done ? (ssize_t)done : ret;
-			continue;
-		}
-
-		if (atomic) {
-			pipe_commit_write_locked(pipe, buf, count);
-			spin_unlock_irqrestore(&pipe->lock, flags);
-			wait_channel_wake_all(&pipe->readers_wq);
-			return (ssize_t)count;
-		}
-
-		if (space > count - done)
-			space = count - done;
-		pipe_commit_write_locked(pipe, buf + done, space);
-		done += space;
-		spin_unlock_irqrestore(&pipe->lock, flags);
-		wait_channel_wake_all(&pipe->readers_wq);
+		ssize_t ret = io_wait_transfer(file, (char *)buf + done, count - done, true);
+		if (ret <= 0)
+			return done ? (ssize_t)done : ret;
+		done += ret;
+		if (file->f_flags & O_NONBLOCK)
+			break;
 	}
-
 	return (ssize_t)done;
 }
 
+static ssize_t pipe_try_io(struct file *file, void *buf, size_t count, bool write)
+{
+	struct pipe_buffer *pipe = file->private_data;
+	irq_flags_t flags;
+	size_t done = 0;
+	ssize_t ret;
+	if (!count)
+		return 0;
+	spin_lock_irqsave(&pipe->lock, &flags);
+	if (write) {
+		size_t space = PIPE_SIZE - pipe->used;
+		if (!pipe->readers)
+			ret = -EPIPE;
+		else if (space < (count <= PIPE_BUF ? count : 1))
+			ret = -EAGAIN;
+		else {
+			done = count < space ? count : space;
+			pipe_commit_write_locked(pipe, buf, done);
+			ret = done;
+		}
+	} else if (pipe->consume_active) {
+		ret = -EAGAIN;
+	} else if (!pipe->used) {
+		ret = pipe->writers ? -EAGAIN : 0;
+	} else {
+		while (done < count && pipe->used) {
+			size_t part = pipe_linear_tail(pipe);
+			if (part > count - done)
+				part = count - done;
+			memcpy((char *)buf + done, pipe->data + pipe->tail, part);
+			pipe_commit_read_locked(pipe, part);
+			done += part;
+		}
+		ret = done;
+	}
+	spin_unlock_irqrestore(&pipe->lock, flags);
+	if (done)
+		wait_channel_wake_all(write ? &pipe->readers_wq : &pipe->writers_wq);
+	return ret;
+}
+
 static int pipe_poll(struct file *file, uint32_t events,
-			     struct task_wait *wait)
+			     struct poll_table *wait)
 {
 	struct pipe_buffer *pipe = file->private_data;
 	struct pipe_buffer *__cleanup_with(pipe_ref) held = NULL;
@@ -386,24 +324,22 @@ static int pipe_poll(struct file *file, uint32_t events,
 	pipe_get(pipe);
 	held = pipe;
 	spin_lock_irqsave(&pipe->lock, &flags);
-	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
+	if (file->f_mode & FMODE_READ) {
 		if (wait) {
-			ret = wait_scope_prepare_current(&pipe->readers_wq,
-							 false);
+			ret = poll_wait(wait, &pipe->readers_wq);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&pipe->lock, flags);
 				return ret;
 			}
 		}
-		if (pipe->used > 0)
+		if (pipe->used > 0 && !pipe->consume_active && (events & POLLIN))
 			mask |= POLLIN;
 		if (pipe->writers == 0)
 			mask |= POLLHUP;
 	}
-	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE)) {
+	if (file->f_mode & FMODE_WRITE) {
 		if (wait) {
-			ret = wait_scope_prepare_current(&pipe->writers_wq,
-							 false);
+			ret = poll_wait(wait, &pipe->writers_wq);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&pipe->lock, flags);
 				return ret;
@@ -411,7 +347,7 @@ static int pipe_poll(struct file *file, uint32_t events,
 		}
 		if (pipe->readers == 0)
 			mask |= POLLERR;
-		else if (pipe->used < PIPE_SIZE)
+		else if (pipe->used < PIPE_SIZE && (events & POLLOUT))
 			mask |= POLLOUT;
 	}
 	spin_unlock_irqrestore(&pipe->lock, flags);

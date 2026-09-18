@@ -12,6 +12,9 @@
 #include <nuvix/fs.h>
 
 struct anon_shared;
+struct page;
+/* Sleepable. Takes a page reference; mappings can outlive the kernel owner. */
+struct anon_shared *anon_shared_from_page(struct page *page);
 void anon_shared_get(struct anon_shared *anon);
 void anon_shared_put(struct anon_shared *anon);
 

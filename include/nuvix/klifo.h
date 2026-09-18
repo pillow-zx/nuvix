@@ -14,6 +14,7 @@
 #include <nuvix/types.h>
 #include <nuvix/compiler.h>
 #include <nuvix/errno.h>
+#include <nuvix/string.h>
 
 /**
  * @struct klifo
@@ -51,17 +52,6 @@ struct klifo {
 		      "KLIFO_DECLARE requires non-zero capacity");             \
 	type name##_storage[(nr_elements)];                                    \
 	struct klifo name =                                                    \
-		KLIFO_INIT(name##_storage, sizeof(type), (nr_elements))
-
-/**
- * @def KLIFO_DECLARE_STATIC
- * @brief Declare static object storage and a static klifo descriptor.
- */
-#define KLIFO_DECLARE_STATIC(name, type, nr_elements)                          \
-	static_assert((nr_elements) > 0,                                       \
-		      "KLIFO_DECLARE_STATIC requires non-zero capacity");      \
-	static type name##_storage[(nr_elements)];                             \
-	static struct klifo name =                                             \
 		KLIFO_INIT(name##_storage, sizeof(type), (nr_elements))
 
 __must_check __pure
@@ -153,8 +143,7 @@ static inline void *klifo_slot(const struct klifo *lifo, size_t index)
  * @return 0, -EINVAL, or -ENOSPC when the LIFO is full.
  */
 __must_check
-static inline int klifo_push(struct klifo *lifo,
-					  const void *element)
+static inline int klifo_push(struct klifo *lifo, const void *element)
 {
 	if (!klifo_valid(lifo) || element == NULL)
 		return -EINVAL;
@@ -188,8 +177,7 @@ static inline int klifo_pop(struct klifo *lifo, void *element)
  * @return 0, -EINVAL, or -ENODATA when the LIFO is empty.
  */
 __must_check
-static inline int klifo_peek(const struct klifo *lifo,
-					  void *element)
+static inline int klifo_peek(const struct klifo *lifo, void *element)
 {
 	if (!klifo_valid(lifo) || element == NULL)
 		return -EINVAL;

@@ -12,9 +12,6 @@
  */
 
 #define SYS_getcwd	       17
-#define SYS_epoll_create1      20
-#define SYS_epoll_ctl	       21
-#define SYS_epoll_pwait	       22
 #define SYS_dup		       23
 #define SYS_dup3	       24
 #define SYS_fcntl	       25
@@ -124,6 +121,9 @@
 #define SYS_renameat2	       276
 #define SYS_getrandom	       278
 #define SYS_statx	       291
+#define SYS_io_uring_setup     425
+#define SYS_io_uring_enter     426
+#define SYS_io_uring_register  427
 #define SYS_faccessat2	       439
 #define SYS_fchmodat2	       452
 

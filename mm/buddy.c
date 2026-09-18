@@ -165,6 +165,7 @@ void *get_page(uint32_t order, enum alloc_mode mode)
 	page->flags = 0;
 	page->order = order;
 	refcount_set(&page->refcount, 1);
+	atomic_set(&page->io_write_pins, 0);
 
 	nr_free_pages -= (1UL << order);
 

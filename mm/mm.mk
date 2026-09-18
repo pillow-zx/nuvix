@@ -9,3 +9,4 @@ obj-y += mm/content.o
 obj-y += mm/mmap.o
 obj-y += mm/page_fault.o
 obj-y += mm/uaccess.o
+obj-y += mm/io_buffer.o

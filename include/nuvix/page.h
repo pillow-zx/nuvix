@@ -11,6 +11,7 @@
 #include <nuvix/bitops.h>
 #include <nuvix/compiler.h>
 #include <nuvix/refcount.h>
+#include <nuvix/atomic.h>
 #include <arch/page.h>
 
 #define PG_RESERVED 0
@@ -31,6 +32,7 @@ struct page {
 	uint32_t flags;
 	uint32_t order;
 	refcount_t refcount;
+	atomic_t io_write_pins;
 	struct list_head lru;
 };
 

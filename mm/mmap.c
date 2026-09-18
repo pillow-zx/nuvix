@@ -353,6 +353,7 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 	uintptr_t end;
 	uint32_t vm_flags = 0;
 	struct file *file = NULL;
+	struct anon_shared *backing = NULL;
 	struct vm_area_struct *prepared = NULL;
 	bool anonymous;
 	bool shared;
@@ -375,8 +376,6 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 		return ret;
 
 	anonymous = (flags & MAP_ANONYMOUS) != 0;
-	if (!anonymous && shared)
-		return -ENODEV;
 	if (shared == private)
 		return -EINVAL;
 
@@ -399,6 +398,24 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 		file = fd_get(fd);
 		if (!file)
 			return -EBADF;
+		if (file->f_op && file->f_op->mmap) {
+			if (!shared || (prot & PROOT_EXEC)) {
+				ret = -EINVAL;
+				goto put_file;
+			}
+			ret = file->f_op->mmap(file, offset,
+					     ALIGN_UP(length, PAGE_SIZE), &backing);
+			if (ret < 0)
+				goto put_file;
+			file_put(file);
+			file = NULL;
+			offset = 0;
+			goto have_backing;
+		}
+		if (shared) {
+			ret = -ENODEV;
+			goto put_file;
+		}
 		if (!file->f_inode || !S_ISREG(file->f_inode->i_mode)) {
 			ret = -EINVAL;
 			goto put_file;
@@ -409,6 +426,7 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 		}
 	}
 
+have_backing:
 	mm_lock(mm);
 
 	if (fixed) {
@@ -462,7 +480,8 @@ ssize_t mm_mmap_file(struct mm_struct *mm, uintptr_t addr, size_t length,
 	prepared->vm_file = file;
 	file = NULL;
 	if (shared) {
-		prepared->vm_anon = anon_shared_create();
+		prepared->vm_anon = backing ? backing : anon_shared_create();
+		backing = NULL;
 		if (!prepared->vm_anon) {
 			ret = -ENOMEM;
 			goto out;
@@ -495,6 +514,7 @@ out:
 	if (ret >= 0 && populate)
 		mmap_populate_range(mm, (uintptr_t)ret, end);
 put_file:
+	anon_shared_put(backing);
 	if (prepared)
 		vma_free_slot(prepared);
 	file_put(file);

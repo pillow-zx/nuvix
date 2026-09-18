@@ -21,9 +21,6 @@
  */
 #define SYSCALL_TABLE(X)                                                       \
 	X(SYS_getcwd, "getcwd", sys_getcwd)                                    \
-	X(SYS_epoll_create1, "epoll_create1", sys_epoll_create1)               \
-	X(SYS_epoll_ctl, "epoll_ctl", sys_epoll_ctl)                           \
-	X(SYS_epoll_pwait, "epoll_pwait", sys_epoll_pwait)                     \
 	X(SYS_dup, "dup", sys_dup)                                             \
 	X(SYS_dup3, "dup3", sys_dup3)                                          \
 	X(SYS_fcntl, "fcntl", sys_fcntl)                                       \
@@ -119,6 +116,9 @@
 	X(SYS_getrandom, "getrandom", sys_getrandom)                           \
 	X(SYS_statx, "statx", sys_statx)                                       \
 	X(SYS_faccessat2, "faccessat2", sys_faccessat2)                        \
-	X(SYS_fchmodat2, "fchmodat2", sys_fchmodat2)
+	X(SYS_fchmodat2, "fchmodat2", sys_fchmodat2) \
+	X(SYS_io_uring_setup, "io_uring_setup", sys_io_uring_setup) \
+	X(SYS_io_uring_enter, "io_uring_enter", sys_io_uring_enter) \
+	X(SYS_io_uring_register, "io_uring_register", sys_io_uring_register)
 
 #endif

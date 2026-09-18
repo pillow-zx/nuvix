@@ -42,7 +42,7 @@ typedef struct spinlock {
 #define LOCK_RANK_PAGE_CACHE       180
 #define LOCK_RANK_CONSOLE_EMIT     190
 #define LOCK_RANK_VIRTIO_SUBMIT    210
-#define LOCK_RANK_EVENTPOLL        220
+#define LOCK_RANK_IO_COMPLETION    220
 #define LOCK_RANK_PIPE             230
 #define LOCK_RANK_WAIT_CHANNEL     250
 #define LOCK_RANK_ALLOC_BUDDY      260

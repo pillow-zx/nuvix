@@ -14,6 +14,7 @@
 #include <nuvix/types.h>
 #include <nuvix/compiler.h>
 #include <nuvix/errno.h>
+#include <nuvix/string.h>
 
 /**
  * @struct kfifo
@@ -55,17 +56,6 @@ struct kfifo {
 		      "KFIFO_DECLARE requires non-zero capacity");             \
 	type name##_storage[(nr_elements)];                                    \
 	struct kfifo name =                                                    \
-		KFIFO_INIT(name##_storage, sizeof(type), (nr_elements))
-
-/**
- * @def KFIFO_DECLARE_STATIC
- * @brief Declare static object storage and a static kfifo descriptor.
- */
-#define KFIFO_DECLARE_STATIC(name, type, nr_elements)                          \
-	static_assert((nr_elements) > 0,                                       \
-		      "KFIFO_DECLARE_STATIC requires non-zero capacity");      \
-	static type name##_storage[(nr_elements)];                             \
-	static struct kfifo name =                                             \
 		KFIFO_INIT(name##_storage, sizeof(type), (nr_elements))
 
 __must_check __pure

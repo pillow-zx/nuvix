@@ -4,6 +4,7 @@
 #include <nuvix/task.h>
 #include <nuvix/timer.h>
 #include <nuvix/wait.h>
+#include <nuvix/event.h>
 
 struct wait_deadline_queue {
 	spinlock_t lock;
@@ -31,6 +32,44 @@ void wait_channel_init(struct wait_channel *channel)
 	spin_lock_init(&channel->lock, LOCK_RANK_WAIT_CHANNEL,
 		       LOCK_IRQ_HARDIRQ_REACHABLE);
 	INIT_LIST_HEAD(&channel->waiters);
+	INIT_LIST_HEAD(&channel->subscriptions);
+}
+
+int poll_wait(struct poll_table *table, struct wait_channel *source)
+{
+	return table ? table->queue(table, source) : 0;
+}
+
+void event_subscribe(struct event_subscription *sub, struct wait_channel *source)
+{
+	irq_flags_t flags;
+	BUG_ON(sub->source);
+	spin_lock_irqsave(&source->lock, &flags);
+	sub->source = source;
+	list_add_tail(&sub->node, &source->subscriptions);
+	spin_unlock_irqrestore(&source->lock, flags);
+}
+
+void event_unsubscribe(struct event_subscription *sub)
+{
+	struct wait_channel *source = sub->source;
+	irq_flags_t flags;
+	if (!source)
+		return;
+	spin_lock_irqsave(&source->lock, &flags);
+	list_del_init(&sub->node);
+	sub->source = NULL;
+	spin_unlock_irqrestore(&source->lock, flags);
+}
+
+static void event_notify(struct wait_channel *source)
+{
+	struct event_subscription *sub;
+	irq_flags_t flags;
+	spin_lock_irqsave(&source->lock, &flags);
+	list_for_each_entry(sub, &source->subscriptions, node)
+		sub->notify(sub);
+	spin_unlock_irqrestore(&source->lock, flags);
 }
 
 static void deadline_insert(struct task_wait *wait)
@@ -284,10 +323,12 @@ static bool channel_wake(struct wait_channel *channel, bool exclusive_only)
 
 bool wait_channel_wake_one(struct wait_channel *channel)
 {
+	event_notify(channel);
 	return channel_wake(channel, true);
 }
 void wait_channel_wake_all(struct wait_channel *channel)
 {
+	event_notify(channel);
 	while (channel_wake(channel, false))
 		;
 }

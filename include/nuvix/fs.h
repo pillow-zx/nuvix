@@ -15,6 +15,7 @@
 #include <nuvix/types.h>
 #include <nuvix/compiler.h>
 #include <nuvix/wait.h>
+#include <nuvix/event.h>
 #include <uapi/dirent.h>
 #include <uapi/fcntl.h>
 #include <uapi/poll.h>
@@ -28,6 +29,7 @@ struct dentry;
 struct super_block;
 struct statfs64;
 struct task_wait;
+struct anon_shared;
 
 /**
  * @def VFS_NAME_MAX
@@ -195,7 +197,12 @@ struct file_operations {
 	loff_t (*llseek)(struct file *file, loff_t offset, int whence);
 	int (*open)(struct inode *inode, struct file *file);
 	int (*readdir)(struct file *file, void *ctx, filldir_t filldir);
-	int (*poll)(struct file *file, uint32_t events, struct task_wait *wait);
+	int (*poll)(struct file *file, uint32_t events, struct poll_table *wait);
+	/* Nonblocking transfer; -EAGAIN means subscribe and retry. Kernel buffer. */
+	ssize_t (*try_io)(struct file *file, void *buf, size_t count, bool write);
+	/* Special shared memory only, returns an owned backing reference. */
+	int (*mmap)(struct file *file, uint64_t offset, size_t length,
+		    struct anon_shared **backing);
 	int (*ioctl)(struct file *file, uint64_t cmd, uint64_t arg);
 	int (*release)(struct file *file);
 };

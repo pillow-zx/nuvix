@@ -6,6 +6,7 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
+#include <nuvix/io.h>
 #include <nuvix/string.h>
 #include <nuvix/mm.h>
 #include <nuvix/session.h>
@@ -48,16 +49,13 @@ struct console_emit_buffer {
 	size_t cap;
 };
 
-struct console_read_wait {
-	size_t count;
-};
-
+static ssize_t console_try_io(struct file *file, void *buf, size_t count, bool write);
 static ssize_t console_read(struct file *file, char *buf, size_t count,
 			    loff_t pos);
 static ssize_t console_write(struct file *file, const char *buf, size_t count,
 			     loff_t pos);
 static int console_poll(struct file *file, uint32_t events,
-			struct task_wait *wait);
+			struct poll_table *wait);
 static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg);
 static void console_input_thread(void *arg);
 
@@ -97,6 +95,7 @@ static struct console_input_state console_input = {
 static bool console_input_started;
 
 static const struct file_operations console_fops = {
+	.try_io = console_try_io,
 	.read = console_read,
 	.write = console_write,
 	.poll = console_poll,
@@ -449,63 +448,42 @@ static void console_input_thread(void *arg)
 static ssize_t console_read(struct file *file, char *buf, size_t count,
 			    loff_t pos)
 {
-	const struct wait_deadline deadline = wait_deadline_none();
+	ssize_t ret;
 	irq_flags_t flags;
-
-	(void)file;
 	(void)pos;
-	if (count == 0)
-		return 0;
-
-	for (;;) {
-		struct wait_scope scope __wait_scope = {};
-		wait_outcome_t outcome;
-		bool ready;
-		int ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
-
-		if (ret < 0)
-			return ret;
+	ret = io_wait_transfer(file, buf, count, false);
+	if (ret == -EINTR) {
 		spin_lock_irqsave(&console_input.lock, &flags);
-		ready = console_input_readable_locked(count);
-		if (!ready)
-			ret = wait_scope_prepare(&scope, &console_input.readable,
-						 true);
-		spin_unlock_irqrestore(&console_input.lock, flags);
-		if (ret < 0) {
-			wait_scope_complete(&scope);
-			return ret;
-		}
-		if (ready) {
-			wait_scope_complete(&scope);
-			continue;
-		}
-		ret = wait_scope_block(&scope, &outcome);
-		wait_scope_complete(&scope);
-		if (ret < 0)
-			return ret;
-		spin_lock_irqsave(&console_input.lock, &flags);
-		if (outcome == WAIT_OUTCOME_SIGNAL) {
-			if (!(console_input.termios.c_lflag & ICANON) &&
-			    console_input_available_locked() > 0)
-				ret = console_copy_pending_locked(buf, count);
-			else
-				ret = -EINTR;
-			spin_unlock_irqrestore(&console_input.lock, flags);
-			return ret;
-		}
-		if (console_input_available_locked() > 0 &&
-		    console_input_readable_locked(count)) {
+		if (!(console_input.termios.c_lflag & ICANON) && console_input_available_locked())
 			ret = console_copy_pending_locked(buf, count);
-			spin_unlock_irqrestore(&console_input.lock, flags);
-			return ret;
-		}
-		if (console_input.eof) {
-			console_input.eof = false;
-			spin_unlock_irqrestore(&console_input.lock, flags);
-			return 0;
-		}
 		spin_unlock_irqrestore(&console_input.lock, flags);
 	}
+	return ret;
+}
+
+static ssize_t console_try_io(struct file *file, void *buf, size_t count, bool write)
+{
+	irq_flags_t flags;
+	ssize_t ret;
+	/* TX still uses synchronous UART emission and is not an async backend. */
+	if (write)
+		return -EOPNOTSUPP;
+	if (!count)
+		return 0;
+	spin_lock_irqsave(&console_input.lock, &flags);
+	if (console_input_readable_locked(count) ||
+	    ((file->f_flags & O_NONBLOCK) && !(console_input.termios.c_lflag & ICANON))) {
+		if (console_input_available_locked())
+			ret = console_copy_pending_locked(buf, count);
+		else if (console_input.eof) {
+			console_input.eof = false;
+			ret = 0;
+		} else
+			ret = -EAGAIN;
+	} else
+		ret = -EAGAIN;
+	spin_unlock_irqrestore(&console_input.lock, flags);
+	return ret;
 }
 
 static ssize_t console_write(struct file *file, const char *buf, size_t count,
@@ -526,7 +504,7 @@ static ssize_t console_write(struct file *file, const char *buf, size_t count,
 }
 
 static int console_poll(struct file *file, uint32_t events,
-			struct task_wait *wait)
+			struct poll_table *wait)
 {
 	irq_flags_t flags;
 	uint32_t mask = 0;
@@ -535,8 +513,7 @@ static int console_poll(struct file *file, uint32_t events,
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
 		spin_lock_irqsave(&console_input.lock, &flags);
 		if (wait) {
-			ret = wait_scope_prepare_current(&console_input.readable,
-							 false);
+			ret = poll_wait(wait, &console_input.readable);
 			if (ret < 0) {
 				spin_unlock_irqrestore(&console_input.lock,
 						       flags);

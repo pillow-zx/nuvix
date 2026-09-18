@@ -19,7 +19,13 @@
 
 static ssize_t null_read(struct file *file, char *buf, size_t count, loff_t pos);
 static ssize_t null_write(struct file *file, const char *buf, size_t count, loff_t pos);
-static int null_poll(struct file *file, uint32_t events, struct task_wait *wait);
+static int null_poll(struct file *file, uint32_t events, struct poll_table *wait);
+static ssize_t null_try_io(struct file *file, void *buf, size_t count, bool write)
+{
+	(void)file;
+	(void)buf;
+	return write ? (ssize_t)count : 0;
+}
 
 #define VFS_CHRDEV_MAX 8
 
@@ -29,6 +35,7 @@ struct vfs_chrdev {
 };
 
 static const struct file_operations null_fops = {
+	.try_io = null_try_io,
 	.read = null_read,
 	.write = null_write,
 	.poll = null_poll,
@@ -155,8 +162,8 @@ int vfs_statfs(struct super_block *sb, struct statfs64 *buf)
 	return sb->s_op->statfs(sb, buf);
 }
 
-int vfs_poll(struct file *file, uint32_t events,
-	     struct task_wait *wait)
+int vfs_poll_subscribe(struct file *file, uint32_t events,
+	     struct poll_table *wait)
 {
 	uint32_t mask = 0;
 
@@ -170,6 +177,18 @@ int vfs_poll(struct file *file, uint32_t events,
 	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE))
 		mask |= POLLOUT;
 	return mask;
+}
+
+static int poll_task_queue(struct poll_table *table, struct wait_channel *source)
+{
+	(void)table;
+	return wait_scope_prepare_current(source, false);
+}
+
+int vfs_poll(struct file *file, uint32_t events, struct task_wait *wait)
+{
+	struct poll_table table = {.queue = poll_task_queue};
+	return vfs_poll_subscribe(file, events, wait ? &table : NULL);
 }
 
 int vfs_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
@@ -409,7 +428,7 @@ static ssize_t null_write(struct file *file, const char *buf, size_t count,
 }
 
 static int null_poll(struct file *file, uint32_t events,
-		     struct task_wait *wait)
+		     struct poll_table *wait)
 {
 	uint32_t mask = 0;
 

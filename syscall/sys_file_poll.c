@@ -1,10 +1,9 @@
 /*
- * syscall/sys_file_poll.c - poll/select/epoll 系统调用
+ * syscall/sys_file_poll.c - poll/select 系统调用
  */
 
 #include <nuvix/fdtable.h>
 #include <nuvix/cleanup.h>
-#include <nuvix/eventpoll.h>
 #include <nuvix/fs.h>
 #include <nuvix/mm.h>
 #include <nuvix/signal.h>
@@ -20,7 +19,6 @@
 #include <nuvix/slab.h>
 #include <nuvix/tools.h>
 #include <nuvix/wait.h>
-#include <uapi/eventpoll.h>
 #include <uapi/poll.h>
 #include <uapi/select.h>
 
@@ -53,12 +51,7 @@ CLEANUP_DEFINE(poll_sigmask_restore, struct poll_sigmask_guard,
 	       if (_T.active) sig_set_mask(_T.task, _T.old_blocked);)
 
 static_assert(NR_OPEN <= __FD_SETSIZE, "NR_OPEN exceeds fd_set ABI limit");
-static_assert(EPOLL_CLOEXEC == O_CLOEXEC, "epoll cloexec flag ABI mismatch");
 static_assert(sizeof(struct pollfd) == 8, "pollfd ABI layout mismatch");
-static_assert(sizeof(struct epoll_event) == 16,
-	      "epoll_event ABI layout mismatch");
-static_assert(offsetof(struct epoll_event, data) == 8,
-	      "epoll_event data ABI offset mismatch");
 
 __must_check __pure
 static size_t sys_fdset_nwords(size_t nfds)
@@ -73,28 +66,6 @@ __must_check __pure
 static size_t sys_fdset_nbytes(size_t nfds)
 {
 	return sys_fdset_nwords(nfds) * sizeof(unsigned long);
-}
-
-__must_check __pure
-static bool sys_epoll_create1_flags_ok(int flags)
-{
-	return (flags & ~EPOLL_CLOEXEC) == 0;
-}
-
-__must_check __pure
-static bool sys_epoll_op_valid(int op)
-{
-	return op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD ||
-	       op == EPOLL_CTL_DEL;
-}
-
-__must_check __pure
-static bool sys_epoll_wait_sigmask_ok(const unsigned long *usigmask, size_t sigsetsize)
-{
-	if (usigmask)
-		return sigsetsize == sizeof(unsigned long);
-
-	return sigsetsize == 0 || sigsetsize == sizeof(unsigned long);
 }
 
 __must_check __pure
@@ -236,7 +207,7 @@ static void poll_file_snapshot_put(struct file **files, size_t nr_files)
 
 typedef int (*poll_scan_fn)(struct task_wait *wait, void *arg);
 
-static int poll_wait(poll_scan_fn scan, void *arg,
+static int poll_wait_task(poll_scan_fn scan, void *arg,
 		     const struct wait_deadline *deadline, int *ready)
 {
 	struct wait_entry *entries __cleanup_with(kfree) =
@@ -361,147 +332,6 @@ static int pselect_scan(struct task_wait *wait, void *arg)
 }
 
 /*
- * SYSCALL_SUPPORT(B): epoll_create1
- * Current: creates an eventpoll file and supports EPOLL_CLOEXEC.
- * Unsupported errno: unknown flags return -EINVAL.
- * Future: add nested, close, and epoll-fd readiness coverage.
- */
-ssize_t sys_epoll_create1(struct trap_frame *tf)
-{
-	int flags = (int)syscall_arg(tf, 0);
-	struct file *file __cleanup_with(file) = NULL;
-	int fd;
-
-	if (!sys_epoll_create1_flags_ok(flags))
-		return -EINVAL;
-
-	file = eventpoll_file_alloc();
-	if (!file)
-		return -ENOMEM;
-
-	fd = fd_alloc_flags(file, flags);
-	if (fd < 0)
-		return fd;
-
-	cleanup_forget_ptr(file);
-	return fd;
-}
-
-/*
- * SYSCALL_SUPPORT(B): epoll_ctl
- * Current: supports ADD, MOD, and DEL for poll-capable non-epoll fds.
- * Unsupported errno: invalid ops, targets, event bits, EPOLLET, and
- * EPOLLONESHOT return -EINVAL; non-pollable fds return -EPERM.
- * Future: implement edge/oneshot trigger strategies when needed.
- */
-ssize_t sys_epoll_ctl(struct trap_frame *tf)
-{
-	int epfd = (int)syscall_arg(tf, 0);
-	int op = (int)syscall_arg(tf, 1);
-	int fd = (int)syscall_arg(tf, 2);
-	const struct epoll_event *uevent = (const struct epoll_event *)syscall_arg(tf, 3);
-	struct file *epfile __cleanup_with(file) = NULL;
-	struct file *file __cleanup_with(file) = NULL;
-	struct epoll_event event;
-	const struct epoll_event *eventp = NULL;
-
-	if (!sys_epoll_op_valid(op))
-		return -EINVAL;
-
-	epfile = fd_get(epfd);
-	if (!epfile)
-		return -EBADF;
-	if (!eventpoll_file(epfile))
-		return -EINVAL;
-	if (fd == epfd)
-		return -EINVAL;
-
-	file = fd_get(fd);
-	if (!file)
-		return -EBADF;
-	if (eventpoll_file(file))
-		return -EINVAL;
-	if (!file->f_op || !file->f_op->poll)
-		return -EPERM;
-
-	switch (op) {
-	case EPOLL_CTL_ADD:
-	case EPOLL_CTL_MOD:
-		if (!uevent)
-			return -EFAULT;
-		if (copy_from_user(&event, uevent, sizeof(event)) != 0)
-			return -EFAULT;
-		eventp = &event;
-		break;
-	case EPOLL_CTL_DEL:
-		break;
-	}
-
-	return eventpoll_ctl(epfile, op, fd, file, eventp);
-}
-
-/*
- * SYSCALL_SUPPORT(B): epoll_pwait
- * Current: waits on registered level-triggered items with optional sigmask.
- * Unsupported errno: bad sigset size or maxevents returns -EINVAL.
- * Future: add nested, close, and epoll-fd readiness coverage.
- */
-ssize_t sys_epoll_pwait(struct trap_frame *tf)
-{
-	int epfd = (int)syscall_arg(tf, 0);
-	struct epoll_event *uevents = (struct epoll_event *)syscall_arg(tf, 1);
-	int maxevents = (int)syscall_arg(tf, 2);
-	long timeout = (long)syscall_arg(tf, 3);
-	const unsigned long *usigmask = (const unsigned long *)syscall_arg(tf, 4);
-	size_t sigsetsize = (size_t)syscall_arg(tf, 5);
-	struct epoll_event kevents[NR_OPEN];
-	struct file *epfile __cleanup_with(file) = NULL;
-	struct poll_sigmask_guard sigmask_guard __cleanup_with(
-		poll_sigmask_restore) = {
-		.task = current_task(),
-		.old_blocked = 0,
-		.active = false,
-	};
-	struct wait_deadline deadline;
-	size_t scan_limit;
-	int ret;
-
-	if (maxevents <= 0)
-		return -EINVAL;
-	if (!uevents)
-		return -EFAULT;
-	if (!sys_epoll_wait_sigmask_ok(usigmask, sigsetsize))
-		return -EINVAL;
-
-	epfile = fd_get(epfd);
-	if (!epfile)
-		return -EBADF;
-	if (!eventpoll_file(epfile))
-		return -EINVAL;
-
-	ret = mtime_deadline_from_ms(timeout, &deadline);
-	if (ret < 0)
-		return ret;
-
-	ret = poll_apply_sigmask(usigmask, sigsetsize, &sigmask_guard);
-	if (ret < 0)
-		return ret;
-
-	scan_limit = (size_t)maxevents;
-	if (scan_limit > ARRLEN(kevents))
-		scan_limit = ARRLEN(kevents);
-
-	ret = eventpoll_wait(epfile, kevents, (int)scan_limit, &deadline);
-	if (ret == -EINTR)
-		poll_defer_sigmask_restore(&sigmask_guard);
-	if (ret > 0 && copy_to_user(uevents, kevents,
-				    (size_t)ret * sizeof(kevents[0])) != 0)
-		return -EFAULT;
-
-	return ret;
-}
-
-/*
  * SYSCALL_SUPPORT(B): ppoll
  * Current: scans pollfd entries with timeout and optional temporary sigmask.
  * Unsupported errno: nfds above NR_OPEN or invalid sigset size returns
@@ -566,7 +396,7 @@ ssize_t sys_ppoll(struct trap_frame *tf)
 	scan_ctx.files = files;
 	scan_ctx.nfds = nfds;
 	scan_ctx.ready = 0;
-	ret = poll_wait(ppoll_scan, &scan_ctx, &deadline, &scan_ctx.ready);
+	ret = poll_wait_task(ppoll_scan, &scan_ctx, &deadline, &scan_ctx.ready);
 	poll_file_snapshot_put(files, nfds);
 	if (ret == -EINTR)
 		poll_defer_sigmask_restore(&sigmask_guard);
@@ -677,7 +507,7 @@ ssize_t sys_pselect6(struct trap_frame *tf)
 	scan_ctx.files = files;
 	scan_ctx.nfds = (size_t)nfds;
 	scan_ctx.ready = 0;
-	ready = poll_wait(pselect_scan, &scan_ctx, &deadline,
+	ready = poll_wait_task(pselect_scan, &scan_ctx, &deadline,
 				 &scan_ctx.ready);
 	poll_file_snapshot_put(files, (size_t)nfds);
 	if (ready == -EINTR)

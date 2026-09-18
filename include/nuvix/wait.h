@@ -41,6 +41,7 @@ struct wait_deadline {
 struct wait_channel {
 	spinlock_t lock;
 	struct list_head waiters;
+	struct list_head subscriptions;
 };
 struct wait_entry {
 	struct list_head channel_node;
@@ -88,7 +89,8 @@ static inline struct wait_deadline wait_deadline_at(uint64_t expires)
 
 #define WAIT_CHANNEL_INIT_RANK(name, rank, irq_policy) \
 	{.lock = SPINLOCK_INIT(rank, irq_policy), \
-	 .waiters = LIST_HEAD_INIT((name).waiters)}
+	 .waiters = LIST_HEAD_INIT((name).waiters), \
+	 .subscriptions = LIST_HEAD_INIT((name).subscriptions)}
 #define WAIT_CHANNEL_INIT(name) \
 	WAIT_CHANNEL_INIT_RANK(name, LOCK_RANK_WAIT_CHANNEL, LOCK_IRQ_TASK_ONLY)
 

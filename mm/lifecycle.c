@@ -395,6 +395,9 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 			if (!pte || !pte_upage(*pte))
 				continue;
+			struct mm_page_slot *slot = mm_private_find(oldmm, va);
+			if (slot && !slot->cow)
+				continue;
 			entry = mm_private_child_pte(*pte);
 			if (entry != *pte) {
 				*pte = entry;

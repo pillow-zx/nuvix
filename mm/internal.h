@@ -29,6 +29,8 @@ struct anon_shared {
 	spinlock_t lock;
 	struct rb_root pages;
 	struct list_head mappings;
+	/* A kernel-owned single page stays resident without VMA coverage. */
+	bool kernel_page;
 };
 
 #define VM_READ	  BIT_U32(0)
