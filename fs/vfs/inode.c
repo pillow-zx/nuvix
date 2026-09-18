@@ -62,7 +62,8 @@ static void inode_hash_insert(struct inode *inode)
 	hash_table_add(&inode_hashtable, hash, &inode->i_hash);
 }
 
-struct inode *iget(struct super_block *sb, uint64_t ino)
+static struct inode *inode_get(struct super_block *sb, uint64_t ino,
+			       int (*init)(struct inode *), bool fresh)
 {
 	struct inode *inode;
 	struct inode *victim = NULL;
@@ -80,6 +81,10 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 
 		if (inode->i_sb == sb && inode->i_ino == ino &&
 		    !inode->i_retiring) {
+			if (fresh) {
+				spin_unlock(&vfs_cache_lock);
+				return NULL;
+			}
 			refcount_inc_allow_zero(&inode->i_refcount);
 			list_move_tail(&inode->i_lru, &inode_lru);
 			spin_unlock(&vfs_cache_lock);
@@ -92,8 +97,8 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 	if (!inode)
 		return NULL;
 
-	if (sb->s_op && sb->s_op->read_inode) {
-		int ret = sb->s_op->read_inode(inode);
+	if (init) {
+		int ret = init(inode);
 
 		if (ret < 0) {
 			kfree(inode->i_private);
@@ -107,13 +112,14 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 		struct inode *existing = hlist_entry(pos, struct inode, i_hash);
 
 		if (existing->i_sb == sb && existing->i_ino == ino) {
-			refcount_inc_allow_zero(&existing->i_refcount);
+			if (!fresh)
+				refcount_inc_allow_zero(&existing->i_refcount);
 			spin_unlock(&vfs_cache_lock);
 			/* read_inode ran outside the cache lock; the loser's
 			 * private state is heap-only and never published. */
 			kfree(inode->i_private);
 			kfree(inode);
-			return existing;
+			return fresh ? NULL : existing;
 		}
 	}
 
@@ -158,6 +164,19 @@ struct inode *iget(struct super_block *sb, uint64_t ino)
 		kfree(victim);
 	}
 	return inode;
+}
+
+struct inode *iget(struct super_block *sb, uint64_t ino)
+{
+	return inode_get(sb, ino, sb && sb->s_op ? sb->s_op->read_inode : NULL,
+			 false);
+}
+
+/* Initialize a newly allocated inode before publishing it in the cache. */
+struct inode *iget_new(struct super_block *sb, uint64_t ino,
+			int (*init)(struct inode *))
+{
+	return inode_get(sb, ino, init, true);
 }
 
 void igrab(struct inode *inode)

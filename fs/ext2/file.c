@@ -123,7 +123,9 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 							     PAGE_CACHE_CREATE,
 					   &error);
 		if (!page) {
-			return done ? (ssize_t)done : (error ? error : -ENOMEM);
+			if (!done)
+				return error ? error : -ENOMEM;
+			break;
 		}
 
 		memcpy(page_cache_data(page) + offset, buf + done, chunk);
@@ -133,11 +135,11 @@ ssize_t ext2_write_file(struct inode *inode, const char *buf, size_t count,
 	}
 
 	ret = 0;
-	if ((uint64_t)pos + done > inode->i_size) {
+	if (done && (uint64_t)pos + done > inode->i_size) {
 		mutex_lock(&inode->i_lock);
 		if ((uint64_t)pos + done > inode->i_size) {
 			inode->i_size = (uint64_t)pos + done;
-			ret = ext2_write_inode(inode);
+			ret = ext2_mark_inode_dirty(inode);
 		}
 		mutex_unlock(&inode->i_lock);
 		if (ret < 0)

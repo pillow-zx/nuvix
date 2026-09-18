@@ -5,8 +5,6 @@
 
 #include "ext2.h"
 
-#define EXT2_SYNC_RETRIES 8
-
 static bool ext2_bitmap_test_bit(uint8_t *bitmap, uint32_t bit)
 {
 	return !!(bitmap[bit / 8] & (uint8_t)(1u << (bit % 8)));
@@ -62,111 +60,81 @@ static int ext2_group_bitmap(struct ext2_sb_info *sbi, uint32_t group,
 	return 0;
 }
 
-static int ext2_sync_page_retry(struct pgcache *page)
+/* Pin all counter pages before changing a bitmap: after this succeeds,
+ * publishing the matching counters cannot fail or allocate under s_lock. */
+struct ext2_alloc_pages {
+	struct pgcache *super;
+	struct pgcache *group;
+};
+
+static int ext2_get_alloc_pages(struct super_block *sb, uint32_t group,
+				struct ext2_alloc_pages *pages)
 {
-	int ret;
-
-	for (uint32_t attempt = 0; attempt < EXT2_SYNC_RETRIES; attempt++) {
-		ret = pgcache_sync_page(page);
-		if (ret != -EBUSY)
-			return ret;
-	}
-
-	pr_err("ext2: page %p busy after %u sync attempts\n", page,
-	       EXT2_SYNC_RETRIES);
-	return -EBUSY;
-}
-
-static int ext2_write_super_snapshot(struct super_block *sb,
-				     const struct ext2_super_block *snap)
-{
-	uint32_t super_block = ext2_super_blocknr(BLOCK_SIZE);
-	uint32_t super_off = ext2_super_offset(BLOCK_SIZE);
-	struct pgcache *page;
-	int ret;
-
-	if (!sb || !snap || !ext2_metadata_block_valid(sb, super_block) ||
-	    super_off > BLOCK_SIZE || sizeof(*snap) > BLOCK_SIZE - super_off)
-		return -EIO;
-	page = pgcache_get_block(sb->s_dev, super_block);
-	if (!page)
-		return -EIO;
-
-	memcpy(page_cache_data(page) + super_off, snap, sizeof(*snap));
-	ret = ext2_sync_page_retry(page);
-	pgcache_put_page(page);
-	return ret;
-}
-
-static int ext2_write_group_desc_snapshot(struct super_block *sb,
-					  uint32_t group,
-					  const struct ext2_group_desc *snap)
-{
-	struct ext2_sb_info *sbi;
+	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t desc_per_block = BLOCK_SIZE / sizeof(struct ext2_group_desc);
-	uint64_t bgdt_first;
-	uint64_t bgdt_blocks;
-	uint64_t block;
-	uint32_t offset;
-	struct pgcache *page;
-	int ret;
+	uint64_t block = (uint64_t)sbi->s_first_data_block + 1 +
+			 group / desc_per_block;
 
-	if (!sb || !snap || !desc_per_block)
-		return -EIO;
-	sbi = EXT2_SB(sb);
-	if (!sbi || group >= sbi->s_groups_count)
-		return -EIO;
-	bgdt_first = (uint64_t)sbi->s_first_data_block + 1;
-	bgdt_blocks = sbi->s_groups_count / desc_per_block;
-	if (sbi->s_groups_count % desc_per_block)
-		bgdt_blocks++;
-	if (check_add_overflow(bgdt_first, (uint64_t)(group / desc_per_block),
-			       &block) ||
-	    block < bgdt_first || block - bgdt_first >= bgdt_blocks ||
+	if (group >= sbi->s_groups_count ||
 	    !ext2_metadata_block_valid(sb, block))
 		return -EIO;
-	offset = (group % desc_per_block) * sizeof(struct ext2_group_desc);
-	if (offset > BLOCK_SIZE || sizeof(*snap) > BLOCK_SIZE - offset)
+	pages->super = pgcache_get_block(sb->s_dev,
+					 ext2_super_blocknr(BLOCK_SIZE));
+	if (!pages->super)
 		return -EIO;
-
-	page = pgcache_get_block(sb->s_dev, block);
-	if (!page)
+	pages->group = pgcache_get_block(sb->s_dev, block);
+	if (!pages->group) {
+		pgcache_put_page(pages->super);
 		return -EIO;
+	}
+	return 0;
+}
 
-	memcpy(page_cache_data(page) + offset, snap, sizeof(*snap));
-	ret = ext2_sync_page_retry(page);
-	pgcache_put_page(page);
-	return ret;
+static void ext2_put_alloc_pages(struct ext2_alloc_pages *pages)
+{
+	pgcache_put_page(pages->group);
+	pgcache_put_page(pages->super);
+}
+
+/* Caller holds s_lock across bitmap/counter changes and this copy. */
+static void ext2_dirty_alloc_pages(struct ext2_sb_info *sbi, uint32_t group,
+				  struct ext2_alloc_pages *pages,
+				  struct pgcache *bitmap)
+{
+	uint32_t desc_per_block = BLOCK_SIZE / sizeof(struct ext2_group_desc);
+	uint32_t offset = (group % desc_per_block) * sizeof(struct ext2_group_desc);
+
+	memcpy(page_cache_data(pages->super) + ext2_super_offset(BLOCK_SIZE),
+	       &sbi->s_es, sizeof(sbi->s_es));
+	memcpy(page_cache_data(pages->group) + offset, &sbi->s_group_desc[group],
+	       sizeof(struct ext2_group_desc));
+	pgcache_mark_dirty(bitmap);
+	pgcache_mark_dirty(pages->group);
+	pgcache_mark_dirty(pages->super);
 }
 
 static int ext2_zero_block(struct super_block *sb, uint32_t block)
 {
 	struct pgcache *page;
-	int ret;
 
 	if (!sb || !ext2_data_block_valid(EXT2_SB(sb), block))
 		return -EIO;
-	page = pgcache_get_block(sb->s_dev, block);
+	page = pgcache_get(sb->s_dev, block, PAGE_CACHE_CREATE, NULL);
 	if (!page)
 		return -EIO;
 
 	memset(page_cache_data(page), 0, BLOCK_SIZE);
-	ret = ext2_sync_page_retry(page);
+	pgcache_mark_dirty(page);
 	pgcache_put_page(page);
-	return ret;
+	return 0;
 }
 
-/* Allocation/free leaves pin the bitmap page before taking s_lock (page
- * fetches may allocate and are therefore forbidden under a spinlock), then
- * scan/set the bitmap and update the in-memory counters under the lock.
- * Counter snapshots are copied under the lock; syncs run after unlocking
- * and retry -EBUSY so a concurrent writeback cannot lose the update. */
+/* Allocation/free updates the bitmap and cached counters under s_lock.
+ * The page-cache queue owns writeback; mutations never force device I/O. */
 uint32_t ext2_alloc_block(struct inode *inode)
 {
 	struct super_block *sb;
 	struct ext2_sb_info *sbi;
-	struct ext2_super_block es_snap;
-	struct ext2_group_desc gd_snap;
 	uint64_t total_blocks;
 	uint32_t preferred = 0;
 
@@ -188,6 +156,7 @@ uint32_t ext2_alloc_block(struct inode *inode)
 		uint32_t group = (preferred + pass) % sbi->s_groups_count;
 		struct ext2_group_desc *gd = &sbi->s_group_desc[group];
 		struct pgcache *page;
+		struct ext2_alloc_pages counter_pages;
 		uint64_t group_first;
 		uint32_t group_blocks;
 		uint32_t group_inodes;
@@ -210,6 +179,11 @@ uint32_t ext2_alloc_block(struct inode *inode)
 		page = pgcache_get_block(sb->s_dev, bitmap_block);
 		if (!page)
 			return 0;
+		ret = ext2_get_alloc_pages(sb, group, &counter_pages);
+		if (ret < 0) {
+			pgcache_put_page(page);
+			return 0;
+		}
 		data = page_cache_data(page);
 
 		spin_lock(&sbi->s_lock);
@@ -235,29 +209,14 @@ uint32_t ext2_alloc_block(struct inode *inode)
 				break;
 			}
 		}
-		es_snap = sbi->s_es;
-		gd_snap = sbi->s_group_desc[group];
+
+		if (block)
+			ext2_dirty_alloc_pages(sbi, group, &counter_pages, page);
 		spin_unlock(&sbi->s_lock);
+		ext2_put_alloc_pages(&counter_pages);
 
 		if (block) {
-			int sync_ret;
-
-			sync_ret = ext2_sync_page_retry(page);
-			if (sync_ret < 0)
-				pr_err("ext2: failed to sync block bitmap: "
-				       "%d\n",
-				       sync_ret);
 			pgcache_put_page(page);
-			ret = ext2_write_group_desc_snapshot(sb, group,
-							     &gd_snap);
-			if (ret < 0)
-				pr_err("ext2: failed to write group "
-				       "descriptor: %d\n",
-				       ret);
-			ret = ext2_write_super_snapshot(sb, &es_snap);
-			if (ret < 0)
-				pr_err("ext2: failed to write superblock: %d\n",
-				       ret);
 			ret = ext2_zero_block(sb, block);
 			if (ret < 0) {
 				pr_err("ext2: failed to zero allocated block "
@@ -278,8 +237,6 @@ uint32_t ext2_alloc_block(struct inode *inode)
 void ext2_free_block(struct super_block *sb, uint32_t block)
 {
 	struct ext2_sb_info *sbi;
-	struct ext2_super_block es_snap;
-	struct ext2_group_desc gd_snap;
 	uint64_t total_blocks;
 	uint64_t group_first;
 	uint32_t group_blocks;
@@ -288,6 +245,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	uint32_t group;
 	uint32_t bit;
 	struct pgcache *page;
+	struct ext2_alloc_pages counter_pages;
 	uint8_t *data;
 	bool cleared = false;
 	int ret;
@@ -319,6 +277,12 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	page = pgcache_get_block(sb->s_dev, bitmap_block);
 	if (!page)
 		return;
+	ret = ext2_get_alloc_pages(sb, group, &counter_pages);
+	if (ret < 0) {
+		pgcache_put_page(page);
+		sb->s_error = ret;
+		return;
+	}
 	data = page_cache_data(page);
 
 	spin_lock(&sbi->s_lock);
@@ -331,25 +295,11 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 		sbi->s_es.s_free_blocks_count++;
 		cleared = true;
 	}
-	es_snap = sbi->s_es;
-	gd_snap = sbi->s_group_desc[group];
+
+	if (cleared)
+		ext2_dirty_alloc_pages(sbi, group, &counter_pages, page);
 	spin_unlock(&sbi->s_lock);
-
-	if (cleared) {
-		int sync_ret;
-
-		sync_ret = ext2_sync_page_retry(page);
-		if (sync_ret < 0)
-			pr_err("ext2: failed to sync block bitmap: %d\n",
-			       sync_ret);
-		ret = ext2_write_group_desc_snapshot(sb, group, &gd_snap);
-		if (ret < 0)
-			pr_err("ext2: failed to write group descriptor: %d\n",
-			       ret);
-		ret = ext2_write_super_snapshot(sb, &es_snap);
-		if (ret < 0)
-			pr_err("ext2: failed to write superblock: %d\n", ret);
-	}
+	ext2_put_alloc_pages(&counter_pages);
 
 	pgcache_put_page(page);
 }
@@ -366,10 +316,9 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 		return 0;
 
 	for (uint32_t group = 0; group < sbi->s_groups_count; group++) {
-		struct ext2_super_block es_snap;
-		struct ext2_group_desc gd_snap;
 		struct ext2_group_desc *gd = &sbi->s_group_desc[group];
 		struct pgcache *page;
+		struct ext2_alloc_pages counter_pages;
 		uint64_t group_first;
 		uint32_t group_blocks;
 		uint32_t group_inodes;
@@ -393,6 +342,11 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 		page = pgcache_get_block(sb->s_dev, bitmap_block);
 		if (!page)
 			return 0;
+		ret = ext2_get_alloc_pages(sb, group, &counter_pages);
+		if (ret < 0) {
+			pgcache_put_page(page);
+			return 0;
+		}
 		data = page_cache_data(page);
 
 		spin_lock(&sbi->s_lock);
@@ -426,29 +380,14 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 				break;
 			}
 		}
-		es_snap = sbi->s_es;
-		gd_snap = sbi->s_group_desc[group];
+
+		if (ino)
+			ext2_dirty_alloc_pages(sbi, group, &counter_pages, page);
 		spin_unlock(&sbi->s_lock);
+		ext2_put_alloc_pages(&counter_pages);
 
 		if (ino) {
-			int sync_ret;
-
-			sync_ret = ext2_sync_page_retry(page);
-			if (sync_ret < 0)
-				pr_err("ext2: failed to sync inode bitmap: "
-				       "%d\n",
-				       sync_ret);
 			pgcache_put_page(page);
-			ret = ext2_write_group_desc_snapshot(sb, group,
-							     &gd_snap);
-			if (ret < 0)
-				pr_err("ext2: failed to write group "
-				       "descriptor: %d\n",
-				       ret);
-			ret = ext2_write_super_snapshot(sb, &es_snap);
-			if (ret < 0)
-				pr_err("ext2: failed to write superblock: %d\n",
-				       ret);
 			return ino;
 		}
 
@@ -458,11 +397,9 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 	return 0;
 }
 
-void ext2_free_inode(struct super_block *sb, uint32_t ino)
+void ext2_free_inode(struct super_block *sb, uint32_t ino, uint16_t mode)
 {
 	struct ext2_sb_info *sbi;
-	struct ext2_super_block es_snap;
-	struct ext2_group_desc gd_snap;
 	uint64_t group_first;
 	uint32_t group_blocks;
 	uint32_t group_inodes;
@@ -470,6 +407,7 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	uint32_t group;
 	uint32_t bit;
 	struct pgcache *page;
+	struct ext2_alloc_pages counter_pages;
 	uint8_t *data;
 	bool cleared = false;
 	int ret;
@@ -495,6 +433,12 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	page = pgcache_get_block(sb->s_dev, bitmap_block);
 	if (!page)
 		return;
+	ret = ext2_get_alloc_pages(sb, group, &counter_pages);
+	if (ret < 0) {
+		pgcache_put_page(page);
+		sb->s_error = ret;
+		return;
+	}
 	data = page_cache_data(page);
 
 	spin_lock(&sbi->s_lock);
@@ -504,28 +448,17 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino)
 	    ext2_bitmap_test_bit(data, bit)) {
 		ext2_bitmap_clear_bit(data, bit);
 		sbi->s_group_desc[group].bg_free_inodes_count++;
+		if ((mode & EXT2_S_IFMT) == EXT2_S_IFDIR &&
+		    sbi->s_group_desc[group].bg_used_dirs_count)
+			sbi->s_group_desc[group].bg_used_dirs_count--;
 		sbi->s_es.s_free_inodes_count++;
 		cleared = true;
 	}
-	es_snap = sbi->s_es;
-	gd_snap = sbi->s_group_desc[group];
+
+	if (cleared)
+		ext2_dirty_alloc_pages(sbi, group, &counter_pages, page);
 	spin_unlock(&sbi->s_lock);
-
-	if (cleared) {
-		int sync_ret;
-
-		sync_ret = ext2_sync_page_retry(page);
-		if (sync_ret < 0)
-			pr_err("ext2: failed to sync inode bitmap: %d\n",
-			       sync_ret);
-		ret = ext2_write_group_desc_snapshot(sb, group, &gd_snap);
-		if (ret < 0)
-			pr_err("ext2: failed to write group descriptor: %d\n",
-			       ret);
-		ret = ext2_write_super_snapshot(sb, &es_snap);
-		if (ret < 0)
-			pr_err("ext2: failed to write superblock: %d\n", ret);
-	}
+	ext2_put_alloc_pages(&counter_pages);
 
 	pgcache_put_page(page);
 }

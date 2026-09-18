@@ -279,9 +279,13 @@ int ext2_init(void);
 
 int ext2_read_inode(struct inode *inode);
 
-int ext2_write_inode(struct inode *inode);
+struct inode *ext2_new_inode(struct super_block *sb, uint32_t ino);
 
-int ext2_datasync_inode(struct inode *inode);
+/* Copy current inode fields into the cache without forcing writeback. */
+int ext2_mark_inode_dirty(struct inode *inode);
+
+/* Explicit durability boundary for data and shared allocation metadata. */
+int ext2_sync_inode(struct inode *inode);
 
 void ext2_init_inode_ops(struct inode *inode);
 
@@ -299,7 +303,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block);
 
 uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode);
 
-void ext2_free_inode(struct super_block *sb, uint32_t ino);
+void ext2_free_inode(struct super_block *sb, uint32_t ino, uint16_t mode);
 
 ssize_t ext2_read_file(struct inode *inode, char *buf, size_t count, loff_t pos);
 

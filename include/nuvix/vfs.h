@@ -19,6 +19,9 @@ struct inode *inode_alloc(struct super_block *sb, uint64_t ino);
 
 __must_check
 struct inode *iget(struct super_block *sb, uint64_t ino);
+__must_check
+struct inode *iget_new(struct super_block *sb, uint64_t ino,
+			int (*init)(struct inode *));
 void igrab(struct inode *inode);
 void iput(struct inode *inode);
 void inode_forget(struct inode *inode);

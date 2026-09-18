@@ -23,8 +23,8 @@ static int ext2_statfs(struct super_block *sb, struct statfs64 *buf);
 
 static const struct super_operations ext2_sops = {
 	.read_inode = ext2_read_inode,
-	.write_inode = ext2_write_inode,
-	.datasync_inode = ext2_datasync_inode,
+	.write_inode = ext2_mark_inode_dirty,
+	.datasync_inode = ext2_sync_inode,
 	.evict_inode = ext2_evict_inode,
 	.put_super = ext2_put_super,
 	.statfs = ext2_statfs,
@@ -66,6 +66,14 @@ static int ext2_evict_inode(struct inode *inode)
 	if (!inode)
 		return 0;
 
+	/* Invalidation discards dirty aliases. Live inodes must write their
+	 * data before eviction; unlinked inodes intentionally discard it. */
+	if (inode->i_nlink) {
+		ret = pgcache_sync_inode(inode);
+		if (ret < 0)
+			return ret;
+	}
+
 	/* Page-cache invalidation may fail while resident PTEs or in-flight
 	 * I/O pin the mapping; the inode object stays intact so retirement
 	 * can be retried after the caller resolves the pins. */
@@ -77,7 +85,8 @@ static int ext2_evict_inode(struct inode *inode)
 	}
 	if (inode->i_nlink == 0 && inode->i_private) {
 		ext2_free_inode_blocks(inode);
-		ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino);
+		ext2_free_inode(inode->i_sb, (uint32_t)inode->i_ino,
+				(uint16_t)inode->i_mode);
 	}
 	kfree(inode->i_private);
 	inode->i_private = NULL;

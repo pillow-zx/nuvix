@@ -88,7 +88,12 @@ int vfs_sync_file(struct file *file)
 	if (ret < 0)
 		return ret;
 
-	return vfs_inode_writeback(file->f_inode);
+	ret = vfs_inode_writeback(file->f_inode);
+	if (ret < 0)
+		return ret;
+	if (file->f_inode->i_sb->s_op->datasync_inode)
+		return vfs_inode_datasync(file->f_inode);
+	return 0;
 }
 
 int vfs_msync_file_range(struct file *file, uint64_t first_page,
@@ -104,7 +109,12 @@ int vfs_msync_file_range(struct file *file, uint64_t first_page,
 	if (ret < 0)
 		return ret;
 
-	return vfs_inode_writeback(file->f_inode);
+	ret = vfs_inode_writeback(file->f_inode);
+	if (ret < 0)
+		return ret;
+	if (file->f_inode->i_sb->s_op->datasync_inode)
+		return vfs_inode_datasync(file->f_inode);
+	return 0;
 }
 
 int vfs_datasync_file(struct file *file)
