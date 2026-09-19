@@ -13,7 +13,10 @@
 #define HZ              100ULL
 
 /** Number of mtime ticks in one scheduler tick. */
-#define CLOCKS_PER_TICK MTIME_FREQ / HZ
+extern uint64_t timer_frequency;
+extern uint64_t timer_tick_interval;
+void timer_init(uint32_t frequency, bool sstc);
+const char *timer_backend(void);
 
 /** Read the architecture monotonic clocksource. */
 uint64_t timer_now(void);
@@ -22,7 +25,7 @@ uint64_t timer_now(void);
 void timer_set(uint64_t value);
 
 /** Initialize the architecture clockevent. */
-/* CPU-local Sstc programming; never resets another hart's timer. */
+/* CPU-local timer programming; never resets another hart's timer. */
 void timer_cpu_init(void);
 
 /** Initialize generic per-CPU scheduler-tick clockevent state. */

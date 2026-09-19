@@ -23,7 +23,7 @@ static bool clock_id_supported(int clock_id)
 
 static uint64_t clock_ticks_now(void)
 {
-	return timer_now() / CLOCKS_PER_TICK;
+	return timer_now() / timer_tick_interval;
 }
 
 static int syscall_wait_deadline(const struct wait_deadline *deadline,
@@ -108,7 +108,7 @@ ssize_t sys_clock_getres(struct trap_frame *tf)
 	struct timespec *uts = (struct timespec *)syscall_arg(tf, 1);
 	struct timespec kts = {
 		.tv_sec = 0,
-		.tv_nsec = NSEC_PER_SEC / MTIME_FREQ,
+		.tv_nsec = NSEC_PER_SEC / timer_frequency,
 	};
 
 	if (!clock_id_supported(clock_id))

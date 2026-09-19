@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/buddy.h>
+#include <nuvix/bootmem.h>
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/fs_struct.h>
@@ -240,8 +241,8 @@ ssize_t sys_sysinfo(struct trap_frame *tf)
 		return -EFAULT;
 
 	memset(&info, 0, sizeof(info));
-	info.uptime = (int64_t)(timer_now() / MTIME_FREQ);
-	info.totalram = DRAM_SIZE;
+	info.uptime = (int64_t)(timer_now() / timer_frequency);
+	info.totalram = ram_size;
 	info.freeram = buddy_free_pages() * PAGE_SIZE;
 	info.procs = pid_count_tasks();
 	info.mem_unit = 1;

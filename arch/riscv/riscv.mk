@@ -17,6 +17,7 @@ obj-y += arch/riscv/task.o
 obj-y += arch/riscv/timer.o
 obj-y += arch/riscv/sbi.o
 obj-y += arch/riscv/platform.o
+obj-y += arch/riscv/dt.o
 obj-$(CONFIG_SMP) += arch/riscv/smp.o
 
 include $(srctree)/arch/riscv/mm/mm.mk

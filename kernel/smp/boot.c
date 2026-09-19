@@ -119,7 +119,7 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 	if (nr_cpus == 1)
 		goto out;
 
-	deadline = timer_now() + MTIME_FREQ;
+	deadline = timer_now() + timer_frequency;
 	while (timer_seen != secondary_mask) {
 		timer_seen = 0;
 		for (id = 0; id < nr_cpus; id++)
@@ -138,7 +138,7 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 				      "ipi-send");
 	}
 
-	deadline = timer_now() + MTIME_FREQ;
+	deadline = timer_now() + timer_frequency;
 	while (ipi_observed != secondary_mask) {
 		ipi_observed = 0;
 		for (id = 0; id < nr_cpus; id++)
@@ -177,7 +177,7 @@ static void smp_probe_record(uint64_t timer_seen, uint64_t ipi_seen)
 static void smp_wait_online(uint32_t id)
 {
 	struct cpu *cpu = &cpu_table[id];
-	uint64_t deadline = timer_now() + MTIME_FREQ;
+	uint64_t deadline = timer_now() + timer_frequency;
 	uint32_t state;
 
 	/* Acquire-wait for the secondary's own BOOTING -> ONLINE release

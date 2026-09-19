@@ -1,58 +1,58 @@
 
 #include <arch/page.h>
 #include <arch/sbi.h>
+#include <arch/boot.h>
 #include <nuvix/bootinfo.h>
+#include <nuvix/bootmem.h>
 #include <nuvix/cpu.h>
-#include <nuvix/errno.h>
-#include <nuvix/types.h>
+#include <nuvix/dt.h>
+#include <nuvix/timer.h>
 
-#define PLATFORM_QEMU_VIRT_CPUS QEMU_VIRT_MAX_CPUS
+struct platform_match {
+	const char *compatible;
+	const char *name;
+};
 
-static_assert(CONFIG_QEMU_CPUS <= PLATFORM_QEMU_VIRT_CPUS,
-	      "QEMU virt exposes at most eight harts");
-
-int platform_cpu_entries(uint32_t boot_hartid,
-			 struct cpu_topology_entry *entries, uint32_t *count)
-{
-	struct sbi_ret ret;
-
-	if (!entries || !count)
-		return -EINVAL;
-
-	ret = sbi_base_spec_version();
-	if (ret.error != 0 || ret.value < 0x20000)
-		panic("sbi: BASE required but unavailable (error=%ld "
-		      "version=0x%lx)\n", ret.error, ret.value);
-
-	entries[0].logical_id = 0;
-	entries[0].hartid = boot_hartid;
-	*count = 1;
-#ifdef CONFIG_SMP
-	uint32_t logical_id = 1;
-
-	if (boot_hartid >= CONFIG_QEMU_CPUS)
-		return -EINVAL;
-	for (uint32_t hartid = 0; hartid < CONFIG_QEMU_CPUS; hartid++) {
-		if (hartid == boot_hartid)
-			continue;
-		entries[logical_id].logical_id = logical_id;
-		entries[logical_id].hartid = hartid;
-		logical_id++;
-	}
-	*count = logical_id;
+/* Platform identity/constraints and device matching are independent. Add
+ * board setup only when a supported board actually needs it. */
+static const struct platform_match platforms[] = {
+#ifdef CONFIG_PLATFORM_QEMU_VIRT
+	{ "riscv-virtio", "QEMU virt" },
 #endif
-	return 0;
+	{ NULL, NULL },
+};
+static const struct platform_match *platform;
+
+void platform_init(uint64_t boot_hartid, paddr_t dtb_pa)
+{
+	struct sbi_ret ret = sbi_base_spec_version();
+	if (ret.error != 0 || ret.value < 0x20000)
+		panic("sbi: version 0.2 or newer is required");
+	arch_dtb_init(dtb_pa);
+	for (unsigned i = 0; platforms[i].compatible; i++) {
+		if (!fdt_node_check_compatible(dt_blob, 0, platforms[i].compatible)) {
+			platform = &platforms[i];
+			break;
+		}
+	}
+	if (!platform)
+		panic("platform: unsupported DT root compatible");
+	bootmem_init();
+	if (bootmem_no_map(dtb_pa, fdt_totalsize(dt_blob)))
+		panic("dt: blob overlaps no-map memory");
+	bootmem_reserve(dtb_pa, fdt_totalsize(dt_blob), false);
+	arch_dt_cpus_init(boot_hartid);
 }
 
 extern char _start[];
 
 BOOTINFO_BLOCK(platform, uint32_t boot_hartid,
-	BROW("Platform Name", "QEMU riscv-virt");
-	BROW("Configured CPU Count", "%u", (unsigned)NR_CPUS);
+	BROW("Platform Name", "%s", platform->name);
+	BROW("CPU Capacity", "%u", (unsigned)NR_CPUS);
 	BROW("Boot HART ID", "%u (logical 0)", boot_hartid);
-	BROW("Boot Console", "uart8250 (SBI early)");
-	BROW("Memory Base", "0x%016llx", (unsigned long long)DRAM_BASE);
-	BROW("Memory Size", "%llu MiB", (unsigned long long)(DRAM_SIZE >> 20));
+	BROW("Boot Console", "SBI early, DT-selected UART");
+	BROW("Memory Base", "0x%016llx", (unsigned long long)ram_base);
+	BROW("Memory Size", "%llu MiB", (unsigned long long)(ram_size >> 20));
 	BROW("Page Table Mode", "Sv39");
 	BROW("Kernel Image Base", "0x%016llx",
 	     (unsigned long long)__pa((uintptr_t)_start));

@@ -5,6 +5,7 @@
 #include <nuvix/string.h>
 #include <nuvix/math.h>
 #include <nuvix/atomic.h>
+#include <nuvix/bootmem.h>
 #include <arch/page.h>
 #include <arch/pgtable.h>
 #include <asm/csr.h>
@@ -123,21 +124,19 @@ pte_t *kpgtable(void)
 	return (pte_t *)__va(root_pa);
 }
 
-void *pgtable_init(void)
+void pgtable_init(void)
 {
-	char *bootmem;
 	pte_t *root = NULL;
 
-	bootmem = (char *)ALIGN_UP((uintptr_t)_end, PAGE_SIZE);
-	root = (pte_t *)bootmem;
-	bootmem += PAGE_SIZE;
-	memset(root, 0, PAGE_SIZE);
+	root = bootmem_alloc(PAGE_SIZE);
 
 	pr_debug("page_table: mapping %dMB DRAM with 4KB pages...\n",
-		(int)(DRAM_SIZE >> 20));
+		(int)(ram_size >> 20));
 
-	for (paddr_t pa = DRAM_BASE; pa < DRAM_BASE + DRAM_SIZE;
+	for (paddr_t pa = ram_base; pa < ram_base + ram_size;
 	     pa += PAGE_SIZE) {
+		if (bootmem_no_map(pa, PAGE_SIZE))
+			continue;
 		vaddr_t va = KERNEL_VBASE + pa;
 		int idx_high = (va >> 30) & 0x1FF;
 		int idx_mid = (va >> 21) & 0x1FF;
@@ -146,18 +145,14 @@ void *pgtable_init(void)
 		pte_t *l0;
 
 		if (!(root[idx_high] & PTE_V)) {
-			l1 = (pte_t *)bootmem;
-			bootmem += PAGE_SIZE;
-			memset(l1, 0, PAGE_SIZE);
+			l1 = bootmem_alloc(PAGE_SIZE);
 			root[idx_high] = PA_TO_PTE(__pa((uintptr_t)l1)) | PTE_TABLE;
 		} else {
 			l1 = (pte_t *)__va(PTE_TO_PA(root[idx_high]));
 		}
 
 		if (!(l1[idx_mid] & PTE_V)) {
-			l0 = (pte_t *)bootmem;
-			bootmem += PAGE_SIZE;
-			memset(l0, 0, PAGE_SIZE);
+			l0 = bootmem_alloc(PAGE_SIZE);
 			l1[idx_mid] = PA_TO_PTE(__pa((uintptr_t)l0)) | PTE_TABLE;
 		} else {
 			l0 = (pte_t *)__va(PTE_TO_PA(l1[idx_mid]));
@@ -166,24 +161,24 @@ void *pgtable_init(void)
 		l0[idx_low] = PA_TO_PTE(pa) | PTE_KERN_RWX;
 	}
 
-	int idx_high = ((KERNEL_VBASE + DRAM_BASE) >> 30) & 0x1FF;
-	int idx_id = (DRAM_BASE >> 30) & 0x1FF;
-	root[idx_id] = root[idx_high];
-
-	root[0] = PA_TO_PTE(0UL) | PTE_KERN_RW;
+	/* Secondary entry briefly executes at its physical PC after satp.
+	 * Keep its boot-window identity alias out of every process root. */
+	extern char _start[];
+	extern pte_t tmp_root[];
+	unsigned boot_index = (__pa(_start) >> 30) & 511;
+	root[boot_index] = root[((KERNEL_VBASE + __pa(_start)) >> 30) & 511];
+	root[(DTB_VBASE >> 30) & 511] = tmp_root[(DTB_VBASE >> 30) & 511];
 
 	paddr_t root_pa = __pa((uintptr_t)root);
 	uintptr_t satp_val = SATP_MODE_SV39 | (root_pa >> PAGE_SHIFT);
 	kpgroot = satp_val;
 
 	active_pgtable(satp_val);
+	bootmem_mapped();
 	atomic64_set_release(&pt_boot_token, (isize)satp_val);
 
-	pr_debug("page_table: switched to kernel page table (root=%p, "
-		"bootmem=%p)\n",
-		(void *)root_pa, bootmem);
-
-	return bootmem;
+	pr_debug("page_table: switched to kernel page table (root=%p)\n",
+		(void *)root_pa);
 }
 
 __cold
@@ -221,10 +216,6 @@ pte_t *pgtable_create(void)
 	memset(root, 0, PAGE_SIZE);
 	for (int i = 256; i < 512; i++)
 		root[i] = kernel[i];
-	if (arch_upgd_init(root) < 0) {
-		pgtable_destroy(root);
-		return NULL;
-	}
 	return root;
 }
 

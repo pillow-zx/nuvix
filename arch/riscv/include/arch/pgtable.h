@@ -41,11 +41,8 @@ pte_t *pt_lookup(pte_t *root, uintptr_t va);
 __must_check __nonnull(1)
 int map_page(pte_t *root, uintptr_t va, uintptr_t pa, uint64_t perm);
 
-__must_check
-int arch_upgd_region(vaddr_t *start, vaddr_t *end);
-
-__must_check
-int arch_upgd_init(pte_t *root);
+/* Boot-only device mappings, created before secondary CPUs/tasks. */
+vaddr_t mmio_map(paddr_t address, size_t size);
 
 #define upgroot(read, write, exec)                                             \
 	((pgroot_t)(PTE_V | PTE_U | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \

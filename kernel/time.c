@@ -61,7 +61,7 @@ void clockevent_cpu_init(void)
 	struct clockevent_cpu *event = &clockevents[current_cpu()->id];
 	uint64_t now = timer_now();
 
-	event->next_tick = mtime_deadline_after(now, CLOCKS_PER_TICK);
+	event->next_tick = mtime_deadline_after(now, timer_tick_interval);
 	event->programmed = event->next_tick;
 	event->initialized = true;
 	timer_set(event->programmed);
@@ -98,7 +98,7 @@ void clockevent_handle_irq(uint64_t now)
 		tick = true;
 		do {
 			event->next_tick = mtime_deadline_after(
-				event->next_tick, CLOCKS_PER_TICK);
+				event->next_tick, timer_tick_interval);
 		} while (event->next_tick <= now &&
 			 event->next_tick != UINT64_MAX);
 	}
@@ -115,7 +115,7 @@ void clockevent_handle_irq(uint64_t now)
 	spin_unlock_irqrestore(&event->lock, flags);
 
 	/* Boot-health: publish the first handled local scheduler tick after
-	 * reprogramming the next timer, proving this CPU's Sstc path works
+	 * reprogramming the next timer, proving this CPU timer path works
 	 * end to end for the SMP boot gate. */
 	if (tick)
 		smp_timer_tick();
@@ -151,13 +151,13 @@ static void timespec_subtract_nonnegative(const struct timespec *left,
 
 static uint64_t nsec_from_mtime_remainder(uint64_t ticks)
 {
-	return ticks * NSEC_PER_SEC / MTIME_FREQ;
+	return ticks * NSEC_PER_SEC / timer_frequency;
 }
 
 void mtime_to_timespec(uint64_t ticks, struct timespec *ts)
 {
-	uint64_t seconds = ticks / MTIME_FREQ;
-	uint64_t remainder = ticks % MTIME_FREQ;
+	uint64_t seconds = ticks / timer_frequency;
+	uint64_t remainder = ticks % timer_frequency;
 
 	ts->tv_sec = (int64_t)seconds;
 	ts->tv_nsec = (int64_t)nsec_from_mtime_remainder(remainder);
@@ -222,12 +222,12 @@ int timespec_to_mtime_delta(const struct timespec *ts, uint64_t *delta)
 	if (!ts || !delta || !timespec_is_valid(ts))
 		return -EINVAL;
 
-	if ((uint64_t)ts->tv_sec > UINT64_MAX / MTIME_FREQ)
+	if ((uint64_t)ts->tv_sec > UINT64_MAX / timer_frequency)
 		seconds = UINT64_MAX;
 	else
-		seconds = (uint64_t)ts->tv_sec * MTIME_FREQ;
+		seconds = (uint64_t)ts->tv_sec * timer_frequency;
 
-	nanoseconds = ((uint64_t)ts->tv_nsec * MTIME_FREQ +
+	nanoseconds = ((uint64_t)ts->tv_nsec * timer_frequency +
 			       NSEC_PER_SEC - 1) / NSEC_PER_SEC;
 	if (nanoseconds > UINT64_MAX - seconds)
 		*delta = UINT64_MAX;
@@ -276,18 +276,18 @@ int mtime_deadline_from_ms(long timeout_ms,
 	}
 
 	milliseconds = (uint64_t)timeout_ms;
-	if (milliseconds > (UINT64_MAX - 999ULL) / MTIME_FREQ)
+	if (milliseconds > (UINT64_MAX - 999ULL) / timer_frequency)
 		delta = UINT64_MAX;
 	else
-		delta = (milliseconds * MTIME_FREQ + 999ULL) / 1000ULL;
+		delta = (milliseconds * timer_frequency + 999ULL) / 1000ULL;
 
 	*deadline = wait_deadline_at(mtime_deadline_after(timer_now(), delta));
 	return 0;
 }
 
-/* Phase-A boot banner: both rows are compile-time timer constants. */
+/* Published after DT CPU/timebase discovery. */
 BOOTINFO_BLOCK(timer, void,
-	BROW("Timer Device", "sstc @ %llu MHz",
-	     (unsigned long long)(MTIME_FREQ / 1000000ULL));
+	BROW("Timer Device", "%s @ %llu Hz", timer_backend(),
+	     (unsigned long long)timer_frequency);
 	BROW("Timer Tick", "%llu Hz", (unsigned long long)HZ);
 )

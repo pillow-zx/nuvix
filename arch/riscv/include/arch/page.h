@@ -11,7 +11,6 @@
 
 #define __va(x) ((void *)((paddr_t)(x) + KERNEL_VBASE))
 
-__must_check
-void *pgtable_init(void);
+void pgtable_init(void);
 
 #endif

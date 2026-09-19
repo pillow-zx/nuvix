@@ -8,6 +8,7 @@
 #include <nuvix/printk.h>
 #include <nuvix/bitops.h>
 #include <nuvix/tools.h>
+#include <nuvix/bootmem.h>
 
 struct page *mem_map;
 struct free_area free_area[MAX_ORDER + 1];
@@ -69,13 +70,15 @@ static void buddy_free_page(size_t pfn, uint32_t order)
 	nr_free_pages += freed_pages;
 }
 
-void buddy_init(void *mem_start)
+void buddy_init(void)
 {
 	/* Pre-SMP boot phase: no secondary hart is online, so the free lists
 	 * are not yet shared. buddy_lock is not required here. */
-	total = DRAM_SIZE / PAGE_SIZE;
+	total = ram_size / PAGE_SIZE;
 
-	mem_map = (struct page *)mem_start;
+	if (total > SIZE_MAX / sizeof(struct page))
+		panic("buddy: page metadata size overflow");
+	mem_map = bootmem_alloc(total * sizeof(struct page));
 
 	for (size_t i = 0; i < total; i++) {
 		mem_map[i].flags = BIT(PG_RESERVED);
@@ -91,30 +94,26 @@ void buddy_init(void *mem_start)
 	}
 
 
-	uintptr_t mem_map_bytes = total * sizeof(struct page);
-	vaddr_t free_start_va =
-		ALIGN_UP((uintptr_t)mem_start + mem_map_bytes, PAGE_SIZE);
-	paddr_t free_start_pa = __pa(free_start_va);
-	size_t free_idx = (free_start_pa - DRAM_BASE) / PAGE_SIZE;
-	size_t remaining = total - free_idx;
-
-
 	nr_free_pages = 0;
-	size_t idx = free_idx;
-
-	while (remaining > 0) {
-
-		uint32_t order = MAX_ORDER;
-		while (order > 0 && ((idx & ((1UL << order) - 1)) != 0 ||
-				     remaining < (1UL << order)))
-			order--;
-
-		buddy_add_block(idx, order, true);
-
-		nr_free_pages += (1UL << order);
-		idx += (1UL << order);
-		remaining -= (1UL << order);
+	for (size_t idx = 0; idx < total;) {
+		if (bootmem_reserved(ram_base + idx * PAGE_SIZE, PAGE_SIZE)) {
+			idx++;
+			continue;
+		}
+		size_t end = idx + 1;
+		while (end < total && !bootmem_reserved(ram_base + end * PAGE_SIZE, PAGE_SIZE))
+			end++;
+		while (idx < end) {
+			uint32_t order = MAX_ORDER;
+			while (order && ((idx & ((1UL << order) - 1)) ||
+					end - idx < (1UL << order)))
+				order--;
+			buddy_add_block(idx, order, true);
+			nr_free_pages += 1UL << order;
+			idx += 1UL << order;
+		}
 	}
+	bootmem_finish();
 }
 
 BOOTINFO_BLOCK(buddy, void,
@@ -170,7 +169,7 @@ void *get_page(uint32_t order, enum alloc_mode mode)
 	nr_free_pages -= (1UL << order);
 
 	spin_unlock(&buddy_lock);
-	return __va(DRAM_BASE + pfn * PAGE_SIZE);
+	return __va(ram_base + pfn * PAGE_SIZE);
 
 out:
 	spin_unlock(&buddy_lock);
@@ -188,7 +187,7 @@ void free_page(void *addr, uint32_t order)
 	if (unlikely(order > MAX_ORDER))
 		panic("free_page: order %d > MAX_ORDER", order);
 
-	pfn = (__pa((uintptr_t)addr) - DRAM_BASE) / PAGE_SIZE;
+	pfn = (__pa((uintptr_t)addr) - ram_base) / PAGE_SIZE;
 	if (unlikely(pfn + (1UL << order) > total))
 		panic("free_page: pfn %zu order %u out of range", pfn, order);
 	if (unlikely(pfn & ((1UL << order) - 1)))
@@ -244,7 +243,7 @@ size_t buddy_free_pages(void)
 
 struct page *virt_to_page(const void *addr)
 {
-	size_t pfn = (__pa((uintptr_t)addr) - DRAM_BASE) / PAGE_SIZE;
+	size_t pfn = (__pa((uintptr_t)addr) - ram_base) / PAGE_SIZE;
 
 	if (pfn >= total)
 		return NULL;
@@ -257,5 +256,5 @@ void *page_to_virt(const struct page *page)
 
 	BUG_ON(page < mem_map || page >= mem_map + total);
 	pfn = (size_t)(page - mem_map);
-	return __va(DRAM_BASE + pfn * PAGE_SIZE);
+	return __va(ram_base + pfn * PAGE_SIZE);
 }

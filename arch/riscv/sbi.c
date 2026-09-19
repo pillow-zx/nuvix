@@ -52,6 +52,11 @@ struct sbi_ret sbi_probe_extension(uint64_t extension_id)
 			 0, 0, 0);
 }
 
+struct sbi_ret sbi_set_timer(uint64_t deadline)
+{
+	return sbi_ecall(SBI_EID_TIME, 0, deadline, 0, 0, 0, 0);
+}
+
 #ifdef CONFIG_SMP
 struct sbi_ret sbi_hsm_hart_start(uint64_t hartid, uint64_t start_addr,
 				  uint64_t opaque)

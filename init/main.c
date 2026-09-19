@@ -15,7 +15,8 @@
 #include <nuvix/signal.h>
 #include <nuvix/vmalloc.h>
 #include <nuvix/vfs.h>
-#include <drivers/virtio_blk.h>
+#include <nuvix/bootdev.h>
+#include <arch/boot.h>
 #include <nuvix/trap.h>
 #include <nuvix/processor.h>
 #include <nuvix/pgtable.h>
@@ -25,36 +26,31 @@
 #include <nuvix/smp.h>
 #include <nuvix/cpu.h>
 
-void kernel_main(uint64_t hartid)
+void kernel_main(uint64_t hartid, paddr_t dtb_pa)
 {
 	struct task_struct *init;
 	struct task_struct *writeback;
-	void *mem_start;
 	int ret;
 
 	console_init_sbi();
+	platform_init(hartid, dtb_pa);
 
-	/* OpenSBI-style banner, emitted incrementally as data becomes ready.
-	 * Phase A needs only compile-time/link-time facts plus early SBI
-	 * calls, so it prints right after the SBI console is up; later blocks
-	 * follow at the points where their data exists. */
+	/* Hardware facts have been validated before any memory/device setup. */
 	bootinfo_logo();
 	bootinfo_platform(hartid);
 	bootinfo_sbi();
 	bootinfo_timer();
 
-	mem_start = pgtable_init();
-	console_init_mmio();
+	pgtable_init();
+	buddy_init();
+	boot_devices_prepare();
 	tty_console_init();
-
-	buddy_init(mem_start);
 	slab_init();
 	vmalloc_init();
 	sig_init();
 	bootinfo_mm();
 
-	/* Platform enumeration validates the boot hart and fills the
-	 * topology; every configured hart is required to start later. */
+	/* Publish the DT topology; every selected hart must start later. */
 	BUG_ON(cpu_prepare((uint32_t)hartid) < 0);
 	smp_prepare();
 
@@ -67,7 +63,7 @@ void kernel_main(uint64_t hartid)
 
 	/* Logical CPU 0-local initialization: touches only this hart's CSRs and
 	 * slot.
-	 * The Sstc timer is programmed only after task_init, so a timer IRQ
+	 * The timer is programmed only after task_init, so a timer IRQ
 	 * can never fire with no current task installed. */
 	trap_cpu_init();
 
@@ -94,8 +90,7 @@ void kernel_main(uint64_t hartid)
 	if (ret < 0)
 		panic("filesystems: init failed (%d)", ret);
 
-	virtio_blk_init();
-	ret = vfs_mount_root(ROOT_DEV);
+	ret = vfs_mount_root(boot_disk_init());
 	if (ret < 0)
 		panic("VFS: root mount failed (%d)", ret);
 

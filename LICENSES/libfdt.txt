@@ -1,0 +1,17 @@
+libfdt
+======
+
+Files: lib/fdt/*.c, lib/fdt/libfdt_internal.h,
+       include/nuvix/fdt.h, include/nuvix/libfdt.h,
+       include/nuvix/libfdt_env.h
+SPDX-License-Identifier: (GPL-2.0-or-later OR BSD-2-Clause)
+
+Copyright notices and dual-license identifiers are retained in each file.
+The GPL version 2 text is provided in ../LICENSE.
+
+libfdt.spdx preserves the imported distribution's package metadata, including
+its MIT-licensed wrapper package. That wrapper is not included here; the
+libfdt source files listed above carry their own dual-license identifiers.
+
+Local integration replaces hosted C headers with nuvix headers and omits
+device-tree overlay support. Include <nuvix/libfdt.h> for the supported API.

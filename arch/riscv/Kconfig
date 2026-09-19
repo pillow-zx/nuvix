@@ -7,28 +7,19 @@ config ARCH_RISCV
 menu "Platform"
 
 config PLATFORM_QEMU_VIRT
-	bool
+	bool "QEMU virt platform"
 	default y
 
-comment "QEMU virt is the only supported platform in this stage."
+comment "Enabled platforms are selected by the DTB root compatible."
 
-config DRAM_SIZE_MB
-	int "DRAM size (MiB)"
-	range 64 1024
-	default 256
-	help
-	  Current early boot page tables cover the 1 GiB window starting at
-	  DRAM_BASE, so larger memory sizes require boot mapping changes.
-
-config QEMU_CPUS
-	int "QEMU CPU count" if SMP
-	range 1 8
+config MAX_CPUS
+	int "Maximum supported CPU count" if SMP
+	range 1 64
 	default 1 if !SMP
 	default 8
 	help
-	  Number of CPUs used by the kernel. Pass the same count to QEMU
-	  with -smp; keeping the launch arguments consistent is the user's
-	  responsibility. With SMP enabled, every configured hart must
-	  start successfully. With SMP disabled, the kernel uses one CPU.
+	  Capacity of static CPU arrays. The DTB supplies the actual topology.
+	  SMP boot fails if enabled CPUs exceed this capacity. UP uses only
+	  the boot hart. Hart IDs need not be contiguous.
 
 endmenu

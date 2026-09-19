@@ -9,7 +9,7 @@
 
 static uint64_t worker_interval_ticks(unsigned int interval_sec)
 {
-	return (uint64_t)interval_sec * MTIME_FREQ;
+	return (uint64_t)interval_sec * timer_frequency;
 }
 
 void worker_run_periodic(unsigned int interval_sec, void (*work)(void *),

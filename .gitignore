@@ -22,6 +22,9 @@
 !fs/ext2/
 !fs/vfs/
 !lib/
+!lib/fdt/
+!LICENSES/
+!LICENSES/**
 !mm/
 !configs/
 !tools/

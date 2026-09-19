@@ -43,10 +43,9 @@ extern struct page *mem_map;
 extern struct free_area free_area[];
 
 /**
- * @brief Initialize mem_map and buddy free lists from the boot memory range.
+ * @brief Allocate mem_map and release unreserved RAM from bootmem to buddy.
  */
-__nonnull(1)
-void buddy_init(void *mem_start);
+void buddy_init(void);
 
 /**
  * @brief Allocate a physically contiguous power-of-two page block.

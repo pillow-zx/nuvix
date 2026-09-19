@@ -14,15 +14,8 @@
  */
 #define VIRTIO_BLK_MAJOR 8U
 
-/**
- * @def ROOT_DEV
- * @brief Root filesystem block device, currently virtio-blk disk 0.
- */
-#define ROOT_DEV MKDEV(VIRTIO_BLK_MAJOR, 0)
-
-/**
- * @brief Discover and register the QEMU virtio-blk root device.
- */
-void virtio_blk_init(void);
+/* Probe a DT transport without resetting it. Zero means a different device. */
+vaddr_t virtio_blk_probe(int node);
+dev_t virtio_blk_init(vaddr_t base);
 
 #endif

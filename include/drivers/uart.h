@@ -25,8 +25,6 @@
 #define UART_FCR_EN	0x01
 #define UART_FCR_CLR	0x06
 
-void uart_init(void);
-void uart_putc(int ch);
-int uart_try_getc(void);
+void uart_init(int node, uint32_t baud);
 
 #endif

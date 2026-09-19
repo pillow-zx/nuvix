@@ -60,8 +60,7 @@ int mm_layout_reserve(struct mm_struct *mm, vaddr_t start, vaddr_t end,
 		return -EINVAL;
 	if (start == 0 || start >= end || end > TASK_SIZE)
 		return -EINVAL;
-	if (kind != MM_REGION_RESERVED && kind != MM_REGION_FIXED &&
-	    kind != MM_REGION_ARCH_SHARED)
+	if (kind != MM_REGION_RESERVED && kind != MM_REGION_FIXED)
 		return -EINVAL;
 
 	for (int i = 0; i < NR_MM_REGIONS; i++) {
@@ -419,12 +418,7 @@ fail:
 
 pte_t *create_pgroot(struct mm_struct *mm)
 {
-	vaddr_t start, end;
-
 	if (!mm || mm_lifecycle_state(mm) != MM_LIFECYCLE_BUILDING)
-		return NULL;
-	if (arch_upgd_region(&start, &end) < 0 ||
-	    mm_layout_reserve(mm, start, end, MM_REGION_ARCH_SHARED) < 0)
 		return NULL;
 	return pgtable_create();
 }

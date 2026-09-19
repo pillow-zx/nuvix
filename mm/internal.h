@@ -50,7 +50,6 @@ struct anon_shared {
 enum mm_region_kind {
 	MM_REGION_RESERVED,
 	MM_REGION_FIXED,
-	MM_REGION_ARCH_SHARED,
 };
 
 struct mm_region {

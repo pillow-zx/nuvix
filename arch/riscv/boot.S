@@ -12,7 +12,6 @@
 #define PTE_U   (1 << 4)
 
 #define PTE_MEGA_DRAM_FLAGS  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G)
-#define PTE_MEGA_MMIO_FLAGS  (PTE_V | PTE_R | PTE_W | PTE_G)
 
 	.section .text.entry
 	.globl _start
@@ -36,9 +35,6 @@ _start:
 	add	t2, t0, t2
 	sd	t1, 0(t2)
 
-	li	t1, (0x00000000 >> 2) | PTE_MEGA_MMIO_FLAGS
-	sd	t1, (0*8)(t0)
-
 	lla	t0, tmp_root
 	srli	t0, t0, 12
 	li	t1, (8 << 60)
@@ -51,6 +47,8 @@ _start:
 	add	t0, t0, t1
 	jr	t0
 1:	lla	gp, __global_pointer$
+	li	t1, 0xFFFFFFC000000000
+	add	sp, sp, t1
 	lla	t0, cpu_table
 	mv	tp, t0
 	tail	kernel_main
@@ -63,7 +61,7 @@ secondary_entry:
 	csrc	sstatus, SSTATUS_SIE
 	csrw	sie, zero
 
-	li	t0, CONFIG_QEMU_CPUS
+	li	t0, CONFIG_MAX_CPUS
 	bltu	a1, t0, 1f
 	j	.Lsec_park
 1:	lla	t0, idle_stacks
@@ -88,6 +86,8 @@ secondary_entry:
 	add	t0, t0, t1
 	jr	t0
 2:	lla	gp, __global_pointer$
+	li	t1, 0xFFFFFFC000000000
+	add	sp, sp, t1
 	tail	smp_secondary_main
 
 .Lsec_bad_satp:
@@ -111,5 +111,6 @@ secondary_entry:
 #endif
 	.section .bss
 	.align	12
+	.globl tmp_root
 tmp_root:
 	.space	4096

@@ -9,6 +9,8 @@ extern void *memset(void *dst, int c, unsigned long n);
 
 extern int memcmp(const void *lsh, const void *rhs, unsigned long n);
 
+extern void *memchr(const void *s, int c, size_t n);
+
 extern void *memmove(void *dst, const void *src, unsigned long n);
 
 extern unsigned long strlen(const char *s);

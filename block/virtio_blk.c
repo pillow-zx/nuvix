@@ -12,6 +12,8 @@
 #include <nuvix/spinlock.h>
 #include <nuvix/tools.h>
 #include <nuvix/page.h>
+#include <nuvix/dt.h>
+#include <arch/pgtable.h>
 
 #define VBLK_QSIZE	     8
 #define VBLK_MAX_SECTORS     256u
@@ -203,23 +205,32 @@ static int virtio_blk_write_sectors(struct blkdev *bdev, const void *buf,
 	return virtio_blk_rw(bdev, true, (uintptr_t)buf, sector, nsec);
 }
 
-void virtio_blk_init(void)
+vaddr_t virtio_blk_probe(int node)
 {
-	uintptr_t base = VIRTIO_MMIO_BASE;
-	uint32_t magic, version, cap_lo, cap_hi;
-	uint32_t status;
-
-	magic = virtio_mmio_read(base, VIRTIO_MMIO_MAGIC_VALUE);
+	struct dt_resource resource;
+	if (dt_reg(node, 0, &resource) || resource.size < VIRTIO_MMIO_CONFIG + 8 ||
+	    (resource.start & 3))
+		panic("virtio: invalid MMIO resource");
+	vaddr_t base = mmio_map(resource.start, resource.size);
+	uint32_t magic = virtio_mmio_read(base, VIRTIO_MMIO_MAGIC_VALUE);
 	if (magic != VIRTIO_MMIO_MAGIC)
 		panic("virtio-blk: bad magic 0x%x at 0x%lx (expected 0x%x)\n",
 		      magic, base, VIRTIO_MMIO_MAGIC);
 
-	version = virtio_mmio_read(base, VIRTIO_MMIO_VERSION);
+	if (virtio_mmio_read(base, VIRTIO_MMIO_DEVICE_ID) != 2)
+		return 0;
+	dt_require_simple_device(node, true);
+	uint32_t version = virtio_mmio_read(base, VIRTIO_MMIO_VERSION);
 	if (version != 2)
 		panic("virtio-blk: unsupported transport version %u (need "
 		      "modern=2)\n",
 		      version);
+	return base;
+}
 
+dev_t virtio_blk_init(vaddr_t base)
+{
+	uint32_t cap_lo, cap_hi, status;
 	vblk_status_set(base, 0);
 
 	vblk_status_set(base, VIRTIO_CONFIG_S_ACKNOWLEDGE);
@@ -243,6 +254,7 @@ void virtio_blk_init(void)
 	vblk_bdev.bd_sectors = vblk_dev.capacity;
 
 	register_blkdev(&vblk_bdev);
+	return vblk_bdev.bd_dev;
 }
 
 BOOTINFO_BLOCK(block, const char *root_fs,

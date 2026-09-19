@@ -5,9 +5,15 @@
 #define PAGE_SHIFT              12
 #define PAGE_MASK               (~(PAGE_SIZE - 1UL))
 
-#define DRAM_BASE               0x80000000UL
-#define DRAM_SIZE               ((unsigned long)CONFIG_DRAM_SIZE_MB << 20)
 #define KERNEL_VBASE            0xFFFFFFC000000000UL
+/* Fixed load contract; RAM outside this early window is mapped in C. */
+#define BOOT_RAM_END            0xC0000000UL
+#define DIRECT_MAP_LIMIT        (128UL << 30)
+#define VMALLOC_BASE            0xFFFFFFE000000000UL
+#define MMIO_VBASE              0xFFFFFFFE00000000UL
+#define MMIO_SIZE               (256UL << 20)
+#define DTB_VBASE               0xFFFFFFFF00000000UL
+#define DTB_MAX_SIZE            (16UL << 20)
 
 #define TASK_SIZE	        0x80000000UL
 #define USER_STACK_TOP	        TASK_SIZE
@@ -18,15 +24,9 @@
 #define ARCH_KSTACK_ORDER       3
 #define ARCH_KSTACK_SIZE        (PAGE_SIZE << ARCH_KSTACK_ORDER)
 #ifdef CONFIG_SMP
-#define NR_CPUS		        CONFIG_QEMU_CPUS
+#define NR_CPUS		        CONFIG_MAX_CPUS
 #else
 #define NR_CPUS                  1
 #endif
-#define QEMU_VIRT_MAX_CPUS      8
-
-#define MTIME_FREQ              10000000ULL
-
-#define UART_BASE	        0x10000000UL
-#define VIRTIO_MMIO_BASE        0x10001000UL
 
 #endif

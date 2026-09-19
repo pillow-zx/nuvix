@@ -2,7 +2,7 @@
  * kernel/tty_console.c - UART-backed single-console TTY
  */
 
-#include <drivers/uart.h>
+#include <nuvix/printk.h>
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
@@ -126,10 +126,10 @@ int tty_console_start(void)
 	return 0;
 }
 
-static void console_uart_emit(char ch, void *ctx)
+static void console_device_emit(char ch, void *ctx)
 {
 	(void)ctx;
-	uart_putc(ch);
+	console_putchar(ch);
 }
 
 static void console_emit_output(const struct termios *termios, char ch,
@@ -392,7 +392,7 @@ static bool console_input_accept(char raw)
 	spin_unlock_irqrestore(&console_input.lock, flags);
 
 	for (size_t i = 0; i < echo_buf.len && i < echo_buf.cap; i++)
-		console_uart_emit(echo_buf.data[i], NULL);
+		console_device_emit(echo_buf.data[i], NULL);
 	if (signal)
 		(void)session_console_deliver_foreground_signal(signal);
 	if (wake)
@@ -420,7 +420,7 @@ static bool console_input_blocks_pump(void)
 static void console_input_drain_uart(void)
 {
 	while (!console_input_blocks_pump()) {
-		int input = uart_try_getc();
+		int input = console_try_getchar();
 
 		if (input < 0)
 			return;
@@ -436,7 +436,7 @@ static void console_input_thread(void *arg)
 	for (;;) {
 		const struct wait_deadline deadline =
 			wait_deadline_at(mtime_deadline_after(timer_now(),
-							      CLOCKS_PER_TICK));
+							      timer_tick_interval));
 		int ret;
 
 		console_input_drain_uart();
@@ -498,7 +498,7 @@ static ssize_t console_write(struct file *file, const char *buf, size_t count,
 	spin_lock_irqsave(&console_input.lock, &flags);
 	termios = console_input.termios;
 	spin_unlock_irqrestore(&console_input.lock, flags);
-	console_write_translated(&termios, buf, count, console_uart_emit, NULL);
+	console_write_translated(&termios, buf, count, console_device_emit, NULL);
 
 	return (ssize_t)count;
 }

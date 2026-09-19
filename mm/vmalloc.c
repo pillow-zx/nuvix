@@ -165,8 +165,7 @@ void vmalloc_init(void)
 	area = kmalloc(sizeof(*area), ALLOC_NOWAIT);
 	BUG_ON(!area);
 
-	vmalloc_start =
-		ALIGN_UP(KERNEL_VBASE + DRAM_BASE + DRAM_SIZE, PAGE_SIZE);
+	vmalloc_start = VMALLOC_BASE;
 	vmalloc_end = vmalloc_start + VMALLOC_SIZE;
 	INIT_LIST_HEAD(&vmalloc_areas);
 	area->start = vmalloc_start;

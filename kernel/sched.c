@@ -5,7 +5,7 @@
 #include <nuvix/timer.h>
 #include <nuvix/trap.h>
 
-#define TIME_SLICE (5 * CLOCKS_PER_TICK)
+#define TIME_SLICE (5 * timer_tick_interval)
 
 struct runqueue {
 	spinlock_t lock;
@@ -400,7 +400,7 @@ static void balance(void)
 		return;
 	if (load > 1 && now < dst->balance_due)
 		return;
-	dst->balance_due = now + 20 * CLOCKS_PER_TICK;
+	dst->balance_due = now + 20 * timer_tick_interval;
 	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
 		int32_t n = atomic_read_relaxed(&runqueues[id].load);
 

@@ -14,7 +14,6 @@
 #include <nuvix/spinlock.h>
 #include <nuvix/mutex.h>
 #include <nuvix/wait.h>
-#include <drivers/uart.h>
 
 #define PRINTK_BUF_SIZE	    1024
 #define PRINTK_LOG_BUF_SIZE 4096
@@ -31,6 +30,7 @@ struct printk_ring {
 };
 
 static void (*console_putc)(int ch);
+static int (*console_getc)(void);
 static bool printk_panic_mode;
 static DEFINE_SPINLOCK(console_lock, LOCK_RANK_CONSOLE_EMIT,
 			       LOCK_IRQ_TASK_ONLY);
@@ -126,10 +126,20 @@ void console_init_sbi(void)
 	console_putc = sbi_console_putchar;
 }
 
-void console_init_mmio(void)
+void console_attach(void (*putc)(int), int (*try_getc)(void))
 {
-	uart_init();
-	console_putc = uart_putc;
+	console_putc = putc;
+	console_getc = try_getc;
+}
+
+void console_putchar(int ch)
+{
+	console_putc(ch);
+}
+
+int console_try_getchar(void)
+{
+	return console_getc ? console_getc() : -1;
 }
 
 size_t printk_log_buffer_size(void)

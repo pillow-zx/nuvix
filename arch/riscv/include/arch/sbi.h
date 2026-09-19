@@ -31,6 +31,7 @@ struct sbi_ret {
 };
 
 void sbi_console_putchar(int ch);
+struct sbi_ret sbi_set_timer(uint64_t deadline);
 
 struct sbi_ret sbi_base_spec_version(void);
 struct sbi_ret sbi_probe_extension(uint64_t extension_id);

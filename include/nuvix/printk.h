@@ -29,7 +29,9 @@ typedef __builtin_va_list va_list;
 #endif
 
 void console_init_sbi(void);
-void console_init_mmio(void);
+void console_attach(void (*putc)(int), int (*try_getc)(void));
+void console_putchar(int ch);
+int console_try_getchar(void);
 
 size_t printk_log_buffer_size(void);
 size_t printk_log_unread_size(void);
