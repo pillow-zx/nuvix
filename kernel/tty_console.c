@@ -3,6 +3,7 @@
  */
 
 #include <nuvix/printk.h>
+#include <drivers/uart.h>
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
@@ -129,7 +130,7 @@ int tty_console_start(void)
 static void console_device_emit(char ch, void *ctx)
 {
 	(void)ctx;
-	console_putchar(ch);
+	uart_putchar(ch);
 }
 
 static void console_emit_output(const struct termios *termios, char ch,
@@ -420,7 +421,7 @@ static bool console_input_blocks_pump(void)
 static void console_input_drain_uart(void)
 {
 	while (!console_input_blocks_pump()) {
-		int input = console_try_getchar();
+		int input = uart_try_getchar();
 
 		if (input < 0)
 			return;

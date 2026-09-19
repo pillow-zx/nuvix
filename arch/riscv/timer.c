@@ -23,11 +23,6 @@ void timer_init(uint32_t frequency, bool sstc)
 	}
 }
 
-const char *timer_backend(void)
-{
-	return use_sstc ? "Sstc" : "SBI TIME";
-}
-
 uint64_t timer_now(void)
 {
 	return csr_read(time);

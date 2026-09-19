@@ -5,7 +5,6 @@
 #include <drivers/virtio_blk.h>
 #include <drivers/virtio.h>
 #include <nuvix/blkdev.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/string.h>
 #include <nuvix/errno.h>
 #include <nuvix/printk.h>
@@ -256,9 +255,3 @@ dev_t virtio_blk_init(vaddr_t base)
 	register_blkdev(&vblk_bdev);
 	return vblk_bdev.bd_dev;
 }
-
-BOOTINFO_BLOCK(block, const char *root_fs,
-	BROW("Root Device", "virtio-blk, %llu sectors (%llu MiB) %s",
-	     (unsigned long long)vblk_dev.capacity,
-	     (unsigned long long)(vblk_dev.capacity >> 11), root_fs);
-)

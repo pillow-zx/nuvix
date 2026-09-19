@@ -11,8 +11,6 @@
 
 static vaddr_t uart_base;
 static uint32_t reg_shift, io_width;
-static void uart_putc(int ch);
-static int uart_try_getc(void);
 
 static inline void uart_write_reg(int reg, uint8_t val)
 {
@@ -80,17 +78,16 @@ void uart_init(int node, uint32_t baud)
 
 
 	uart_write_reg(UART_MCR, 0x00);
-	console_attach(uart_putc, uart_try_getc);
 }
 
-static void uart_putc(int ch)
+void uart_putchar(int ch)
 {
 	while (!(uart_read_reg(UART_LSR) & UART_LSR_THRE))
 		;
 	uart_write_reg(UART_THR, (uint8_t)ch);
 }
 
-static int uart_try_getc(void)
+int uart_try_getchar(void)
 {
 	if (!(uart_read_reg(UART_LSR) & UART_LSR_DR))
 		return -1;

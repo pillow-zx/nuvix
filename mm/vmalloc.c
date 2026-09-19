@@ -4,7 +4,6 @@
 
 #include <nuvix/vmalloc.h>
 #include <nuvix/mm.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/bitops.h>
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
@@ -180,11 +179,6 @@ void vmalloc_init(void)
 	 */
 	vmalloc_prepopulate_tables();
 }
-
-BOOTINFO_BLOCK(vmalloc, void,
-	       BROW("Vmalloc Region", "%llu MiB @ 0x%016lx",
-		    (unsigned long long)(VMALLOC_SIZE >> 20),
-		    (unsigned long)vmalloc_start);)
 
 void *vmalloc(size_t size, enum alloc_mode mode)
 {

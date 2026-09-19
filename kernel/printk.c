@@ -3,12 +3,12 @@
  */
 
 #include <nuvix/printk.h>
+#include <drivers/uart.h>
 #include <nuvix/errno.h>
 #include <nuvix/mm.h>
 #include <nuvix/stacktrace.h>
 #include <nuvix/processor.h>
 #include <nuvix/compiler.h>
-#include <nuvix/sbi.h>
 #include <nuvix/slab.h>
 #include <nuvix/task.h>
 #include <nuvix/spinlock.h>
@@ -29,8 +29,6 @@ struct printk_ring {
 	mutex_t read_lock;
 };
 
-static void (*console_putc)(int ch);
-static int (*console_getc)(void);
 static bool printk_panic_mode;
 static DEFINE_SPINLOCK(console_lock, LOCK_RANK_CONSOLE_EMIT,
 			       LOCK_IRQ_TASK_ONLY);
@@ -112,34 +110,13 @@ static void printk_ring_append_message(int level, const char *message, size_t si
 	wait_channel_wake_one(&printk_ring.read_wait);
 }
 
-static void console_write(const char *s)
+static void uart_write(const char *s)
 {
 	while (*s) {
 		if (*s == '\n')
-			console_putc('\r');
-		console_putc(*s++);
+			uart_putchar('\r');
+		uart_putchar(*s++);
 	}
-}
-
-void console_init_sbi(void)
-{
-	console_putc = sbi_console_putchar;
-}
-
-void console_attach(void (*putc)(int), int (*try_getc)(void))
-{
-	console_putc = putc;
-	console_getc = try_getc;
-}
-
-void console_putchar(int ch)
-{
-	console_putc(ch);
-}
-
-int console_try_getchar(void)
-{
-	return console_getc ? console_getc() : -1;
 }
 
 size_t printk_log_buffer_size(void)
@@ -300,25 +277,21 @@ void printk_log_clear(void)
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
 }
 
-static void printk_emit(int level, const char *message, size_t size,
-			bool to_console)
+static void printk_emit(int level, const char *message, size_t size)
 {
 	if (printk_panic_mode) {
-		if (to_console && console_putc)
-			console_write(message);
+		uart_write(message);
 		return;
 	}
 	printk_ring_append_message(level, message, size);
-	if (to_console && console_putc) {
-		irq_flags_t flags;
+	irq_flags_t flags;
 
-		spin_lock_irqsave(&console_lock, &flags);
-		console_write(message);
-		spin_unlock_irqrestore(&console_lock, flags);
-	}
+	spin_lock_irqsave(&console_lock, &flags);
+	uart_write(message);
+	spin_unlock_irqrestore(&console_lock, flags);
 }
 
-static int vprintk(int level, const char *fmt, va_list ap, bool to_console)
+static int vprintk(int level, const char *fmt, va_list ap)
 {
 	char message[PRINTK_BUF_SIZE];
 	int formatted;
@@ -332,7 +305,7 @@ static int vprintk(int level, const char *fmt, va_list ap, bool to_console)
 		size = sizeof(message) - 1;
 	if (size == 0)
 		return formatted;
-	printk_emit(level, message, size, to_console);
+	printk_emit(level, message, size);
 	return formatted;
 }
 
@@ -342,18 +315,9 @@ int __printk(int level, const char *fmt, ...)
 	int ret;
 
 	va_start(ap, fmt);
-	ret = vprintk(level, fmt, ap, true);
+	ret = vprintk(level, fmt, ap);
 	va_end(ap);
 	return ret;
-}
-
-void printk_ring_record(int level, const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-	(void)vprintk(level, fmt, ap, false);
-	va_end(ap);
 }
 
 void __panic(const char *fmt, ...)
@@ -366,7 +330,7 @@ void __panic(const char *fmt, ...)
 
 	va_list ap;
 	va_start(ap, fmt);
-	(void)vprintk(LOG_ERROR, fmt, ap, true);
+	(void)vprintk(LOG_ERROR, fmt, ap);
 	va_end(ap);
 	pr_err("\n");
 

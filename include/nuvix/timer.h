@@ -16,7 +16,6 @@
 extern uint64_t timer_frequency;
 extern uint64_t timer_tick_interval;
 void timer_init(uint32_t frequency, bool sstc);
-const char *timer_backend(void);
 
 /** Read the architecture monotonic clocksource. */
 uint64_t timer_now(void);

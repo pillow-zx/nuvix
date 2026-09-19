@@ -30,7 +30,6 @@ struct sbi_ret {
 	int64_t value;
 };
 
-void sbi_console_putchar(int ch);
 struct sbi_ret sbi_set_timer(uint64_t deadline);
 
 struct sbi_ret sbi_base_spec_version(void);

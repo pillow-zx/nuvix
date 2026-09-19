@@ -3,7 +3,6 @@
  */
 
 #include <nuvix/cpu.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/errno.h>
 #include <nuvix/task.h>
 
@@ -110,25 +109,3 @@ void cpu_boot_init(struct task_struct *idles)
 #endif
 	}
 }
-
-/* Called after CPU startup has published the final masks. */
-BOOTINFO_BLOCK(cpu, void,
-	char table[128];
-	size_t off = 0;
-	uint32_t schedulable_count = 0;
-
-	for (uint32_t id = 0; id < nr_cpu_ids; id++) {
-		off = bootinfo_append(table, sizeof(table), off, "%s%u->%u",
-				      off ? " " : "", id, cpu_table[id].hartid);
-		if (cpu_is_schedulable(id))
-			schedulable_count++;
-	}
-
-	BROW("CPU Table", "%s", table);
-	IFDEF(CONFIG_SMP,
-		BROW("SMP", "%u harts online, %u schedulable", nr_cpu_ids,
-		     schedulable_count);)
-	IFNDEF(CONFIG_SMP,
-		BROW("SMP", "disabled, %u hart online, %u schedulable", nr_cpu_ids,
-		     schedulable_count);)
-)

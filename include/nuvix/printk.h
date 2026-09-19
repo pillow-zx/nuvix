@@ -28,11 +28,6 @@ typedef __builtin_va_list va_list;
 #endif
 #endif
 
-void console_init_sbi(void);
-void console_attach(void (*putc)(int), int (*try_getc)(void));
-void console_putchar(int ch);
-int console_try_getchar(void);
-
 size_t printk_log_buffer_size(void);
 size_t printk_log_unread_size(void);
 ssize_t printk_log_read(void *buffer, size_t size);
@@ -44,12 +39,6 @@ int vsprintf(char *buf, const char *fmt, va_list ap);
 
 __printf(2, 3) __nonnull(2)
 int __printk(int level, const char *fmt, ...) ;
-
-/* Append to the log ring without echoing to the console. Used for
- * machine-readable boot records (e.g. the SMP probe) that are consumed via
- * syslog() but must not pollute the human banner. */
-__printf(2, 3) __nonnull(2)
-void printk_ring_record(int level, const char *fmt, ...);
 
 __noreturn __printf(1, 2) __nonnull(1) __cold
 void __panic(const char *fmt, ...);

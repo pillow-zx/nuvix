@@ -3,7 +3,6 @@
  */
 
 #include <nuvix/slab.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/buddy.h>
 #include <nuvix/bitops.h>
 #include <nuvix/printk.h>
@@ -194,11 +193,6 @@ void slab_init(void)
 		INIT_LIST_HEAD(&caches[i].free_list);
 	}
 }
-
-BOOTINFO_BLOCK(slab, void,
-	       BROW("Slab Caches", "%u (%u..%u B)", NR_CACHES,
-		    (unsigned)cache_sizes[0],
-		    (unsigned)cache_sizes[NR_CACHES - 1]);)
 
 __hot
 void *kmalloc(size_t size, enum alloc_mode mode)

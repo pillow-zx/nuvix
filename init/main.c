@@ -3,7 +3,6 @@
  */
 
 #include <nuvix/printk.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/buddy.h>
 #include <nuvix/init.h>
 #include <nuvix/slab.h>
@@ -32,14 +31,7 @@ void kernel_main(uint64_t hartid, paddr_t dtb_pa)
 	struct task_struct *writeback;
 	int ret;
 
-	console_init_sbi();
 	platform_init(hartid, dtb_pa);
-
-	/* Hardware facts have been validated before any memory/device setup. */
-	bootinfo_logo();
-	bootinfo_platform(hartid);
-	bootinfo_sbi();
-	bootinfo_timer();
 
 	pgtable_init();
 	buddy_init();
@@ -48,7 +40,6 @@ void kernel_main(uint64_t hartid, paddr_t dtb_pa)
 	slab_init();
 	vmalloc_init();
 	sig_init();
-	bootinfo_mm();
 
 	/* Publish the DT topology; every selected hart must start later. */
 	BUG_ON(cpu_prepare((uint32_t)hartid) < 0);
@@ -78,10 +69,6 @@ void kernel_main(uint64_t hartid, paddr_t dtb_pa)
 	 * all online CPUs can service IPIs. Filesystem initialization below
 	 * uses vmalloc, whose global shootdowns require IRQs enabled here. */
 	local_irq_enable();
-	/* Close the banner with the CPU block: online/schedulable masks are
-	 * final once every secondary has published ONLINE. */
-	bootinfo_cpu();
-
 	syscall_init();
 
 	vfs_init();

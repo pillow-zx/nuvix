@@ -3,7 +3,6 @@
  */
 
 #include <nuvix/buddy.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/page.h>
 #include <nuvix/printk.h>
 #include <nuvix/bitops.h>
@@ -115,12 +114,6 @@ void buddy_init(void)
 	}
 	bootmem_finish();
 }
-
-BOOTINFO_BLOCK(buddy, void,
-	BROW("Buddy Free", "%llu MiB (%lu pages)",
-	     (unsigned long long)(nr_free_pages * PAGE_SIZE >> 20),
-	     (unsigned long)nr_free_pages);
-)
 
 __hot
 void *get_page(uint32_t order, enum alloc_mode mode)

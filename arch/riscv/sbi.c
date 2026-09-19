@@ -1,10 +1,8 @@
 
 #include <arch/sbi.h>
 #include <arch/system.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/types.h>
 
-#define SBI_EID_CONSOLE_PUTCHAR 0x01
 #define SBI_EID_SHUTDOWN	0x08
 #define SBI_EID_SYSTEM_RESET	0x53525354
 #define SBI_FID_SYSTEM_RESET	0
@@ -32,12 +30,6 @@ static inline struct sbi_ret sbi_ecall(uint64_t eid, uint64_t fid,
 			     : "memory");
 
 	return (struct sbi_ret){.error = a0, .value = a1};
-}
-
-void sbi_console_putchar(int ch)
-{
-	sbi_ecall(SBI_EID_CONSOLE_PUTCHAR, 0, (uint64_t)(unsigned char)ch, 0, 0,
-		  0, 0);
 }
 
 struct sbi_ret sbi_base_spec_version(void)
@@ -92,46 +84,6 @@ struct sbi_ret sbi_remote_sfence_vma(uint64_t hart_mask,
 			 hart_mask, hart_mask_base, start, size, 0);
 }
 #endif
-
-static const struct {
-	uint64_t eid;
-	const char *name;
-} sbi_extensions[] = {
-	{SBI_EID_BASE, "base"}, {SBI_EID_HSM, "hsm"},
-	{SBI_EID_IPI, "ipi"}, {SBI_EID_TIME, "time"},
-	{SBI_EID_RFENCE, "rfence"},
-	{SBI_EID_SYSTEM_RESET, "srst"},
-};
-
-BOOTINFO_BLOCK(
-	sbi, void,
-
-	const size_t nr_extensions = sizeof(sbi_extensions) /
-				     sizeof(sbi_extensions[0]);
-	struct sbi_ret ret = sbi_base_spec_version(); char extensions[128];
-	size_t off = 0; size_t found = 0;
-
-	if (ret.error != 0) {
-		BROW("SBI Version", "unavailable (error=%lld)",
-		     (long long)ret.error);
-	} else {
-		BROW("SBI Version", "%llu.%llu",
-		     (unsigned long long)(ret.value >> 24),
-		     (unsigned long long)(ret.value & 0xFFFFFF));
-	}
-
-	for (size_t i = 0; i < nr_extensions; i++) {
-		ret = sbi_probe_extension(sbi_extensions[i].eid);
-		if (ret.error != 0 || ret.value == 0)
-			continue;
-		off = bootinfo_append(extensions, sizeof(extensions), off,
-				      "%s%s", found ? "," : "",
-				      sbi_extensions[i].name);
-		found++;
-	}
-
-	if (found == 0) BROW("SBI Extensions", "none");
-	else BROW("SBI Extensions", "%s", extensions);)
 
 #ifdef CONFIG_SMP
 const char *sbi_hsm_status_name(uint64_t value)

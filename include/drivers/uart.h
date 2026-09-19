@@ -26,5 +26,7 @@
 #define UART_FCR_CLR	0x06
 
 void uart_init(int node, uint32_t baud);
+void uart_putchar(int ch);
+int uart_try_getchar(void);
 
 #endif

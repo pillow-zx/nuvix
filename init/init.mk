@@ -1,4 +1,3 @@
-# Early boot and boot information handoff.
+# Early boot initialization.
 
 obj-y += init/main.o
-obj-y += init/bootinfo.o

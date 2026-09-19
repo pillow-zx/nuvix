@@ -9,7 +9,6 @@
 
 #include <nuvix/smp.h>
 #include <arch/smp.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/cpu.h>
 #include <nuvix/ipi.h>
 #include <nuvix/pgtable.h>
@@ -94,10 +93,7 @@ static void smp_gate_fail(uint64_t secondary_mask, uint64_t timer_seen, uint64_t
 	unreachable();
 }
 
-static void smp_probe_record(uint64_t timer_seen, uint64_t ipi_seen);
-
-static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
-			  uint64_t *ipi_seen_out)
+static void smp_boot_gate(uint32_t boot_id)
 {
 	uint64_t secondary_mask = 0;
 	uint64_t timer_seen = 0;
@@ -106,7 +102,6 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 	uint32_t id;
 	uint32_t nr_cpus;
 
-	BUG_ON(!timer_seen_out || !ipi_seen_out);
 	nr_cpus = nr_cpu_ids;
 	BUG_ON(!nr_cpus || nr_cpus > NR_CPUS || boot_id >= nr_cpus);
 
@@ -117,7 +112,7 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 	BUG_ON(cpu_schedulable_mask() != (1ULL << SCHED_BOOT_AFFINITY_CPU));
 
 	if (nr_cpus == 1)
-		goto out;
+		return;
 
 	deadline = timer_now() + timer_frequency;
 	while (timer_seen != secondary_mask) {
@@ -149,29 +144,6 @@ static void smp_boot_gate(uint32_t boot_id, uint64_t *timer_seen_out,
 				      "ipi-seen");
 	}
 
-out:
-	*timer_seen_out = timer_seen;
-	*ipi_seen_out = ipi_observed;
-}
-
-static void smp_probe_record(uint64_t timer_seen, uint64_t ipi_seen)
-{
-	char harts[128];
-	size_t off = 0;
-
-	for (uint32_t id = 0; id < nr_cpu_ids; id++)
-		off = bootinfo_append(harts, sizeof(harts), off, "%s%u",
-				      off ? "," : "", cpu_table[id].hartid);
-
-	printk_ring_record(LOG_INFO,
-			   "SMP Probe: cpus=%u boot=%u online=0x%016llx "
-			   "schedulable=0x%016llx timer_seen=0x%016llx "
-			   "ipi_seen=0x%016llx harts=%s\n",
-			   nr_cpu_ids, cpu_table[0].hartid,
-			   (unsigned long long)cpu_online_mask(),
-			   (unsigned long long)cpu_schedulable_mask(),
-			   (unsigned long long)timer_seen,
-			   (unsigned long long)ipi_seen, harts);
 }
 
 static void smp_wait_online(uint32_t id)
@@ -203,8 +175,6 @@ void smp_boot_cpus(void)
 {
 	uint32_t boot_id;
 	uint32_t id;
-	uint64_t timer_seen;
-	uint64_t ipi_seen;
 
 	BUG_ON(!nr_cpu_ids || nr_cpu_ids > NR_CPUS);
 	/* Secondaries switch to the kernel page table, so it must be published.
@@ -232,7 +202,7 @@ void smp_boot_cpus(void)
 
 	/* Mandatory gate: timer/IPI proof from every secondary before any
 	 * syscall/VFS/device or thread initialization proceeds. */
-	smp_boot_gate(boot_id, &timer_seen, &ipi_seen);
+	smp_boot_gate(boot_id);
 	/* The boot gate is the publication boundary for ordinary Task SMP.  A
 	 * configured secondary cannot receive placement before it proved local
 	 * timer and IPI readiness; afterwards every online CPU is schedulable.
@@ -241,7 +211,6 @@ void smp_boot_cpus(void)
 		if (cpu_is_online(id))
 			cpu_set_schedulable(id);
 	BUG_ON(cpu_schedulable_mask() != cpu_online_mask());
-	smp_probe_record(timer_seen, ipi_seen);
 	atomic_set_release(&smp_boot_done, 1);
 }
 

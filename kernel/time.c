@@ -3,7 +3,6 @@
  */
 
 #include <nuvix/bitops.h>
-#include <nuvix/bootinfo.h>
 #include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/sched.h>
@@ -284,10 +283,3 @@ int mtime_deadline_from_ms(long timeout_ms,
 	*deadline = wait_deadline_at(mtime_deadline_after(timer_now(), delta));
 	return 0;
 }
-
-/* Published after DT CPU/timebase discovery. */
-BOOTINFO_BLOCK(timer, void,
-	BROW("Timer Device", "%s @ %llu Hz", timer_backend(),
-	     (unsigned long long)timer_frequency);
-	BROW("Timer Tick", "%llu Hz", (unsigned long long)HZ);
-)
