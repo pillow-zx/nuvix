@@ -84,3 +84,4 @@ ForEachMacros:
   - 'rb_for_each_entry'
   - 'task_for_each_child'
   - 'for_each_vma'
+  - 'fdt_for_each_subnode'

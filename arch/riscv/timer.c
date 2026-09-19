@@ -13,9 +13,11 @@ void timer_init(uint32_t frequency, bool sstc)
 	/* Bounds keep nanosecond conversions in uint64_t and resolution >= 1ns. */
 	if (frequency < HZ || frequency > 1000000000U)
 		panic("timer: unsupported timebase frequency %u", frequency);
+
 	timer_frequency = frequency;
 	timer_tick_interval = frequency / HZ;
 	use_sstc = sstc;
+
 	if (!sstc) {
 		struct sbi_ret ret = sbi_probe_extension(SBI_EID_TIME);
 		if (ret.error || !ret.value)

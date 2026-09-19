@@ -18,7 +18,7 @@ static atomic64_t schedulable_cpu_mask;
 
 int cpu_prepare(uint32_t boot_hartid)
 {
-	struct cpu_topology_entry entries[NR_CPUS];
+	struct cpu_entry entries[NR_CPUS];
 	uint32_t count;
 	int ret;
 
@@ -56,7 +56,7 @@ void cpu_set_schedulable(uint32_t id)
 	atomic64_or_fetch_release(&schedulable_cpu_mask, (int64_t)(1ULL << id));
 }
 
-int cpu_topology_init(const struct cpu_topology_entry *entries, uint32_t count)
+int cpu_topology_init(const struct cpu_entry *entries, uint32_t count)
 {
 	uint32_t i;
 	uint32_t j;

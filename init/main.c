@@ -25,13 +25,13 @@
 #include <nuvix/smp.h>
 #include <nuvix/cpu.h>
 
-void kernel_main(uint64_t hartid, paddr_t dtb_pa)
+void kernel_main(uint64_t hartid, paddr_t dtb)
 {
 	struct task_struct *init;
 	struct task_struct *writeback;
 	int ret;
 
-	platform_init(hartid, dtb_pa);
+	platform_init(hartid, dtb);
 
 	pgtable_init();
 	buddy_init();

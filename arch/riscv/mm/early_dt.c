@@ -22,7 +22,7 @@ static const void *dt_map(paddr_t pa, size_t size)
 	return (const void *)(DTB_VBASE + offset);
 }
 
-void arch_dtb_init(paddr_t pa)
+void dtb_init(paddr_t pa)
 {
 	if (!pa || (pa & 7) || pa >= (1UL << 56) - DTB_MAX_SIZE)
 		panic("dt: invalid physical address 0x%lx", pa);

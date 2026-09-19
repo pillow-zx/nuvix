@@ -14,9 +14,7 @@ struct platform_match {
 /* Platform identity/constraints and device matching are independent. Add
  * board setup only when a supported board actually needs it. */
 static const struct platform_match platforms[] = {
-#ifdef CONFIG_PLATFORM_QEMU_VIRT
-	{ "riscv-virtio" },
-#endif
+	IFDEF(CONFIG_PLATFORM_QEMU_VIRT, { "riscv-virtio" },)
 	{ NULL },
 };
 
@@ -27,7 +25,7 @@ void platform_init(uint64_t boot_hartid, paddr_t dtb_pa)
 
 	if (ret.error != 0 || ret.value < 0x20000)
 		panic("sbi: version 0.2 or newer is required");
-	arch_dtb_init(dtb_pa);
+	dtb_init(dtb_pa);
 	for (unsigned i = 0; platforms[i].compatible; i++) {
 		if (!fdt_node_check_compatible(dt_blob, 0, platforms[i].compatible)) {
 			supported = true;
@@ -40,5 +38,5 @@ void platform_init(uint64_t boot_hartid, paddr_t dtb_pa)
 	if (bootmem_no_map(dtb_pa, fdt_totalsize(dt_blob)))
 		panic("dt: blob overlaps no-map memory");
 	bootmem_reserve(dtb_pa, fdt_totalsize(dt_blob), false);
-	arch_dt_cpus_init(boot_hartid);
+	dt_cpus_init(boot_hartid);
 }

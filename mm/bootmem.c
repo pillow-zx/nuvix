@@ -7,8 +7,16 @@
 
 #define MAX_RANGES 128
 
-struct range { paddr_t start, end; };
-struct ranges { struct range entries[MAX_RANGES]; unsigned count; };
+struct range {
+	paddr_t start;
+	paddr_t end;
+};
+
+struct ranges {
+	struct range entries[MAX_RANGES];
+	unsigned count;
+};
+
 static struct ranges reserved, unmapped, memory;
 static paddr_t cursor, alloc_end;
 static bool finished;
@@ -75,8 +83,11 @@ void bootmem_reserve(paddr_t start, size_t size, bool no_map)
 
 void bootmem_init(void)
 {
-	int node = -1, ret;
+	int node = -1;
+	int ret;
+	int parent;
 	struct dt_resource resource;
+
 	while ((node = fdt_next_node(dt_blob, node, NULL)) >= 0) {
 		const char *type = dt_string(node, "device_type");
 		if (!type || strcmp(type, "memory") || !dt_available(node))
@@ -93,12 +104,16 @@ void bootmem_init(void)
 		if (ret != -ENOENT || index == 1)
 			panic("bootmem: invalid memory reg");
 	}
+
 	if (memory.count != 1)
 		panic("bootmem: expected contiguous RAM, found %u ranges", memory.count);
+
 	ram_base = memory.entries[0].start;
 	ram_size = memory.entries[0].end - ram_base;
+
 	if (__pa(_start) < ram_base || __pa(_end) > ram_base + ram_size)
 		panic("bootmem: kernel is outside RAM");
+
 	/* Keep the firmware/load prefix reserved, even if firmware omitted it. */
 	bootmem_reserve(ram_base, __pa(_end) - ram_base, false);
 	for (int i = 0, n = fdt_num_mem_rsv(dt_blob); i < n; i++) {
@@ -107,7 +122,9 @@ void bootmem_init(void)
 			panic("bootmem: malformed reservation map");
 		bootmem_reserve(start, size, false);
 	}
-	int parent = fdt_path_offset(dt_blob, "/reserved-memory");
+
+	parent = fdt_path_offset(dt_blob, "/reserved-memory");
+
 	if (parent >= 0) {
 		fdt_for_each_subnode(node, dt_blob, parent) {
 			if (!dt_available(node))
@@ -121,8 +138,10 @@ void bootmem_init(void)
 				      fdt_get_name(dt_blob, node, NULL));
 		}
 	}
+
 	if (bootmem_no_map(__pa(_start), __pa(_end) - __pa(_start)))
 		panic("bootmem: kernel overlaps no-map memory");
+
 	cursor = ALIGN_UP(__pa(_end), PAGE_SIZE);
 	alloc_end = ram_base + ram_size;
 	if (alloc_end > BOOT_RAM_END)

@@ -97,7 +97,7 @@ struct spinlock;
  * The generic CPU module never infers logical ID == hartid; only the platform
  * topology input may state that equality.
  */
-struct cpu_topology_entry {
+struct cpu_entry {
 	uint32_t logical_id;
 	uint32_t hartid;
 };
@@ -137,7 +137,7 @@ extern uint32_t nr_cpu_ids;
 
 /* Platform enumeration maps the boot hart to logical CPU 0. */
 int platform_cpu_entries(uint32_t boot_hartid,
-			 struct cpu_topology_entry *entries, uint32_t *count);
+			 struct cpu_entry *entries, uint32_t *count);
 
 /* Publish topology before task, scheduler, and local interrupt setup. */
 int cpu_prepare(uint32_t boot_hartid);
@@ -150,7 +150,7 @@ void cpu_boot_online(void);
  * the entries themselves (unique logical IDs, unique hart IDs) before filling
  * cpu_table; nr_cpu_ids becomes immutable once it returns.
  */
-int cpu_topology_init(const struct cpu_topology_entry *entries, uint32_t count);
+int cpu_topology_init(const struct cpu_entry *entries, uint32_t count);
 
 /*
  * Install per-CPU idle/current pointers and CPU-local counters. The topology
