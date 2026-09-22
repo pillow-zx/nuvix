@@ -17,8 +17,7 @@
 /* Last-reference ownership is transferred through this embedded queue.
  * The existing process reaper drains it without holding scheduler locks. */
 static LIST_HEAD(mm_retired);
-static DEFINE_SPINLOCK(mm_retired_lock, LOCK_RANK_RETIRED,
-		       LOCK_IRQ_HARDIRQ_REACHABLE);
+static DEFINE_SPINLOCK(mm_retired_lock);
 
 static int64_t mm_lifecycle_pack(enum mm_lifecycle state, uint32_t publishers)
 {
@@ -183,8 +182,7 @@ struct mm_struct *mm_alloc(void)
 	atomic64_set_relaxed(&mm->lifecycle,
 			     mm_lifecycle_pack(MM_LIFECYCLE_BUILDING, 0));
 	INIT_LIST_HEAD(&mm->vma_spares);
-	mutex_init_semantic(&mm->mmap_lock, LOCK_RANK_MM_MMAP,
-			    SLEEP_RANK_MM_MMAP, LOCK_IRQ_TASK_ONLY);
+	mutex_init(&mm->mmap_lock);
 	if (mm_layout_init(mm) < 0) {
 		mm_put(mm);
 		return NULL;
@@ -285,7 +283,7 @@ void mm_put(struct mm_struct *mm)
 	} else {
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&mm_retired_lock, &flags);
+		spin_lock_irqsave(&mm_retired_lock, flags);
 		list_add_tail(&mm->retirement, &mm_retired);
 		spin_unlock_irqrestore(&mm_retired_lock, flags);
 		sched_notify_reaper();
@@ -452,7 +450,7 @@ void mm_reap_retired(void)
 		struct mm_struct *mm;
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&mm_retired_lock, &flags);
+		spin_lock_irqsave(&mm_retired_lock, flags);
 		if (list_empty(&mm_retired)) {
 			spin_unlock_irqrestore(&mm_retired_lock, flags);
 			return;

@@ -44,7 +44,7 @@ static struct runqueue *lock_task(struct task_struct *task, irq_flags_t *flags)
 
 	for (;;) {
 		rq = home(task);
-		spin_lock_irqsave(&rq->lock, flags);
+		spin_lock_irqsave(&rq->lock, *flags);
 		if (rq == home(task))
 			return rq;
 		spin_unlock_irqrestore(&rq->lock, *flags);
@@ -210,8 +210,7 @@ void sched_init(void)
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
 		struct runqueue *rq = &runqueues[id];
 
-		spin_lock_init(&rq->lock, LOCK_RANK_RUNQUEUE,
-			       LOCK_IRQ_HARDIRQ_REACHABLE);
+		spin_lock_init(&rq->lock);
 		INIT_LIST_HEAD(&rq->ready);
 		INIT_LIST_HEAD(&rq->retired);
 		rq->id = id;
@@ -229,7 +228,7 @@ void sched_enqueue_new(struct task_struct *task)
 
 	/* The constructor alone places DORMANT tasks. */
 	rq = &runqueues[cpu];
-	spin_lock_irqsave(&rq->lock, &flags);
+	spin_lock_irqsave(&rq->lock, flags);
 	BUG_ON(task->run_state != TASK_DORMANT);
 	compiler_atomic_store_n(&task->cpu, &cpu_table[cpu],
 				COMPILER_ATOMIC_RELEASE);
@@ -469,7 +468,7 @@ bool sched_retired_pop(struct task_struct **task)
 		struct runqueue *rq = &runqueues[id];
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&rq->lock, &flags);
+		spin_lock_irqsave(&rq->lock, flags);
 		if (!list_empty(&rq->retired)) {
 			*task = list_first_entry(&rq->retired, struct task_struct,
 						retired_node);
@@ -603,7 +602,7 @@ void sched_tick(void)
 
 	if (!task)
 		return;
-	spin_lock_irqsave(&rq->lock, &flags);
+	spin_lock_irqsave(&rq->lock, flags);
 	if (!task_is_idle(task)) {
 		if (task_trap_frome_user(task))
 			task->cputime.utime_ticks++;

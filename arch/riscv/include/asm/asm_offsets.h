@@ -67,10 +67,6 @@
 #define CPU_PREEMPT_COUNT 32
 #define CPU_ENTRY_SCRATCH 48
 
-#if defined(CONFIG_DEBUG_CONTEXT)
-#define CPU_SIZE 336
-#else
 #define CPU_SIZE 64
-#endif
 
 #endif

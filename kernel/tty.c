@@ -25,8 +25,7 @@ struct tty_process_attachment {
 };
 
 static struct tty_endpoint console_tty = {
-	.lock = MUTEX_INIT(console_tty.lock, LOCK_RANK_TTY,
-			   LOCK_IRQ_TASK_ONLY),
+	.lock = MUTEX_INIT(console_tty.lock),
 	.attachments = LIST_HEAD_INIT(console_tty.attachments),
 };
 
@@ -146,7 +145,7 @@ static bool tty_detach_session_locked(struct tty_endpoint *tty,
 
 void tty_console_endpoint_init(void)
 {
-	mutex_init(&console_tty.lock, LOCK_RANK_TTY, LOCK_IRQ_TASK_ONLY);
+	mutex_init(&console_tty.lock);
 	console_tty.session = NULL;
 	console_tty.foreground = NULL;
 	INIT_LIST_HEAD(&console_tty.attachments);

@@ -80,13 +80,9 @@ static const struct blkdev_ops vblk_ops = {
 };
 
 static struct virtio_blk_dev vblk = {
-	.submit_lock = MUTEX_INIT(vblk.submit_lock, LOCK_RANK_VIRTIO_SUBMIT,
-				 LOCK_IRQ_TASK_ONLY),
-	.completion_lock = SPINLOCK_INIT(LOCK_RANK_IO_COMPLETION,
-					LOCK_IRQ_HARDIRQ_REACHABLE),
-	.completion = WAIT_CHANNEL_INIT_RANK(vblk.completion,
-					    LOCK_RANK_WAIT_CHANNEL,
-					    LOCK_IRQ_HARDIRQ_REACHABLE),
+	.submit_lock = MUTEX_INIT(vblk.submit_lock),
+	.completion_lock = SPINLOCK_INIT,
+	.completion = WAIT_CHANNEL_INIT(vblk.completion),
 	.bdev = {
 		.bd_dev = MKDEV(VIRTIO_BLK_MAJOR, 0),
 		.bd_ops = &vblk_ops,
@@ -202,7 +198,7 @@ static void vblk_handle_irq(unsigned irq, void *data)
 	if ((status & VIRTIO_MMIO_INT_CONFIG) && vblk_read_capacity(base) != vd->capacity)
 		panic("virtio-blk: runtime capacity changes are not supported");
 
-	spin_lock_irqsave(&vd->completion_lock, &flags);
+	spin_lock_irqsave(&vd->completion_lock, flags);
 	uint16_t used = vd->used.idx;
 	virtio_rmb();
 	if (used != vd->last_used) {
@@ -239,7 +235,7 @@ static int vblk_submit_and_wait(struct virtio_blk_dev *dev)
 			BUG_ON(submitted);
 			return ret;
 		}
-		spin_lock_irqsave(&dev->completion_lock, &flags);
+		spin_lock_irqsave(&dev->completion_lock, flags);
 		if (submitted && !dev->pending) {
 			ret = dev->result;
 			spin_unlock_irqrestore(&dev->completion_lock, flags);
@@ -265,7 +261,7 @@ static int vblk_submit_and_wait(struct virtio_blk_dev *dev)
 		ret = wait_scope_block(&scope, &outcome);
 		BUG_ON(ret < 0);
 		if (outcome == WAIT_OUTCOME_TIMEOUT) {
-			spin_lock_irqsave(&dev->completion_lock, &flags);
+			spin_lock_irqsave(&dev->completion_lock, flags);
 			bool pending = dev->pending;
 			spin_unlock_irqrestore(&dev->completion_lock, flags);
 			/* Do not return a DMA buffer to its owner while the device

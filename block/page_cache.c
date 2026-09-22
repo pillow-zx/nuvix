@@ -15,7 +15,7 @@
 static HASH_TABLE(pgcache_hashtable, PGCACHE_HASH_BITS);
 static LIST_HEAD(pgcache_lru);
 LIST_HEAD(pgcache_dirty_list);
-DEFINE_SPINLOCK(pgcache_lock, LOCK_RANK_PAGE_CACHE, LOCK_IRQ_TASK_ONLY);
+DEFINE_SPINLOCK(pgcache_lock);
 static uint32_t pgcache_pages;
 static bool pgcache_ready;
 
@@ -56,7 +56,7 @@ struct pgcache *pgcache_find_mapping(struct page_mapping *mapping,
 	irq_flags_t flags;
 	if (!mapping)
 		return NULL;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	assoc = pgcache_assoc_find_locked(mapping, index);
 	if (assoc) {
 		page = assoc->page;
@@ -162,7 +162,7 @@ static int pgcache_wait_producer(struct pgcache *page)
 		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 		if (ret < 0)
 			return ret;
-		spin_lock_irqsave(&pgcache_lock, &flags);
+		spin_lock_irqsave(&pgcache_lock, flags);
 		pending = page->filling || page->writeback;
 		if (pending)
 			ret = wait_scope_prepare(&scope, &page->waitq, true);
@@ -192,7 +192,7 @@ static int pgcache_fill_page(struct pgcache *page)
 		int error;
 		int ret;
 
-		spin_lock_irqsave(&pgcache_lock, &flags);
+		spin_lock_irqsave(&pgcache_lock, flags);
 		if (page->uptodate) {
 			spin_unlock_irqrestore(&pgcache_lock, flags);
 			return 0;
@@ -215,7 +215,7 @@ static int pgcache_fill_page(struct pgcache *page)
 		spin_unlock_irqrestore(&pgcache_lock, flags);
 
 		ret = pgcache_read_physical(page);
-		spin_lock_irqsave(&pgcache_lock, &flags);
+		spin_lock_irqsave(&pgcache_lock, flags);
 		page->filling = false;
 		if (ret == 0) {
 			page->uptodate = true;
@@ -256,7 +256,7 @@ retry: {
 	struct pgcache *victim = NULL;
 	bool no_room = false;
 
-	spin_lock_irqsave(&pgcache_lock, &irq_flags);
+	spin_lock_irqsave(&pgcache_lock, irq_flags);
 	page = pgcache_find(dev, block);
 	if (!page && !(flags & PAGE_CACHE_CREATE)) {
 		spin_unlock_irqrestore(&pgcache_lock, irq_flags);
@@ -303,7 +303,7 @@ retry: {
 			*error = -ENOMEM;
 		return NULL;
 	}
-	spin_lock_irqsave(&pgcache_lock, &irq_flags);
+	spin_lock_irqsave(&pgcache_lock, irq_flags);
 	{
 		struct pgcache *existing = pgcache_find(dev, block);
 
@@ -402,7 +402,7 @@ void pgcache_put_page(struct pgcache *page)
 
 	if (!page)
 		return;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	BUG_ON(page->refcount == 0);
 	page->refcount--;
 	if (page->refcount == 0 && page->dropped) {
@@ -425,7 +425,7 @@ bool pgcache_is_uptodate(const struct pgcache *page)
 
 	if (!page)
 		return false;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	uptodate = page->uptodate;
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	return uptodate;
@@ -437,7 +437,7 @@ void pgcache_set_uptodate(struct pgcache *page, bool uptodate)
 
 	if (!page)
 		return;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	page->uptodate = uptodate;
 	if (uptodate)
 		page->error = 0;
@@ -451,7 +451,7 @@ bool pgcache_is_dirty(const struct pgcache *page)
 
 	if (!page)
 		return false;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	dirty = page->dirty;
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	return dirty;
@@ -470,7 +470,7 @@ int pgcache_truncate_mapping(struct page_mapping *mapping, uint64_t size)
 	tail_index = size / BLOCK_SIZE;
 	tail_offset = (uint32_t)(size % BLOCK_SIZE);
 
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	list_for_each (pos, &mapping->pages) {
 		struct pgcache_assoc *assoc =
 			list_entry(pos, struct pgcache_assoc, mapping_node);
@@ -516,7 +516,7 @@ int pgcache_invalidate_mapping(struct page_mapping *mapping)
 
 	if (!mapping)
 		return -EINVAL;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	list_for_each (pos, &mapping->pages) {
 		struct pgcache_assoc *assoc =
 			list_entry(pos, struct pgcache_assoc, mapping_node);
@@ -556,7 +556,7 @@ int pgcache_discard_device(dev_t dev)
 	LIST_HEAD(victims);
 	irq_flags_t flags;
 
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	/* Preflight every page before unlinking any of its associations. */
 	list_for_each (pos, &pgcache_lru) {
 		struct pgcache *page =

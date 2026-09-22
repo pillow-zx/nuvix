@@ -14,7 +14,7 @@
 static HASH_TABLE(dentry_hashtable, DCACHE_HASH_BITS);
 static LIST_HEAD(dentry_lru);
 
-DEFINE_SPINLOCK(vfs_cache_lock, LOCK_RANK_VFS_CACHE, LOCK_IRQ_TASK_ONLY);
+DEFINE_SPINLOCK(vfs_cache_lock);
 static uint32_t dentry_entries;
 
 static uint32_t dentry_hash(struct dentry *parent, const char *name,

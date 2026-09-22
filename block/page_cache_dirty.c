@@ -18,7 +18,7 @@ void pgcache_clear_dirty(struct pgcache *page)
 	irq_flags_t flags;
 	if (!page)
 		return;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	pgcache_clear_dirty_locked(page);
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 }
@@ -28,7 +28,7 @@ void pgcache_mark_dirty(struct pgcache *page)
 	irq_flags_t flags;
 	if (!page)
 		return;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	if (!page->dirty)
 		list_add_tail(&page->dirty_node, &pgcache_dirty_list);
 	page->dirty = true;
@@ -43,7 +43,7 @@ struct pgcache *pgcache_dirty_any(void)
 	struct pgcache *page;
 	irq_flags_t flags;
 
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	page = list_empty(&pgcache_dirty_list) ? NULL :
 		list_first_entry(&pgcache_dirty_list, struct pgcache, dirty_node);
 	if (page)

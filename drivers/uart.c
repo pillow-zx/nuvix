@@ -12,6 +12,7 @@
 #include <nuvix/event.h>
 #include <nuvix/spinlock.h>
 #include <uapi/poll.h>
+#include <arch/io.h>
 #include <arch/pgtable.h>
 
 struct uart_device {
@@ -35,38 +36,31 @@ struct uart_device {
 
 static struct uart_device uart = {
 	.fifo_depth = 1,
-	.lock = SPINLOCK_INIT(LOCK_RANK_UART, LOCK_IRQ_HARDIRQ_REACHABLE),
+	.lock = SPINLOCK_INIT,
 	.rx = KFIFO_INIT(uart.rx_storage, 1, sizeof(uart.rx_storage)),
 	.tx = KFIFO_INIT(uart.tx_storage, 1, sizeof(uart.tx_storage)),
-	.rx_wait = WAIT_CHANNEL_INIT_RANK(uart.rx_wait, LOCK_RANK_WAIT_CHANNEL,
-					 LOCK_IRQ_HARDIRQ_REACHABLE),
-	.tx_wait = WAIT_CHANNEL_INIT_RANK(uart.tx_wait, LOCK_RANK_WAIT_CHANNEL,
-					 LOCK_IRQ_HARDIRQ_REACHABLE),
+	.rx_wait = WAIT_CHANNEL_INIT(uart.rx_wait),
+	.tx_wait = WAIT_CHANNEL_INIT(uart.tx_wait),
 };
-
-static void uart_fence(void)
-{
-	asm volatile("fence iorw,iorw" ::: "memory");
-}
 
 static inline void uart_write_reg(struct uart_device *dev, int reg, uint8_t val)
 {
 	vaddr_t address = dev->base + ((unsigned)reg << dev->reg_shift);
-	uart_fence();
+	arch_io_mb();
 	if (dev->io_width == 4)
 		MMIO_WRITE(uint32_t, address, val);
 	else
 		MMIO_WRITE(uint8_t, address, val);
-	uart_fence();
+	arch_io_mb();
 }
 
 static inline uint8_t uart_read_reg(struct uart_device *dev, int reg)
 {
 	vaddr_t address = dev->base + ((unsigned)reg << dev->reg_shift);
-	uart_fence();
+	arch_io_mb();
 	uint8_t value = dev->io_width == 4 ? (uint8_t)MMIO_READ(uint32_t, address) :
 		MMIO_READ(uint8_t, address);
-	uart_fence();
+	arch_io_mb();
 	return value;
 }
 
@@ -172,7 +166,7 @@ static void uart_handle_irq(unsigned irq, void *data)
 	bool received = false, transmitted = false, overflow = false;
 	(void)irq;
 
-	spin_lock_irqsave(&dev->lock, &flags);
+	spin_lock_irqsave(&dev->lock, flags);
 	if (atomic_read_acquire(&dev->panic_mode)) {
 		uart_write_reg(dev, UART_IER, 0);
 		spin_unlock_irqrestore(&dev->lock, flags);
@@ -224,7 +218,7 @@ int uart_irq_start(void)
 	int ret = irq_register(dev->irq, 0, uart_handle_irq, dev);
 	if (ret)
 		return ret;
-	spin_lock_irqsave(&dev->lock, &flags);
+	spin_lock_irqsave(&dev->lock, flags);
 	dev->irq_started = true;
 	dev->ier = UART_IER_RX | UART_IER_LINE;
 	uart_write_reg(dev, UART_MCR, UART_MCR_OUT2);
@@ -238,7 +232,7 @@ int uart_try_getchar(void)
 	struct uart_device *dev = &uart;
 	irq_flags_t flags;
 	unsigned char ch;
-	spin_lock_irqsave(&dev->lock, &flags);
+	spin_lock_irqsave(&dev->lock, flags);
 	int ret = kfifo_get(&dev->rx, &ch);
 	spin_unlock_irqrestore(&dev->lock, flags);
 	return ret ? -1 : ch;
@@ -248,7 +242,7 @@ int uart_rx_prepare(struct wait_scope *scope)
 {
 	struct uart_device *dev = &uart;
 	irq_flags_t flags;
-	spin_lock_irqsave(&dev->lock, &flags);
+	spin_lock_irqsave(&dev->lock, flags);
 	int ret = kfifo_empty(&dev->rx) ?
 		wait_scope_prepare(scope, &dev->rx_wait, false) : 1;
 	spin_unlock_irqrestore(&dev->lock, flags);
@@ -263,7 +257,7 @@ ssize_t uart_try_write(const char *buf, size_t count, bool crlf)
 	bool moved;
 	if (!count)
 		return 0;
-	spin_lock_irqsave(&dev->lock, &flags);
+	spin_lock_irqsave(&dev->lock, flags);
 	if (!dev->irq_started || atomic_read_acquire(&dev->panic_mode)) {
 		spin_unlock_irqrestore(&dev->lock, flags);
 		return -EIO;
@@ -293,7 +287,7 @@ int uart_tx_poll(struct poll_table *wait, bool crlf)
 {
 	struct uart_device *dev = &uart;
 	irq_flags_t flags;
-	spin_lock_irqsave(&dev->lock, &flags);
+	spin_lock_irqsave(&dev->lock, flags);
 	int ret = poll_wait(wait, &dev->tx_wait);
 	if (!ret) {
 		if (!dev->irq_started || atomic_read_acquire(&dev->panic_mode))
@@ -327,7 +321,7 @@ int uart_write(const char *buf, size_t count, bool crlf)
 		int ret = wait_scope_begin(&scope, 0, &deadline);
 		if (ret)
 			return ret;
-		spin_lock_irqsave(&dev->lock, &flags);
+		spin_lock_irqsave(&dev->lock, flags);
 		bool ready = kfifo_capacity(&dev->tx) - kfifo_size(&dev->tx) >=
 			(crlf ? 2u : 1u);
 		if (!ready)

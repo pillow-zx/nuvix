@@ -50,7 +50,7 @@ static const size_t cache_sizes[NR_CACHES] = {16,  32,	64,   128,
 					      256, 512, 1024, 2048};
 
 static struct kmem_cache caches[NR_CACHES];
-static DEFINE_SPINLOCK(slab_lock, LOCK_RANK_ALLOC_SLAB, LOCK_IRQ_TASK_ONLY);
+static DEFINE_SPINLOCK(slab_lock);
 
 __must_check __pure
 static inline int find_cache(size_t size)

@@ -87,10 +87,8 @@ static inline uint32_t cpumask_first(const cpumask_t *mask)
 #define CPU_BOOTING  1u
 #define CPU_ONLINE   2u
 #define CPU_PARKED   3u
-#define CPU_LOCK_MAX 16u
 
 struct task_struct;
-struct spinlock;
 
 /*
  * One enumerated CPU slot: a logical ID plus the platform hart it runs on.
@@ -112,12 +110,8 @@ struct cpu {
 	int preempt_count;
 	uint32_t irq_nesting;
 	uint32_t lock_depth;
-	/* U->S trap entry parks user t0 and t1 here before switching to the
-	 * kernel stack; must stay before the config-dependent lock array. */
+	/* U->S trap entry parks user t0 and t1 here before switching stacks. */
 	uintptr_t entry_scratch[2];
-	IFDEF(CONFIG_DEBUG_CONTEXT, struct spinlock *locks[CPU_LOCK_MAX];
-	      irq_flags_t lock_flags[CPU_LOCK_MAX];
-	      bool lock_irqsave[CPU_LOCK_MAX];)
 };
 
 static_assert(offsetof(struct cpu, state) == CPU_STATE,

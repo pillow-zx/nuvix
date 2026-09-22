@@ -11,14 +11,10 @@
 #define SEEK_END	  2
 #define VFS_COPY_BUF_SIZE 256
 
-/* Single implicit file-position mutex for the whole VFS layer.  The rank
- * contract forbids nesting two LOCK_RANK_FILE_POSITION locks, so per-file
- * f_pos locking cannot cover sendfile-style reads from one file and writes
- * to another.  One global lock keeps every implicit-position path (read,
- * write, seek, rewind, buffered copy) mutually exclusive; explicit-position
- * I/O never takes it. */
-static DEFINE_MUTEX(vfs_fpos_lock, LOCK_RANK_FILE_POSITION,
-		    LOCK_IRQ_TASK_ONLY);
+/* One mutex serializes implicit file positions across read, write, seek,
+ * rewind and cross-file copies. Explicit-position I/O does not take it.
+ * It may sleep because the data path allocates page-cache pages. */
+static DEFINE_MUTEX(vfs_fpos_lock);
 
 static bool vfs_pos_implicit(const struct file *file)
 {

@@ -23,7 +23,7 @@ struct files_struct *files_alloc(void)
 
 	memset(files, 0, sizeof(*files));
 	refcount_set(&files->refcount, 1);
-	mutex_init(&files->lock, LOCK_RANK_FILES_FDTABLE, LOCK_IRQ_TASK_ONLY);
+	mutex_init(&files->lock);
 	return files;
 }
 

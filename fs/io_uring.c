@@ -178,7 +178,7 @@ static int ring_flush(struct io_ring *ring)
 	if (head - ring->cq_head > ring->cq_tail - ring->cq_head)
 		return -EINVAL;
 	ring->cq_head = head;
-	spin_lock_irqsave(&ring->cq_lock, &flags);
+	spin_lock_irqsave(&ring->cq_lock, flags);
 	while (!list_empty(&ring->overflow) &&
 	       ring->cq_tail - head < ring->cq_entries) {
 		struct ring_request *req = list_first_entry(
@@ -202,7 +202,7 @@ static void request_complete(struct ring_request *req, int result)
 	request_release(req);
 	req->cqe = (struct io_uring_cqe){.user_data = req->sqe.user_data,
 					 .res = result};
-	spin_lock_irqsave(&ring->cq_lock, &flags);
+	spin_lock_irqsave(&ring->cq_lock, flags);
 	list_move_tail(&req->node, &ring->overflow);
 	spin_unlock_irqrestore(&ring->cq_lock, flags);
 	(void)ring_flush(ring);
@@ -539,7 +539,7 @@ static int ring_poll(struct file *file, uint32_t events,
 	irq_flags_t flags;
 	int ret;
 	(void)events;
-	spin_lock_irqsave(&ring->cq_lock, &flags);
+	spin_lock_irqsave(&ring->cq_lock, flags);
 	ret = poll_wait(table, &ring->completions);
 	if (!ret) {
 		uint32_t head = load_acquire(&ring->memory->cq_head);
@@ -585,10 +585,9 @@ ssize_t sys_io_uring_setup(struct trap_frame *tf)
 	}
 	memset(ring, 0, sizeof(*ring));
 	refcount_set(&ring->refs, 1);
-	mutex_init(&ring->lock, 70, LOCK_IRQ_TASK_ONLY);
-	mutex_init(&ring->registration_lock, 60, LOCK_IRQ_TASK_ONLY);
-	spin_lock_init(&ring->cq_lock, LOCK_RANK_IO_COMPLETION,
-		       LOCK_IRQ_HARDIRQ_REACHABLE);
+	mutex_init(&ring->lock);
+	mutex_init(&ring->registration_lock);
+	spin_lock_init(&ring->cq_lock);
 	wait_channel_init(&ring->completions);
 	INIT_LIST_HEAD(&ring->free);
 	INIT_LIST_HEAD(&ring->active);
@@ -736,7 +735,7 @@ static int ring_wait(struct io_ring *ring, uint32_t minimum,
 			return ret;
 		/* Registration precedes the acquire CQ-tail check. */
 		ret = wait_scope_prepare(&scope, &ring->completions, false);
-		spin_lock_irqsave(&ring->cq_lock, &flags);
+		spin_lock_irqsave(&ring->cq_lock, flags);
 		uint32_t available =
 			ring->cq_tail - load_acquire(&ring->memory->cq_head);
 		ready = available <= ring->cq_entries && available >= minimum;

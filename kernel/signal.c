@@ -165,7 +165,7 @@ static __sighandler_t signal_handler_for_task(struct task_struct *task, int sig)
 
 	if (!signal)
 		return handler;
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	handler = signal_handler_for_task_locked(task, sig);
 	spin_unlock_irqrestore(&signal->siglock, flags);
 	return handler;
@@ -180,7 +180,7 @@ static struct sigaction signal_sigchld_action(const struct proc_struct *proc)
 	if (!proc)
 		return action;
 	signal = &((struct proc_struct *)proc)->signal;
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	action = signal->actions[SIGCHLD];
 	spin_unlock_irqrestore(&signal->siglock, flags);
 	return action;
@@ -288,7 +288,7 @@ static int signal_wait_start_set(struct task_struct *task,
 		return ret;
 	}
 
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	ret = wait_scope_begin_signal_set_locked(scope, WAIT_FLAG_INTERRUPTIBLE,
 						 deadline, signal_set);
 	if (ret == 0) {
@@ -426,7 +426,7 @@ static void wake_signal_target(struct task_struct *task, int sig)
 	 * wait_wake_signal re-validates the policy under the wait lock. */
 	signal = task->proc ? &task->proc->signal : NULL;
 	if (signal) {
-		spin_lock_irqsave(&signal->siglock, &flags);
+		spin_lock_irqsave(&signal->siglock, flags);
 		blocked = task->signal.blocked;
 		pending = task->signal.pending;
 		forced = task->signal.forced_pending;
@@ -484,7 +484,7 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 	mask = signal_mask(sig);
 	signal = task->proc ? &task->proc->signal : NULL;
 	if (signal)
-		spin_lock_irqsave(&signal->siglock, &flags);
+		spin_lock_irqsave(&signal->siglock, flags);
 	/* Dropped at raise: an unblocked, ignored (SIG_IGN / default-ignore /
 	 * init-suppressed) notification is neither queued nor woken.  Blocked
 	 * signals are never dropped. Exception/forced signals are never dropped. */
@@ -497,7 +497,7 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 	if (signal)
 		spin_lock(&task->lock);
 	else
-		spin_lock_irqsave(&task->lock, &flags);
+		spin_lock_irqsave(&task->lock, flags);
 	/* This is the authoritative admission check: exit and task-directed
 	 * queuing hold the same signal -> wait lock pair while changing state.
 	 */
@@ -740,7 +740,7 @@ static uint64_t current_shared_pending(void)
 	if (!signal)
 		return 0;
 
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	pending = signal->shared_pending;
 	spin_unlock_irqrestore(&signal->siglock, flags);
 	return pending;
@@ -773,7 +773,7 @@ static int take_pending_from_set(uint64_t set, siginfo_t *info)
 	/* Per-task and shared pending are drained under one siglock
 	 * acquisition, so no group member can double-consume a shared signal.
 	 */
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	for (sig = 1; sig < SIGRTMIN; sig++) {
 		uint64_t mask = signal_mask(sig);
 
@@ -838,7 +838,7 @@ static struct sigaction get_signal_action(int sig)
 
 	if (!signal)
 		return action;
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	action = signal->actions[sig];
 	spin_unlock_irqrestore(&signal->siglock, flags);
 	return action;
@@ -935,7 +935,7 @@ bool sig_task_begin_exit(struct task_struct *task)
 	signal = task->proc ? &task->proc->signal : NULL;
 	if (!signal)
 		return false;
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	spin_lock(&task->lock);
 	if (task->lifecycle == TASK_LIVE) {
 		task->lifecycle = TASK_EXITING;
@@ -973,7 +973,7 @@ int sig_task_clone(struct task_struct *child, bool disable_altstack)
 	if (!child || !child->proc || !parent || !parent->proc)
 		return -EINVAL;
 	source = &parent->proc->signal;
-	spin_lock_irqsave(&source->siglock, &flags);
+	spin_lock_irqsave(&source->siglock, flags);
 	memcpy(child->proc->signal.actions, source->actions,
 	       sizeof(source->actions));
 	spin_unlock_irqrestore(&source->siglock, flags);
@@ -1003,7 +1003,7 @@ void sig_exec_commit(struct task_struct *task)
 
 	BUG_ON(!task->proc);
 	signal = &task->proc->signal;
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	signal_actions_reset_for_exec_locked(task->proc);
 	spin_unlock_irqrestore(&signal->siglock, flags);
 	signal_reset_altstack(task);
@@ -1024,7 +1024,7 @@ uint64_t sig_pending(const struct task_struct *task)
 	if (signal) {
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&signal->siglock, &flags);
+		spin_lock_irqsave(&signal->siglock, flags);
 		pending = (task->signal.pending | signal->shared_pending) &
 			  task->signal.blocked;
 		spin_unlock_irqrestore(&signal->siglock, flags);
@@ -1055,7 +1055,7 @@ uint64_t sig_blocked_mask(struct task_struct *task)
 	signal = task->proc ? &task->proc->signal : NULL;
 	if (!signal)
 		return task->signal.blocked;
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	blocked = task->signal.blocked;
 	spin_unlock_irqrestore(&signal->siglock, flags);
 	return blocked;
@@ -1074,7 +1074,7 @@ static void signal_block_mask(struct task_struct *task, uint64_t mask)
 		task->signal.blocked |= mask;
 		return;
 	}
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	task->signal.blocked |= mask;
 	signal_recalc_facts_locked(task, signal);
 	spin_unlock_irqrestore(&signal->siglock, flags);
@@ -1094,7 +1094,7 @@ static void signal_unblock_mask(struct task_struct *task, uint64_t mask)
 		task->signal.blocked &= ~unblockable_mask();
 		return;
 	}
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	task->signal.blocked &= ~mask;
 	task->signal.blocked &= ~unblockable_mask();
 	signal_recalc_facts_locked(task, signal);
@@ -1114,7 +1114,7 @@ void sig_set_mask(struct task_struct *task, uint64_t mask)
 		task->signal.blocked = mask;
 		return;
 	}
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	task->signal.blocked = mask;
 	signal_recalc_facts_locked(task, signal);
 	spin_unlock_irqrestore(&signal->siglock, flags);
@@ -1155,7 +1155,7 @@ static void signal_clear_pending(struct task_struct *task, uint64_t mask)
 		signal_clear_pending_locked(task, mask);
 		return;
 	}
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	signal_clear_pending_locked(task, mask);
 	signal_recalc_facts_locked(task, signal);
 	spin_unlock_irqrestore(&signal->siglock, flags);
@@ -1206,7 +1206,7 @@ static int send_group_signal_info(int sig, const siginfo_t *info,
 	if (!signal)
 		return send_signal_info_internal(sig, info, leader, false);
 
-	spin_lock_irqsave(&signal->siglock, &signal_flags);
+	spin_lock_irqsave(&signal->siglock, signal_flags);
 	mask = signal_mask(sig);
 	if (signal_group_would_drop_at_raise_locked(leader, sig)) {
 		spin_unlock_irqrestore(&signal->siglock, signal_flags);
@@ -1318,7 +1318,7 @@ int sig_force_info(int sig, const siginfo_t *info, struct task_struct *task)
 		struct signal_struct *signal = &task->proc->signal;
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&signal->siglock, &flags);
+		spin_lock_irqsave(&signal->siglock, flags);
 		if (signal->actions[sig].sa_handler == SIG_IGN)
 			signal->actions[sig].sa_handler = SIG_DFL;
 		spin_unlock_irqrestore(&signal->siglock, flags);
@@ -1431,7 +1431,7 @@ void sig_deliver(struct trap_frame *tf)
 		 * pending store stay consistent with the lock-free
 		 * next_signal() hint. */
 		if (signal)
-			spin_lock_irqsave(&signal->siglock, &flags);
+			spin_lock_irqsave(&signal->siglock, flags);
 		if (shared) {
 			forced = false;
 			if (!(signal && (signal->shared_pending & mask))) {
@@ -1636,7 +1636,7 @@ int sig_action(int sig, const struct sigaction *act, struct sigaction *oldact)
 		kact.sa_mask &= ~unblockable_mask();
 		discard_pending = kact.sa_handler == SIG_IGN;
 	}
-	spin_lock_irqsave(&signal->siglock, &flags);
+	spin_lock_irqsave(&signal->siglock, flags);
 	if (oldact)
 		*oldact = signal->actions[sig];
 	if (act) {

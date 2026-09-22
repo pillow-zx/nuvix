@@ -63,7 +63,7 @@ int page_cache_assoc_add(struct page_mapping *mapping, uint64_t index,
 	INIT_LIST_HEAD(&assoc->page_node);
 	INIT_LIST_HEAD(&assoc->mapping_node);
 
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	existing = pgcache_assoc_find_locked(mapping, index);
 	if (existing) {
 		int ret = existing->page == page ? 0 : -EAGAIN;

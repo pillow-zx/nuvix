@@ -106,7 +106,7 @@ void tty_console_init(void)
 {
 	int ret;
 
-	spin_lock_init(&console_input.lock, LOCK_RANK_TTY, LOCK_IRQ_TASK_ONLY);
+	spin_lock_init(&console_input.lock);
 	wait_channel_init(&console_input.readable);
 	wait_channel_init(&console_input.room);
 	tty_console_endpoint_init();
@@ -332,7 +332,7 @@ static bool console_input_accept(char raw)
 	bool wake = false;
 	bool stop = false;
 
-	spin_lock_irqsave(&console_input.lock, &flags);
+	spin_lock_irqsave(&console_input.lock, flags);
 	termios = console_input.termios;
 	console_input_compact_locked();
 	if (termios.c_lflag & ICANON) {
@@ -391,7 +391,7 @@ static void console_input_drain_uart(void)
 {
 	for (;;) {
 		irq_flags_t flags;
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		bool blocked = console_input_blocks_pump_locked();
 		spin_unlock_irqrestore(&console_input.lock, flags);
 		if (blocked)
@@ -419,7 +419,7 @@ static void console_input_thread(void *arg)
 		console_input_drain_uart();
 		ret = wait_scope_begin(&scope, 0, &deadline);
 		BUG_ON(ret < 0);
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		bool blocked = console_input_blocks_pump_locked();
 		if (blocked)
 			ret = wait_scope_prepare(&scope, &console_input.room, false);
@@ -444,7 +444,7 @@ static ssize_t console_read(struct file *file, char *buf, size_t count,
 	(void)pos;
 	ret = io_wait_transfer(file, buf, count, false);
 	if (ret == -EINTR) {
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		if (!(console_input.termios.c_lflag & ICANON) && console_input_available_locked())
 			ret = console_copy_pending_locked(buf, count);
 		spin_unlock_irqrestore(&console_input.lock, flags);
@@ -459,14 +459,14 @@ static ssize_t console_try_io(struct file *file, void *buf, size_t count, bool w
 	irq_flags_t flags;
 	ssize_t ret;
 	if (write) {
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		tcflag_t oflag = console_input.termios.c_oflag;
 		spin_unlock_irqrestore(&console_input.lock, flags);
 		return uart_try_write(buf, count, (oflag & OPOST) && (oflag & ONLCR));
 	}
 	if (!count)
 		return 0;
-	spin_lock_irqsave(&console_input.lock, &flags);
+	spin_lock_irqsave(&console_input.lock, flags);
 	if (console_input_readable_locked(count) ||
 	    ((file->f_flags & O_NONBLOCK) && !(console_input.termios.c_lflag & ICANON))) {
 		if (console_input_available_locked())
@@ -499,7 +499,7 @@ static int console_poll(struct file *file, uint32_t events,
 	int ret;
 
 	if ((events & POLLIN) && (file->f_mode & FMODE_READ)) {
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		if (wait) {
 			ret = poll_wait(wait, &console_input.readable);
 			if (ret < 0) {
@@ -513,7 +513,7 @@ static int console_poll(struct file *file, uint32_t events,
 		spin_unlock_irqrestore(&console_input.lock, flags);
 	}
 	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE)) {
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		tcflag_t oflag = console_input.termios.c_oflag;
 		spin_unlock_irqrestore(&console_input.lock, flags);
 		ret = uart_tx_poll(wait, (oflag & OPOST) && (oflag & ONLCR));
@@ -536,7 +536,7 @@ static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 
 	switch (cmd) {
 	case TCGETS:
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		termios = console_input.termios;
 		spin_unlock_irqrestore(&console_input.lock, flags);
 		if (copy_to_user((void *)arg, &termios, sizeof(termios)) != 0)
@@ -548,7 +548,7 @@ static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 		if (copy_from_user(&termios, (const void *)arg,
 				   sizeof(termios)) != 0)
 			return -EFAULT;
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		console_input.termios = termios;
 		spin_unlock_irqrestore(&console_input.lock, flags);
 		wait_channel_wake_all(&console_input.room);
@@ -570,7 +570,7 @@ static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 			return -EFAULT;
 		return session_console_set_foreground_pgid(pid);
 	case TIOCGWINSZ:
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		winsize = console_input.winsize;
 		spin_unlock_irqrestore(&console_input.lock, flags);
 		if (copy_to_user((void *)arg, &winsize, sizeof(winsize)) != 0)
@@ -580,7 +580,7 @@ static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 		if (copy_from_user(&winsize, (const void *)arg,
 				   sizeof(winsize)) != 0)
 			return -EFAULT;
-		spin_lock_irqsave(&console_input.lock, &flags);
+		spin_lock_irqsave(&console_input.lock, flags);
 		console_input.winsize = winsize;
 		spin_unlock_irqrestore(&console_input.lock, flags);
 		return 0;

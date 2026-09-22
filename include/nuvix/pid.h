@@ -3,8 +3,8 @@
  * @brief PID identities, role attachment, allocation, and lookup.
  *
  * Locking: all registry state is guarded by the module-private pid_lock
- * (LOCK_RANK_PID, 70).  Callers that also hold the topology lock (60) may
- * publish/unpublish; nothing else nests under pid_lock.  Lookups
+ * acquired after the topology lock when both are needed. Callers may
+ * publish/unpublish; nothing else nests under pid_lock. Lookups
  * return an object with one strong reference; the caller owns it.
  *
  * Reference rules: the registry reference is acquired once at first

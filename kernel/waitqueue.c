@@ -15,8 +15,7 @@ static struct wait_deadline_queue deadline_queues[NR_CPUS];
 void wait_init(void)
 {
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
-		spin_lock_init(&deadline_queues[id].lock, LOCK_RANK_DEADLINE_QUEUE,
-			       LOCK_IRQ_HARDIRQ_REACHABLE);
+		spin_lock_init(&deadline_queues[id].lock);
 		INIT_LIST_HEAD(&deadline_queues[id].entries);
 	}
 }
@@ -29,8 +28,7 @@ bool wait_may_block(void)
 
 void wait_channel_init(struct wait_channel *channel)
 {
-	spin_lock_init(&channel->lock, LOCK_RANK_WAIT_CHANNEL,
-		       LOCK_IRQ_HARDIRQ_REACHABLE);
+	spin_lock_init(&channel->lock);
 	INIT_LIST_HEAD(&channel->waiters);
 	INIT_LIST_HEAD(&channel->subscriptions);
 }
@@ -44,7 +42,7 @@ void event_subscribe(struct event_subscription *sub, struct wait_channel *source
 {
 	irq_flags_t flags;
 	BUG_ON(sub->source);
-	spin_lock_irqsave(&source->lock, &flags);
+	spin_lock_irqsave(&source->lock, flags);
 	sub->source = source;
 	list_add_tail(&sub->node, &source->subscriptions);
 	spin_unlock_irqrestore(&source->lock, flags);
@@ -56,7 +54,7 @@ void event_unsubscribe(struct event_subscription *sub)
 	irq_flags_t flags;
 	if (!source)
 		return;
-	spin_lock_irqsave(&source->lock, &flags);
+	spin_lock_irqsave(&source->lock, flags);
 	list_del_init(&sub->node);
 	sub->source = NULL;
 	spin_unlock_irqrestore(&source->lock, flags);
@@ -66,7 +64,7 @@ static void event_notify(struct wait_channel *source)
 {
 	struct event_subscription *sub;
 	irq_flags_t flags;
-	spin_lock_irqsave(&source->lock, &flags);
+	spin_lock_irqsave(&source->lock, flags);
 	list_for_each_entry(sub, &source->subscriptions, node)
 		sub->notify(sub);
 	spin_unlock_irqrestore(&source->lock, flags);
@@ -107,7 +105,7 @@ static void deadline_remove(struct task_wait *wait)
 	struct task_struct *task = NULL;
 	irq_flags_t flags;
 
-	spin_lock_irqsave(&queue->lock, &flags);
+	spin_lock_irqsave(&queue->lock, flags);
 	if (wait->deadline_queued) {
 		list_del_init(&wait->deadline_node);
 		wait->deadline_queued = false;
@@ -192,7 +190,7 @@ int wait_scope_prepare(struct wait_scope *scope, struct wait_channel *channel,
 	entry->generation = scope->generation;
 	entry->exclusive = exclusive;
 	INIT_LIST_HEAD(&entry->channel_node);
-	spin_lock_irqsave(&channel->lock, &flags);
+	spin_lock_irqsave(&channel->lock, flags);
 	list_add_tail(&entry->channel_node, &channel->waiters);
 	spin_unlock_irqrestore(&channel->lock, flags);
 	return 0;
@@ -247,7 +245,7 @@ void wait_scope_complete(struct wait_scope *scope)
 		struct wait_entry *entry = &wait->entries[i];
 		struct wait_channel *channel = entry->channel;
 
-		spin_lock_irqsave(&channel->lock, &flags);
+		spin_lock_irqsave(&channel->lock, flags);
 		list_del_init(&entry->channel_node);
 		spin_unlock_irqrestore(&channel->lock, flags);
 	}
@@ -303,7 +301,7 @@ static bool channel_wake(struct wait_channel *channel, bool exclusive_only)
 	uint64_t generation = 0;
 	irq_flags_t flags;
 
-	spin_lock_irqsave(&channel->lock, &flags);
+	spin_lock_irqsave(&channel->lock, flags);
 	list_for_each_entry(entry, &channel->waiters, channel_node) {
 		if (exclusive_only && !entry->exclusive)
 			continue;
@@ -343,7 +341,7 @@ void wait_expire_deadlines(uint64_t now)
 		uint64_t generation;
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&queue->lock, &flags);
+		spin_lock_irqsave(&queue->lock, flags);
 		if (list_empty(&queue->entries)) {
 			spin_unlock_irqrestore(&queue->lock, flags);
 			return;
@@ -369,7 +367,7 @@ uint64_t wait_next_deadline(uint64_t fallback)
 	struct wait_deadline_queue *queue = &deadline_queues[current_cpu()->id];
 	irq_flags_t flags;
 
-	spin_lock_irqsave(&queue->lock, &flags);
+	spin_lock_irqsave(&queue->lock, flags);
 	if (!list_empty(&queue->entries)) {
 		struct task_wait *wait = list_first_entry(&queue->entries,
 							struct task_wait, deadline_node);

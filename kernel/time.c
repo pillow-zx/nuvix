@@ -27,7 +27,7 @@ struct clockevent_cpu {
 };
 
 static struct realtime_clock realtime_clock = {
-	.lock = SPINLOCK_INIT(LOCK_RANK_REALTIME_CLOCK, LOCK_IRQ_TASK_ONLY),
+	.lock = SPINLOCK_INIT,
 };
 
 static struct clockevent_cpu clockevents[NR_CPUS];
@@ -46,8 +46,7 @@ void clockevent_init(void)
 	for (uint32_t id = 0; id < NR_CPUS; id++) {
 		struct clockevent_cpu *event = &clockevents[id];
 
-		spin_lock_init(&event->lock, LOCK_RANK_CLOCKEVENT,
-				LOCK_IRQ_HARDIRQ_REACHABLE);
+		spin_lock_init(&event->lock);
 		event->next_tick = UINT64_MAX;
 		event->programmed = UINT64_MAX;
 		event->initialized = false;
@@ -71,7 +70,7 @@ void clockevent_deadline_changed(uint64_t expires)
 	struct clockevent_cpu *event = &clockevents[current_cpu()->id];
 	irq_flags_t flags;
 
-	spin_lock_irqsave(&event->lock, &flags);
+	spin_lock_irqsave(&event->lock, flags);
 	if (event->initialized && expires < event->programmed) {
 		event->programmed = expires;
 		timer_set(expires);
@@ -91,7 +90,7 @@ void clockevent_handle_irq(uint64_t now)
 	atomic64_set_release(&clockevent_heartbeat[current_cpu()->id],
 			     (int64_t)now);
 	wait_expire_deadlines(now);
-	spin_lock_irqsave(&event->lock, &flags);
+	spin_lock_irqsave(&event->lock, flags);
 	BUG_ON(!event->initialized);
 	if (now >= event->next_tick) {
 		tick = true;
@@ -108,7 +107,7 @@ void clockevent_handle_irq(uint64_t now)
 		sched_tick();
 	next_event = wait_next_deadline(next_tick);
 
-	spin_lock_irqsave(&event->lock, &flags);
+	spin_lock_irqsave(&event->lock, flags);
 	event->programmed = next_event;
 	timer_set(next_event);
 	spin_unlock_irqrestore(&event->lock, flags);
@@ -171,7 +170,7 @@ void krealtime_now(struct timespec *value)
 	int64_t nanoseconds;
 
 	mtime_to_timespec(timer_now(), &monotonic);
-	spin_lock_irqsave(&realtime_clock.lock, &flags);
+	spin_lock_irqsave(&realtime_clock.lock, flags);
 	offset = realtime_clock.offset;
 	spin_unlock_irqrestore(&realtime_clock.lock, flags);
 
@@ -207,7 +206,7 @@ int krealtime_set(const struct timespec *value)
 		return -EINVAL;
 
 	timespec_subtract_nonnegative(value, &monotonic, &offset);
-	spin_lock_irqsave(&realtime_clock.lock, &flags);
+	spin_lock_irqsave(&realtime_clock.lock, flags);
 	realtime_clock.offset = offset;
 	spin_unlock_irqrestore(&realtime_clock.lock, flags);
 	return 0;

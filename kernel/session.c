@@ -13,7 +13,7 @@
 
 #include "tty_internal.h"
 
-static DEFINE_MUTEX(session_lock, LOCK_RANK_SESSION, LOCK_IRQ_TASK_ONLY);
+static DEFINE_MUTEX(session_lock);
 
 struct session_process_identity {
 	pid_t pgid;

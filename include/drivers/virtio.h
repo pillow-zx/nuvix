@@ -10,6 +10,7 @@
 #include <nuvix/types.h>
 #include <nuvix/tools.h>
 #include <arch/barrier.h>
+#include <arch/io.h>
 
 /**
  * @def VIRTIO_MMIO_MAGIC
@@ -158,9 +159,9 @@ struct virtio_blk_outhdr {
  */
 static inline void virtio_mmio_write(vaddr_t base, uint32_t off, uint32_t val)
 {
-	asm volatile("fence iorw,iorw" ::: "memory");
+	arch_io_mb();
 	MMIO_WRITE(uint32_t, base + off, val);
-	asm volatile("fence iorw,iorw" ::: "memory");
+	arch_io_mb();
 }
 
 /**
@@ -172,9 +173,9 @@ static inline void virtio_mmio_write(vaddr_t base, uint32_t off, uint32_t val)
 __must_check
 static inline uint32_t virtio_mmio_read(vaddr_t base, uint32_t off)
 {
-	asm volatile("fence iorw,iorw" ::: "memory");
+	arch_io_mb();
 	uint32_t value = MMIO_READ(uint32_t, base + off);
-	asm volatile("fence iorw,iorw" ::: "memory");
+	arch_io_mb();
 	return value;
 }
 

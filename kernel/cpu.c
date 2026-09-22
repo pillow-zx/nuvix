@@ -100,12 +100,5 @@ void cpu_boot_init(struct task_struct *idles)
 		cpu->preempt_count = 0;
 		cpu->irq_nesting = 0;
 		cpu->lock_depth = 0;
-#ifdef CONFIG_DEBUG_CONTEXT
-		for (uint32_t lock = 0; lock < CPU_LOCK_MAX; lock++) {
-			cpu->locks[lock] = NULL;
-			cpu->lock_flags[lock] = 0;
-			cpu->lock_irqsave[lock] = false;
-		}
-#endif
 	}
 }

@@ -116,7 +116,7 @@ static int pipe_wait(struct pipe_buffer *pipe, bool writing,
 		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 		if (ret < 0)
 			return ret;
-		spin_lock_irqsave(&pipe->lock, &flags);
+		spin_lock_irqsave(&pipe->lock, flags);
 		ready = writing ? PIPE_SIZE - pipe->used >= min_space ||
 					pipe->readers == 0
 				: (!pipe->consume_active &&
@@ -167,7 +167,7 @@ static int pipe_consume_finish(struct pipe_consume_token *token, size_t count,
 	    count > token->length)
 		return -EINVAL;
 	pipe = token->pipe;
-	spin_lock_irqsave(&pipe->lock, &flags);
+	spin_lock_irqsave(&pipe->lock, flags);
 	if (!pipe->consume_active || pipe->consume_generation != token->generation ||
 	    pipe->consume_length != token->length) {
 		spin_unlock_irqrestore(&pipe->lock, flags);
@@ -217,7 +217,7 @@ static struct pipe_buffer *pipe_buffer_alloc(void)
 		return NULL;
 
 	memset(pipe, 0, sizeof(*pipe));
-	spin_lock_init(&pipe->lock, LOCK_RANK_PIPE, LOCK_IRQ_TASK_ONLY);
+	spin_lock_init(&pipe->lock);
 	refcount_set(&pipe->refs, 1); /* construction reference */
 	pipe->data = get_page(0, ALLOC_NOWAIT);
 	if (!pipe->data) {
@@ -277,7 +277,7 @@ static ssize_t pipe_try_io(struct file *file, void *buf, size_t count, bool writ
 	ssize_t ret;
 	if (!count)
 		return 0;
-	spin_lock_irqsave(&pipe->lock, &flags);
+	spin_lock_irqsave(&pipe->lock, flags);
 	if (write) {
 		size_t space = PIPE_SIZE - pipe->used;
 		if (!pipe->readers)
@@ -323,7 +323,7 @@ static int pipe_poll(struct file *file, uint32_t events,
 		return POLLERR;
 	pipe_get(pipe);
 	held = pipe;
-	spin_lock_irqsave(&pipe->lock, &flags);
+	spin_lock_irqsave(&pipe->lock, flags);
 	if (file->f_mode & FMODE_READ) {
 		if (wait) {
 			ret = poll_wait(wait, &pipe->readers_wq);
@@ -365,7 +365,7 @@ static int pipe_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 
 	switch (cmd) {
 	case FIONREAD:
-		spin_lock_irqsave(&pipe->lock, &flags);
+		spin_lock_irqsave(&pipe->lock, flags);
 		available = pipe->used;
 		spin_unlock_irqrestore(&pipe->lock, flags);
 		if (copy_to_user((void *)arg, &available, sizeof(available)) != 0)
@@ -388,7 +388,7 @@ static int pipe_release(struct file *file)
 	/* Keep the wait channels alive while the endpoint wakeups run. */
 	pipe_get(pipe);
 
-	spin_lock_irqsave(&pipe->lock, &flags);
+	spin_lock_irqsave(&pipe->lock, flags);
 	if (file->f_mode & FMODE_READ) {
 		if (pipe->readers > 0)
 			pipe->readers--;
@@ -431,7 +431,7 @@ int pipe_consume_begin(struct file *file, char *buffer, size_t count,
 		size_t chunk;
 		if (!pipe->readers)
 			return -EPIPE;
-		spin_lock_irqsave(&pipe->lock, &flags);
+		spin_lock_irqsave(&pipe->lock, flags);
 		if (pipe->consume_active || pipe->used == 0) {
 			bool eof = pipe->used == 0 && pipe->writers == 0;
 
@@ -523,32 +523,26 @@ ssize_t pipe_splice_to_file(struct file *pipe_file, struct file *out_file,
 }
 
 /*
- * Move bytes from one pipe into another. Both pipe locks are held
- * simultaneously, ordered by address to avoid an ABBA deadlock between
- * concurrent splices in opposite directions, mirroring Linux's
- * pipe_double_lock ordering for splice(2) pipe-to-pipe transfers.  Pipe
- * locks are an instance-ordered class (see the checker's list in
- * spinlock.h): acquiring a second pipe lock while holding one is legal
- * only in ascending instance-address order, and the debug tracker
- * additionally requires reverse-order release.  Precondition: in_file
- * and out_file belong to different pipes.
+ * Order both pipe locks by address to avoid ABBA deadlocks between splices
+ * in opposite directions. The pipes must be distinct. Unlock in reverse
+ * order so that the outer acquisition restores the original IRQ state.
  */
 static void pipe_double_lock(struct pipe_buffer *a, struct pipe_buffer *b,
 			     irq_flags_t *flags_a, irq_flags_t *flags_b)
 {
 	if (a < b) {
-		spin_lock_irqsave(&a->lock, flags_a);
-		spin_lock_irqsave(&b->lock, flags_b);
+		spin_lock_irqsave(&a->lock, *flags_a);
+		spin_lock_irqsave(&b->lock, *flags_b);
 	} else {
-		spin_lock_irqsave(&b->lock, flags_b);
-		spin_lock_irqsave(&a->lock, flags_a);
+		spin_lock_irqsave(&b->lock, *flags_b);
+		spin_lock_irqsave(&a->lock, *flags_a);
 	}
 }
 
 static void pipe_double_unlock(struct pipe_buffer *a, struct pipe_buffer *b,
 			       irq_flags_t flags_a, irq_flags_t flags_b)
 {
-	/* Reverse acquisition order: the debug tracker requires LIFO. */
+	/* Restore the outer acquisition's IRQ flags last. */
 	if (a < b) {
 		spin_unlock_irqrestore(&b->lock, flags_b);
 		spin_unlock_irqrestore(&a->lock, flags_a);

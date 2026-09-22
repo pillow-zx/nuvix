@@ -21,7 +21,7 @@ struct mount_device_claim {
 
 static LIST_HEAD(mount_list);
 static LIST_HEAD(mount_device_claims);
-static DEFINE_MUTEX(mount_lock, LOCK_RANK_VFS_MOUNT, LOCK_IRQ_TASK_ONLY);
+static DEFINE_MUTEX(mount_lock);
 static struct vfsmount *root_mount;
 
 int vfs_sync_all(void)

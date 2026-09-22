@@ -429,7 +429,7 @@ static int ext2_read_super(struct super_block *sb)
 	if (!sbi)
 		return -ENOMEM;
 	memset(sbi, 0, sizeof(*sbi));
-	spin_lock_init(&sbi->s_lock, LOCK_RANK_EXT2_SB, LOCK_IRQ_TASK_ONLY);
+	spin_lock_init(&sbi->s_lock);
 	sbi->s_es = *es;
 	sbi->s_device_blocks = geometry.device_blocks;
 	sbi->s_groups_count = geometry.groups_count;

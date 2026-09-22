@@ -284,7 +284,7 @@ struct super_block {
  * - @c i_ctime_sec: Last metadata-change time, seconds.
  * - @c i_rdev: Device id for special files.
  * - @c i_refcount: Lifetime reference count.
- * - @c i_lock: Serializes inode data mutations (rank 130).
+ * - @c i_lock: Serializes inode data mutations.
  * - @c i_sb: Owning superblock.
  * - @c i_op: Namespace/metadata operations.
  * - @c i_fop: Default file operations.
@@ -437,12 +437,9 @@ struct path {
  * - @c refcount: Open-file reference count.
  * - @c static_file: True for non-freeable built-in file objects.
  *
- * @c f_pos for regular files is serialized by the single VFS-wide implicit
- * position mutex (read_write.c), not by a per-file lock: the rank contract
- * forbids nesting two LOCK_RANK_FILE_POSITION locks, which a per-file mutex
- * would require for sendfile-style cross-file copies.  It is a mutex, like
- * Linux's f_pos_lock, because the data path allocates page-cache pages,
- * which the debug-context gate forbids under a spinlock. */
+ * @c f_pos for regular files is serialized by the VFS-wide implicit
+ * position mutex (read_write.c), including cross-file copies. The mutex
+ * permits page-cache allocation in the data path. */
 struct file {
 	const struct file_operations *f_op;
 	struct path f_path;

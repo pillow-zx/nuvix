@@ -14,8 +14,7 @@
 #include <nuvix/task.h>
 #include <uapi/signal.h>
 
-static DEFINE_SPINLOCK(proc_topology_lock, LOCK_RANK_TOPOLOGY,
-		       LOCK_IRQ_TASK_ONLY);
+static DEFINE_SPINLOCK(proc_topology_lock);
 
 void proc_parent_event_release(struct proc_parent_event *event)
 {
@@ -114,7 +113,7 @@ static struct session_struct *session_alloc(struct pid_identity *sid)
 	if (!session)
 		return NULL;
 	refcount_set(&session->refs, 1);
-	spin_lock_init(&session->lock, LOCK_RANK_TOPOLOGY, LOCK_IRQ_TASK_ONLY);
+	spin_lock_init(&session->lock);
 	INIT_LIST_HEAD(&session->pgrps);
 	session->ctty = NULL;
 	session->sid = sid;
@@ -136,7 +135,7 @@ static struct pgrp_struct *pgrp_alloc(struct pid_identity *pgid,
 	if (!pgrp)
 		return NULL;
 	refcount_set(&pgrp->refs, 1);
-	spin_lock_init(&pgrp->lock, LOCK_RANK_TOPOLOGY, LOCK_IRQ_TASK_ONLY);
+	spin_lock_init(&pgrp->lock);
 	INIT_LIST_HEAD(&pgrp->members);
 	INIT_LIST_HEAD(&pgrp->session_node);
 	pgrp->pgid = pgid;
@@ -181,9 +180,8 @@ struct proc_struct *proc_alloc(struct proc_struct *parent,
 	if (!proc)
 		return NULL;
 	refcount_set(&proc->refs, 1);
-	spin_lock_init(&proc->signal.siglock, LOCK_RANK_SIGNAL_SHARED,
-		       LOCK_IRQ_TASK_ONLY);
-	spin_lock_init(&proc->lock, LOCK_RANK_PROC, LOCK_IRQ_TASK_ONLY);
+	spin_lock_init(&proc->signal.siglock);
+	spin_lock_init(&proc->lock);
 	proc->pid = pid;
 	pid_get(pid);
 	proc->lifecycle = PROC_NEW;
@@ -314,7 +312,7 @@ int proc_clone_rlimits(struct proc_struct *proc,
 
 	if (!proc || !source || proc->lifecycle != PROC_NEW)
 		return -EINVAL;
-	spin_lock_irqsave(&source->lock, &flags);
+	spin_lock_irqsave(&source->lock, flags);
 	memcpy(proc->rlimits, source->rlimits, sizeof(proc->rlimits));
 	spin_unlock_irqrestore(&source->lock, flags);
 	return 0;
@@ -1275,7 +1273,7 @@ struct session_struct *proc_lookup_session(pid_t sid)
  * @brief Report whether a session has any pgrp with remaining members.
  *
  * Callers that hold the TTY lock may call this: the check runs under the
- * topology lock (rank 60), which orders after session (10) and TTY (20).
+ * topology lock, acquired after the session and TTY locks when nested.
  * No references are taken or released.  @p exclude is ignored for the
  * emptiness verdict (typically the exiting last member of the session).
  */

@@ -35,7 +35,7 @@ static int pgcache_sync_page_snapshot(struct pgcache *page)
 	snapshot = get_page(0, ALLOC_NOWAIT);
 	if (!snapshot)
 		return -ENOMEM;
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	if (page->writeback || page->filling) {
 		spin_unlock_irqrestore(&pgcache_lock, flags);
 		free_page(snapshot, 0);
@@ -54,7 +54,7 @@ static int pgcache_sync_page_snapshot(struct pgcache *page)
 	memcpy(snapshot, page->data, BLOCK_SIZE);
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	ret = pgcache_write_snapshot(page, snapshot);
-	spin_lock_irqsave(&pgcache_lock, &flags);
+	spin_lock_irqsave(&pgcache_lock, flags);
 	page->writeback = false;
 	if (ret < 0)
 		page->error = ret;
@@ -81,7 +81,7 @@ int pgcache_sync_mapping(struct page_mapping *mapping)
 		return -EINVAL;
 	for (;;) {
 		page = NULL;
-		spin_lock_irqsave(&pgcache_lock, &flags);
+		spin_lock_irqsave(&pgcache_lock, flags);
 		list_for_each (pos, &mapping->pages) {
 			struct pgcache_assoc *assoc = list_entry(
 				pos, struct pgcache_assoc, mapping_node);
@@ -118,7 +118,7 @@ int pgcache_msync_mapping_range(struct page_mapping *mapping,
 		uint64_t page_index = end_page;
 		int ret;
 
-		spin_lock_irqsave(&pgcache_lock, &flags);
+		spin_lock_irqsave(&pgcache_lock, flags);
 		list_for_each (pos, &mapping->pages) {
 			struct pgcache_assoc *assoc = list_entry(
 				pos, struct pgcache_assoc, mapping_node);
@@ -170,7 +170,7 @@ int pgcache_sync_device(dev_t dev)
 		struct list_head *pos;
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&pgcache_lock, &flags);
+		spin_lock_irqsave(&pgcache_lock, flags);
 		list_for_each (pos, &pgcache_dirty_list) {
 			struct pgcache *candidate =
 				list_entry(pos, struct pgcache, dirty_node);

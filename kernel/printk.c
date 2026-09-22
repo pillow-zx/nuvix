@@ -46,13 +46,10 @@ static void uart_poll_write(const char *s)
 }
 
 static struct printk_ring printk_ring = {
-	.lock = SPINLOCK_INIT(LOCK_RANK_PRINTK_RING, LOCK_IRQ_HARDIRQ_REACHABLE),
-	.read_wait = WAIT_CHANNEL_INIT_RANK(printk_ring.read_wait,
-		LOCK_RANK_WAIT_CHANNEL, LOCK_IRQ_HARDIRQ_REACHABLE),
-	.console_wait = WAIT_CHANNEL_INIT_RANK(printk_ring.console_wait,
-		LOCK_RANK_WAIT_CHANNEL, LOCK_IRQ_HARDIRQ_REACHABLE),
-	.read_lock = MUTEX_INIT(printk_ring.read_lock, LOCK_RANK_PRINTK_READ,
-				LOCK_IRQ_TASK_ONLY),
+	.lock = SPINLOCK_INIT,
+	.read_wait = WAIT_CHANNEL_INIT(printk_ring.read_wait),
+	.console_wait = WAIT_CHANNEL_INIT(printk_ring.console_wait),
+	.read_lock = MUTEX_INIT(printk_ring.read_lock),
 };
 
 __nonnull(1)
@@ -121,7 +118,7 @@ static void printk_ring_append_message(int level, const char *message, size_t si
 	};
 	irq_flags_t flags;
 
-	spin_lock_irqsave(&printk_ring.lock, &flags);
+	spin_lock_irqsave(&printk_ring.lock, flags);
 	printk_ring_append_locked(priority, sizeof(priority), true);
 	printk_ring_append_locked(message, size, false);
 	bool async = printk_ring.console_async;
@@ -147,7 +144,7 @@ size_t printk_log_unread_size(void)
 	irq_flags_t flags;
 	size_t size;
 
-	spin_lock_irqsave(&printk_ring.lock, &flags);
+	spin_lock_irqsave(&printk_ring.lock, flags);
 	size = printk_ring_normalize_locked(&printk_ring.read_seq);
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
 	return size;
@@ -167,7 +164,7 @@ static int printk_log_wait_for_unread(void)
 		ret = wait_scope_begin(&scope, WAIT_FLAG_INTERRUPTIBLE, &deadline);
 		if (ret < 0)
 			return ret;
-		spin_lock_irqsave(&printk_ring.lock, &flags);
+		spin_lock_irqsave(&printk_ring.lock, flags);
 		ready = printk_ring_normalize_locked(&printk_ring.read_seq) !=
 			0;
 		if (!ready)
@@ -216,7 +213,7 @@ ssize_t printk_log_read(void *buffer, size_t size)
 	if (ret < 0)
 		goto unlock;
 
-	spin_lock_irqsave(&printk_ring.lock, &flags);
+	spin_lock_irqsave(&printk_ring.lock, flags);
 	copied = printk_ring_normalize_locked(&printk_ring.read_seq);
 	if (copied > size)
 		copied = size;
@@ -229,7 +226,7 @@ ssize_t printk_log_read(void *buffer, size_t size)
 		copied -= left;
 	}
 
-	spin_lock_irqsave(&printk_ring.lock, &flags);
+	spin_lock_irqsave(&printk_ring.lock, flags);
 	if (printk_ring.read_seq < sequence + copied)
 		printk_ring.read_seq = sequence + copied;
 	(void)printk_ring_normalize_locked(&printk_ring.read_seq);
@@ -259,7 +256,7 @@ ssize_t printk_log_read_all(void *buffer, size_t size, bool clear)
 			return -ENOMEM;
 	}
 
-	spin_lock_irqsave(&printk_ring.lock, &flags);
+	spin_lock_irqsave(&printk_ring.lock, flags);
 	sequence = printk_ring.clear_seq;
 	available = printk_ring_normalize_locked(&sequence);
 	clear_to = printk_ring.head_seq;
@@ -278,7 +275,7 @@ ssize_t printk_log_read_all(void *buffer, size_t size, bool clear)
 	if (!clear)
 		return (ssize_t)copied;
 
-	spin_lock_irqsave(&printk_ring.lock, &flags);
+	spin_lock_irqsave(&printk_ring.lock, flags);
 	if (printk_ring.clear_seq < clear_to)
 		printk_ring.clear_seq = clear_to;
 	(void)printk_ring_normalize_locked(&printk_ring.clear_seq);
@@ -290,7 +287,7 @@ void printk_log_clear(void)
 {
 	irq_flags_t flags;
 
-	spin_lock_irqsave(&printk_ring.lock, &flags);
+	spin_lock_irqsave(&printk_ring.lock, flags);
 	printk_ring.clear_seq = printk_ring.head_seq;
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
 }
@@ -317,7 +314,7 @@ static void printk_console_thread(void *arg)
 		irq_flags_t flags;
 		int ret = wait_scope_begin(&scope, 0, &deadline);
 		BUG_ON(ret < 0);
-		spin_lock_irqsave(&printk_ring.lock, &flags);
+		spin_lock_irqsave(&printk_ring.lock, flags);
 		/* Console backlog has the same bounded overwrite policy as the
 		 * log ring; its cursor is independent of syslog readers/clear. */
 		(void)printk_ring_normalize_locked(&printk_ring.console_seq);
@@ -345,7 +342,7 @@ static void printk_console_thread(void *arg)
 int printk_console_start(void)
 {
 	irq_flags_t flags;
-	spin_lock_irqsave(&printk_ring.lock, &flags);
+	spin_lock_irqsave(&printk_ring.lock, flags);
 	BUG_ON(printk_ring.console_async);
 	printk_ring.console_async = true;
 	spin_unlock_irqrestore(&printk_ring.lock, flags);

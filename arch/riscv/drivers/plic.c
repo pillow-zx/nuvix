@@ -1,4 +1,5 @@
 #include <arch/plic.h>
+#include <arch/io.h>
 #include <arch/pgtable.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
@@ -43,32 +44,23 @@ struct plic_controller {
 };
 
 static struct plic_controller plic = {
-	.lock = SPINLOCK_INIT(LOCK_RANK_IRQ, LOCK_IRQ_HARDIRQ_REACHABLE),
-	.idle = WAIT_CHANNEL_INIT_RANK(plic.idle, LOCK_RANK_WAIT_CHANNEL,
-				       LOCK_IRQ_HARDIRQ_REACHABLE),
+	.lock = SPINLOCK_INIT,
+	.idle = WAIT_CHANNEL_INIT(plic.idle),
 };
-
-/* The ordinary memory barriers do not order the RISC-V I/O domain. These
- * fences also order device acknowledgement before PLIC completion, and MMIO
- * accesses against the memory operations publishing registration state. */
-static void plic_fence(void)
-{
-	asm volatile("fence iorw,iorw" ::: "memory");
-}
 
 static uint32_t plic_read(vaddr_t address)
 {
-	plic_fence();
+	arch_io_mb();
 	uint32_t value = MMIO_READ(uint32_t, address);
-	plic_fence();
+	arch_io_mb();
 	return value;
 }
 
 static void plic_write(vaddr_t address, uint32_t value)
 {
-	plic_fence();
+	arch_io_mb();
 	MMIO_WRITE(uint32_t, address, value);
-	plic_fence();
+	arch_io_mb();
 }
 
 static int plic_write_warl(vaddr_t address, uint32_t value)
@@ -160,7 +152,7 @@ void plic_cpu_init(void)
 	irq_flags_t flags;
 
 	BUG_ON(!controller->sources || !irqs_disabled() || cpu >= nr_cpu_ids);
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	BUG_ON(controller->contexts[cpu].ready);
 	if (plic_write_warl(controller->contexts[cpu].context + PLIC_THRESHOLD, 0))
 		panic("plic: CPU %u does not support threshold 0", cpu);
@@ -178,7 +170,7 @@ int plic_set_threshold(uint32_t cpu, uint32_t threshold)
 		return -ENODEV;
 	if (cpu >= nr_cpu_ids)
 		return -EINVAL;
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	ret = controller->contexts[cpu].ready ?
 		plic_write_warl(controller->contexts[cpu].context + PLIC_THRESHOLD,
 				threshold) :
@@ -199,7 +191,7 @@ int irq_register(unsigned irq, uint32_t cpu, irq_handler_t handler, void *data)
 		return -EINVAL;
 	if (!cpu_is_online(cpu))
 		return -ENODEV;
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	struct plic_source *source = &controller->sources[irq];
 	if (source->handler) {
 		ret = -EBUSY;
@@ -224,7 +216,7 @@ int irq_enable(unsigned irq)
 
 	if (ret)
 		return ret;
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	struct plic_source *source = &controller->sources[irq];
 	if (!source->handler) {
 		ret = -ENOENT;
@@ -258,7 +250,7 @@ int irq_disable(unsigned irq)
 
 	if (ret)
 		return ret;
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	if (!controller->sources[irq].handler)
 		ret = -ENOENT;
 	else
@@ -280,7 +272,7 @@ static int plic_wait_idle(struct plic_controller *controller, unsigned irq)
 
 		if (ret)
 			return ret;
-		spin_lock_irqsave(&controller->lock, &flags);
+		spin_lock_irqsave(&controller->lock, flags);
 		active = controller->sources[irq].active;
 		if (active)
 			ret = wait_scope_prepare(&scope, &controller->idle, false);
@@ -304,7 +296,7 @@ int irq_synchronize(unsigned irq)
 		return ret;
 	if (!wait_context_can_sleep())
 		return -EINVAL;
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	if (!controller->sources[irq].handler)
 		ret = -ENOENT;
 	else if (controller->sources[irq].removing)
@@ -323,7 +315,7 @@ int irq_unregister(unsigned irq)
 		return ret;
 	if (!wait_context_can_sleep())
 		return -EINVAL;
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	struct plic_source *source = &controller->sources[irq];
 	if (!source->handler) {
 		ret = -ENOENT;
@@ -338,7 +330,7 @@ int irq_unregister(unsigned irq)
 		return ret;
 
 	ret = plic_wait_idle(controller, irq);
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	if (!ret)
 		*source = (struct plic_source){0};
 	else
@@ -355,7 +347,7 @@ int irq_set_priority(unsigned irq, uint32_t priority)
 
 	if (ret)
 		return ret;
-	spin_lock_irqsave(&controller->lock, &flags);
+	spin_lock_irqsave(&controller->lock, flags);
 	if (!controller->sources[irq].handler)
 		ret = -ENOENT;
 	else if (controller->sources[irq].removing)
@@ -386,7 +378,7 @@ void plic_handle_irq(void)
 
 	BUG_ON(!controller->sources || !in_irq() || !irqs_disabled());
 	for (;;) {
-		spin_lock_irqsave(&controller->lock, &flags);
+		spin_lock_irqsave(&controller->lock, flags);
 		unsigned irq = plic_claim(controller, cpu);
 		if (!irq) {
 			spin_unlock_irqrestore(&controller->lock, flags);
@@ -412,7 +404,7 @@ void plic_handle_irq(void)
 		handler(irq, data);
 		BUG_ON(!irqs_disabled());
 
-		spin_lock_irqsave(&controller->lock, &flags);
+		spin_lock_irqsave(&controller->lock, flags);
 		plic_complete(controller, cpu, irq);
 		if (!source->enabled)
 			plic_set_enable(controller, cpu, irq, false);

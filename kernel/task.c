@@ -69,7 +69,7 @@ static void cred_replace(struct task_struct *task, struct cred *cred)
 	irq_flags_t flags;
 
 	/* Serialize the immutable credential binding with remote snapshots. */
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	old = task->cred;
 	task->cred = cred;
 	spin_unlock_irqrestore(&task->lock, flags);
@@ -83,7 +83,7 @@ struct cred *task_cred_get(struct task_struct *task)
 
 	if (!task || task_is_idle(task))
 		return NULL;
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	cred = task->cred;
 	cred_get(cred);
 	spin_unlock_irqrestore(&task->lock, flags);
@@ -191,7 +191,7 @@ int task_set_groups(struct task_struct *task, const gid_t *groups,
 
 static void task_init_control(struct task_struct *task)
 {
-	spin_lock_init(&task->lock, LOCK_RANK_WAIT, LOCK_IRQ_HARDIRQ_REACHABLE);
+	spin_lock_init(&task->lock);
 	task->wait.owner = task;
 	INIT_LIST_HEAD(&task->wait.deadline_node);
 }
@@ -254,7 +254,7 @@ struct mm_struct *task_replace_mm(struct task_struct *task, struct mm_struct *mm
 
 	if (mm)
 		mm_publish(mm);
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	old = task->mm;
 	task->mm = mm;
 	spin_unlock_irqrestore(&task->lock, flags);
@@ -270,7 +270,7 @@ struct mm_struct *task_mm_get(struct task_struct *task)
 
 	if (!task)
 		return NULL;
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	mm = task->mm;
 	mm_get(mm);
 	spin_unlock_irqrestore(&task->lock, flags);
@@ -401,7 +401,7 @@ void task_release_resources(struct task_struct *task)
 	mm_put(task_replace_mm(task, NULL));
 	kernel_clone_complete_vfork(task);
 	sig_task_release(task);
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	cred = task->cred;
 	task->cred = NULL;
 	spin_unlock_irqrestore(&task->lock, flags);
@@ -419,7 +419,7 @@ bool task_begin_exit(struct task_struct *task)
 	signal = task->proc ? &task->proc->signal : NULL;
 	if (signal)
 		return sig_task_begin_exit(task);
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	if (task->lifecycle == TASK_LIVE) {
 		task->lifecycle = TASK_EXITING;
 		begun = true;
@@ -441,7 +441,7 @@ bool task_request_exec_exit(struct task_struct *task)
 	if (!task || task_is_idle(task) || task == current_task())
 		return false;
 
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	if (task->lifecycle == TASK_LIVE) {
 		task->exit_request = TASK_EXIT_REQUEST_EXEC;
 		requested = true;
@@ -462,7 +462,7 @@ bool task_request_group_exit(struct task_struct *task)
 
 	if (!task || task_is_idle(task) || task == current_task())
 		return false;
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	live = task->lifecycle == TASK_LIVE;
 	spin_unlock_irqrestore(&task->lock, flags);
 	if (live)
@@ -477,7 +477,7 @@ bool task_exec_exit_requested(struct task_struct *task)
 
 	if (!task)
 		return false;
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	requested = task->exit_request == TASK_EXIT_REQUEST_EXEC;
 	spin_unlock_irqrestore(&task->lock, flags);
 	return requested;
@@ -490,7 +490,7 @@ void task_mark_dead(struct task_struct *task)
 	if (!task)
 		return;
 	/* Paired with the locked lifecycle read in task_try_get_live. */
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	BUG_ON(task->lifecycle != TASK_EXITING);
 	task->lifecycle = TASK_DEAD;
 	spin_unlock_irqrestore(&task->lock, flags);
@@ -598,7 +598,7 @@ bool task_try_get_live(struct task_struct *task)
 		return true;
 	if (!task_try_get(task))
 		return false;
-	spin_lock_irqsave(&task->lock, &flags);
+	spin_lock_irqsave(&task->lock, flags);
 	live = task->lifecycle == TASK_LIVE;
 	spin_unlock_irqrestore(&task->lock, flags);
 	if (!live)
@@ -606,8 +606,7 @@ bool task_try_get_live(struct task_struct *task)
 	return live;
 }
 
-static DEFINE_SPINLOCK(disposal_lock, LOCK_RANK_RETIRED,
-		       LOCK_IRQ_HARDIRQ_REACHABLE);
+static DEFINE_SPINLOCK(disposal_lock);
 static LIST_HEAD(disposals);
 
 void task_reap_deferred(void)
@@ -616,7 +615,7 @@ void task_reap_deferred(void)
 		struct task_struct *task;
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&disposal_lock, &flags);
+		spin_lock_irqsave(&disposal_lock, flags);
 		if (list_empty(&disposals)) {
 			spin_unlock_irqrestore(&disposal_lock, flags);
 			return;
@@ -639,7 +638,7 @@ void task_put(struct task_struct *task)
 	} else {
 		irq_flags_t flags;
 
-		spin_lock_irqsave(&disposal_lock, &flags);
+		spin_lock_irqsave(&disposal_lock, flags);
 		list_add_tail(&task->retired_node, &disposals);
 		spin_unlock_irqrestore(&disposal_lock, flags);
 		sched_notify_reaper();

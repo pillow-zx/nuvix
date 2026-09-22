@@ -225,7 +225,7 @@ static void clone_wait_for_vfork(struct vfork_completion *vfork)
 
 		ret = wait_scope_begin(&scope, WAIT_FLAG_KILLABLE, &deadline);
 		BUG_ON(ret < 0);
-		spin_lock_irqsave(&vfork->lock, &flags);
+		spin_lock_irqsave(&vfork->lock, flags);
 		completed = vfork->completed;
 		if (!completed)
 			ret = wait_scope_prepare(&scope,
@@ -299,7 +299,7 @@ int kernel_clone_prepare(struct trap_frame *tf, unsigned long flags,
 			goto fail_proc;
 		}
 		refcount_set(&child->vfork->refs, 1);
-		spin_lock_init(&child->vfork->lock, LOCK_RANK_VFORK, LOCK_IRQ_TASK_ONLY);
+		spin_lock_init(&child->vfork->lock);
 		wait_channel_init(&child->vfork->channel);
 	}
 	clone->task = child;

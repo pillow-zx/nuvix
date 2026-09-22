@@ -125,7 +125,7 @@ struct anon_shared *anon_shared_create(void)
 	anon->pages = RB_ROOT;
 	anon->kernel_page = false;
 	INIT_LIST_HEAD(&anon->mappings);
-	spin_lock_init(&anon->lock, LOCK_RANK_MM_ANON, LOCK_IRQ_TASK_ONLY);
+	spin_lock_init(&anon->lock);
 	return anon;
 }
 
@@ -228,7 +228,7 @@ struct page *anon_shared_page(struct anon_shared *anon, uintptr_t index)
 
 /* The permanent owner holds one reference; callers receive a separate ref. */
 static struct page *zero_page;
-static DEFINE_SPINLOCK(zero_lock, LOCK_RANK_MM_ANON, LOCK_IRQ_TASK_ONLY);
+static DEFINE_SPINLOCK(zero_lock);
 
 struct page *mm_zero_page(void)
 {

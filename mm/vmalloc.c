@@ -28,12 +28,10 @@ static uintptr_t vmalloc_start;
 static uintptr_t vmalloc_end;
 static bool vmalloc_ready;
 static LIST_HEAD(vmalloc_areas);
-static DEFINE_SPINLOCK(vmalloc_lock, LOCK_RANK_ALLOC_VMALLOC,
-		       LOCK_IRQ_TASK_ONLY);
+static DEFINE_SPINLOCK(vmalloc_lock);
 /* Serializes leaf PTE updates.  It is never held while area metadata is
  * changed, so mapping teardown can wait for remote TLB acknowledgements. */
-static DEFINE_SPINLOCK(vmalloc_pt_lock, LOCK_RANK_ALLOC_VMALLOC,
-		       LOCK_IRQ_TASK_ONLY);
+static DEFINE_SPINLOCK(vmalloc_pt_lock);
 
 /* Clear the PTEs and complete the global shootdown before freeing any page.
  * The caller keeps the virtual span reserved through this operation. */
