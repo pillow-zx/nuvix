@@ -340,11 +340,11 @@ static int pselect_scan(struct task_wait *wait, void *arg)
  */
 ssize_t sys_ppoll(struct trap_frame *tf)
 {
-	struct pollfd *ufds = (struct pollfd *)syscall_arg(tf, 0);
-	size_t nfds = (size_t)syscall_arg(tf, 1);
-	const struct timespec *utimeout = (const struct timespec *)syscall_arg(tf, 2);
-	const unsigned long *usigmask = (const unsigned long *)syscall_arg(tf, 3);
-	size_t sigsetsize = (size_t)syscall_arg(tf, 4);
+	struct pollfd *ufds = (struct pollfd *)sysarg(tf, 0);
+	size_t nfds = (size_t)sysarg(tf, 1);
+	const struct timespec *utimeout = (const struct timespec *)sysarg(tf, 2);
+	const unsigned long *usigmask = (const unsigned long *)sysarg(tf, 3);
+	size_t sigsetsize = (size_t)sysarg(tf, 4);
 	struct pollfd fds[NR_OPEN];
 	struct file *files[NR_OPEN] = {0};
 	struct timespec timeout;
@@ -417,13 +417,13 @@ ssize_t sys_ppoll(struct trap_frame *tf)
  */
 ssize_t sys_pselect6(struct trap_frame *tf)
 {
-	long nfds = (long)syscall_arg(tf, 0);
-	fd_set *ureadfds = (fd_set *)syscall_arg(tf, 1);
-	fd_set *uwritefds = (fd_set *)syscall_arg(tf, 2);
-	fd_set *uexceptfds = (fd_set *)syscall_arg(tf, 3);
-	const struct timespec *utimeout = (const struct timespec *)syscall_arg(tf, 4);
+	long nfds = (long)sysarg(tf, 0);
+	fd_set *ureadfds = (fd_set *)sysarg(tf, 1);
+	fd_set *uwritefds = (fd_set *)sysarg(tf, 2);
+	fd_set *uexceptfds = (fd_set *)sysarg(tf, 3);
+	const struct timespec *utimeout = (const struct timespec *)sysarg(tf, 4);
 	const struct pselect6_sigmask *usigpack =
-		(const struct pselect6_sigmask *)syscall_arg(tf, 5);
+		(const struct pselect6_sigmask *)sysarg(tf, 5);
 	const unsigned long *usigmask;
 	fd_set in_readfds;
 	fd_set in_writefds;

@@ -2,6 +2,7 @@
  * syscall/sys_file_stat.c - stat/statfs 元数据查询系统调用
  */
 
+#include <nuvix/string.h>
 #include <nuvix/fdtable.h>
 #include <nuvix/blkdev.h>
 #include <nuvix/fs.h>
@@ -23,8 +24,8 @@
 
 ssize_t sys_fstat(struct trap_frame *tf)
 {
-	int fd = (int)syscall_arg(tf, 0);
-	struct stat *ustat = (struct stat *)syscall_arg(tf, 1);
+	int fd = (int)sysarg(tf, 0);
+	struct stat *ustat = (struct stat *)sysarg(tf, 1);
 	struct file *file __cleanup_with(file) = fd_get(fd);
 	struct stat st;
 	int ret;
@@ -43,10 +44,10 @@ ssize_t sys_fstat(struct trap_frame *tf)
 
 ssize_t sys_newfstatat(struct trap_frame *tf)
 {
-	int dfd = (int)syscall_arg(tf, 0);
-	const char *upath = (const char *)syscall_arg(tf, 1);
-	struct stat *ustat = (struct stat *)syscall_arg(tf, 2);
-	int flags = (int)syscall_arg(tf, 3);
+	int dfd = (int)sysarg(tf, 0);
+	const char *upath = (const char *)sysarg(tf, 1);
+	struct stat *ustat = (struct stat *)sysarg(tf, 2);
+	int flags = (int)sysarg(tf, 3);
 	struct vfs_at_lookup_result lookup __cleanup_with(vfs_at_lookup) = {};
 	char *path __cleanup_with(page0) = NULL;
 	struct stat st;
@@ -118,11 +119,11 @@ static void statx_from_stat(const struct stat *st, struct statx *stx)
  */
 ssize_t sys_statx(struct trap_frame *tf)
 {
-	int dfd = (int)syscall_arg(tf, 0);
-	const char *upath = (const char *)syscall_arg(tf, 1);
-	int flags = (int)syscall_arg(tf, 2);
-	uint32_t mask = (uint32_t)syscall_arg(tf, 3);
-	struct statx *ustatx = (struct statx *)syscall_arg(tf, 4);
+	int dfd = (int)sysarg(tf, 0);
+	const char *upath = (const char *)sysarg(tf, 1);
+	int flags = (int)sysarg(tf, 2);
+	uint32_t mask = (uint32_t)sysarg(tf, 3);
+	struct statx *ustatx = (struct statx *)sysarg(tf, 4);
 	struct vfs_at_lookup_result lookup __cleanup_with(vfs_at_lookup) = {};
 	char *path __cleanup_with(page0) = NULL;
 	struct stat st;
@@ -172,8 +173,8 @@ ssize_t sys_statx(struct trap_frame *tf)
  */
 ssize_t sys_statfs64(struct trap_frame *tf)
 {
-	const char *upath = (const char *)syscall_arg(tf, 0);
-	struct statfs64 *ubuf = (struct statfs64 *)syscall_arg(tf, 1);
+	const char *upath = (const char *)sysarg(tf, 0);
+	struct statfs64 *ubuf = (struct statfs64 *)sysarg(tf, 1);
 	char *path __cleanup_with(page0) = NULL;
 	struct vfs_at_lookup_result found __cleanup_with(vfs_at_lookup) = {};
 	struct statfs64 st;
@@ -211,8 +212,8 @@ ssize_t sys_statfs64(struct trap_frame *tf)
  */
 ssize_t sys_fstatfs64(struct trap_frame *tf)
 {
-	int fd = (int)syscall_arg(tf, 0);
-	struct statfs64 *ubuf = (struct statfs64 *)syscall_arg(tf, 1);
+	int fd = (int)sysarg(tf, 0);
+	struct statfs64 *ubuf = (struct statfs64 *)sysarg(tf, 1);
 	struct file *file __cleanup_with(file) = NULL;
 	struct statfs64 st;
 	int ret;

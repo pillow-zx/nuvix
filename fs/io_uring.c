@@ -561,8 +561,8 @@ static const struct file_operations ring_fops = {
 
 ssize_t sys_io_uring_setup(struct trap_frame *tf)
 {
-	uint32_t entries = syscall_arg(tf, 0), size = 1;
-	struct io_uring_params *user = (void *)syscall_arg(tf, 1), params;
+	uint32_t entries = sysarg(tf, 0), size = 1;
+	struct io_uring_params *user = (void *)sysarg(tf, 1), params;
 	struct io_ring *ring;
 	struct file *file;
 	int fd;
@@ -754,11 +754,11 @@ static int ring_wait(struct io_ring *ring, uint32_t minimum,
 
 ssize_t sys_io_uring_enter(struct trap_frame *tf)
 {
-	struct file *file = fd_get((int)syscall_arg(tf, 0));
-	uint32_t submit = syscall_arg(tf, 1), minimum = syscall_arg(tf, 2),
-		 flags = syscall_arg(tf, 3);
-	void *arg = (void *)syscall_arg(tf, 4);
-	size_t size = syscall_arg(tf, 5);
+	struct file *file = fd_get((int)sysarg(tf, 0));
+	uint32_t submit = sysarg(tf, 1), minimum = sysarg(tf, 2),
+		 flags = sysarg(tf, 3);
+	void *arg = (void *)sysarg(tf, 4);
+	size_t size = sysarg(tf, 5);
 	struct wait_deadline deadline = wait_deadline_none();
 	struct io_uring_getevents_arg ext;
 	struct timespec ts;
@@ -1004,9 +1004,9 @@ out:
 
 ssize_t sys_io_uring_register(struct trap_frame *tf)
 {
-	struct file *file = fd_get((int)syscall_arg(tf, 0));
-	unsigned int opcode = syscall_arg(tf, 1), count = syscall_arg(tf, 3);
-	void *arg = (void *)syscall_arg(tf, 2);
+	struct file *file = fd_get((int)sysarg(tf, 0));
+	unsigned int opcode = sysarg(tf, 1), count = sysarg(tf, 3);
+	void *arg = (void *)sysarg(tf, 2);
 	int ret;
 	if (!file)
 		return -EBADF;

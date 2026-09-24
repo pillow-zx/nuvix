@@ -2,6 +2,7 @@
  * syscall/sys_misc.c - 轻量兼容系统调用
  */
 
+#include <nuvix/string.h>
 #include <nuvix/buddy.h>
 #include <nuvix/bootmem.h>
 #include <nuvix/errno.h>
@@ -80,9 +81,9 @@ static bool reboot_magic2_valid(unsigned int magic)
  */
 ssize_t sys_reboot(struct trap_frame *tf)
 {
-	unsigned int magic1 = (unsigned int)syscall_arg(tf, 0);
-	unsigned int magic2 = (unsigned int)syscall_arg(tf, 1);
-	unsigned int command = (unsigned int)syscall_arg(tf, 2);
+	unsigned int magic1 = (unsigned int)sysarg(tf, 0);
+	unsigned int magic2 = (unsigned int)sysarg(tf, 1);
+	unsigned int command = (unsigned int)sysarg(tf, 2);
 
 	if (magic1 != LINUX_REBOOT_MAGIC1 || !reboot_magic2_valid(magic2))
 		return -EINVAL;
@@ -105,7 +106,7 @@ ssize_t sys_reboot(struct trap_frame *tf)
 
 ssize_t sys_uname(struct trap_frame *tf)
 {
-	struct utsname *u = (struct utsname *)syscall_arg(tf, 0);
+	struct utsname *u = (struct utsname *)sysarg(tf, 0);
 	struct utsname k;
 
 	if (!u)
@@ -134,7 +135,7 @@ ssize_t sys_uname(struct trap_frame *tf)
  */
 ssize_t sys_setuid(struct trap_frame *tf)
 {
-	uint32_t uid = (uint32_t)syscall_arg(tf, 0);
+	uint32_t uid = (uint32_t)sysarg(tf, 0);
 
 	if (task_uid(current_task()) != 0 && task_uid(current_task()) != uid)
 		return -EPERM;
@@ -151,7 +152,7 @@ ssize_t sys_setuid(struct trap_frame *tf)
  */
 ssize_t sys_setgid(struct trap_frame *tf)
 {
-	uint32_t gid = (uint32_t)syscall_arg(tf, 0);
+	uint32_t gid = (uint32_t)sysarg(tf, 0);
 
 	if (task_gid(current_task()) != 0 && task_gid(current_task()) != gid)
 		return -EPERM;
@@ -169,8 +170,8 @@ ssize_t sys_setgid(struct trap_frame *tf)
  */
 ssize_t sys_getgroups(struct trap_frame *tf)
 {
-	int size = (int)syscall_arg(tf, 0);
-	gid_t *groups = (gid_t *)syscall_arg(tf, 1);
+	int size = (int)sysarg(tf, 0);
+	gid_t *groups = (gid_t *)sysarg(tf, 1);
 	struct cred *cred = current_task()->cred;
 	uint32_t ngroups = cred ? cred->ngroups : 0;
 
@@ -198,8 +199,8 @@ ssize_t sys_getgroups(struct trap_frame *tf)
  */
 ssize_t sys_setgroups(struct trap_frame *tf)
 {
-	int size = (int)syscall_arg(tf, 0);
-	gid_t *groups = (gid_t *)syscall_arg(tf, 1);
+	int size = (int)sysarg(tf, 0);
+	gid_t *groups = (gid_t *)sysarg(tf, 1);
 	gid_t kgroups[NGROUPS_MAX];
 
 	if (size < 0)
@@ -219,7 +220,7 @@ ssize_t sys_setgroups(struct trap_frame *tf)
 
 ssize_t sys_umask(struct trap_frame *tf)
 {
-	uint32_t mask = (uint32_t)syscall_arg(tf, 0) & 0777;
+	uint32_t mask = (uint32_t)sysarg(tf, 0) & 0777;
 
 	return fs_set_umask(
 		current_task()->fs, mask);
@@ -234,7 +235,7 @@ ssize_t sys_umask(struct trap_frame *tf)
  */
 ssize_t sys_sysinfo(struct trap_frame *tf)
 {
-	struct sysinfo *uinfo = (struct sysinfo *)syscall_arg(tf, 0);
+	struct sysinfo *uinfo = (struct sysinfo *)sysarg(tf, 0);
 	struct sysinfo info;
 
 	if (!uinfo)
@@ -261,11 +262,11 @@ ssize_t sys_sysinfo(struct trap_frame *tf)
  */
 ssize_t sys_prlimit64(struct trap_frame *tf)
 {
-	long pid = (long)syscall_arg(tf, 0);
-	int resource = (int)syscall_arg(tf, 1);
+	long pid = (long)sysarg(tf, 0);
+	int resource = (int)sysarg(tf, 1);
 	const struct rlimit64 *unew =
-		(const struct rlimit64 *)syscall_arg(tf, 2);
-	struct rlimit64 *uold = (struct rlimit64 *)syscall_arg(tf, 3);
+		(const struct rlimit64 *)sysarg(tf, 2);
+	struct rlimit64 *uold = (struct rlimit64 *)sysarg(tf, 3);
 	struct proc_struct *proc;
 	struct rlimit64 new_limit;
 	bool put_proc = false;
@@ -342,8 +343,8 @@ out:
  */
 ssize_t sys_getrusage(struct trap_frame *tf)
 {
-	int who = (int)syscall_arg(tf, 0);
-	struct rusage *uusage = (struct rusage *)syscall_arg(tf, 1);
+	int who = (int)sysarg(tf, 0);
+	struct rusage *uusage = (struct rusage *)sysarg(tf, 1);
 	struct proc_cputime_snapshot snapshot;
 	struct task_cputime time;
 	struct rusage usage;
@@ -378,9 +379,9 @@ ssize_t sys_getrusage(struct trap_frame *tf)
  */
 ssize_t sys_getrandom(struct trap_frame *tf)
 {
-	uint8_t *ubuf = (uint8_t *)syscall_arg(tf, 0);
-	size_t count = (size_t)syscall_arg(tf, 1);
-	uint32_t flags = (uint32_t)syscall_arg(tf, 2);
+	uint8_t *ubuf = (uint8_t *)sysarg(tf, 0);
+	size_t count = (size_t)sysarg(tf, 1);
+	uint32_t flags = (uint32_t)sysarg(tf, 2);
 	uint8_t chunk[64];
 	size_t done = 0;
 

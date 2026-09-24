@@ -17,7 +17,7 @@ static syscall_fn_t syscall_table[NR_SYSCALL];
 
 void do_syscall(struct trap_frame *tf)
 {
-	size_t nr = syscall_nr(tf);
+	size_t nr = sysnr(tf);
 	ssize_t ret;
 	struct task_struct *task = current_task();
 

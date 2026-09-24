@@ -12,7 +12,7 @@
 
 ssize_t sys_brk(struct trap_frame *tf)
 {
-	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
+	uintptr_t addr = (uintptr_t)sysarg(tf, 0);
 
 	return (ssize_t)mm_brk(current_task()->mm,
 			       addr);
@@ -21,12 +21,12 @@ ssize_t sys_brk(struct trap_frame *tf)
 /* Anonymous private/shared and regular-file private mappings only. */
 ssize_t sys_mmap(struct trap_frame *tf)
 {
-	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
-	size_t length = (size_t)syscall_arg(tf, 1);
-	int prot = (int)syscall_arg(tf, 2);
-	int flags = (int)syscall_arg(tf, 3);
-	int fd = (int)syscall_arg(tf, 4);
-	uint64_t offset = (uint64_t)syscall_arg(tf, 5);
+	uintptr_t addr = (uintptr_t)sysarg(tf, 0);
+	size_t length = (size_t)sysarg(tf, 1);
+	int prot = (int)sysarg(tf, 2);
+	int flags = (int)sysarg(tf, 3);
+	int fd = (int)sysarg(tf, 4);
+	uint64_t offset = (uint64_t)sysarg(tf, 5);
 
 	return mm_mmap_file(current_task()->mm,
 			    addr, length, prot, flags,
@@ -35,8 +35,8 @@ ssize_t sys_mmap(struct trap_frame *tf)
 
 ssize_t sys_munmap(struct trap_frame *tf)
 {
-	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
-	size_t length = (size_t)syscall_arg(tf, 1);
+	uintptr_t addr = (uintptr_t)sysarg(tf, 0);
+	size_t length = (size_t)sysarg(tf, 1);
 
 	return mm_munmap(current_task()->mm,
 			 addr, length);
@@ -50,9 +50,9 @@ ssize_t sys_munmap(struct trap_frame *tf)
  */
 ssize_t sys_mprotect(struct trap_frame *tf)
 {
-	uintptr_t addr = (uintptr_t)syscall_arg(tf, 0);
-	size_t length = (size_t)syscall_arg(tf, 1);
-	int prot = (int)syscall_arg(tf, 2);
+	uintptr_t addr = (uintptr_t)sysarg(tf, 0);
+	size_t length = (size_t)sysarg(tf, 1);
+	int prot = (int)sysarg(tf, 2);
 
 	return mm_mprotect(current_task()->mm,
 			   addr, length, prot);

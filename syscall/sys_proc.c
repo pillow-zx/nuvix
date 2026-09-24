@@ -73,7 +73,7 @@ ssize_t sys_gettid(struct trap_frame *tf)
  */
 ssize_t sys_getpgid(struct trap_frame *tf)
 {
-	long pid = (long)syscall_arg(tf, 0);
+	long pid = (long)sysarg(tf, 0);
 
 	return session_process_getpgid((pid_t)pid);
 }
@@ -87,7 +87,7 @@ ssize_t sys_getpgid(struct trap_frame *tf)
  */
 ssize_t sys_getsid(struct trap_frame *tf)
 {
-	long pid = (long)syscall_arg(tf, 0);
+	long pid = (long)sysarg(tf, 0);
 
 	return session_process_getsid((pid_t)pid);
 }
@@ -117,8 +117,8 @@ ssize_t sys_setsid(struct trap_frame *tf)
  */
 ssize_t sys_setpgid(struct trap_frame *tf)
 {
-	long pid = (long)syscall_arg(tf, 0);
-	long pgid = (long)syscall_arg(tf, 1);
+	long pid = (long)sysarg(tf, 0);
+	long pgid = (long)sysarg(tf, 1);
 
 	if (pid < 0 || pgid < 0)
 		return -EINVAL;
@@ -128,14 +128,14 @@ ssize_t sys_setpgid(struct trap_frame *tf)
 
 ssize_t sys_exit(struct trap_frame *tf)
 {
-	int code = (int)syscall_arg(tf, 0);
+	int code = (int)sysarg(tf, 0);
 	do_exit(code);
 	unreachable();
 }
 
 ssize_t sys_exit_group(struct trap_frame *tf)
 {
-	int code = (int)syscall_arg(tf, 0);
+	int code = (int)sysarg(tf, 0);
 	do_exit_group(code);
 	unreachable();
 }

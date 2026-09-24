@@ -42,7 +42,7 @@ static int syscall_wait_deadline(const struct wait_deadline *deadline,
 
 ssize_t sys_times(struct trap_frame *tf)
 {
-	struct tms *utms = (struct tms *)syscall_arg(tf, 0);
+	struct tms *utms = (struct tms *)sysarg(tf, 0);
 	struct proc_cputime_snapshot snapshot;
 	struct tms ktms = {
 		.tms_utime =
@@ -62,8 +62,8 @@ ssize_t sys_times(struct trap_frame *tf)
 
 ssize_t sys_gettimeofday(struct trap_frame *tf)
 {
-	struct timeval *utv = (struct timeval *)syscall_arg(tf, 0);
-	struct timezone *utz = (struct timezone *)syscall_arg(tf, 1);
+	struct timeval *utv = (struct timeval *)sysarg(tf, 0);
+	struct timezone *utz = (struct timezone *)sysarg(tf, 1);
 	struct timespec kts;
 	struct timeval ktv;
 
@@ -85,8 +85,8 @@ ssize_t sys_gettimeofday(struct trap_frame *tf)
 
 ssize_t sys_clock_gettime(struct trap_frame *tf)
 {
-	int clock_id = (int)syscall_arg(tf, 0);
-	struct timespec *uts = (struct timespec *)syscall_arg(tf, 1);
+	int clock_id = (int)sysarg(tf, 0);
+	struct timespec *uts = (struct timespec *)sysarg(tf, 1);
 	struct timespec kts;
 
 	if (!clock_id_supported(clock_id))
@@ -104,8 +104,8 @@ ssize_t sys_clock_gettime(struct trap_frame *tf)
 
 ssize_t sys_clock_getres(struct trap_frame *tf)
 {
-	int clock_id = (int)syscall_arg(tf, 0);
-	struct timespec *uts = (struct timespec *)syscall_arg(tf, 1);
+	int clock_id = (int)sysarg(tf, 0);
+	struct timespec *uts = (struct timespec *)sysarg(tf, 1);
 	struct timespec kts = {
 		.tv_sec = 0,
 		.tv_nsec = NSEC_PER_SEC / timer_frequency,
@@ -123,8 +123,8 @@ ssize_t sys_clock_getres(struct trap_frame *tf)
 ssize_t sys_nanosleep(struct trap_frame *tf)
 {
 	const struct timespec *ureq =
-		(const struct timespec *)syscall_arg(tf, 0);
-	struct timespec *urem = (struct timespec *)syscall_arg(tf, 1);
+		(const struct timespec *)sysarg(tf, 0);
+	struct timespec *urem = (struct timespec *)sysarg(tf, 1);
 	struct wait_deadline deadline;
 	struct timespec req;
 	wait_outcome_t outcome;
@@ -160,11 +160,11 @@ ssize_t sys_nanosleep(struct trap_frame *tf)
 
 ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 {
-	int clock_id = (int)syscall_arg(tf, 0);
-	int flags = (int)syscall_arg(tf, 1);
+	int clock_id = (int)sysarg(tf, 0);
+	int flags = (int)sysarg(tf, 1);
 	const struct timespec *ureq =
-		(const struct timespec *)syscall_arg(tf, 2);
-	struct timespec *urem = (struct timespec *)syscall_arg(tf, 3);
+		(const struct timespec *)sysarg(tf, 2);
+	struct timespec *urem = (struct timespec *)sysarg(tf, 3);
 	struct wait_deadline deadline;
 	struct timespec req;
 	uint64_t value;
@@ -215,9 +215,9 @@ ssize_t sys_clock_nanosleep(struct trap_frame *tf)
 
 ssize_t sys_clock_settime(struct trap_frame *tf)
 {
-	int clock_id = (int)syscall_arg(tf, 0);
+	int clock_id = (int)sysarg(tf, 0);
 	const struct timespec *uts =
-		(const struct timespec *)syscall_arg(tf, 1);
+		(const struct timespec *)sysarg(tf, 1);
 	struct timespec kts;
 
 	if (clock_id != CLOCK_REALTIME)

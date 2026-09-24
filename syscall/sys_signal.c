@@ -18,8 +18,8 @@
  */
 ssize_t sys_kill(struct trap_frame *tf)
 {
-	long pid = (long)syscall_arg(tf, 0);
-	int sig = (int)syscall_arg(tf, 1);
+	long pid = (long)sysarg(tf, 0);
+	int sig = (int)sysarg(tf, 1);
 
 	return sig_kill(pid, sig);
 }
@@ -31,9 +31,9 @@ ssize_t sys_kill(struct trap_frame *tf)
  */
 ssize_t sys_tgkill(struct trap_frame *tf)
 {
-	long tgid = (long)syscall_arg(tf, 0);
-	long tid = (long)syscall_arg(tf, 1);
-	int sig = (int)syscall_arg(tf, 2);
+	long tgid = (long)sysarg(tf, 0);
+	long tid = (long)sysarg(tf, 1);
+	int sig = (int)sysarg(tf, 2);
 
 	if (tgid <= 0 || tid <= 0)
 		return -EINVAL;
@@ -50,8 +50,8 @@ ssize_t sys_tgkill(struct trap_frame *tf)
  */
 ssize_t sys_sigaltstack(struct trap_frame *tf)
 {
-	const struct stack_t *ss = (const struct stack_t *)syscall_arg(tf, 0);
-	struct stack_t *old_ss = (struct stack_t *)syscall_arg(tf, 1);
+	const struct stack_t *ss = (const struct stack_t *)sysarg(tf, 0);
+	struct stack_t *old_ss = (struct stack_t *)sysarg(tf, 1);
 	struct stack_t kss;
 	struct stack_t old;
 	int ret;
@@ -81,11 +81,11 @@ ssize_t sys_sigaltstack(struct trap_frame *tf)
  */
 ssize_t sys_sigaction(struct trap_frame *tf)
 {
-	int sig = (int)syscall_arg(tf, 0);
+	int sig = (int)sysarg(tf, 0);
 	const struct sigaction *act =
-		(const struct sigaction *)syscall_arg(tf, 1);
-	struct sigaction *oldact = (struct sigaction *)syscall_arg(tf, 2);
-	size_t sigsetsize = (size_t)syscall_arg(tf, 3);
+		(const struct sigaction *)sysarg(tf, 1);
+	struct sigaction *oldact = (struct sigaction *)sysarg(tf, 2);
+	size_t sigsetsize = (size_t)sysarg(tf, 3);
 	struct sigaction kact;
 	struct sigaction old;
 	int ret;
@@ -117,10 +117,10 @@ ssize_t sys_sigaction(struct trap_frame *tf)
  */
 ssize_t sys_sigprocmask(struct trap_frame *tf)
 {
-	int how = (int)syscall_arg(tf, 0);
-	const uint64_t *set = (const uint64_t *)syscall_arg(tf, 1);
-	uint64_t *oldset = (uint64_t *)syscall_arg(tf, 2);
-	size_t sigsetsize = (size_t)syscall_arg(tf, 3);
+	int how = (int)sysarg(tf, 0);
+	const uint64_t *set = (const uint64_t *)sysarg(tf, 1);
+	uint64_t *oldset = (uint64_t *)sysarg(tf, 2);
+	size_t sigsetsize = (size_t)sysarg(tf, 3);
 	uint64_t newset;
 	uint64_t old;
 	int ret;
@@ -153,8 +153,8 @@ ssize_t sys_sigprocmask(struct trap_frame *tf)
  */
 ssize_t sys_sigpending(struct trap_frame *tf)
 {
-	uint64_t *set = (uint64_t *)syscall_arg(tf, 0);
-	size_t sigsetsize = (size_t)syscall_arg(tf, 1);
+	uint64_t *set = (uint64_t *)sysarg(tf, 0);
+	size_t sigsetsize = (size_t)sysarg(tf, 1);
 	uint64_t pending;
 
 	if (sigsetsize != sizeof(unsigned long))
@@ -174,11 +174,11 @@ ssize_t sys_sigpending(struct trap_frame *tf)
  */
 ssize_t sys_sigtimedwait(struct trap_frame *tf)
 {
-	const uint64_t *uset = (const uint64_t *)syscall_arg(tf, 0);
-	siginfo_t *uinfo = (siginfo_t *)syscall_arg(tf, 1);
+	const uint64_t *uset = (const uint64_t *)sysarg(tf, 0);
+	siginfo_t *uinfo = (siginfo_t *)sysarg(tf, 1);
 	const struct timespec *utimeout =
-		(const struct timespec *)syscall_arg(tf, 2);
-	size_t sigsetsize = (size_t)syscall_arg(tf, 3);
+		(const struct timespec *)sysarg(tf, 2);
+	size_t sigsetsize = (size_t)sysarg(tf, 3);
 	struct timespec timeout;
 	siginfo_t info;
 	uint64_t set;

@@ -39,9 +39,9 @@ static inline bool syslog_action_requires_root(const int type)
  */
 ssize_t sys_syslog(struct trap_frame *tf)
 {
-	int type = (int)syscall_arg(tf, 0);
-	void *buffer = (void *)syscall_arg(tf, 1);
-	int size = (int)syscall_arg(tf, 2);
+	int type = (int)sysarg(tf, 0);
+	void *buffer = (void *)sysarg(tf, 1);
+	int size = (int)sysarg(tf, 2);
 
 	if (!syslog_action_valid(type))
 		return -EINVAL;

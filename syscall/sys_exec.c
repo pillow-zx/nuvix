@@ -112,9 +112,9 @@ static int copy_exec_args(const char *const *uargv, const char *const *uenvp,
  */
 ssize_t sys_execve(struct trap_frame *tf)
 {
-	const char *upath = (const char *)syscall_arg(tf, 0);
-	const char *const *uargv = (const char *const *)syscall_arg(tf, 1);
-	const char *const *uenvp = (const char *const *)syscall_arg(tf, 2);
+	const char *upath = (const char *)sysarg(tf, 0);
+	const char *const *uargv = (const char *const *)sysarg(tf, 1);
+	const char *const *uenvp = (const char *const *)sysarg(tf, 2);
 	struct exec_args_envp *args __cleanup_with(kfree) = NULL;
 	char *path __cleanup_with(page0) = NULL;
 	ssize_t path_len;

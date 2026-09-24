@@ -22,9 +22,9 @@
  */
 ssize_t sys_sched_setaffinity(struct trap_frame *tf)
 {
-	long pid = (long)syscall_arg(tf, 0);
-	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
-	const cpumask_t *umask = (const cpumask_t *)syscall_arg(tf, 2);
+	long pid = (long)sysarg(tf, 0);
+	size_t cpusetsize = (size_t)sysarg(tf, 1);
+	const cpumask_t *umask = (const cpumask_t *)sysarg(tf, 2);
 	cpumask_t mask;
 	struct task_struct *owned __cleanup_with(task_ref) = NULL;
 	struct task_struct *task;
@@ -65,9 +65,9 @@ out:
  */
 ssize_t sys_sched_getaffinity(struct trap_frame *tf)
 {
-	long pid = (long)syscall_arg(tf, 0);
-	size_t cpusetsize = (size_t)syscall_arg(tf, 1);
-	cpumask_t *umask = (cpumask_t *)syscall_arg(tf, 2);
+	long pid = (long)sysarg(tf, 0);
+	size_t cpusetsize = (size_t)sysarg(tf, 1);
+	cpumask_t *umask = (cpumask_t *)sysarg(tf, 2);
 	cpumask_t mask;
 	struct task_struct *owned __cleanup_with(task_ref) = NULL;
 	struct task_struct *task;
@@ -106,8 +106,8 @@ ssize_t sys_sched_yield(struct trap_frame *tf)
  */
 ssize_t sys_getcpu(struct trap_frame *tf)
 {
-	unsigned int *ucpu = (unsigned int *)syscall_arg(tf, 0);
-	unsigned int *unode = (unsigned int *)syscall_arg(tf, 1);
+	unsigned int *ucpu = (unsigned int *)sysarg(tf, 0);
+	unsigned int *unode = (unsigned int *)sysarg(tf, 1);
 	unsigned int cpu = current_cpu()->id;
 	unsigned int node = 0;
 

@@ -32,11 +32,11 @@ static int sys_write_tid(int *uaddr, pid_t tid)
  */
 ssize_t sys_clone(struct trap_frame *tf)
 {
-	unsigned long flags = (unsigned long)syscall_arg(tf, 0);
-	uintptr_t child_stack = (uintptr_t)syscall_arg(tf, 1);
-	int *parent_tid = (int *)syscall_arg(tf, 2);
-	uintptr_t tls = (uintptr_t)syscall_arg(tf, 3);
-	int *child_tid = (int *)syscall_arg(tf, 4);
+	unsigned long flags = (unsigned long)sysarg(tf, 0);
+	uintptr_t child_stack = (uintptr_t)sysarg(tf, 1);
+	int *parent_tid = (int *)sysarg(tf, 2);
+	uintptr_t tls = (uintptr_t)sysarg(tf, 3);
+	int *child_tid = (int *)sysarg(tf, 4);
 	struct kernel_clone clone;
 	int ret;
 
@@ -67,10 +67,10 @@ abort:
  */
 ssize_t sys_wait4(struct trap_frame *tf)
 {
-	long pid = (long)syscall_arg(tf, 0);
-	int *wstatus = (int *)syscall_arg(tf, 1);
-	int options = (int)syscall_arg(tf, 2);
-	struct rusage *urusage = (struct rusage *)syscall_arg(tf, 3);
+	long pid = (long)sysarg(tf, 0);
+	int *wstatus = (int *)sysarg(tf, 1);
+	int options = (int)sysarg(tf, 2);
+	struct rusage *urusage = (struct rusage *)sysarg(tf, 3);
 	struct proc_wait_info result = {0};
 	int ret;
 
