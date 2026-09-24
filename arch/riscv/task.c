@@ -64,3 +64,12 @@ void activate_mm(struct mm_struct *mm)
 {
 	active_pgtable(mm ? mm_pgroot(mm) : kpgroot);
 }
+
+void arch_task_exec(struct task_struct *task, struct trap_frame *tf,
+		    uintptr_t entry, uintptr_t sp)
+{
+	task->arch.tf = tf;
+	memset(tf, 0, sizeof(*tf));
+	memset(&task->arch.fpu, 0, sizeof(task->arch.fpu));
+	trap_setup_user_return(tf, entry, sp);
+}

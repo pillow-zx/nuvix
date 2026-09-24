@@ -14,6 +14,7 @@ obj-y += arch/riscv/switch.o
 obj-y += arch/riscv/fpu.o
 obj-y += arch/riscv/trap.o
 obj-y += arch/riscv/task.o
+obj-y += arch/riscv/signal.o
 obj-y += arch/riscv/timer.o
 obj-y += arch/riscv/sbi.o
 obj-y += arch/riscv/platform.o

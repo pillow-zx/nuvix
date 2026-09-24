@@ -20,6 +20,9 @@ struct fpu_state {
 void fpu_save(struct fpu_state *state);
 void fpu_restore(const struct fpu_state *state);
 
+void arch_task_exec(struct task_struct *task, struct trap_frame *tf,
+		    uintptr_t entry, uintptr_t sp);
+
 void activate_mm(struct mm_struct *mm);
 
 struct task_state {

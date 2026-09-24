@@ -633,14 +633,11 @@ static void install_exec_mm(struct mm_struct *mm, struct trap_frame *tf,
 	struct mm_struct *oldmm;
 
 	oldmm = task_replace_mm(task, mm);
-	task->arch.tf = tf;
 
 	sched_activate_mm(mm);
 	mm_put(oldmm);
 
-	memset(tf, 0, sizeof(*tf));
-	memset(&task->arch.fpu, 0, sizeof(task->arch.fpu));
-	trap_setup_user_return(tf, entry, sp);
+	arch_task_exec(task, tf, entry, sp);
 }
 
 void exec_user_path(const char *path)
