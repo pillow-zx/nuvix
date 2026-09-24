@@ -1,6 +1,8 @@
 #ifndef _NUVIX_ASM_OFFSETS_H
 #define _NUVIX_ASM_OFFSETS_H
 
+#include <asm/layout.h>
+
 
 #define TF_SEPC	   (0 * 8)
 #define TF_RA	   (1 * 8)
@@ -60,7 +62,7 @@
 
 #define TASK_KSTACK 120
 
-#define TASK_KSTACK_SIZE (1024 * 32)
+#define TASK_KSTACK_SIZE ARCH_KSTACK_SIZE
 
 #define CPU_STATE	   8
 #define CPU_CURRENT_TASK  24

@@ -49,7 +49,7 @@ static void vmalloc_unmap_pages(uintptr_t start, uintptr_t end)
 			pte_t *pte = pt_lookup(root, va);
 
 			if (pte && pte_present(*pte)) {
-				pages[count++] = __va(PTE_TO_PA(*pte));
+				pages[count++] = __va(pte_phys(*pte));
 				*pte = 0;
 			}
 			va += PAGE_SIZE;
@@ -246,7 +246,7 @@ void *vmalloc(size_t size, enum alloc_mode mode)
 		memset(page, 0, PAGE_SIZE);
 		spin_lock(&vmalloc_pt_lock);
 		ret = map_page(kpgtable(), va, __pa((uintptr_t)page),
-			       kpgroot(true, true, false));
+			       pgprot_kernel(true, true, false));
 		spin_unlock(&vmalloc_pt_lock);
 		if (ret < 0) {
 			free_page(page, 0);

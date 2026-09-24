@@ -198,16 +198,16 @@ static inline uint32_t mm_root_to_vm_flags(int proot)
 }
 
 __must_check __const
-static inline pgroot_t mm_root_to_pte_flags(int proot)
+static inline pgprot_t mm_root_to_pte_flags(int proot)
 {
-	return upgroot((proot & PROOT_READ) != 0, (proot & PROOT_WRITE) != 0,
+	return pgprot_user((proot & PROOT_READ) != 0, (proot & PROOT_WRITE) != 0,
 		       (proot & PROOT_EXEC) != 0);
 }
 
 __must_check __const
-static inline pgroot_t vma_flags_to_pte(uint32_t vm_flags)
+static inline pgprot_t vma_flags_to_pte(uint32_t vm_flags)
 {
-	return upgroot((vm_flags & VM_READ) != 0, (vm_flags & VM_WRITE) != 0, (vm_flags & VM_EXEC) != 0);
+	return pgprot_user((vm_flags & VM_READ) != 0, (vm_flags & VM_WRITE) != 0, (vm_flags & VM_EXEC) != 0);
 }
 
 void pte_mapping_get(paddr_t pa);

@@ -24,10 +24,6 @@ __noreturn
 void trapret_to_user(struct trap_frame *tf) ;
 
 
-struct task_struct *switch_to(struct context *prev, struct context *next,
-			      uintptr_t next_satp,
-			      struct task_struct *outgoing);
-
 __must_check __pure __nonnull(1)
 static inline size_t syscall_nr(const struct trap_frame *tf)
 {
@@ -198,18 +194,6 @@ __nonnull(1)
 static inline void trap_set_tls(struct trap_frame *tf, uintptr_t tls)
 {
 	tf->tp = tls;
-}
-
-__nonnull(1)
-static inline  void trap_setup_signal_handler(struct trap_frame *tf, uintptr_t handler, uintptr_t restorer,
-	uintptr_t sp, uintptr_t arg0, uintptr_t arg1, uintptr_t arg2)
-{
-	tf->sepc = handler;
-	tf->ra = restorer;
-	tf->sp = sp;
-	tf->a0 = arg0;
-	tf->a1 = arg1;
-	tf->a2 = arg2;
 }
 
 __must_check __pure __nonnull(1)

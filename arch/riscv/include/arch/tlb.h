@@ -1,5 +1,5 @@
-#ifndef _NUVIX_ASM_TLB_H
-#define _NUVIX_ASM_TLB_H
+#ifndef _NUVIX_ARCH_RISCV_TLB_H
+#define _NUVIX_ARCH_RISCV_TLB_H
 
 #include <nuvix/types.h>
 

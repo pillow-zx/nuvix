@@ -1,3 +1,4 @@
+#include <asm/setup.h>
 #include <arch/boot.h>
 #include <arch/pgtable.h>
 #include <nuvix/dt.h>

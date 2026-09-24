@@ -15,7 +15,7 @@
 #include <nuvix/tools.h>
 #include <nuvix/page.h>
 #include <nuvix/dt.h>
-#include <arch/pgtable.h>
+#include <arch/io.h>
 
 #define VBLK_QSIZE	     8
 #define VBLK_MAX_SECTORS     256u

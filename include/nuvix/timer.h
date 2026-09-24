@@ -15,7 +15,6 @@
 /** Number of mtime ticks in one scheduler tick. */
 extern uint64_t timer_frequency;
 extern uint64_t timer_tick_interval;
-void timer_init(uint32_t frequency, bool sstc);
 
 /** Read the architecture monotonic clocksource. */
 uint64_t timer_now(void);

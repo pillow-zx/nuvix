@@ -28,10 +28,10 @@ _start:
 
 	lla	t0, tmp_root
 
-	li	t1, (0x80000000 >> 2) | PTE_MEGA_DRAM_FLAGS
-	sd	t1, (2*8)(t0)
+	li	t1, (BOOT_RAM_BASE >> 2) | PTE_MEGA_DRAM_FLAGS
+	sd	t1, (((BOOT_RAM_BASE >> 30) & 511) * 8)(t0)
 
-	li	t2, 258*8
+	li	t2, ((((KERNEL_VBASE + BOOT_RAM_BASE) >> 30) & 511) * 8)
 	add	t2, t0, t2
 	sd	t1, 0(t2)
 
@@ -43,11 +43,11 @@ _start:
 	sfence.vma
 
 	lla	t0, 1f
-	li	t1, 0xFFFFFFC000000000
+	li	t1, KERNEL_VBASE
 	add	t0, t0, t1
 	jr	t0
 1:	lla	gp, __global_pointer$
-	li	t1, 0xFFFFFFC000000000
+	li	t1, KERNEL_VBASE
 	add	sp, sp, t1
 	lla	t0, cpu_table
 	mv	tp, t0
@@ -82,11 +82,11 @@ secondary_entry:
 	sfence.vma
 
 	lla	t0, 2f
-	li	t1, 0xFFFFFFC000000000
+	li	t1, KERNEL_VBASE
 	add	t0, t0, t1
 	jr	t0
 2:	lla	gp, __global_pointer$
-	li	t1, 0xFFFFFFC000000000
+	li	t1, KERNEL_VBASE
 	add	sp, sp, t1
 	tail	smp_secondary_main
 

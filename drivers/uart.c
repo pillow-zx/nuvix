@@ -13,7 +13,6 @@
 #include <nuvix/spinlock.h>
 #include <uapi/poll.h>
 #include <arch/io.h>
-#include <arch/pgtable.h>
 
 struct uart_device {
 	vaddr_t base;

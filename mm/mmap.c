@@ -221,7 +221,7 @@ void unmap_pages_locked(struct mm_struct *mm,
 			mm_teardown_release(teardown);
 		}
 		release = &teardown->release[teardown->nr_release++];
-		*release = PTE_TO_PA(*pte);
+		*release = pte_phys(*pte);
 		*pte = 0;
 	}
 }
@@ -694,7 +694,7 @@ int mm_add_stack(struct mm_struct *mm, const void *stack, size_t stack_size)
 		}
 		ret = map_page(mm->pgroot, stack_start + offset,
 			       __pa((uintptr_t)page),
-			       upgroot(true, true, false));
+			       pgprot_user(true, true, false));
 		if (ret < 0) {
 			mm_private_remove(mm, stack_start + offset,
 					  stack_start + offset + PAGE_SIZE);
@@ -759,13 +759,13 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 		pte_t *pte = pt_lookup(mm->pgroot, va);
 		struct vm_area_struct *vma = find_vma(mm, va);
 		struct mm_page_slot *slot = mm_private_find(mm, va);
-		pgroot_t flags = mm_root_to_pte_flags(prot);
+		pgprot_t flags = mm_root_to_pte_flags(prot);
 
 		if (!pte || !pte_upage(*pte))
 			continue;
 		if (!vma->vm_shared && (!slot || slot->cow))
-			flags = pgroot_ro(flags);
-		*pte = pte_make(PTE_TO_PA(*pte), flags);
+			flags = pgprot_ro(flags);
+		*pte = pte_make(pte_phys(*pte), flags);
 		if (prot == PROOT_NONE)
 			pte_clear(pte);
 	}

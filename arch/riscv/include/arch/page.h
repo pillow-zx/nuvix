@@ -3,7 +3,7 @@
 
 
 #include <arch/config.h>
-#include <asm/page.h>
+#include <nuvix/pfn.h>
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
 
@@ -11,6 +11,5 @@
 
 #define __va(x) ((void *)((paddr_t)(x) + KERNEL_VBASE))
 
-void pgtable_init(void);
 
 #endif

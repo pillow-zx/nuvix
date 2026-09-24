@@ -1,7 +1,7 @@
 /*
  * kernel/smp/boot.c - generic secondary CPU bring-up and idle
  *
- * Logical CPU 0 coordinates HSM start and the acquire
+ * Logical CPU 0 coordinates CPU start and the acquire
  * wait for each secondary's self-published ONLINE state. Secondary harts stay
  * unschedulable through the boot gate, then enter the ordinary scheduler once
  * every configured hart has proved local timer and IPI readiness.
@@ -11,7 +11,6 @@
 #include <arch/smp.h>
 #include <nuvix/cpu.h>
 #include <nuvix/ipi.h>
-#include <nuvix/pgtable.h>
 #include <nuvix/processor.h>
 #include <nuvix/printk.h>
 #include <nuvix/sched.h>
@@ -59,14 +58,10 @@ static void smp_boot_fail(uint32_t id, const char *reason,
 				     uint32_t state)
 {
 	struct cpu *cpu = &cpu_table[id];
-	struct smp_hart_status status = smp_hart_status(cpu->hartid);
-	const char *name = smp_hart_status_name((uint64_t)status.value);
 
-	pr_err("smp: cpu %u (hart %u) boot failed: %s\n"
-	       "smp:   cpu state=%u boot_error=%u\n"
-	       "smp:   hsm status error=%ld value=%ld %s\n",
-	       id, cpu->hartid, reason, state, smp_boot_errors[id],
-	       status.error, status.value, name ? name : "unknown");
+	pr_err("smp: cpu %u boot failed: %s state=%u boot_error=%u\n",
+	       id, reason, state, smp_boot_errors[id]);
+	arch_cpu_start_diagnose(id);
 	panic("smp: cpu %u (hart %u) boot failed\n", id, cpu->hartid);
 	unreachable();
 }
@@ -168,7 +163,7 @@ void smp_prepare(void)
 {
 	/* Platform contract checks panic here; no reduced-CPU fallback exists.
 	 */
-	smp_basic_prepare();
+	arch_smp_prepare();
 }
 
 void smp_boot_cpus(void)
@@ -177,9 +172,6 @@ void smp_boot_cpus(void)
 	uint32_t id;
 
 	BUG_ON(!nr_cpu_ids || nr_cpu_ids > NR_CPUS);
-	/* Secondaries switch to the kernel page table, so it must be published.
-	 */
-	BUG_ON(!pt_boot_token_valid());
 
 	boot_id = 0;
 
@@ -193,9 +185,9 @@ void smp_boot_cpus(void)
 			continue;
 		smp_boot_errors[id] = SMP_BOOT_ERR_NONE;
 		cpu_state_store_release(cpu, CPU_BOOTING);
-		if (smp_start_cpu(cpu->hartid, smp_secondary_entry(), id) != 0) {
-			smp_boot_errors[id] = SMP_BOOT_ERR_HSM_START;
-			smp_boot_fail(id, "hsm-start", CPU_BOOTING);
+		if (arch_cpu_start(id) != 0) {
+			smp_boot_errors[id] = SMP_BOOT_ERR_START;
+			smp_boot_fail(id, "cpu-start", CPU_BOOTING);
 		}
 		smp_wait_online(id);
 	}

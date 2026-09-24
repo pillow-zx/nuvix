@@ -1,7 +1,7 @@
-#ifndef _NUVIX_ASM_PAGE_H
-#define _NUVIX_ASM_PAGE_H
+#ifndef _NUVIX_PFN_H
+#define _NUVIX_PFN_H
 
-#include <arch/config.h>
+#include <nuvix/config.h>
 #include <nuvix/types.h>
 
 #define PFN_DOWN(x)    ((x) >> PAGE_SHIFT)

@@ -15,10 +15,11 @@ obj-y += arch/riscv/fpu.o
 obj-y += arch/riscv/trap.o
 obj-y += arch/riscv/task.o
 obj-y += arch/riscv/signal.o
+obj-y += arch/riscv/stacktrace.o
 obj-y += arch/riscv/timer.o
 obj-y += arch/riscv/sbi.o
 obj-y += arch/riscv/platform.o
-obj-y += arch/riscv/dt.o
+obj-y += arch/riscv/cpu.o
 obj-$(CONFIG_SMP) += arch/riscv/smp.o
 
 include $(srctree)/arch/riscv/mm/mm.mk

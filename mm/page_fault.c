@@ -91,7 +91,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		struct pgcache *cached = NULL;
 		uint64_t sequence, index;
 		bool cow = false, private = false;
-		pgroot_t prot;
+		pgprot_t prot;
 		pte_t *pte;
 		int ret = 0;
 
@@ -125,10 +125,10 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 			page = source;
 			page_get(page);
 			if (cow)
-				prot = pgroot_ro(prot);
+				prot = pgprot_ro(prot);
 		} else if (!source && !file && access != USER_FAULT_WRITE) {
 			page = mm_zero_page();
-			prot = pgroot_ro(prot);
+			prot = pgprot_ro(prot);
 		} else {
 			const void *contents = source ? page_to_virt(source) : NULL;
 
@@ -145,7 +145,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 					mm_zero_page();
 				if (cached)
 					page_get(page);
-				prot = pgroot_ro(prot);
+				prot = pgprot_ro(prot);
 			} else if (!ret) {
 				void *data = get_page(0, ALLOC_NOWAIT);
 
@@ -199,7 +199,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 		if (pte && pte_upage(*pte)) {
 			replace_pte_locked(mm, vma, va, pte,
 				pte_make(__pa((uintptr_t)page_to_virt(page)), prot),
-				PTE_TO_PA(*pte), teardown);
+				pte_phys(*pte), teardown);
 		} else {
 			ret = map_page(mm->pgroot, va,
 				__pa((uintptr_t)page_to_virt(page)), prot);

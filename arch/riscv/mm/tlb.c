@@ -1,6 +1,6 @@
 
 #include <nuvix/types.h>
-#include <asm/tlb.h>
+#include <arch/tlb.h>
 
 __always_inline
 static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)

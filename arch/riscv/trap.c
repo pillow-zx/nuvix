@@ -17,7 +17,7 @@
 #include <nuvix/user_return.h>
 #include <nuvix/ipi.h>
 #include <arch/uaccess.h>
-#include <arch/plic.h>
+#include "drivers/plic.h"
 
 extern void __alltraps(void);
 

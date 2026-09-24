@@ -1,14 +1,15 @@
+#include <asm/setup.h>
 
 #include <nuvix/timer.h>
 #include <asm/csr.h>
-#include <arch/sbi.h>
+#include <asm/sbi.h>
 #include <nuvix/printk.h>
 
 uint64_t timer_frequency;
 uint64_t timer_tick_interval;
 static bool use_sstc;
 
-void timer_init(uint32_t frequency, bool sstc)
+void riscv_timer_init(uint32_t frequency, bool sstc)
 {
 	/* Bounds keep nanosecond conversions in uint64_t and resolution >= 1ns. */
 	if (frequency < HZ || frequency > 1000000000U)

@@ -3,16 +3,14 @@
 
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
-#include <nuvix/atomic.h>
 #include <arch/page.h>
 #include <asm/csr.h>
 #include <asm/pte.h>
-#include <asm/tlb.h>
+#include <arch/tlb.h>
 
-typedef pte_t pgroot_t;
+typedef pte_t pgprot_t;
 
-extern uintptr_t kpgroot;
-
+void pgtable_init(void);
 pte_t *pgtable_create(void);
 void pgtable_destroy(pte_t *root);
 /* Caller exclusively owns user mappings. Clears the next user leaf, including
@@ -22,37 +20,24 @@ bool pgtable_take_upage(pte_t *root, uintptr_t *cursor, paddr_t *pa);
 /* Boot-only, before concurrent use; leaves prepared entries unmapped. */
 int pgtable_prepare_range(pte_t *root, uintptr_t start, uintptr_t end);
 
-void active_pgtable(uintptr_t root);
-
 __must_check
 pte_t *kpgtable(void);
-
-extern atomic64_t pt_boot_token;
-
-__must_check
-uintptr_t pt_boot_token_acquire(void);
-
-__must_check
-bool pt_boot_token_valid(void);
 
 __must_check __nonnull(1)
 pte_t *pt_lookup(pte_t *root, uintptr_t va);
 
 __must_check __nonnull(1)
-int map_page(pte_t *root, uintptr_t va, uintptr_t pa, uint64_t perm);
+int map_page(pte_t *root, uintptr_t va, uintptr_t pa, pgprot_t perm);
 
-/* Boot-only device mappings, created before secondary CPUs/tasks. */
-vaddr_t mmio_map(paddr_t address, size_t size);
-
-#define upgroot(read, write, exec)                                             \
-	((pgroot_t)(PTE_V | PTE_U | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
+#define pgprot_user(read, write, exec)                                  \
+	((pgprot_t)(PTE_V | PTE_U | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
 		    ((write) ? (PTE_R | PTE_W) : 0) | ((exec) ? PTE_X : 0)))
 
-#define kpgroot(read, write, exec)                                             \
-	((pgroot_t)(PTE_V | PTE_G | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
+#define pgprot_kernel(read, write, exec)                                \
+	((pgprot_t)(PTE_V | PTE_G | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \
 		    ((write) ? (PTE_R | PTE_W) : 0) | ((exec) ? PTE_X : 0)))
 
-#define pgroot_ro(prot) ((pgroot_t)((prot) & ~PTE_W))
+#define pgprot_ro(prot) ((pgprot_t)((prot) & ~PTE_W))
 
 #define pte_present(pte) (((pte) & PTE_V) != 0)
 
@@ -71,7 +56,9 @@ vaddr_t mmio_map(paddr_t address, size_t size);
 #define pte_uexec(pte)                                                         \
 	(((pte) & (PTE_V | PTE_U | PTE_X)) == (PTE_V | PTE_U | PTE_X))
 
-#define pte_root(pte) ((pgroot_t)((pte) & MASK(PTE_PPN_SHIFT)))
+#define pte_prot(pte) ((pgprot_t)((pte) & MASK(PTE_PPN_SHIFT)))
+
+#define pte_phys(pte) PTE_TO_PA(pte)
 
 #define pte_make(pa, prot) ((pte_t)(PA_TO_PTE(pa) | (prot)))
 
@@ -80,7 +67,7 @@ vaddr_t mmio_map(paddr_t address, size_t size);
 		*(pte) &= ~PTE_V;                                              \
 	} while (0)
 
-#define pt_token(pgd)                                                          \
+#define pgtable_token(pgd)                                             \
 	((uintptr_t)(SATP_MODE_SV39 | (__pa((uintptr_t)(pgd)) >> PAGE_SHIFT)))
 
 #endif

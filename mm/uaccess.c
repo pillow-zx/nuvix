@@ -113,7 +113,7 @@ static int uaccess_copy(struct uaccess_txn *txn, void *to, const void *from,
 		if (!pte || (to_user ? !pte_uwrite(*pte) :
 				      !pte_uread(*pte)))
 			return -EFAULT;
-		data = (uint8_t *)__va(PTE_TO_PA(*pte)) + offset;
+		data = (uint8_t *)__va(pte_phys(*pte)) + offset;
 		if (to_user) {
 			struct vm_area_struct *vma = find_vma(txn->mm, uaddr);
 

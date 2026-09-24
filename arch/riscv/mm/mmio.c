@@ -1,3 +1,4 @@
+#include <arch/io.h>
 
 #include <arch/pgtable.h>
 #include <nuvix/bootmem.h>

@@ -295,22 +295,22 @@ int mm_refcount_read(const struct mm_struct *mm)
 	return refcount_read(&mm->refcount);
 }
 
-uintptr_t mm_pgroot(const struct mm_struct *mm)
+uintptr_t mm_pgtable_token(const struct mm_struct *mm)
 {
 	BUG_ON(!mm || !mm->pgroot);
-	return pt_token(mm->pgroot);
+	return pgtable_token(mm->pgroot);
 }
 
 __must_check __nonnull(1)
 int map_pte_like(pte_t *root, uintptr_t va, paddr_t pa, pte_t old_entry)
 {
-	pgroot_t perm = pte_root(old_entry);
+	pgprot_t perm = pte_prot(old_entry);
 	int ret;
 	pte_t *pte;
 
 	ret = map_page(root, va, pa,
 		       pte_present(old_entry) ? perm
-					      : upgroot(true, false, false));
+					      : pgprot_user(true, false, false));
 	if (ret < 0)
 		return ret;
 
@@ -325,7 +325,7 @@ static pte_t mm_private_child_pte(pte_t entry)
 	if (!pte_present(entry))
 		return entry;
 
-	return pte_make(PTE_TO_PA(entry), pgroot_ro(pte_root(entry)));
+	return pte_make(pte_phys(entry), pgprot_ro(pte_prot(entry)));
 }
 
 struct mm_struct *dup_mm(struct mm_struct *oldmm)
@@ -370,10 +370,10 @@ struct mm_struct *dup_mm(struct mm_struct *oldmm)
 
 			if (!pte || !pte_upage(*pte))
 				continue;
-			if (map_pte_like(newmm->pgroot, va, PTE_TO_PA(*pte),
+			if (map_pte_like(newmm->pgroot, va, pte_phys(*pte),
 					  *pte) < 0)
 				goto fail;
-			pte_mapping_get(PTE_TO_PA(*pte));
+			pte_mapping_get(pte_phys(*pte));
 		}
 	}
 	if (mm_private_clone(newmm, oldmm) < 0)

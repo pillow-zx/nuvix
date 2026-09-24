@@ -1,3 +1,4 @@
+#include <asm/setup.h>
 #include <arch/boot.h>
 #include <nuvix/cpu.h>
 #include <nuvix/dt.h>
@@ -40,7 +41,7 @@ static bool cpu_extension(int node, const char *extension)
 	return false;
 }
 
-void dt_cpus_init(uint64_t boot_hartid)
+void arch_cpu_discover(uint64_t boot_hartid)
 {
 	int node;
 	int len;
@@ -110,7 +111,7 @@ void dt_cpus_init(uint64_t boot_hartid)
 	if (!boot_found)
 		panic("cpu: boot hart is absent or disabled in DT");
 
-	timer_init(freq, sstc);
+	riscv_timer_init(freq, sstc);
 }
 
 int platform_cpu_entries(uint32_t boot_hartid,

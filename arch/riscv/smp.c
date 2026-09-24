@@ -1,5 +1,6 @@
+#include <asm/setup.h>
 
-#include <arch/sbi.h>
+#include <asm/sbi.h>
 #include <arch/smp.h>
 #include <arch/page.h>
 #include <asm/csr.h>
@@ -10,12 +11,7 @@
 
 extern char secondary_entry[];
 
-uintptr_t smp_secondary_entry(void)
-{
-	return __pa((uintptr_t)&secondary_entry);
-}
-
-void smp_basic_prepare(void)
+void arch_smp_prepare(void)
 {
 	struct sbi_ret ret;
 
@@ -54,24 +50,25 @@ void smp_basic_prepare(void)
 	}
 }
 
-int smp_start_cpu(uint32_t hartid, uintptr_t entry_pa, uint32_t logical_id)
+int arch_cpu_start(uint32_t logical_id)
 {
-	struct sbi_ret ret;
+	uintptr_t token = (uintptr_t)atomic64_read_acquire(&pt_boot_token);
 
-	ret = sbi_hsm_hart_start(hartid, entry_pa, logical_id);
+	BUG_ON((token & SATP_MODE_SV39) != SATP_MODE_SV39 ||
+	       !(token & SATP_PPN_MASK));
+	struct sbi_ret ret = sbi_hsm_hart_start(cpu_table[logical_id].hartid,
+					      __pa(secondary_entry), logical_id);
 	return (int)ret.error;
 }
 
-struct smp_hart_status smp_hart_status(uint32_t hartid)
+void arch_cpu_start_diagnose(uint32_t logical_id)
 {
-	struct sbi_ret ret = sbi_hsm_hart_get_status(hartid);
+	uint32_t hartid = cpu_table[logical_id].hartid;
+	struct sbi_ret status = sbi_hsm_hart_get_status(hartid);
+	const char *name = sbi_hsm_status_name((uint64_t)status.value);
 
-	return (struct smp_hart_status){.error = ret.error, .value = ret.value};
-}
-
-const char *smp_hart_status_name(uint64_t value)
-{
-	return sbi_hsm_status_name(value);
+	pr_err("smp: hart %u HSM status error=%ld value=%ld %s\n",
+	       hartid, status.error, status.value, name ? name : "unknown");
 }
 
 int smp_ipi_notify(uint32_t hartid)

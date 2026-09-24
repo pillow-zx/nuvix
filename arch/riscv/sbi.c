@@ -1,5 +1,5 @@
 
-#include <arch/sbi.h>
+#include <asm/sbi.h>
 #include <arch/system.h>
 #include <nuvix/types.h>
 

@@ -1,10 +1,13 @@
 *
 !arch/
 !arch/riscv/
+!arch/riscv/drivers/
+!arch/riscv/mm/
+!arch/riscv/lib/
 !arch/riscv/include/
 !arch/riscv/include/arch/
 !arch/riscv/include/asm/
-!arch/riscv/kernel.ld
+!arch/riscv/kernel.ld.S
 !include/
 !include/uapi/
 !include/nuvix/

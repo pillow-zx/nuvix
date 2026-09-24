@@ -2,7 +2,6 @@
 
 obj-y += kernel/blkdev.o
 obj-y += kernel/printk.o
-obj-y += kernel/stacktrace.o
 obj-y += kernel/mutex.o
 obj-y += kernel/cpu.o
 obj-y += kernel/task.o

@@ -1,8 +1,7 @@
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
-BASE_ADDRESS = 0x80200000;
-KERNEL_VBASE = 0xFFFFFFC000000000;
+#include <asm/layout.h>
 
 PHDRS
 {
@@ -14,7 +13,7 @@ PHDRS
 
 SECTIONS
 {
-    . = KERNEL_VBASE + BASE_ADDRESS;
+    . = KERNEL_VBASE + KERNEL_LOAD_PA;
 
     .text : AT(ADDR(.text) - KERNEL_VBASE) {
         *(.text.entry)

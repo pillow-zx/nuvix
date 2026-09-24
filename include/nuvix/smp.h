@@ -14,7 +14,7 @@
 #define SMP_BOOT_ERR_HARTID_MISMATCH 1
 #define SMP_BOOT_ERR_STATE_MISMATCH  2
 #define SMP_BOOT_ERR_NO_SATP	     3
-#define SMP_BOOT_ERR_HSM_START	     4
+#define SMP_BOOT_ERR_START	     4
 
 #ifndef __ASSEMBLER__
 
@@ -25,8 +25,7 @@
  * Generic bring-up. smp_prepare() checks secondary CPU boot requirements
  * after cpu_prepare() has published the topology;
  * smp_boot_cpus() starts secondaries and waits for ONLINE, panicking on any
- * mismatch or timeout. Both run on logical CPU 0, which is the SBI boot
- * hart for this boot.
+ * mismatch or timeout. Both run on logical CPU 0, which is the boot CPU.
  */
 void smp_prepare(void);
 void smp_boot_cpus(void);

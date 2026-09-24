@@ -205,7 +205,7 @@ static inline bool task_is_idle(const struct task_struct *task)
 	return task && (task->flags & TASK_FLAG_IDLE);
 }
 
-#include <arch/task_access.h>
+#include <arch/task_stack.h>
 
 /* Credentials. */
 __must_check __malloc

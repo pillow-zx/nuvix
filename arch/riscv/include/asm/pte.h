@@ -4,7 +4,7 @@
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
 #include <nuvix/bitops.h>
-#include <asm/page.h>
+#include <nuvix/pfn.h>
 
 typedef uint64_t pte_t;
 

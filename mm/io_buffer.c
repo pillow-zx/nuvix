@@ -85,7 +85,7 @@ int io_buffer_pin(struct mm_struct *mm, uintptr_t address, size_t length,
 			ret = -EFAULT;
 			break;
 		}
-		buffer->pages[i] = virt_to_page(__va(PTE_TO_PA(*pte)));
+		buffer->pages[i] = virt_to_page(__va(pte_phys(*pte)));
 		page_get(buffer->pages[i]);
 		if (writable)
 			atomic_fetch_add_order(&buffer->pages[i]->io_write_pins,

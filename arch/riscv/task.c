@@ -1,3 +1,4 @@
+#include <asm/mmu.h>
 
 #include <nuvix/sched.h>
 #include <nuvix/mm.h>
@@ -6,6 +7,10 @@
 #include <nuvix/tools.h>
 #include <uapi/sched.h>
 #include <arch/trap.h>
+
+struct task_struct *switch_to(struct context *prev, struct context *next,
+			      uintptr_t next_satp,
+			      struct task_struct *outgoing);
 
 void arch_task_init(struct task_struct *task)
 {
@@ -50,7 +55,7 @@ struct task_struct *arch_task_switch(struct task_struct *prev,
 				     struct task_struct *next,
 				     struct mm_struct *mm)
 {
-	return switch_to(&prev->arch.ctx, &next->arch.ctx, mm ? mm_pgroot(mm) : kpgroot, prev);
+	return switch_to(&prev->arch.ctx, &next->arch.ctx, mm ? mm_pgtable_token(mm) : kernel_satp, prev);
 }
 
 bool task_trap_frome_user(const struct task_struct *task)
@@ -62,7 +67,7 @@ bool task_trap_frome_user(const struct task_struct *task)
 
 void activate_mm(struct mm_struct *mm)
 {
-	active_pgtable(mm ? mm_pgroot(mm) : kpgroot);
+	active_pgtable(mm ? mm_pgtable_token(mm) : kernel_satp);
 }
 
 void arch_task_exec(struct task_struct *task, struct trap_frame *tf,

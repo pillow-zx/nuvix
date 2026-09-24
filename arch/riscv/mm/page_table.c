@@ -1,3 +1,5 @@
+#include <asm/mmu.h>
+#include <asm/setup.h>
 #include <nuvix/printk.h>
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
@@ -10,7 +12,7 @@
 #include <arch/pgtable.h>
 #include <asm/csr.h>
 
-uintptr_t kpgroot;
+uintptr_t kernel_satp;
 
 atomic64_t pt_boot_token;
 
@@ -86,7 +88,7 @@ pte_t *pt_lookup(pte_t *root, vaddr_t va)
 	return &l0[idx0];
 }
 
-int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
+int map_page(pte_t *root, vaddr_t va, paddr_t pa, pgprot_t perm)
 {
 	pte_t *pte;
 	int ret;
@@ -103,22 +105,9 @@ int map_page(pte_t *root, vaddr_t va, paddr_t pa, uint64_t perm)
 	return 0;
 }
 
-uintptr_t pt_boot_token_acquire(void)
-{
-	return (uintptr_t)atomic64_read_acquire(&pt_boot_token);
-}
-
-bool pt_boot_token_valid(void)
-{
-	uintptr_t token = pt_boot_token_acquire();
-
-	return (token & SATP_MODE_SV39) == SATP_MODE_SV39 &&
-	       (token & SATP_PPN_MASK) != 0;
-}
-
 pte_t *kpgtable(void)
 {
-	uintptr_t satp_val = kpgroot;
+	uintptr_t satp_val = kernel_satp;
 	uintptr_t root_pa = (satp_val & SATP_PPN_MASK) << PAGE_SHIFT;
 
 	return (pte_t *)__va(root_pa);
@@ -171,7 +160,7 @@ void pgtable_init(void)
 
 	paddr_t root_pa = __pa((uintptr_t)root);
 	uintptr_t satp_val = SATP_MODE_SV39 | (root_pa >> PAGE_SHIFT);
-	kpgroot = satp_val;
+	kernel_satp = satp_val;
 
 	active_pgtable(satp_val);
 	bootmem_mapped();

@@ -1,4 +1,6 @@
-#include <arch/plic.h>
+#include "plic.h"
+#include <asm/trap.h>
+#include <nuvix/dt.h>
 #include <arch/io.h>
 #include <arch/pgtable.h>
 #include <nuvix/errno.h>
@@ -7,6 +9,159 @@
 #include <nuvix/spinlock.h>
 #include <nuvix/tools.h>
 #include <nuvix/wait.h>
+
+#define PLIC_MAX_SOURCES  1023u
+#define PLIC_MAX_CONTEXTS 15872u
+
+struct plic_config {
+	struct dt_resource regs;
+	uint32_t ndev;
+	/* Indexed by logical CPU, not hart ID. */
+	uint32_t contexts[NR_CPUS];
+};
+
+static struct plic_config boot_config;
+static int plic_node = -1;
+
+int dt_irq(int node, unsigned index)
+{
+	int len, parent = -1;
+	uint32_t irq;
+	const fdt32_t *p;
+
+	if (plic_node < 0 || node < 0 || !dt_available(node))
+		return -ENODEV;
+	p = fdt_getprop(dt_blob, node, "interrupts-extended", &len);
+	if (p) {
+		if (len <= 0 || len % 8)
+			return -EINVAL;
+		/* Only one-cell, direct PLIC specifiers are supported. */
+		for (unsigned i = 0; i < (unsigned)(len / 8); i++) {
+			parent = fdt_node_offset_by_phandle(dt_blob, fdt32_ld(p + i * 2));
+			if (parent != plic_node)
+				return -EOPNOTSUPP;
+		}
+		if (index >= (unsigned)(len / 8))
+			return -ENOENT;
+		irq = fdt32_ld(p + index * 2 + 1);
+	} else {
+		if (len != -FDT_ERR_NOTFOUND)
+			return -EINVAL;
+		for (int ancestor = node; ancestor >= 0;
+		     ancestor = fdt_parent_offset(dt_blob, ancestor)) {
+			uint32_t phandle;
+			int ret = dt_u32(ancestor, "interrupt-parent", &phandle);
+			if (!ret) {
+				parent = fdt_node_offset_by_phandle(dt_blob, phandle);
+				break;
+			}
+			if (ret != -ENOENT)
+				return ret;
+		}
+		if (parent != plic_node)
+			return -EOPNOTSUPP;
+		p = fdt_getprop(dt_blob, node, "interrupts", &len);
+		if (!p)
+			return len == -FDT_ERR_NOTFOUND ? -ENOENT : -EINVAL;
+		if (len <= 0 || len % 4)
+			return -EINVAL;
+		if (index >= (unsigned)(len / 4))
+			return -ENOENT;
+		irq = fdt32_ld(p + index);
+	}
+	return irq && irq <= boot_config.ndev ? (int)irq : -EINVAL;
+}
+
+static uint32_t plic_context_hart(int intc)
+{
+	int cpu = fdt_parent_offset(dt_blob, intc);
+	int cpus = fdt_parent_offset(dt_blob, cpu);
+	int ac = fdt_address_cells(dt_blob, cpus), len;
+	const char *type = dt_string(cpu, "device_type");
+	const fdt32_t *reg = fdt_getprop(dt_blob, cpu, "reg", &len);
+	uint64_t hart;
+
+	if (!type || strcmp(type, "cpu") || ac < 1 || ac > 2 ||
+	    !reg || len != ac * 4 || dt_cells(reg, ac, &hart) ||
+	    hart > UINT32_MAX)
+		panic("plic: invalid CPU for interrupt context");
+	return (uint32_t)hart;
+}
+
+void plic_discover(uint32_t boot_hartid)
+{
+	struct cpu_entry cpus[NR_CPUS];
+	struct dt_resource extra;
+	uint32_t count, cells;
+	int node = -1, found = -1, len;
+
+	if (platform_cpu_entries(boot_hartid, cpus, &count))
+		panic("plic: CPU topology is unavailable");
+	while ((node = fdt_next_node(dt_blob, node, NULL)) >= 0) {
+		if (!dt_available(node) ||
+		    (fdt_node_check_compatible(dt_blob, node, "sifive,plic-1.0.0") &&
+		     fdt_node_check_compatible(dt_blob, node, "riscv,plic0")))
+			continue;
+		if (found >= 0)
+			panic("plic: multiple controllers are not supported");
+		found = node;
+	}
+	if (found < 0)
+		panic("plic: no supported controller");
+	plic_node = found;
+	dt_require_simple_device(found, false);
+	if (!fdt_getprop(dt_blob, found, "interrupt-controller", &len) || len ||
+	    dt_u32(found, "#interrupt-cells", &cells) || cells != 1 ||
+	    dt_u32(found, "#address-cells", &cells) || cells ||
+	    dt_reg(found, 0, &boot_config.regs) ||
+	    dt_reg(found, 1, &extra) != -ENOENT ||
+	    (boot_config.regs.start & 3) ||
+	    fdt_getprop(dt_blob, found, "big-endian", NULL) ||
+	    dt_u32(found, "riscv,ndev", &boot_config.ndev) ||
+	    !boot_config.ndev || boot_config.ndev > PLIC_MAX_SOURCES)
+		panic("plic: invalid controller description");
+
+	const fdt32_t *contexts =
+		fdt_getprop(dt_blob, found, "interrupts-extended", &len);
+	if (!contexts || len <= 0 || len % 8 ||
+	    (unsigned)(len / 8) > PLIC_MAX_CONTEXTS)
+		panic("plic: invalid interrupts-extended");
+	for (uint32_t id = 0; id < count; id++)
+		boot_config.contexts[id] = UINT32_MAX;
+
+	/* Every entry occupies a hardware context, including M-mode and the
+	 * -1 placeholders left by firmware for inaccessible contexts. */
+	for (unsigned context = 0; context < (unsigned)(len / 8); context++) {
+		uint32_t phandle = fdt32_ld(contexts + context * 2);
+		uint32_t cause = fdt32_ld(contexts + context * 2 + 1);
+		int intc = fdt_node_offset_by_phandle(dt_blob, phandle), size;
+
+		if (intc < 0 ||
+		    fdt_node_check_compatible(dt_blob, intc, "riscv,cpu-intc") ||
+		    !fdt_getprop(dt_blob, intc, "interrupt-controller", &size) || size ||
+		    dt_u32(intc, "#interrupt-cells", &cells) || cells != 1)
+			panic("plic: invalid interrupt parent for context %u", context);
+		if (cause == IRQ_M_EXT || cause == UINT32_MAX)
+			continue;
+		if (cause != IRQ_S_EXT)
+			panic("plic: unsupported context interrupt %u", cause);
+		if (!dt_available(intc))
+			continue;
+		uint32_t hart = plic_context_hart(intc);
+		for (uint32_t id = 0; id < count; id++) {
+			if (cpus[id].hartid != hart)
+				continue;
+			uint32_t logical = cpus[id].logical_id;
+			if (boot_config.contexts[logical] != UINT32_MAX)
+				panic("plic: duplicate S-mode context for hart %u", hart);
+			boot_config.contexts[logical] = context;
+		}
+	}
+	for (uint32_t id = 0; id < count; id++) {
+		if (boot_config.contexts[cpus[id].logical_id] == UINT32_MAX)
+			panic("plic: no S-mode context for hart %u", cpus[id].hartid);
+	}
+}
 
 #define PLIC_PRIORITY       0x000000UL
 #define PLIC_PENDING        0x001000UL
@@ -103,8 +258,9 @@ static void plic_complete(struct plic_controller *controller, uint32_t cpu,
 	plic_write(controller->contexts[cpu].context + PLIC_CLAIM, irq);
 }
 
-void plic_init(const struct plic_config *config)
+void plic_init(void)
 {
+	const struct plic_config *config = &boot_config;
 	struct plic_controller *controller = &plic;
 	BUG_ON(controller->sources || !nr_cpu_ids || !irqs_disabled());
 	if (!config->ndev || config->ndev > PLIC_MAX_SOURCES ||

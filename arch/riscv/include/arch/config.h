@@ -1,13 +1,13 @@
 #ifndef _NUVIX_ARCH_RISCV_CONFIG_H
 #define _NUVIX_ARCH_RISCV_CONFIG_H
 
+#include <asm/layout.h>
+
 #define PAGE_SIZE               4096UL
 #define PAGE_SHIFT              12
 #define PAGE_MASK               (~(PAGE_SIZE - 1UL))
 
-#define KERNEL_VBASE            0xFFFFFFC000000000UL
 /* Fixed load contract; RAM outside this early window is mapped in C. */
-#define BOOT_RAM_END            0xC0000000UL
 #define DIRECT_MAP_LIMIT        (128UL << 30)
 #define VMALLOC_BASE            0xFFFFFFE000000000UL
 #define MMIO_VBASE              0xFFFFFFFE00000000UL
@@ -21,8 +21,6 @@
 #define USER_STACK_BASE	        (USER_STACK_TOP - USER_STACK_SIZE)
 #define USER_STACK_GUARD_BASE   (USER_STACK_BASE - PAGE_SIZE)
 
-#define ARCH_KSTACK_ORDER       3
-#define ARCH_KSTACK_SIZE        (PAGE_SIZE << ARCH_KSTACK_ORDER)
 #ifdef CONFIG_SMP
 #define NR_CPUS		        CONFIG_MAX_CPUS
 #else

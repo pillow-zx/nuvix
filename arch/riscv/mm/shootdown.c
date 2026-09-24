@@ -5,7 +5,7 @@
 #include <nuvix/mm.h>
 #include <nuvix/cpu.h>
 #include <nuvix/printk.h>
-#include <arch/sbi.h>
+#include <asm/sbi.h>
 
 static void flush_online(bool flush_icache)
 {

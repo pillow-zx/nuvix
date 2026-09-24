@@ -189,7 +189,7 @@ ASFLAGS += $(ASFLAGS-y)
 
 # The arch file names the linker script and the emulation; the link never goes
 # through the compiler driver, so no runtime or startup files are pulled in.
-LDSCRIPT := arch/$(ARCH)/kernel.ld
+LDSCRIPT := arch/$(ARCH)/kernel.lds
 
 LDFLAGS := -m $(ARCH_LD_EMULATION)
 LDFLAGS += -z max-page-size=4096
@@ -243,6 +243,10 @@ PHONY += all
 
 all: $(KERNEL)
 
+$(LDSCRIPT): arch/$(ARCH)/kernel.ld.S arch/$(ARCH)/include/asm/layout.h $(AUTOCONF_H)
+	$(quiet_cc)
+	$(Q)$(CC) $(COMMON_FLAGS) -E -P -x assembler-with-cpp -o $@ $<
+
 $(KERNEL): $(OBJS) $(LDSCRIPT)
 	$(quiet_ld)
 	$(Q)$(LD) $(LDFLAGS) -T $(LDSCRIPT) -o $@ $(OBJS)
@@ -264,7 +268,7 @@ PHONY += clean
 
 clean:
 	$(Q)rm -f $(ALL_OBJS) $(ALL_OBJS:.o=.d)
-	$(Q)rm -f $(KERNEL) $(KERNEL).asm $(KERNEL).sym
+	$(Q)rm -f $(KERNEL) $(KERNEL).asm $(KERNEL).sym $(LDSCRIPT)
 	$(Q)rm -f tags GTAGS GRTAGS GPATH ID
 
 # Developer workflows: source indexes and the help text.
