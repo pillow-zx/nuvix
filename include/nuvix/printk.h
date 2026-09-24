@@ -33,6 +33,8 @@ size_t printk_log_unread_size(void);
 ssize_t printk_log_read(void *buffer, size_t size);
 ssize_t printk_log_read_all(void *buffer, size_t size, bool clear);
 void printk_log_clear(void);
+/* After UART IRQ startup: normal logging queues output to a kernel thread. */
+int printk_console_start(void);
 
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap);
 int vsprintf(char *buf, const char *fmt, va_list ap);

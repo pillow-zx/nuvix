@@ -47,6 +47,8 @@
 #define VIRTIO_MMIO_INTERRUPT_STATUS	0x060
 /** @def VIRTIO_MMIO_INTERRUPT_ACK Interrupt acknowledge register. */
 #define VIRTIO_MMIO_INTERRUPT_ACK	0x064
+#define VIRTIO_MMIO_INT_VRING       0x01u
+#define VIRTIO_MMIO_INT_CONFIG      0x02u
 /** @def VIRTIO_MMIO_STATUS Device status register offset. */
 #define VIRTIO_MMIO_STATUS		0x070
 /** @def VIRTIO_MMIO_QUEUE_DESC_LOW Descriptor table low 32 address bits. */
@@ -150,34 +152,39 @@ struct virtio_blk_outhdr {
 
 /**
  * @brief Store a 32-bit value to a virtio MMIO register.
- * @param base MMIO transport base physical address.
+ * @param base Mapped MMIO transport virtual address.
  * @param off Register offset.
  * @param val Value to write.
  */
-static inline void virtio_mmio_write(paddr_t base, uint32_t off, uint32_t val)
+static inline void virtio_mmio_write(vaddr_t base, uint32_t off, uint32_t val)
 {
+	asm volatile("fence iorw,iorw" ::: "memory");
 	MMIO_WRITE(uint32_t, base + off, val);
+	asm volatile("fence iorw,iorw" ::: "memory");
 }
 
 /**
  * @brief Load a 32-bit value from a virtio MMIO register.
- * @param base MMIO transport base physical address.
+ * @param base Mapped MMIO transport virtual address.
  * @param off Register offset.
  * @return Register value.
  */
 __must_check
-static inline uint32_t virtio_mmio_read(paddr_t base, uint32_t off)
+static inline uint32_t virtio_mmio_read(vaddr_t base, uint32_t off)
 {
-	return MMIO_READ(uint32_t, base + off);
+	asm volatile("fence iorw,iorw" ::: "memory");
+	uint32_t value = MMIO_READ(uint32_t, base + off);
+	asm volatile("fence iorw,iorw" ::: "memory");
+	return value;
 }
 
 /**
  * @brief Write a 64-bit physical address to a low/high MMIO register pair.
- * @param base MMIO transport base physical address.
+ * @param base Mapped MMIO transport virtual address.
  * @param low_off Offset of the low 32-bit register.
  * @param val 64-bit value to split little-word order.
  */
-static inline void virtio_mmio_write64(paddr_t base, uint32_t low_off,
+static inline void virtio_mmio_write64(vaddr_t base, uint32_t low_off,
 				       uint64_t val)
 {
 	virtio_mmio_write(base, low_off, (uint32_t)val);

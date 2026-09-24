@@ -12,8 +12,6 @@
 #include <nuvix/mm.h>
 #include <nuvix/session.h>
 #include <nuvix/task.h>
-#include <nuvix/time.h>
-#include <nuvix/timer.h>
 #include <nuvix/tty.h>
 #include <nuvix/vfs.h>
 #include <nuvix/wait.h>
@@ -35,6 +33,7 @@ typedef void (*console_emit_fn)(char ch, void *ctx);
 struct console_input_state {
 	spinlock_t lock;
 	struct wait_channel readable;
+	struct wait_channel room;
 	struct termios termios;
 	struct winsize winsize;
 	char data[CONSOLE_INPUT_SIZE];
@@ -109,6 +108,7 @@ void tty_console_init(void)
 
 	spin_lock_init(&console_input.lock, LOCK_RANK_TTY, LOCK_IRQ_TASK_ONLY);
 	wait_channel_init(&console_input.readable);
+	wait_channel_init(&console_input.room);
 	tty_console_endpoint_init();
 	ret = vfs_register_chrdev(MKDEV(5, 1), &console_fops);
 	BUG_ON(ret < 0);
@@ -127,12 +127,6 @@ int tty_console_start(void)
 	return 0;
 }
 
-static void console_device_emit(char ch, void *ctx)
-{
-	(void)ctx;
-	uart_putchar(ch);
-}
-
 static void console_emit_output(const struct termios *termios, char ch,
 				console_emit_fn emit, void *ctx)
 {
@@ -140,25 +134,6 @@ static void console_emit_output(const struct termios *termios, char ch,
 	    ch == '\n')
 		emit('\r', ctx);
 	emit(ch, ctx);
-}
-
-static size_t console_write_translated(const struct termios *termios,
-				       const char *buf, size_t count,
-				       console_emit_fn emit, void *ctx)
-{
-	size_t emitted = 0;
-
-	for (size_t i = 0; i < count; i++) {
-		if ((termios->c_oflag & OPOST) && (termios->c_oflag & ONLCR) &&
-		    buf[i] == '\n') {
-			emit('\r', ctx);
-			emitted++;
-		}
-		emit(buf[i], ctx);
-		emitted++;
-	}
-
-	return emitted;
 }
 
 static void console_echo_char(const struct termios *termios, char ch,
@@ -392,35 +367,35 @@ static bool console_input_accept(char raw)
 	}
 	spin_unlock_irqrestore(&console_input.lock, flags);
 
-	for (size_t i = 0; i < echo_buf.len && i < echo_buf.cap; i++)
-		console_device_emit(echo_buf.data[i], NULL);
 	if (signal)
 		(void)session_console_deliver_foreground_signal(signal);
 	if (wake)
 		wait_channel_wake_all(&console_input.readable);
+	if (echo_buf.len) {
+		size_t count = echo_buf.len < echo_buf.cap ? echo_buf.len : echo_buf.cap;
+		(void)uart_write(echo_buf.data, count, false);
+	}
 	return stop;
 }
 
-static bool console_input_blocks_pump(void)
+static bool console_input_blocks_pump_locked(void)
 {
-	irq_flags_t flags;
-	bool blocked;
-
-	spin_lock_irqsave(&console_input.lock, &flags);
 	if (!(console_input.termios.c_lflag & ICANON))
 		console_input_compact_locked();
-	blocked = (console_input.termios.c_lflag & ICANON) &&
-		  (console_input.record_ready || console_input.eof);
-	if (!(console_input.termios.c_lflag & ICANON) &&
-	    console_input.len == sizeof(console_input.data))
-		blocked = true;
-	spin_unlock_irqrestore(&console_input.lock, flags);
-	return blocked;
+	if (console_input.termios.c_lflag & ICANON)
+		return console_input.record_ready || console_input.eof;
+	return console_input.len == sizeof(console_input.data);
 }
 
 static void console_input_drain_uart(void)
 {
-	while (!console_input_blocks_pump()) {
+	for (;;) {
+		irq_flags_t flags;
+		spin_lock_irqsave(&console_input.lock, &flags);
+		bool blocked = console_input_blocks_pump_locked();
+		spin_unlock_irqrestore(&console_input.lock, flags);
+		if (blocked)
+			return;
 		int input = uart_try_getchar();
 
 		if (input < 0)
@@ -432,17 +407,32 @@ static void console_input_drain_uart(void)
 
 static void console_input_thread(void *arg)
 {
+	const struct wait_deadline deadline = wait_deadline_none();
 	(void)arg;
 
 	for (;;) {
-		const struct wait_deadline deadline =
-			wait_deadline_at(mtime_deadline_after(timer_now(),
-							      timer_tick_interval));
+		struct wait_scope scope __wait_scope = {};
+		wait_outcome_t outcome;
+		irq_flags_t flags;
 		int ret;
 
 		console_input_drain_uart();
-		ret = wait_sleep_until(&deadline);
+		ret = wait_scope_begin(&scope, 0, &deadline);
 		BUG_ON(ret < 0);
+		spin_lock_irqsave(&console_input.lock, &flags);
+		bool blocked = console_input_blocks_pump_locked();
+		if (blocked)
+			ret = wait_scope_prepare(&scope, &console_input.room, false);
+		spin_unlock_irqrestore(&console_input.lock, flags);
+		/* Both predicate checks and waiter registration share their
+		 * respective owner locks, so neither RX nor freed room is lost. */
+		if (!blocked)
+			ret = uart_rx_prepare(&scope);
+		BUG_ON(ret < 0);
+		if (!ret) {
+			ret = wait_scope_block(&scope, &outcome);
+			BUG_ON(ret < 0 || outcome != WAIT_OUTCOME_EVENT);
+		}
 	}
 }
 
@@ -458,6 +448,8 @@ static ssize_t console_read(struct file *file, char *buf, size_t count,
 		if (!(console_input.termios.c_lflag & ICANON) && console_input_available_locked())
 			ret = console_copy_pending_locked(buf, count);
 		spin_unlock_irqrestore(&console_input.lock, flags);
+		if (ret >= 0)
+			wait_channel_wake_all(&console_input.room);
 	}
 	return ret;
 }
@@ -466,9 +458,12 @@ static ssize_t console_try_io(struct file *file, void *buf, size_t count, bool w
 {
 	irq_flags_t flags;
 	ssize_t ret;
-	/* TX still uses synchronous UART emission and is not an async backend. */
-	if (write)
-		return -EOPNOTSUPP;
+	if (write) {
+		spin_lock_irqsave(&console_input.lock, &flags);
+		tcflag_t oflag = console_input.termios.c_oflag;
+		spin_unlock_irqrestore(&console_input.lock, flags);
+		return uart_try_write(buf, count, (oflag & OPOST) && (oflag & ONLCR));
+	}
 	if (!count)
 		return 0;
 	spin_lock_irqsave(&console_input.lock, &flags);
@@ -484,24 +479,16 @@ static ssize_t console_try_io(struct file *file, void *buf, size_t count, bool w
 	} else
 		ret = -EAGAIN;
 	spin_unlock_irqrestore(&console_input.lock, flags);
+	if (ret >= 0)
+		wait_channel_wake_all(&console_input.room);
 	return ret;
 }
 
 static ssize_t console_write(struct file *file, const char *buf, size_t count,
 			     loff_t pos)
 {
-	struct termios termios;
-	irq_flags_t flags;
-
-	(void)file;
 	(void)pos;
-
-	spin_lock_irqsave(&console_input.lock, &flags);
-	termios = console_input.termios;
-	spin_unlock_irqrestore(&console_input.lock, flags);
-	console_write_translated(&termios, buf, count, console_device_emit, NULL);
-
-	return (ssize_t)count;
+	return io_wait_transfer(file, (void *)buf, count, true);
 }
 
 static int console_poll(struct file *file, uint32_t events,
@@ -525,8 +512,15 @@ static int console_poll(struct file *file, uint32_t events,
 			mask |= POLLIN;
 		spin_unlock_irqrestore(&console_input.lock, flags);
 	}
-	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE))
-		mask |= POLLOUT;
+	if ((events & POLLOUT) && (file->f_mode & FMODE_WRITE)) {
+		spin_lock_irqsave(&console_input.lock, &flags);
+		tcflag_t oflag = console_input.termios.c_oflag;
+		spin_unlock_irqrestore(&console_input.lock, flags);
+		ret = uart_tx_poll(wait, (oflag & OPOST) && (oflag & ONLCR));
+		if (ret < 0)
+			return ret;
+		mask |= ret;
+	}
 	return mask;
 }
 
@@ -557,6 +551,7 @@ static int console_ioctl(struct file *file, uint64_t cmd, uint64_t arg)
 		spin_lock_irqsave(&console_input.lock, &flags);
 		console_input.termios = termios;
 		spin_unlock_irqrestore(&console_input.lock, flags);
+		wait_channel_wake_all(&console_input.room);
 		wait_channel_wake_all(&console_input.readable);
 		return 0;
 	case TIOCSCTTY:

@@ -40,6 +40,8 @@ struct blkdev;
 /**
  * @struct block_device_operations
  * @brief Low-level sector I/O callbacks implemented by block drivers.
+ * Calls require sleepable task context. Buffers remain owned by the caller
+ * but must remain valid and untouched until the synchronous call returns.
  *
  * @par Fields
  * - @c read_sectors: Read @p nsec sectors starting at @p sector into @p buf.

@@ -6,7 +6,6 @@
 #include <nuvix/buddy.h>
 #include <nuvix/init.h>
 #include <nuvix/slab.h>
-#include <nuvix/page_cache.h>
 #include <nuvix/task.h>
 #include <nuvix/sched.h>
 #include <nuvix/timer.h>
@@ -28,7 +27,6 @@
 void kernel_main(uint64_t hartid, paddr_t dtb)
 {
 	struct task_struct *init;
-	struct task_struct *writeback;
 	int ret;
 
 	platform_init(hartid, dtb);
@@ -43,6 +41,7 @@ void kernel_main(uint64_t hartid, paddr_t dtb)
 
 	/* Publish the DT topology; every selected hart must start later. */
 	BUG_ON(cpu_prepare((uint32_t)hartid) < 0);
+	platform_irq_init();
 	smp_prepare();
 
 	/* Global initialization: every static queue and slot is reset once. */
@@ -77,22 +76,11 @@ void kernel_main(uint64_t hartid, paddr_t dtb)
 	if (ret < 0)
 		panic("filesystems: init failed (%d)", ret);
 
-	ret = vfs_mount_root(boot_disk_init());
-	if (ret < 0)
-		panic("VFS: root mount failed (%d)", ret);
-
 	init = kernel_thread(init_process, NULL);
 	BUG_ON(!init);
 	set_init_task(init);
 	if (task_reaper_start() < 0)
 		panic("task: reaper init failed");
-
-	ret = tty_console_start();
-	if (ret < 0)
-		panic("console: input thread init failed (%d)", ret);
-
-	writeback = kernel_thread(pgcache_wb_thread, NULL);
-	BUG_ON(!writeback);
 
 	while (true) {
 		local_irq_enable();

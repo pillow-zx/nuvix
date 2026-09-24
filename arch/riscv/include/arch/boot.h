@@ -6,5 +6,6 @@
 void dtb_init(paddr_t address);
 void dt_cpus_init(uint64_t boot_hartid);
 void platform_init(uint64_t boot_hartid, paddr_t dtb_pa);
+void platform_irq_init(void);
 
 #endif

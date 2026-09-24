@@ -16,6 +16,6 @@
 
 /* Probe a DT transport without resetting it. Zero means a different device. */
 vaddr_t virtio_blk_probe(int node);
-dev_t virtio_blk_init(vaddr_t base);
+dev_t virtio_blk_init(vaddr_t base, unsigned irq);
 
 #endif

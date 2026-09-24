@@ -21,6 +21,11 @@
 struct printk_ring {
 	spinlock_t lock;
 	char storage[PRINTK_LOG_BUF_SIZE];
+	/* Mark the syslog priority bytes so console output keeps its format. */
+	uint8_t prefix[PRINTK_LOG_BUF_SIZE / 8];
+	uint64_t console_seq;
+	bool console_async;
+	struct wait_channel console_wait;
 	uint64_t first_seq;
 	uint64_t head_seq;
 	uint64_t read_seq;
@@ -29,13 +34,23 @@ struct printk_ring {
 	mutex_t read_lock;
 };
 
-static bool printk_panic_mode;
-static DEFINE_SPINLOCK(console_lock, LOCK_RANK_CONSOLE_EMIT,
-			       LOCK_IRQ_TASK_ONLY);
+static atomic_t printk_panic_mode;
+
+static void uart_poll_write(const char *s)
+{
+	while (*s) {
+		if (*s == '\n')
+			uart_poll_putchar('\r');
+		uart_poll_putchar(*s++);
+	}
+}
 
 static struct printk_ring printk_ring = {
-	.lock = SPINLOCK_INIT(LOCK_RANK_PRINTK_RING, LOCK_IRQ_TASK_ONLY),
-	.read_wait = WAIT_CHANNEL_INIT(printk_ring.read_wait),
+	.lock = SPINLOCK_INIT(LOCK_RANK_PRINTK_RING, LOCK_IRQ_HARDIRQ_REACHABLE),
+	.read_wait = WAIT_CHANNEL_INIT_RANK(printk_ring.read_wait,
+		LOCK_RANK_WAIT_CHANNEL, LOCK_IRQ_HARDIRQ_REACHABLE),
+	.console_wait = WAIT_CHANNEL_INIT_RANK(printk_ring.console_wait,
+		LOCK_RANK_WAIT_CHANNEL, LOCK_IRQ_HARDIRQ_REACHABLE),
 	.read_lock = MUTEX_INIT(printk_ring.read_lock, LOCK_RANK_PRINTK_READ,
 				LOCK_IRQ_TASK_ONLY),
 };
@@ -59,12 +74,15 @@ static void printk_ring_copy_locked(char *destination, uint64_t sequence, size_t
 }
 
 __nonnull(1)
-static void printk_ring_append_locked(const char *source, size_t size)
+static void printk_ring_append_locked(const char *source, size_t size, bool prefix)
 {
 	for (size_t index = 0; index < size; index++) {
-		printk_ring
-			.storage[printk_ring.head_seq % PRINTK_LOG_BUF_SIZE] =
-			source[index];
+		size_t slot = printk_ring.head_seq % PRINTK_LOG_BUF_SIZE;
+		printk_ring.storage[slot] = source[index];
+		if (prefix)
+			printk_ring.prefix[slot / 8] |= 1u << (slot % 8);
+		else
+			printk_ring.prefix[slot / 8] &= ~(1u << (slot % 8));
 		printk_ring.head_seq++;
 		if (printk_ring.head_seq - printk_ring.first_seq >
 		    PRINTK_LOG_BUF_SIZE)
@@ -104,19 +122,19 @@ static void printk_ring_append_message(int level, const char *message, size_t si
 	irq_flags_t flags;
 
 	spin_lock_irqsave(&printk_ring.lock, &flags);
-	printk_ring_append_locked(priority, sizeof(priority));
-	printk_ring_append_locked(message, size);
+	printk_ring_append_locked(priority, sizeof(priority), true);
+	printk_ring_append_locked(message, size, false);
+	bool async = printk_ring.console_async;
+	if (!async) {
+		/* Early boot only. The ring lock serializes the transition to
+		 * asynchronous output with the last polled message. */
+		uart_poll_write(message);
+		printk_ring.console_seq = printk_ring.head_seq;
+	}
 	spin_unlock_irqrestore(&printk_ring.lock, flags);
 	wait_channel_wake_one(&printk_ring.read_wait);
-}
-
-static void uart_write(const char *s)
-{
-	while (*s) {
-		if (*s == '\n')
-			uart_putchar('\r');
-		uart_putchar(*s++);
-	}
+	if (async)
+		wait_channel_wake_one(&printk_ring.console_wait);
 }
 
 size_t printk_log_buffer_size(void)
@@ -279,16 +297,59 @@ void printk_log_clear(void)
 
 static void printk_emit(int level, const char *message, size_t size)
 {
-	if (printk_panic_mode) {
-		uart_write(message);
+	if (atomic_read_acquire(&printk_panic_mode)) {
+		uart_poll_write(message);
 		return;
 	}
 	printk_ring_append_message(level, message, size);
-	irq_flags_t flags;
+}
 
-	spin_lock_irqsave(&console_lock, &flags);
-	uart_write(message);
-	spin_unlock_irqrestore(&console_lock, flags);
+static void printk_console_thread(void *arg)
+{
+	const struct wait_deadline deadline = wait_deadline_none();
+	(void)arg;
+
+	for (;;) {
+		char buffer[256];
+		size_t count = 0;
+		struct wait_scope scope __wait_scope = {};
+		wait_outcome_t outcome;
+		irq_flags_t flags;
+		int ret = wait_scope_begin(&scope, 0, &deadline);
+		BUG_ON(ret < 0);
+		spin_lock_irqsave(&printk_ring.lock, &flags);
+		/* Console backlog has the same bounded overwrite policy as the
+		 * log ring; its cursor is independent of syslog readers/clear. */
+		(void)printk_ring_normalize_locked(&printk_ring.console_seq);
+		while (printk_ring.console_seq < printk_ring.head_seq &&
+		       count < sizeof(buffer)) {
+			size_t slot = printk_ring.console_seq++ % PRINTK_LOG_BUF_SIZE;
+			if (!(printk_ring.prefix[slot / 8] & (1u << (slot % 8))))
+				buffer[count++] = printk_ring.storage[slot];
+		}
+		if (!count)
+			ret = wait_scope_prepare(&scope, &printk_ring.console_wait, true);
+		spin_unlock_irqrestore(&printk_ring.lock, flags);
+		BUG_ON(ret < 0);
+		if (!count) {
+			ret = wait_scope_block(&scope, &outcome);
+			BUG_ON(ret < 0 || outcome != WAIT_OUTCOME_EVENT);
+		} else {
+			wait_scope_complete(&scope);
+			if (uart_write(buffer, count, true) < 0)
+				return;
+		}
+	}
+}
+
+int printk_console_start(void)
+{
+	irq_flags_t flags;
+	spin_lock_irqsave(&printk_ring.lock, &flags);
+	BUG_ON(printk_ring.console_async);
+	printk_ring.console_async = true;
+	spin_unlock_irqrestore(&printk_ring.lock, flags);
+	return kernel_thread(printk_console_thread, NULL) ? 0 : -ENOMEM;
 }
 
 static int vprintk(int level, const char *fmt, va_list ap)
@@ -324,8 +385,9 @@ void __panic(const char *fmt, ...)
 {
 	/* Panic logging must remain usable even when the failure fills
 	 * tracking. */
-	printk_panic_mode = true;
+	atomic_set_release(&printk_panic_mode, 1);
 	local_irq_disable();
+	uart_panic_enter();
 	pr_err("\nKERNEL PANIC: ");
 
 	va_list ap;
