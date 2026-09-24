@@ -21,4 +21,5 @@ obj-y += arch/riscv/dt.o
 obj-$(CONFIG_SMP) += arch/riscv/smp.o
 
 include $(srctree)/arch/riscv/mm/mm.mk
+include $(srctree)/arch/riscv/drivers/drivers.mk
 include $(srctree)/arch/riscv/lib/lib.mk

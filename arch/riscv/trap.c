@@ -17,11 +17,13 @@
 #include <nuvix/user_return.h>
 #include <nuvix/ipi.h>
 #include <arch/uaccess.h>
+#include <arch/plic.h>
 
 extern void __alltraps(void);
 
 void trap_cpu_init(void)
 {
+	csr_clear(sie, SIE_SEIE);
 	csr_write(stvec, __alltraps);
 	csr_write(sscratch, 0);
 	csr_set(sie, SIE_STIE);
@@ -31,6 +33,8 @@ void trap_cpu_init(void)
 #else
 	csr_clear(sie, SIE_SSIE);
 #endif
+	plic_cpu_init();
+	csr_set(sie, SIE_SEIE);
 }
 
 static const char *trap_origin(const struct trap_frame *tf)
@@ -157,21 +161,14 @@ void trap_handler(struct trap_frame *tf)
 #ifdef CONFIG_SMP
 		case IRQ_S_SOFT:
 			ipi_handle();
-			irq_exit();
-			if (user)
-				trap_user_return(tf);
-			else if (sched_context_can_schedule() && task_need_resched(task))
-				schedule_irqoff();
-			return;
+			break;
 #endif
 		case IRQ_S_TIMER:
 			handle_timer_irq();
-			irq_exit();
-			if (user)
-				trap_user_return(tf);
-			else if (sched_context_can_schedule() && task_need_resched(task))
-				schedule_irqoff();
-			return;
+			break;
+		case IRQ_S_EXT:
+			plic_handle_irq();
+			break;
 		default:
 			irq_exit();
 			panic("unhandled interrupt: origin=%s scause=0x%lx "
@@ -181,6 +178,12 @@ void trap_handler(struct trap_frame *tf)
 			      (void *)trap_user_pc(tf),
 			      (void *)trap_fault_addr(tf));
 		}
+		irq_exit();
+		if (user)
+			trap_user_return(tf);
+		else if (sched_context_can_schedule() && task_need_resched(task))
+			schedule_irqoff();
+		return;
 	} else {
 		if (!user && uaccess_fixup(tf))
 			return;

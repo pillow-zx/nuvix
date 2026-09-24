@@ -5,6 +5,41 @@
 #include <nuvix/printk.h>
 #include <arch/irq.h>
 
+/* External IRQs use controller source IDs (1..DT riscv,ndev on RISC-V).
+ * One handler and one fixed logical CPU own each source; no shared IRQs.
+ * Handlers run in hard-IRQ context with local IRQs disabled. They must not
+ * sleep or enable local IRQs, and must acknowledge their device before return.
+ * The dispatcher owns controller claim/complete. */
+typedef void (*irq_handler_t)(unsigned irq, void *data);
+
+/* Register on an online CPU, initially disabled, with priority 1. The caller
+ * owns handler/data until successful unregister and serializes registration,
+ * synchronization and teardown for this source. No allocation is performed.
+ * Invalid arguments return -EINVAL; an occupied source returns -EBUSY. */
+int irq_register(unsigned irq, uint32_t cpu, irq_handler_t handler, void *data);
+
+/* Idempotent, non-nesting enable/disable; usable from a handler. Disable
+ * prevents new handler entries but does not wait for an active handler.
+ * Hardware masking is deferred until its completion if a claim is active.
+ * Enable during unregister returns -EBUSY; unregistered IRQs return -ENOENT. */
+int irq_enable(unsigned irq);
+int irq_disable(unsigned irq);
+
+/* Both require a sleepable task context with no locks/resources needed by
+ * the handler held. Disable the IRQ before synchronize if future entries
+ * must be excluded. Unregister disables it and waits through controller
+ * completion before detaching handler/data. A failed unregister retains the
+ * registration (possibly disabled); it does not permit freeing data. */
+int irq_synchronize(unsigned irq);
+int irq_unregister(unsigned irq);
+
+/* Registered sources only. Priority 0 suppresses delivery; unsupported
+ * priorities return -EINVAL and leave the previous value in place. */
+int irq_set_priority(unsigned irq, uint32_t priority);
+/* Return a pending-bit snapshot (0/1), or a negative errno. A claimed IRQ
+ * may still be executing while its pending bit is zero. */
+int irq_pending(unsigned irq);
+
 /**
  * @brief Return the current CPU's hard-IRQ handler nesting depth.
  *

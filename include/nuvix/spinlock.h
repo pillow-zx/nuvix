@@ -40,10 +40,11 @@ typedef struct spinlock {
 #define LOCK_RANK_MM_ANON          155
 #define LOCK_RANK_PRINTK_RING      160
 #define LOCK_RANK_PAGE_CACHE       180
-#define LOCK_RANK_CONSOLE_EMIT     190
+#define LOCK_RANK_UART             200
 #define LOCK_RANK_VIRTIO_SUBMIT    210
 #define LOCK_RANK_IO_COMPLETION    220
 #define LOCK_RANK_PIPE             230
+#define LOCK_RANK_IRQ              240
 #define LOCK_RANK_WAIT_CHANNEL     250
 #define LOCK_RANK_ALLOC_BUDDY      260
 #define LOCK_RANK_ALLOC_SLAB       270
