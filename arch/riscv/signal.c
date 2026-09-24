@@ -1,5 +1,6 @@
 /* RISC-V signal frame, trampoline and register ABI. */
-#include <arch/signal.h>
+#include <uapi/ucontext.h>
+#include <nuvix/string.h>
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
 #include <nuvix/mm.h>

@@ -2,6 +2,7 @@
  * mm/mmap.c - 用户地址空间管理
  */
 
+#include <nuvix/tlb.h>
 #include <nuvix/mm.h>
 #include <nuvix/math.h>
 #include <nuvix/fdtable.h>
@@ -227,16 +228,16 @@ void unmap_pages_locked(struct mm_struct *mm,
 }
 
 void mm_teardown_sync(struct mm_struct *mm, struct mm_teardown *teardown,
-		      bool flush_icache)
+		      bool flush_instructions)
 {
 	bool changed = teardown && teardown->nr_release != 0;
 
 	if (changed)
 		tlb_flush_all();
-	if (flush_icache)
-		icache_flush();
-	if (changed || flush_icache)
-		mm_flush_remote(mm, flush_icache);
+	if (flush_instructions)
+		flush_icache();
+	if (changed || flush_instructions)
+		mm_flush_remote(mm, flush_instructions);
 }
 
 void mm_teardown_release(struct mm_teardown *teardown)
@@ -772,7 +773,7 @@ int mm_mprotect(struct mm_struct *mm, uintptr_t addr, size_t len, int prot)
 	vma_update_flags_range(mm, addr, end, mm_root_to_vm_flags(prot));
 	tlb_flush_all();
 	if (prot & PROOT_EXEC)
-		icache_flush();
+		flush_icache();
 	mm_flush_remote(mm, (prot & PROOT_EXEC) != 0);
 	vma_merge_all(mm);
 out:

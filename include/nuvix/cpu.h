@@ -13,7 +13,6 @@
 #include <nuvix/atomic.h>
 #include <nuvix/config.h>
 #include <arch/cpu.h>
-#include <arch/irq.h>
 
 #define CPUMASK_WORD_BITS       64u
 #define CPUMASK_WORDS           ((NR_CPUS + CPUMASK_WORD_BITS - 1) / CPUMASK_WORD_BITS)
@@ -114,18 +113,6 @@ struct cpu {
 	uintptr_t entry_scratch[2];
 };
 
-static_assert(offsetof(struct cpu, state) == CPU_STATE,
-	      "CPU_STATE offset in entry.S out of sync with struct cpu");
-static_assert(sizeof(struct cpu) == CPU_SIZE,
-	      "CPU_SIZE in asm_offsets.h out of sync with struct cpu");
-static_assert(offsetof(struct cpu, current_task) == CPU_CURRENT_TASK,
-	      "CPU_CURRENT_TASK offset in entry.S out of sync with struct cpu");
-static_assert(
-	offsetof(struct cpu, preempt_count) == CPU_PREEMPT_COUNT,
-	"CPU_PREEMPT_COUNT offset in entry.S out of sync with struct cpu");
-static_assert(offsetof(struct cpu, entry_scratch) == CPU_ENTRY_SCRATCH,
-	      "CPU_ENTRY_SCRATCH offset in entry.S out of sync with struct cpu");
-
 extern struct cpu cpu_table[NR_CPUS];
 extern uint32_t nr_cpu_ids;
 
@@ -188,6 +175,14 @@ static inline struct cpu *current_cpu(void)
 {
 	return arch_current_cpu();
 }
+
+/* Install this CPU's kernel-local pointer during secondary bring-up. */
+__always_inline
+static inline void current_cpu_install(struct cpu *cpu)
+{
+	arch_current_cpu_install(cpu);
+}
+
 __must_check __pure
 static inline struct cpu *cpu_by_id(uint32_t id)
 {

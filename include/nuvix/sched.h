@@ -4,7 +4,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
 #include <nuvix/task.h>
-#include <arch/processor.h>
+#include <nuvix/processor.h>
 
 #define SCHED_BOOT_AFFINITY_CPU 0u
 

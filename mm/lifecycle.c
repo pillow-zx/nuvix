@@ -2,6 +2,7 @@
  * mm/address_space.c - AddressSpace construction, lifecycle, and layout
  */
 
+#include <nuvix/tlb.h>
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
 #include <nuvix/fdtable.h>

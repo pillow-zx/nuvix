@@ -205,7 +205,11 @@ static inline bool task_is_idle(const struct task_struct *task)
 	return task && (task->flags & TASK_FLAG_IDLE);
 }
 
-#include <arch/task_stack.h>
+__must_check __pure __nonnull(1) __returns_nonnull
+struct trap_frame *task_kernel_tf(struct task_struct *task);
+
+__must_check
+void *task_kstack_take(struct task_struct *task);
 
 /* Credentials. */
 __must_check __malloc
@@ -295,6 +299,13 @@ void task_reap_unpublish(struct task_struct *task);
 
 /* Scheduler and architecture entry points. */
 void arch_task_init(struct task_struct *task);
+void arch_task_exec(struct task_struct *task, struct trap_frame *tf,
+		    uintptr_t entry, uintptr_t sp);
+
+__nonnull(1, 2)
+struct task_struct *arch_task_switch(struct task_struct *prev,
+				   struct task_struct *next,
+				   struct mm_struct *mm);
 
 void task_setup_kthread(struct task_struct *task, void (*fn)(void *), void *arg);
 

@@ -1,4 +1,3 @@
-#include <nuvix/io.h>
 #include <nuvix/errno.h>
 #include <nuvix/signal.h>
 #include <nuvix/task.h>

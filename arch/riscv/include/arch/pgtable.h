@@ -6,28 +6,8 @@
 #include <arch/page.h>
 #include <asm/csr.h>
 #include <asm/pte.h>
-#include <arch/tlb.h>
 
 typedef pte_t pgprot_t;
-
-void pgtable_init(void);
-pte_t *pgtable_create(void);
-void pgtable_destroy(pte_t *root);
-/* Caller exclusively owns user mappings. Clears the next user leaf, including
- * software non-present leaves. Transfers its reference to the caller, which
- * must finish shootdown before releasing it. Cursor starts at zero. */
-bool pgtable_take_upage(pte_t *root, uintptr_t *cursor, paddr_t *pa);
-/* Boot-only, before concurrent use; leaves prepared entries unmapped. */
-int pgtable_prepare_range(pte_t *root, uintptr_t start, uintptr_t end);
-
-__must_check
-pte_t *kpgtable(void);
-
-__must_check __nonnull(1)
-pte_t *pt_lookup(pte_t *root, uintptr_t va);
-
-__must_check __nonnull(1)
-int map_page(pte_t *root, uintptr_t va, uintptr_t pa, pgprot_t perm);
 
 #define pgprot_user(read, write, exec)                                  \
 	((pgprot_t)(PTE_V | PTE_U | PTE_A | PTE_D | ((read) ? PTE_R : 0) |     \

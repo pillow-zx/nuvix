@@ -7,14 +7,15 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
-#include <nuvix/io.h>
 #include <nuvix/string.h>
+#include <nuvix/barrier.h>
 #include <nuvix/mm.h>
 #include <nuvix/session.h>
 #include <nuvix/task.h>
 #include <nuvix/tty.h>
 #include <nuvix/vfs.h>
 #include <nuvix/wait.h>
+#include <nuvix/io.h>
 #include <uapi/signal.h>
 #include <uapi/tty.h>
 

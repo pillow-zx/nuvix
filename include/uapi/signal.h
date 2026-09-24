@@ -173,8 +173,6 @@ struct stack_t {
 	unsigned long ss_size;
 };
 
-#include <uapi/ucontext.h>
-
 #define SS_ONSTACK 1
 #define SS_DISABLE 2
 

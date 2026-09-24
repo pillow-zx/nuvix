@@ -2,8 +2,8 @@
 
 #include <arch/page.h>
 #include <asm/sbi.h>
-#include <arch/boot.h>
-#include "drivers/plic.h"
+#include <nuvix/init.h>
+#include <asm/plic.h>
 #include <asm/trap.h>
 #include <nuvix/bootmem.h>
 #include <nuvix/cpu.h>

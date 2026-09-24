@@ -1,8 +1,8 @@
-#include "plic.h"
+#include <asm/plic.h>
 #include <asm/trap.h>
 #include <nuvix/dt.h>
-#include <arch/io.h>
-#include <arch/pgtable.h>
+#include <nuvix/mmio.h>
+#include <nuvix/pgtable.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
 #include <nuvix/slab.h>

@@ -12,6 +12,10 @@
 #include <nuvix/types.h>
 
 #ifdef CONFIG_SMP
+/* Architecture transport used by the generic IPI implementation. */
+int smp_ipi_notify(uint32_t hartid);
+void smp_ipi_ack(void);
+
 /*
  * Notify one online CPU. A self-target is handled locally. The scheduler uses
  * this for remote wakeups and the SMP boot-health gate. Returns a negative

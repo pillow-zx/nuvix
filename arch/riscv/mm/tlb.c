@@ -1,6 +1,6 @@
-
+#include <nuvix/processor.h>
 #include <nuvix/types.h>
-#include <arch/tlb.h>
+#include <nuvix/tlb.h>
 
 __always_inline
 static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)
@@ -10,7 +10,6 @@ static inline void local_sfence_vma(uintptr_t addr, uintptr_t asid)
 
 void tlb_flush_all(void)
 {
-
 	local_sfence_vma(0, 0);
 }
 
@@ -19,7 +18,7 @@ void tlb_flush_page(uintptr_t va)
 	local_sfence_vma(va, 0);
 }
 
-void icache_flush(void)
+void flush_icache(void)
 {
 	asm volatile("fence.i" : : : "memory");
 }

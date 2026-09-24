@@ -1,6 +1,6 @@
 
 #include <asm/sbi.h>
-#include <arch/system.h>
+#include <nuvix/reboot.h>
 #include <nuvix/types.h>
 
 #define SBI_EID_SHUTDOWN	0x08

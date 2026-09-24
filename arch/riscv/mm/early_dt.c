@@ -1,6 +1,6 @@
 #include <asm/setup.h>
-#include <arch/boot.h>
-#include <arch/pgtable.h>
+#include <nuvix/tlb.h>
+#include <nuvix/pgtable.h>
 #include <nuvix/dt.h>
 #include <nuvix/printk.h>
 

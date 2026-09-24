@@ -4,6 +4,11 @@
 #include <arch/trap.h>
 #include <uapi/siginfo.h>
 
+void trap_cpu_init(void);
+
+__noreturn
+void trapret_to_user(struct trap_frame *tf);
+
 enum trap_exception_disposition {
 	TRAP_EXCEPTION_SYSCALL,
 	TRAP_EXCEPTION_PAGE_FAULT,

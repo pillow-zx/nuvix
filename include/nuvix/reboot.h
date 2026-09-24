@@ -3,6 +3,16 @@
 
 #include <nuvix/compiler.h>
 
+/* Architecture reset mechanism, after the reboot policy has accepted it. */
+enum reset_mode {
+	RESET_RESTART,
+	RESET_HALT,
+	RESET_POWEROFF,
+};
+
+__noreturn
+void system_reset(enum reset_mode mode);
+
 enum reboot_command {
 	REBOOT_CAD_OFF,
 	REBOOT_CAD_ON,

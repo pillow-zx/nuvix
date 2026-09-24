@@ -20,6 +20,12 @@ struct task_wait;
 struct timespec;
 struct proc_parent_event;
 
+/* Architecture encodes/decodes the user ABI; the core owns mask policy. */
+int arch_signal_setup(struct trap_frame *tf, int sig, const siginfo_t *info,
+		      const struct sigaction *action, uint64_t mask);
+int arch_signal_restore(struct trap_frame *tf, uintptr_t sp,
+			uint64_t *mask, struct stack_t *stack);
+
 /* Compact kernel representation of the siginfo classes nuvix produces.
  * The 128-byte Linux siginfo_t layout exists only at the userspace boundary. */
 struct ksiginfo {

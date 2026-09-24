@@ -1,3 +1,4 @@
+#include <nuvix/processor.h>
 #include <nuvix/io_buffer.h>
 #include <nuvix/buddy.h>
 #include <nuvix/errno.h>
@@ -126,7 +127,7 @@ void io_buffer_copy(struct io_buffer *buffer, size_t offset, void *kernel,
 		length -= part;
 	}
 	if (to_user) {
-		icache_flush();
+		flush_icache();
 		mm_flush_remote(buffer->mm, true);
 	}
 	mm_unlock(buffer->mm);

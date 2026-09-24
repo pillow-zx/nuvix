@@ -1,29 +1,16 @@
 #ifndef _NUVIX_ARCH_RISCV_TASK_H
 #define _NUVIX_ARCH_RISCV_TASK_H
 
-
 #include <nuvix/types.h>
-#include <nuvix/compiler.h>
 #include <arch/config.h>
-#include <arch/page.h>
-#include <asm/asm_offsets.h>
 #include <asm/context.h>
-#include <asm/trap_frame.h>
 
-struct task_struct;
-struct mm_struct;
+struct trap_frame;
 
 struct fpu_state {
 	uint64_t registers[32];
 	uint32_t fcsr;
 };
-void fpu_save(struct fpu_state *state);
-void fpu_restore(const struct fpu_state *state);
-
-void arch_task_exec(struct task_struct *task, struct trap_frame *tf,
-		    uintptr_t entry, uintptr_t sp);
-
-void activate_mm(struct mm_struct *mm);
 
 struct task_state {
 	struct context ctx;
@@ -31,15 +18,5 @@ struct task_state {
 	void *kstack;
 	struct fpu_state fpu;
 };
-
-__nonnull(1, 2)
-struct task_struct *arch_task_switch(struct task_struct *prev,
-				     struct task_struct *next,
-				     struct mm_struct *mm);
-
-static_assert(ARCH_KSTACK_SIZE == TASK_KSTACK_SIZE,
-	      "entry.S __trapret kstack arithmetic is out of sync");
-static_assert((ARCH_KSTACK_SIZE - TRAP_FRAME_ALLOC_SIZE) % 16 == 0,
-	      "kernel trap-frame allocation must preserve stack alignment");
 
 #endif

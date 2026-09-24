@@ -10,7 +10,6 @@
 #include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/sched.h>
-#include <arch/smp.h>
 
 /* Boot-health: set once per CPU after an IPI was handled. */
 static atomic_t ipi_seen_flags[NR_CPUS];

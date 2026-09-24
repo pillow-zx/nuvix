@@ -23,7 +23,6 @@
 #include <uapi/syscall.h>
 #include <nuvix/processor.h>
 #include <nuvix/page.h>
-#include <arch/signal.h>
 #include <nuvix/trap.h>
 
 #define SIGNAL_STANDARD_MASK   ((1UL << (SIGRTMIN - 1)) - 1)
@@ -1508,7 +1507,7 @@ void restart_save(struct task_struct *task, const struct trap_frame *tf,
 
 	context->pc = trap_user_pc(tf) - 4;
 	for (uint32_t index = 0; index < 6; index++)
-		context->args[index] = syscall_arg(tf, index);
+		context->args[index] = sysarg(tf, index);
 	context->nr = nr;
 	context->valid = true;
 	context->restartable = signal_restartable(nr);

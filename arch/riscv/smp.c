@@ -1,7 +1,7 @@
+#include <nuvix/ipi.h>
 #include <asm/setup.h>
 
 #include <asm/sbi.h>
-#include <arch/smp.h>
 #include <arch/page.h>
 #include <asm/csr.h>
 #include <nuvix/cpu.h>

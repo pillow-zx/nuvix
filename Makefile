@@ -156,6 +156,7 @@ COMMON_FLAGS := $(ARCH_FLAGS)
 COMMON_FLAGS += $(TOOLCHAIN_COMMON_FLAGS)
 COMMON_FLAGS += -I include
 COMMON_FLAGS += -I arch/$(ARCH)/include
+COMMON_FLAGS += -I arch/$(ARCH)/include/uapi
 COMMON_FLAGS += -include $(AUTOCONF_H)
 
 CFLAGS := -Wall -Werror -Wformat

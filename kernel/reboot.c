@@ -2,7 +2,6 @@
  * kernel/reboot.c - privileged system reboot policy
  */
 
-#include <arch/system.h>
 #include <nuvix/errno.h>
 #include <nuvix/reboot.h>
 #include <nuvix/task.h>

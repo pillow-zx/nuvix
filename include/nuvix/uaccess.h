@@ -1,5 +1,5 @@
-#ifndef _NUVIX_UACCESS_ARCH_H
-#define _NUVIX_UACCESS_ARCH_H
+#ifndef _NUVIX_UACCESS_H
+#define _NUVIX_UACCESS_H
 
 #include <arch/uaccess.h>
 

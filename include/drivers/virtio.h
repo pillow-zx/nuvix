@@ -9,8 +9,8 @@
 #include <nuvix/config.h>
 #include <nuvix/types.h>
 #include <nuvix/tools.h>
-#include <arch/barrier.h>
-#include <arch/io.h>
+#include <nuvix/barrier.h>
+#include <nuvix/mmio.h>
 
 /**
  * @def VIRTIO_MMIO_MAGIC
@@ -159,9 +159,9 @@ struct virtio_blk_outhdr {
  */
 static inline void virtio_mmio_write(vaddr_t base, uint32_t off, uint32_t val)
 {
-	arch_io_mb();
+	mmio_mb();
 	MMIO_WRITE(uint32_t, base + off, val);
-	arch_io_mb();
+	mmio_mb();
 }
 
 /**
@@ -173,9 +173,9 @@ static inline void virtio_mmio_write(vaddr_t base, uint32_t off, uint32_t val)
 __must_check
 static inline uint32_t virtio_mmio_read(vaddr_t base, uint32_t off)
 {
-	arch_io_mb();
+	mmio_mb();
 	uint32_t value = MMIO_READ(uint32_t, base + off);
-	arch_io_mb();
+	mmio_mb();
 	return value;
 }
 

@@ -21,10 +21,4 @@
 #define USER_STACK_BASE	        (USER_STACK_TOP - USER_STACK_SIZE)
 #define USER_STACK_GUARD_BASE   (USER_STACK_BASE - PAGE_SIZE)
 
-#ifdef CONFIG_SMP
-#define NR_CPUS		        CONFIG_MAX_CPUS
-#else
-#define NR_CPUS                  1
-#endif
-
 #endif

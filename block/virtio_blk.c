@@ -15,7 +15,7 @@
 #include <nuvix/tools.h>
 #include <nuvix/page.h>
 #include <nuvix/dt.h>
-#include <arch/io.h>
+#include <nuvix/mmio.h>
 
 #define VBLK_QSIZE	     8
 #define VBLK_MAX_SECTORS     256u

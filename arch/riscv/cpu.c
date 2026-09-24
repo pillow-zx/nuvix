@@ -1,5 +1,5 @@
+#include <asm/asm_offsets.h>
 #include <asm/setup.h>
-#include <arch/boot.h>
 #include <nuvix/cpu.h>
 #include <nuvix/dt.h>
 #include <nuvix/errno.h>

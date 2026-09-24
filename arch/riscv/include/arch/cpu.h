@@ -2,7 +2,6 @@
 #define _NUVIX_ARCH_RISCV_CPU_H
 
 #include <nuvix/compiler.h>
-#include <asm/asm_offsets.h>
 
 struct cpu;
 

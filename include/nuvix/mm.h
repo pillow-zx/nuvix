@@ -11,6 +11,11 @@
 #include <nuvix/types.h>
 #include <nuvix/fs.h>
 
+struct mm_struct;
+
+/* Install an address space on the local CPU; NULL selects the kernel root. */
+void activate_mm(struct mm_struct *mm);
+
 struct anon_shared;
 struct page;
 /* Sleepable. Takes a page reference; mappings can outlive the kernel owner. */

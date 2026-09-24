@@ -8,8 +8,8 @@
 #include <nuvix/math.h>
 #include <nuvix/atomic.h>
 #include <nuvix/bootmem.h>
+#include <nuvix/pgtable.h>
 #include <arch/page.h>
-#include <arch/pgtable.h>
 #include <asm/csr.h>
 
 uintptr_t kernel_satp;

@@ -18,9 +18,15 @@
 
 #ifndef __ASSEMBLER__
 
+#include <nuvix/compiler.h>
 #include <nuvix/types.h>
 
 #ifdef CONFIG_SMP
+/* Architecture hooks used by generic CPU bring-up. */
+void arch_smp_prepare(void);
+int arch_cpu_start(uint32_t logical_id);
+void arch_cpu_start_diagnose(uint32_t logical_id);
+
 /*
  * Generic bring-up. smp_prepare() checks secondary CPU boot requirements
  * after cpu_prepare() has published the topology;

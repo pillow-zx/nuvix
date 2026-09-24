@@ -3,4 +3,6 @@
 
 #include <arch/processor.h>
 
+void flush_icache(void);
+
 #endif

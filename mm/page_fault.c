@@ -2,6 +2,9 @@
  * mm/page_fault.c - 缺页异常处理
  */
 
+#include <nuvix/string.h>
+#include <nuvix/tlb.h>
+#include <nuvix/config.h>
 #include <nuvix/mm.h>
 #include <nuvix/math.h>
 #include <nuvix/buddy.h>
@@ -18,7 +21,6 @@
 #include <nuvix/trap.h>
 #include <nuvix/processor.h>
 
-#include "arch/config.h"
 #include "internal.h"
 
 __pure
@@ -209,7 +211,7 @@ static int fault_in_user_page_locked(struct mm_struct *mm, uintptr_t fault_addr,
 				tlb_flush_page(va);
 		}
 		if (!ret && (vma->vm_flags & VM_EXEC)) {
-			icache_flush();
+			flush_icache();
 			mm_flush_remote(mm, true);
 		}
 		return ret;

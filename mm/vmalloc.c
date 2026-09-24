@@ -2,6 +2,7 @@
  * mm/vmalloc.c - vmalloc 区虚拟内存分配
  */
 
+#include <nuvix/tlb.h>
 #include <nuvix/vmalloc.h>
 #include <nuvix/mm.h>
 #include <nuvix/bitops.h>

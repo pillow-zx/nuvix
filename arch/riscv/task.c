@@ -1,3 +1,5 @@
+#include <nuvix/string.h>
+#include <asm/asm_offsets.h>
 #include <asm/mmu.h>
 
 #include <nuvix/sched.h>
@@ -6,11 +8,75 @@
 #include <nuvix/task.h>
 #include <nuvix/tools.h>
 #include <uapi/sched.h>
-#include <arch/trap.h>
+#include <nuvix/trap.h>
+
+static_assert(ARCH_KSTACK_SIZE == TASK_KSTACK_SIZE,
+	      "entry.S __trapret kstack arithmetic is out of sync");
+static_assert((ARCH_KSTACK_SIZE - TRAP_FRAME_ALLOC_SIZE) % 16 == 0,
+	      "kernel trap-frame allocation must preserve stack alignment");
+
+static_assert(offsetof(struct task_struct, arch.kstack) == TASK_KSTACK,
+		      "TASK_KSTACK offset in entry.S out of sync with task_struct");
+
+__must_check __pure __nonnull(1) __returns_nonnull
+struct trap_frame *task_kernel_tf(struct task_struct *task)
+{
+	uintptr_t frame = (uintptr_t)task->arch.kstack + KSTACK_SIZE -
+			  TRAP_FRAME_ALLOC_SIZE;
+
+	return (struct trap_frame *)frame;
+}
+
+__must_check
+void *task_kstack_take(struct task_struct *task)
+{
+	void *kstack;
+
+	if (!task)
+		return NULL;
+	kstack = task->arch.kstack;
+	task->arch.kstack = NULL;
+	return kstack;
+}
 
 struct task_struct *switch_to(struct context *prev, struct context *next,
 			      uintptr_t next_satp,
 			      struct task_struct *outgoing);
+
+__nonnull(1)
+static inline void trap_set_kthread_frame(struct trap_frame *tf, uintptr_t pc, uintptr_t arg0)
+{
+	memset(tf, 0, sizeof(*tf));
+	tf->sepc = pc;
+	tf->a0 = arg0;
+	tf->sstatus = SSTATUS_SPP | SSTATUS_SPIE;
+}
+
+__nonnull(1, 2)
+static inline void trap_clone_frame(struct trap_frame *dst, const struct trap_frame *src)
+{
+	memcpy(dst, src, sizeof(*dst));
+}
+
+__nonnull(1)
+static inline void trap_set_clone_return(struct trap_frame *tf)
+{
+	tf->a0 = 0;
+}
+
+__nonnull(1)
+static inline void trap_set_tls(struct trap_frame *tf, uintptr_t tls)
+{
+	tf->tp = tls;
+}
+
+__nonnull(1)
+static inline void trap_setup_user_return(struct trap_frame *tf, uintptr_t pc, uintptr_t sp)
+{
+	tf->sepc = pc;
+	tf->sp = sp;
+	tf->sstatus = SSTATUS_SPIE;
+}
 
 void arch_task_init(struct task_struct *task)
 {

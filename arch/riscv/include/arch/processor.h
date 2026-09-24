@@ -4,9 +4,6 @@
 #include <nuvix/compiler.h>
 #include <nuvix/types.h>
 #include <asm/csr.h>
-#include <arch/tlb.h>
-
-struct cpu;
 
 __always_inline
 static inline void wait_for_interrupt(void)
@@ -30,12 +27,6 @@ __always_inline __must_check
 static inline uintptr_t trap_value(void)
 {
 	return csr_read(stval);
-}
-
-__always_inline
-static inline void flush_icache(void)
-{
-	icache_flush();
 }
 
 #endif

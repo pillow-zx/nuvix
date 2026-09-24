@@ -1,6 +1,6 @@
-#include <arch/io.h>
-
-#include <arch/pgtable.h>
+#include <nuvix/tlb.h>
+#include <nuvix/mmio.h>
+#include <nuvix/pgtable.h>
 #include <nuvix/bootmem.h>
 #include <nuvix/printk.h>
 #include <nuvix/smp.h>

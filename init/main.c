@@ -14,7 +14,6 @@
 #include <nuvix/vmalloc.h>
 #include <nuvix/vfs.h>
 #include <nuvix/bootdev.h>
-#include <arch/boot.h>
 #include <nuvix/trap.h>
 #include <nuvix/processor.h>
 #include <nuvix/pgtable.h>

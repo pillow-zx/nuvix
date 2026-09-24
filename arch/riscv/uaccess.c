@@ -1,7 +1,7 @@
 
+#include <asm/entry.h>
 #include <asm/trap.h>
 #include <arch/trap.h>
-#include <arch/uaccess.h>
 #include <nuvix/errno.h>
 
 struct uaccess_exception_entry {

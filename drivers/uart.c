@@ -12,7 +12,7 @@
 #include <nuvix/event.h>
 #include <nuvix/spinlock.h>
 #include <uapi/poll.h>
-#include <arch/io.h>
+#include <nuvix/mmio.h>
 
 struct uart_device {
 	vaddr_t base;
@@ -45,21 +45,21 @@ static struct uart_device uart = {
 static inline void uart_write_reg(struct uart_device *dev, int reg, uint8_t val)
 {
 	vaddr_t address = dev->base + ((unsigned)reg << dev->reg_shift);
-	arch_io_mb();
+	mmio_mb();
 	if (dev->io_width == 4)
 		MMIO_WRITE(uint32_t, address, val);
 	else
 		MMIO_WRITE(uint8_t, address, val);
-	arch_io_mb();
+	mmio_mb();
 }
 
 static inline uint8_t uart_read_reg(struct uart_device *dev, int reg)
 {
 	vaddr_t address = dev->base + ((unsigned)reg << dev->reg_shift);
-	arch_io_mb();
+	mmio_mb();
 	uint8_t value = dev->io_width == 4 ? (uint8_t)MMIO_READ(uint32_t, address) :
 		MMIO_READ(uint8_t, address);
-	arch_io_mb();
+	mmio_mb();
 	return value;
 }
 

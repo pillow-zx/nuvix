@@ -8,7 +8,6 @@
  */
 
 #include <nuvix/smp.h>
-#include <arch/smp.h>
 #include <nuvix/cpu.h>
 #include <nuvix/ipi.h>
 #include <nuvix/processor.h>
@@ -213,7 +212,7 @@ void smp_secondary_main(uint32_t hartid, uint32_t logical_id)
 
 	/* S-mode tp is the CPU pointer: install this hart's slot as the
 	 * first statement, before any current_cpu() read below. */
-	arch_current_cpu_install(cpu);
+	current_cpu_install(cpu);
 
 	if (!cpu || cpu->hartid != hartid) {
 		if (cpu) {

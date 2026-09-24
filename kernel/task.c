@@ -523,7 +523,7 @@ static void task_destroy(struct task_struct *task)
 	task_release_resources(task);
 	proc_put(task->proc);
 	task->proc = NULL;
-	kstack = task_kernel_stack_take(task);
+	kstack = task_kstack_take(task);
 	BUG_ON(!kstack);
 	free_page(kstack, KSTACK_ORDER);
 	pid_put(task->tid);

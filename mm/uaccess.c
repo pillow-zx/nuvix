@@ -2,6 +2,7 @@
  * mm/uaccess.c - 用户空间内存访问
  */
 
+#include <nuvix/processor.h>
 #include <nuvix/mm.h>
 #include <nuvix/math.h>
 #include <nuvix/errno.h>
@@ -119,7 +120,7 @@ static int uaccess_copy(struct uaccess_txn *txn, void *to, const void *from,
 
 			memcpy(data, kernel, chunk);
 			if (vma && (vma->vm_flags & VM_EXEC)) {
-				icache_flush();
+				flush_icache();
 				mm_flush_remote(txn->mm, true);
 			}
 		} else {

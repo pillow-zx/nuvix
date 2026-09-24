@@ -68,18 +68,6 @@
 #define IFNDEF(macro, ...) __MUXNDEF(macro, __KEEP, __IGNORE)(__VA_ARGS__)
 
 /**
- * @def MMIO_READ
- * @brief Perform a volatile typed load from an MMIO address.
- */
-#define MMIO_READ(type, addr) (*(volatile type *)(addr))
-
-/**
- * @def MMIO_WRITE
- * @brief Perform a volatile typed store to an MMIO address.
- */
-#define MMIO_WRITE(type, addr, val) (*(volatile type *)(addr) = (val))
-
-/**
  * @def ISARR
  * @brief Compile-time assertion that an expression is an array.
  */

@@ -311,7 +311,7 @@ void unmap_pages_locked(struct mm_struct *mm, const struct vm_area_struct *vma,
 		uintptr_t start, uintptr_t end, struct mm_teardown *teardown);
 
 __nonnull(1)
-void mm_teardown_sync(struct mm_struct *mm, struct mm_teardown *teardown, bool flush_icache);
+void mm_teardown_sync(struct mm_struct *mm, struct mm_teardown *teardown, bool flush_instructions);
 
 void mm_teardown_release(struct mm_teardown *teardown);
 

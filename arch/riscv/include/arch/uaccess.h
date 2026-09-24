@@ -1,16 +1,10 @@
 #ifndef _NUVIX_ARCH_RISCV_UACCESS_H
 #define _NUVIX_ARCH_RISCV_UACCESS_H
 
-#include <asm/csr.h>
 #include <arch/page.h>
 #include <nuvix/compiler.h>
 #include <nuvix/errno.h>
 #include <nuvix/types.h>
-
-struct trap_frame;
-
-__must_check
-bool uaccess_fixup(struct trap_frame *tf);
 
 #define __RISCV_UACCESS_EX_TABLE                                               \
 	".pushsection __ex_table,\"a\"\n\t"                                    \
@@ -113,8 +107,8 @@ __RISCV_DEFINE_USER_PUT(64, u64, sd)
 #undef __RISCV_DEFINE_USER_GET
 #undef __RISCV_DEFINE_USER_PUT
 
-__always_inline __must_check static inline int
-__riscv_user_get(void *out, const volatile void *addr, size_t width)
+__always_inline __must_check
+static inline int __riscv_user_get(void *out, const volatile void *addr, size_t width)
 {
 	switch (width) {
 	case sizeof(u8): {
@@ -191,22 +185,5 @@ static inline int __riscv_user_put(u64 value, volatile void *addr, size_t width)
 	statement_expr(__RISCV_USER_WIDTH_ASSERT(ptr);                         \
 		       __riscv_user_put((u64)(x), (volatile void *)(ptr),      \
 					sizeof(*(ptr)));)
-
-__always_inline __must_check
-static inline bool user_access_begin(void)
-{
-	bool had_sum = (csr_read(sstatus) & SSTATUS_SUM) != 0;
-
-	if (!had_sum)
-		csr_set(sstatus, SSTATUS_SUM);
-	return had_sum;
-}
-
-__always_inline
-static inline void user_access_end(bool had_sum)
-{
-	if (!had_sum)
-		csr_clear(sstatus, SSTATUS_SUM);
-}
 
 #endif
