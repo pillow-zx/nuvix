@@ -804,9 +804,9 @@ ssize_t sys_fsync(struct trap_frame *tf)
  * Current: flushes dirty file data through VFS, then asks the filesystem to
  * sync metadata needed to retrieve that data; filesystems without a datasync
  * hook fall back to full inode metadata writeback.
- * Unsupported errno: fd errors match fsync; storage ordering is best-effort.
- * Future: deepen per-filesystem ordering semantics if crash consistency
- * becomes a project goal.
+ * For ext2 regular files, the common I/O request path drains dirty pages and
+ * waits for the block device FLUSH completion. A device lacking FLUSH fails
+ * rather than reporting a durability guarantee it cannot provide.
  */
 ssize_t sys_fdatasync(struct trap_frame *tf)
 {

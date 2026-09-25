@@ -12,8 +12,29 @@
 
 #define PAGE_CACHE_READ         BIT(0)
 #define PAGE_CACHE_CREATE       BIT(1)
+#define PAGE_CACHE_NOWAIT       BIT(2)
 
 struct pgcache;
+
+/* These operations never wait for device I/O. -EAGAIN means an in-flight
+ * producer will notify pgcache_progress_channel(), then the caller retries.
+ * Cache exhaustion without such a producer returns -ENOMEM. */
+struct wait_channel *pgcache_progress_channel(void);
+
+void pgcache_signal_progress(void);
+
+void pgcache_async_thread(void *arg);
+
+int pgcache_try_read_block(dev_t dev, uint64_t block, struct pgcache **out);
+
+int pgcache_try_create_block(dev_t dev, uint64_t block, struct pgcache **out);
+
+int pgcache_try_get_mapping(struct page_mapping *mapping, uint64_t index,
+			    uint32_t flags, struct pgcache **out);
+
+int pgcache_sync_mapping_step(struct page_mapping *mapping);
+
+int pgcache_sync_device_step(dev_t dev);
 
 __must_check
 struct pgcache *pgcache_get(dev_t dev, uint64_t block, uint32_t flags, int *error);

@@ -9,6 +9,8 @@
 #include <nuvix/exit.h>
 #include <nuvix/fdtable.h>
 #include <nuvix/io_buffer.h>
+#include <nuvix/io.h>
+#include <nuvix/page_cache.h>
 #include <nuvix/sched.h>
 #include <nuvix/signal.h>
 #include <nuvix/slab.h>
@@ -66,7 +68,7 @@ struct ring_request {
 	struct io_uring_sqe sqe;
 	struct io_uring_cqe cqe;
 	struct poll_table poll;
-	struct ring_subscription subscriptions[2];
+	struct ring_subscription subscriptions[4];
 	unsigned int nr_subscriptions;
 	struct io_buffer **buffers;
 	unsigned int nr_buffers;
@@ -78,6 +80,9 @@ struct ring_request {
 	bool nonblock;
 	bool fixed;
 	bool pending;
+	bool has_io;
+	size_t transferred;
+	struct io_request io;
 };
 
 struct io_ring {
@@ -109,15 +114,17 @@ struct io_ring {
 	uint32_t dropped;
 	char *bounce;
 };
+
 static atomic_t ring_count = ATOMIC_INIT(0);
+
 static const struct file_operations ring_fops;
 
-static uint32_t load_acquire(uint32_t *value)
+static inline uint32_t load_acquire(uint32_t *value)
 {
 	return compiler_atomic_load_n(value, ATOMIC_ORDER_ACQUIRE);
 }
 
-static void store_release(uint32_t *value, uint32_t data)
+static inline void store_release(uint32_t *value, uint32_t data)
 {
 	compiler_atomic_store_n(value, data, ATOMIC_ORDER_RELEASE);
 }
@@ -145,7 +152,7 @@ static int ring_queue(struct poll_table *table, struct wait_channel *source)
 	for (unsigned int i = 0; i < req->nr_subscriptions; i++)
 		if (req->subscriptions[i].event.source == source)
 			return 0;
-	if (req->nr_subscriptions == 2)
+	if (req->nr_subscriptions == 4)
 		return -E2BIG;
 	sub = &req->subscriptions[req->nr_subscriptions++];
 	sub->ring = req->ring;
@@ -156,6 +163,8 @@ static int ring_queue(struct poll_table *table, struct wait_channel *source)
 
 static void request_release(struct ring_request *req)
 {
+	if (req->has_io)
+		io_request_release(&req->io);
 	for (unsigned int i = 0; i < req->nr_subscriptions; i++)
 		event_unsubscribe(&req->subscriptions[i].event);
 	req->nr_subscriptions = 0;
@@ -198,6 +207,8 @@ static void request_complete(struct ring_request *req, int result)
 {
 	struct io_ring *ring = req->ring;
 	irq_flags_t flags;
+	if (req->has_io && !io_request_finish(&req->io, result))
+		return;
 	req->pending = false;
 	request_release(req);
 	req->cqe = (struct io_uring_cqe){.user_data = req->sqe.user_data,
@@ -219,6 +230,7 @@ static bool supported_opcode(unsigned int op)
 	case IORING_OP_WRITEV:
 	case IORING_OP_READ_FIXED:
 	case IORING_OP_WRITE_FIXED:
+	case IORING_OP_FSYNC:
 	case IORING_OP_POLL_ADD:
 	case IORING_OP_TIMEOUT:
 	case IORING_OP_ASYNC_CANCEL:
@@ -328,6 +340,12 @@ static int request_prepare(struct ring_request *req)
 		    (sqe->poll32_events & ~IO_POLL_MASK))
 			return -EINVAL;
 		break;
+	case IORING_OP_FSYNC:
+		/* Linux ignores off/len for whole-file fsync. */
+		if (sqe->addr || sqe->buf_index ||
+		    (sqe->fsync_flags & ~IORING_FSYNC_DATASYNC))
+			return -EINVAL;
+		break;
 	default:
 		if (sqe->rw_flags)
 			return -EOPNOTSUPP;
@@ -342,6 +360,15 @@ static int request_prepare(struct ring_request *req)
 		return -EOPNOTSUPP;
 	if (sqe->opcode == IORING_OP_POLL_ADD)
 		return 0;
+	if (sqe->opcode == IORING_OP_FSYNC) {
+		if (!req->file->f_op || !req->file->f_op->try_fsync_prepare)
+			return -EOPNOTSUPP;
+		io_request_init(&req->io, req->file, IO_REQUEST_FSYNC, NULL, 0,
+				0,
+				!!(sqe->fsync_flags & IORING_FSYNC_DATASYNC));
+		req->has_io = true;
+		return 0;
+	}
 	req->write = sqe->opcode == IORING_OP_WRITE ||
 		     sqe->opcode == IORING_OP_WRITEV ||
 		     sqe->opcode == IORING_OP_WRITE_FIXED;
@@ -349,20 +376,40 @@ static int request_prepare(struct ring_request *req)
 		     sqe->opcode == IORING_OP_WRITE_FIXED;
 	if (!(req->file->f_mode & (req->write ? FMODE_WRITE : FMODE_READ)))
 		return -EBADF;
-	if (!req->file->f_op || !req->file->f_op->try_io)
+	if (!req->file->f_op ||
+	    (!req->file->f_op->try_io && !req->file->f_op->try_io_pos))
 		return -EOPNOTSUPP;
+	if (req->file->f_op->try_io_pos && sqe->off != UINT64_MAX &&
+	    sqe->off > INT64_MAX)
+		return -EINVAL;
 	/* Native stream backends have no seekable position. */
-	if (sqe->off && sqe->off != UINT64_MAX)
+	if (!req->file->f_op->try_io_pos && sqe->off && sqe->off != UINT64_MAX)
 		return -ESPIPE;
 	req->nonblock = (req->file->f_flags & O_NONBLOCK) != 0;
-	return request_buffers(req);
+	ret = request_buffers(req);
+	if (ret < 0)
+		return ret;
+	io_request_init(&req->io, req->file,
+			req->write ? IO_REQUEST_WRITE : IO_REQUEST_READ,
+			req->ring->bounce, 0,
+			sqe->off == UINT64_MAX ? -1 : (loff_t)sqe->off, false);
+	req->has_io = true;
+	return 0;
 }
 
-static void request_copy(struct ring_request *req, size_t length, bool to_user)
+static void request_copy(struct ring_request *req, size_t start, size_t length,
+			 bool to_user)
 {
 	size_t done = 0;
 	for (unsigned int i = 0; i < req->nr_buffers && done < length; i++) {
 		size_t offset = req->fixed ? req->buffer_offset : 0;
+		size_t available = req->buffers[i]->length - offset;
+		if (start >= available) {
+			start -= available;
+			continue;
+		}
+		offset += start;
+		start = 0;
 		size_t part =
 			MIN(length - done, req->buffers[i]->length - offset);
 		io_buffer_copy(req->buffers[i], offset,
@@ -393,8 +440,12 @@ static void request_progress(struct ring_request *req)
 		list_for_each_entry (target, &ring->active, node) {
 			if (target != req &&
 			    target->sqe.user_data == req->sqe.addr) {
-				request_complete(target, -ECANCELED);
-				ret = 0;
+				ret = target->transferred ? -EALREADY
+				      : target->has_io
+					      ? io_request_cancel(&target->io)
+					      : 0;
+				if (!ret)
+					request_complete(target, -ECANCELED);
 				break;
 			}
 		}
@@ -409,23 +460,69 @@ static void request_progress(struct ring_request *req)
 		if (ret)
 			request_complete(req, ret);
 		return;
-	default: {
-		size_t length = MIN(req->length, IO_CHUNK);
-		ret = vfs_poll_subscribe(
-			req->file, req->write ? POLLOUT : POLLIN, &req->poll);
-		if (ret < 0) {
+	case IORING_OP_FSYNC:
+		(void)ring_queue(&req->poll, pgcache_progress_channel());
+		(void)ring_queue(&req->poll, &req->file->f_inode->i_lock.wait);
+		(void)ring_queue(&req->poll, &req->io.completion);
+		ret = (int)io_request_progress(&req->io);
+		if (ret != -EAGAIN)
 			request_complete(req, ret);
-			return;
+		return;
+	default: {
+		if (req->file->f_op->try_io_pos) {
+			(void)ring_queue(&req->poll,
+					 pgcache_progress_channel());
+			(void)ring_queue(&req->poll, io_position_channel());
+			(void)ring_queue(&req->poll,
+					 &req->file->f_inode->i_lock.wait);
+		} else {
+			ret = vfs_poll_subscribe(req->file,
+						 req->write ? POLLOUT : POLLIN,
+						 &req->poll);
+			if (ret < 0) {
+				request_complete(req, ret);
+				return;
+			}
 		}
-		if (req->write)
-			request_copy(req, length, false);
-		ret = req->file->f_op->try_io(req->file, ring->bounce, length,
-					      req->write);
-		if (ret == -EAGAIN && !req->nonblock)
-			return;
-		if (ret > 0 && !req->write)
-			request_copy(req, ret, true);
-		request_complete(req, ret);
+		while (req->transferred < req->length) {
+			size_t length = MIN(req->length - req->transferred,
+					    (size_t)IO_CHUNK);
+			if (req->write)
+				request_copy(req, req->transferred, length,
+					     false);
+			req->io.buffer = ring->bounce;
+			req->io.length = length;
+			ret = (int)io_request_progress(&req->io);
+			if (ret == -EAGAIN) {
+				if (req->nonblock &&
+				    !req->file->f_op->try_io_pos)
+					request_complete(
+						req,
+						req->transferred
+							? (int)req->transferred
+							: ret);
+				return;
+			}
+			if (ret <= 0) {
+				request_complete(req,
+						 req->transferred
+							 ? (int)req->transferred
+							 : ret);
+				return;
+			}
+			if (!req->write)
+				request_copy(req, req->transferred, (size_t)ret,
+					     true);
+			req->transferred += (size_t)ret;
+			/* A pipe or console can return a short transfer for its
+			 * currently available data. */
+			if (!req->file->f_op->try_io_pos &&
+			    (size_t)ret < length) {
+				request_complete(req, (int)req->transferred);
+				return;
+			}
+		}
+		request_complete(req, (int)req->transferred);
 	}
 	}
 }
@@ -465,12 +562,19 @@ static void ring_reactor(void *arg)
 		atomic_set(&ring->dirty, 0);
 		mutex_lock(&ring->lock);
 		if (ring->closing) {
-			while (!list_empty(&ring->active)) {
-				req = list_first_entry(&ring->active,
-						       struct ring_request,
-						       node);
+			struct list_head *pos, *next;
+			list_for_each_safe (pos, next, &ring->active) {
+				req = list_entry(pos, struct ring_request,
+						 node);
+				if (req->has_io && req->io.flush_submitted &&
+				    !io_request_flush_done(&req->io))
+					continue;
 				list_del_init(&req->node);
 				request_release(req);
+			}
+			if (!list_empty(&ring->active)) {
+				mutex_unlock(&ring->lock);
+				goto park;
 			}
 			mutex_unlock(&ring->lock);
 			ring_put(ring);
@@ -493,6 +597,7 @@ static void ring_reactor(void *arg)
 				deadline = wait_deadline_at(req->deadline);
 		}
 		mutex_unlock(&ring->lock);
+	park:
 		ret = wait_scope_begin(&scope, 0, &deadline);
 		if (ret < 0)
 			continue;
@@ -619,7 +724,7 @@ ssize_t sys_io_uring_setup(struct trap_frame *tf)
 	params.cq_entries = size * 2;
 	params.features = IORING_FEAT_SINGLE_MMAP | IORING_FEAT_NODROP |
 			  IORING_FEAT_SUBMIT_STABLE | IORING_FEAT_FAST_POLL |
-			  IORING_FEAT_EXT_ARG;
+			  IORING_FEAT_EXT_ARG | IORING_FEAT_RW_CUR_POS;
 #define OFF(member) offsetof(struct ring_memory, member)
 	params.sq_off = (struct io_sqring_offsets){
 		.head = OFF(sq_head),
@@ -706,6 +811,17 @@ static int ring_submit(struct io_ring *ring, uint32_t count)
 		req->pending = true;
 		list_add_tail(&req->node, &ring->active);
 		store_release(&ring->memory->sq_head, ++ring->sq_head);
+		/* An immediately executable request need not wait for the
+		 * reactor. Implicit regular-file positions stay with the
+		 * reactor task if a page producer makes them wait. */
+		if (req->error ||
+		    (req->sqe.opcode != IORING_OP_ASYNC_CANCEL &&
+		     !req->has_io) ||
+		    (req->sqe.opcode != IORING_OP_FSYNC &&
+		     req->sqe.opcode != IORING_OP_ASYNC_CANCEL &&
+		     (!req->file->f_op->try_io_pos ||
+		      req->sqe.off != UINT64_MAX)))
+			request_progress(req);
 		consumed++;
 		count--;
 	}
@@ -895,7 +1011,8 @@ static int buffers_quiesce(struct io_ring *ring)
 	}
 }
 
-static int buffers_register(struct io_ring *ring, unsigned int opcode, void *arg, unsigned int size)
+static int buffers_register(struct io_ring *ring, unsigned int opcode,
+			    void *arg, unsigned int size)
 {
 	struct io_buffer **prepared = NULL;
 	struct io_uring_rsrc_register reg;

@@ -9,6 +9,7 @@
 /* Zero-initialized hlist buckets are empty. Lookup is expected O(1);
  * owner lists are only used for operations spanning a mapping or page. */
 #define PGCACHE_ASSOC_HASH_BITS 10
+
 static HASH_TABLE(pgcache_assoc, PGCACHE_ASSOC_HASH_BITS);
 
 static uint64_t pgcache_assoc_hash(struct page_mapping *mapping, uint64_t index)

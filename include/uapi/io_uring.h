@@ -7,25 +7,25 @@
 
 struct io_uring_sqe {
 	uint8_t opcode;
-        uint8_t flags;
+	uint8_t flags;
 	uint16_t ioprio;
 	int32_t fd;
 	uint64_t off;
-        uint64_t addr;
+	uint64_t addr;
 	uint32_t len;
 	union {
 		uint32_t rw_flags;
-                uint32_t poll32_events;
-                uint32_t timeout_flags;
-                uint32_t cancel_flags;
+		uint32_t poll32_events;
+		uint32_t timeout_flags;
+		uint32_t cancel_flags;
 		uint32_t fsync_flags;
 	};
 	uint64_t user_data;
 	uint16_t buf_index;
-        uint16_t personality;
+	uint16_t personality;
 	uint32_t file_index;
 	uint64_t addr3;
-        uint64_t pad2;
+	uint64_t pad2;
 };
 struct io_uring_cqe {
 	uint64_t user_data;
@@ -34,23 +34,23 @@ struct io_uring_cqe {
 };
 struct io_sqring_offsets {
 	uint32_t head;
-        uint32_t tail;
-        uint32_t ring_mask;
-        uint32_t ring_entries;
-        uint32_t flags;
-        uint32_t dropped;
-        uint32_t array;
+	uint32_t tail;
+	uint32_t ring_mask;
+	uint32_t ring_entries;
+	uint32_t flags;
+	uint32_t dropped;
+	uint32_t array;
 	uint32_t resv1;
 	uint64_t user_addr;
 };
 struct io_cqring_offsets {
 	uint32_t head;
-        uint32_t tail;
-        uint32_t ring_mask;
-        uint32_t ring_entries;
-        uint32_t overflow;
-        uint32_t cqes;
-        uint32_t flags;
+	uint32_t tail;
+	uint32_t ring_mask;
+	uint32_t ring_entries;
+	uint32_t overflow;
+	uint32_t cqes;
+	uint32_t flags;
 	uint32_t resv1;
 	uint64_t user_addr;
 };
@@ -112,6 +112,7 @@ struct io_uring_probe {
 #define IORING_OP_ASYNC_CANCEL	       14
 #define IORING_OP_READ		       22
 #define IORING_OP_WRITE		       23
+#define IORING_FSYNC_DATASYNC	       (1U << 0)
 #define IORING_OFF_SQ_RING	       0ULL
 #define IORING_OFF_CQ_RING	       0x8000000ULL
 #define IORING_OFF_SQES		       0x10000000ULL
@@ -122,6 +123,7 @@ struct io_uring_probe {
 #define IORING_FEAT_SINGLE_MMAP	       (1U << 0)
 #define IORING_FEAT_NODROP	       (1U << 1)
 #define IORING_FEAT_SUBMIT_STABLE      (1U << 2)
+#define IORING_FEAT_RW_CUR_POS	       (1U << 3)
 #define IORING_FEAT_FAST_POLL	       (1U << 5)
 #define IORING_FEAT_EXT_ARG	       (1U << 8)
 #define IORING_UNREGISTER_BUFFERS      1

@@ -14,6 +14,8 @@ struct page_mapping;
 struct page_mapping_ops {
 	int (*resolve)(struct page_mapping *mapping, uint64_t index, bool create,
 		       uint64_t *block);
+	int (*resolve_nowait)(struct page_mapping *mapping, uint64_t index,
+			      bool create, uint64_t *block);
 };
 
 struct page_mapping {

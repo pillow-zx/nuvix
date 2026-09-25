@@ -11,6 +11,7 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/vfs.h>
+#include <nuvix/io.h>
 
 #define FILE_STATUS_FLAGS	 (O_ACCMODE | O_APPEND | O_NONBLOCK | O_DIRECTORY)
 #define FILE_SETFL_MUTABLE_FLAGS (O_APPEND | O_NONBLOCK)
@@ -80,6 +81,8 @@ const struct file_operations *vfs_chrdev_fops(dev_t dev)
 int vfs_sync_file(struct file *file)
 {
 	int ret;
+	if (file && file->f_op && file->f_op->try_fsync_prepare)
+		return io_sync_file(file, false);
 
 	if (!file || !file->f_inode)
 		return -EINVAL;
@@ -120,6 +123,8 @@ int vfs_msync_file_range(struct file *file, uint64_t first_page,
 int vfs_datasync_file(struct file *file)
 {
 	int ret;
+	if (file && file->f_op && file->f_op->try_fsync_prepare)
+		return io_sync_file(file, true);
 
 	if (!file || !file->f_inode)
 		return -EINVAL;

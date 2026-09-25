@@ -166,6 +166,12 @@ extern const struct inode_operations ext2_dir_inode_operations;
 extern const struct inode_operations ext2_symlink_inode_operations;
 extern const struct file_operations ext2_dir_operations;
 extern const struct file_operations ext2_file_operations;
+struct pgcache;
+
+int ext2_alloc_block_nowait(struct inode *inode, uint32_t *block);
+int ext2_bmap_nowait(struct inode *inode, uint32_t index, bool create,
+		     uint32_t *mapped);
+int ext2_pin_inode_table_nowait(struct inode *inode, struct pgcache **page);
 extern const struct page_mapping_ops ext2_inode_mapping_ops;
 
 static inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)

@@ -5,6 +5,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/mutex.h>
+#include <nuvix/io.h>
 
 #define SEEK_SET	  0
 #define SEEK_CUR	  1
@@ -15,6 +16,21 @@
  * rewind and cross-file copies. Explicit-position I/O does not take it.
  * It may sleep because the data path allocates page-cache pages. */
 static DEFINE_MUTEX(vfs_fpos_lock);
+
+struct wait_channel *io_position_channel(void)
+{
+	return &vfs_fpos_lock.wait;
+}
+
+bool io_position_trylock(void)
+{
+	return mutex_trylock(&vfs_fpos_lock);
+}
+
+void io_position_unlock(void)
+{
+	mutex_unlock(&vfs_fpos_lock);
+}
 
 static bool vfs_pos_implicit(const struct file *file)
 {
@@ -38,7 +54,10 @@ static void vfs_pos_unlock(bool locked)
 static ssize_t vfs_read_core(struct file *file, char *buf, size_t count,
 			     loff_t *pos)
 {
-	ssize_t ret = file->f_op->read(file, buf, count, *pos);
+	ssize_t ret;
+	if (file->f_op->try_io_pos)
+		return io_sync_transfer(file, buf, count, pos, false);
+	ret = file->f_op->read(file, buf, count, *pos);
 
 	if (ret > 0)
 		*pos += ret;
@@ -69,6 +88,8 @@ static ssize_t vfs_write_core(struct file *file, const char *buf, size_t count,
 	if ((file->f_flags & O_APPEND) && file->f_inode)
 		*pos = (loff_t)file->f_inode->i_size;
 
+	if (file->f_op->try_io_pos)
+		return io_sync_transfer(file, (void *)buf, count, pos, true);
 	ret = file->f_op->write(file, buf, count, *pos);
 	if (ret > 0)
 		*pos += ret;

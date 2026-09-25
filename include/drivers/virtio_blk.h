@@ -14,8 +14,10 @@
  */
 #define VIRTIO_BLK_MAJOR 8U
 
-/* Probe a DT transport without resetting it. Zero means a different device. */
 vaddr_t virtio_blk_probe(int node);
+
 dev_t virtio_blk_init(vaddr_t base, unsigned irq);
+
+void virtio_blk_watchdog_thread(void *arg);
 
 #endif

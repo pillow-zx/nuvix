@@ -200,6 +200,11 @@ struct file_operations {
 	int (*poll)(struct file *file, uint32_t events, struct poll_table *wait);
 	/* Nonblocking transfer; -EAGAIN means subscribe and retry. Kernel buffer. */
 	ssize_t (*try_io)(struct file *file, void *buf, size_t count, bool write);
+	/* Regular-file cache operation. Returns -EAGAIN after starting an async
+	 * page producer; callers retry after pgcache_progress_channel wakes. */
+	ssize_t (*try_io_pos)(struct file *file, void *buf, size_t count, loff_t pos, bool write);
+
+	int (*try_fsync_prepare)(struct file *file, bool datasync);
 	/* Special shared memory only, returns an owned backing reference. */
 	int (*mmap)(struct file *file, uint64_t offset, size_t length,
 		    struct anon_shared **backing);

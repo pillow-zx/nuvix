@@ -110,6 +110,55 @@ static struct pgcache *pgcache_evict_one_locked(struct list_head *removed)
 	return NULL;
 }
 
+static bool pgcache_room_pending_locked(void)
+{
+	struct list_head *pos;
+
+	list_for_each(pos, &pgcache_lru) {
+		struct pgcache *page =
+			list_entry(pos, struct pgcache, lru_node);
+		if (refcount_read(&virt_to_page(page->data)->refcount) != 1)
+			continue;
+		if (page->writeback || page->filling ||
+		    (page->dirty && !page->error && !page->refcount))
+			return true;
+	}
+	return false;
+}
+
+bool pgcache_room_pending(void)
+{
+	irq_flags_t flags;
+	bool pending;
+
+	spin_lock_irqsave(&pgcache_lock, flags);
+	pending = pgcache_room_pending_locked();
+	spin_unlock_irqrestore(&pgcache_lock, flags);
+	return pending;
+}
+
+struct pgcache *pgcache_reclaimable_dirty(void)
+{
+	struct list_head *pos;
+	struct pgcache *dirty = NULL;
+	irq_flags_t flags;
+
+	spin_lock_irqsave(&pgcache_lock, flags);
+	list_for_each(pos, &pgcache_lru) {
+		struct pgcache *page =
+			list_entry(pos, struct pgcache, lru_node);
+		if (refcount_read(&virt_to_page(page->data)->refcount) != 1 ||
+		    page->refcount || !page->dirty || page->writeback ||
+		    page->filling || page->error)
+			continue;
+		page->refcount++;
+		dirty = page;
+		break;
+	}
+	spin_unlock_irqrestore(&pgcache_lock, flags);
+	return dirty;
+}
+
 static struct pgcache *pgcache_alloc(dev_t dev, uint64_t block)
 {
 	struct pgcache *page;
@@ -255,6 +304,7 @@ retry: {
 	LIST_HEAD(removed);
 	struct pgcache *victim = NULL;
 	bool no_room = false;
+	bool room_pending = false;
 
 	spin_lock_irqsave(&pgcache_lock, irq_flags);
 	page = pgcache_find(dev, block);
@@ -272,8 +322,11 @@ retry: {
 	}
 	if (pgcache_pages >= PGCACHE_NR_PAGES) {
 		victim = pgcache_evict_one_locked(&removed);
-		if (!victim)
+		if (!victim) {
 			no_room = true;
+			if (flags & PAGE_CACHE_NOWAIT)
+				room_pending = pgcache_room_pending_locked();
+		}
 	}
 	spin_unlock_irqrestore(&pgcache_lock, irq_flags);
 
@@ -282,6 +335,11 @@ retry: {
 	else
 		pgcache_assoc_free_list(&removed);
 	if (no_room) {
+		if (flags & PAGE_CACHE_NOWAIT) {
+			if (error)
+				*error = room_pending ? -EAGAIN : -ENOMEM;
+			return NULL;
+		}
 		page = pgcache_dirty_any();
 		if (page) {
 			ret = pgcache_sync_page(page);
@@ -399,12 +457,14 @@ void pgcache_put_page(struct pgcache *page)
 	LIST_HEAD(removed);
 	irq_flags_t flags;
 	bool release = false;
+	bool available = false;
 
 	if (!page)
 		return;
 	spin_lock_irqsave(&pgcache_lock, flags);
 	BUG_ON(page->refcount == 0);
 	page->refcount--;
+	available = page->refcount == 0;
 	if (page->refcount == 0 && page->dropped) {
 		pgcache_detach_page_locked(page, &removed);
 		release = true;
@@ -412,6 +472,8 @@ void pgcache_put_page(struct pgcache *page)
 	spin_unlock_irqrestore(&pgcache_lock, flags);
 	if (release)
 		pgcache_free_page(page, &removed);
+	if (available)
+		pgcache_signal_progress();
 }
 
 uint8_t *page_cache_data(struct pgcache *page)

@@ -52,6 +52,11 @@ void pgcache_clear_dirty_locked(struct pgcache *page);
 
 struct pgcache *pgcache_dirty_any(void);
 
+/* Cache-full recovery only waits for pages whose I/O can free a slot. */
+struct pgcache *pgcache_reclaimable_dirty(void);
+
+bool pgcache_room_pending(void);
+
 struct pgcache_assoc *pgcache_assoc_find_locked(struct page_mapping *mapping, uint64_t index);
 
 void pgcache_assoc_remove_locked(struct pgcache_assoc *assoc, struct list_head *removed);

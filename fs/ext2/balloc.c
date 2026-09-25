@@ -68,7 +68,7 @@ struct ext2_alloc_pages {
 };
 
 static int ext2_get_alloc_pages(struct super_block *sb, uint32_t group,
-				struct ext2_alloc_pages *pages)
+				struct ext2_alloc_pages *pages, bool nowait)
 {
 	struct ext2_sb_info *sbi = EXT2_SB(sb);
 	uint32_t desc_per_block = BLOCK_SIZE / sizeof(struct ext2_group_desc);
@@ -78,6 +78,19 @@ static int ext2_get_alloc_pages(struct super_block *sb, uint32_t group,
 	if (group >= sbi->s_groups_count ||
 	    !ext2_metadata_block_valid(sb, block))
 		return -EIO;
+	if (nowait) {
+		int ret = pgcache_try_read_block(sb->s_dev,
+						ext2_super_blocknr(BLOCK_SIZE),
+						&pages->super);
+		if (ret < 0)
+			return ret;
+		ret = pgcache_try_read_block(sb->s_dev, block, &pages->group);
+		if (ret < 0) {
+			pgcache_put_page(pages->super);
+			return ret;
+		}
+		return 0;
+	}
 	pages->super = pgcache_get_block(sb->s_dev,
 					 ext2_super_blocknr(BLOCK_SIZE));
 	if (!pages->super)
@@ -113,15 +126,20 @@ static void ext2_dirty_alloc_pages(struct ext2_sb_info *sbi, uint32_t group,
 	pgcache_mark_dirty(pages->super);
 }
 
-static int ext2_zero_block(struct super_block *sb, uint32_t block)
+static int ext2_zero_block(struct super_block *sb, uint32_t block,
+			   bool nowait)
 {
 	struct pgcache *page;
+	int ret = 0;
 
 	if (!sb || !ext2_data_block_valid(EXT2_SB(sb), block))
 		return -EIO;
-	page = pgcache_get(sb->s_dev, block, PAGE_CACHE_CREATE, NULL);
+	if (nowait)
+		ret = pgcache_try_create_block(sb->s_dev, block, &page);
+	else
+		page = pgcache_get(sb->s_dev, block, PAGE_CACHE_CREATE, NULL);
 	if (!page)
-		return -EIO;
+		return ret ? ret : -EIO;
 
 	memset(page_cache_data(page), 0, BLOCK_SIZE);
 	pgcache_mark_dirty(page);
@@ -131,21 +149,23 @@ static int ext2_zero_block(struct super_block *sb, uint32_t block)
 
 /* Allocation/free updates the bitmap and cached counters under s_lock.
  * The page-cache queue owns writeback; mutations never force device I/O. */
-uint32_t ext2_alloc_block(struct inode *inode)
+static int ext2_alloc_block_core(struct inode *inode, bool nowait,
+				 uint32_t *out)
 {
 	struct super_block *sb;
 	struct ext2_sb_info *sbi;
 	uint64_t total_blocks;
 	uint32_t preferred = 0;
 
+	*out = 0;
 	if (!inode || !inode->i_sb)
-		return 0;
+		return -EINVAL;
 	sb = inode->i_sb;
 	sbi = EXT2_SB(sb);
 	if (!sbi || !sbi->s_group_desc || !sbi->s_groups_count ||
 	    !sbi->s_blocks_per_group || !sbi->s_inodes_per_group ||
 	    sbi->s_es.s_blocks_count <= sbi->s_first_data_block)
-		return 0;
+		return -EIO;
 	total_blocks = sbi->s_es.s_blocks_count - sbi->s_first_data_block;
 	if (inode->i_ino > 0 && inode->i_ino <= UINT32_MAX)
 		preferred =
@@ -163,28 +183,59 @@ uint32_t ext2_alloc_block(struct inode *inode)
 		uint32_t bitmap_block;
 		uint8_t *data;
 		uint32_t block = 0;
+		uint32_t candidate_block = 0;
+		struct pgcache *zero_page = NULL;
 		int ret;
 
 		ret = ext2_group_bitmap(sbi, group, false, &group_first,
 					&group_blocks, &group_inodes,
 					&bitmap_block);
 		if (ret < 0)
-			return 0;
+			return ret;
 		(void)group_inodes;
 		if (gd->bg_free_blocks_count > group_blocks)
-			return 0;
+			return -EIO;
 		if (!gd->bg_free_blocks_count)
 			continue;
 
-		page = pgcache_get_block(sb->s_dev, bitmap_block);
-		if (!page)
-			return 0;
-		ret = ext2_get_alloc_pages(sb, group, &counter_pages);
+		if (nowait)
+			ret = pgcache_try_read_block(sb->s_dev, bitmap_block,
+						     &page);
+		else {
+			page = pgcache_get_block(sb->s_dev, bitmap_block);
+			ret = page ? 0 : -EIO;
+		}
+		if (ret < 0)
+			return ret;
+		ret = ext2_get_alloc_pages(sb, group, &counter_pages,
+					   nowait);
 		if (ret < 0) {
 			pgcache_put_page(page);
-			return 0;
+			return ret;
 		}
 		data = page_cache_data(page);
+		if (nowait) {
+			spin_lock(&sbi->s_lock);
+			for (uint32_t bit = 0; bit < group_blocks; bit++) {
+				uint64_t candidate = group_first + bit;
+				if (!ext2_bitmap_test_bit(data, bit) &&
+				    ext2_data_block_valid(sbi, candidate)) {
+					candidate_block = (uint32_t)candidate;
+					break;
+				}
+			}
+			spin_unlock(&sbi->s_lock);
+			if (candidate_block) {
+				ret = pgcache_try_create_block(sb->s_dev,
+							       candidate_block,
+							       &zero_page);
+				if (ret < 0) {
+					ext2_put_alloc_pages(&counter_pages);
+					pgcache_put_page(page);
+					return ret;
+				}
+			}
+		}
 
 		spin_lock(&sbi->s_lock);
 		if (gd->bg_block_bitmap == bitmap_block &&
@@ -194,6 +245,8 @@ uint32_t ext2_alloc_block(struct inode *inode)
 		    sbi->s_es.s_free_blocks_count <= total_blocks) {
 			for (uint32_t bit = 0; bit < group_blocks; bit++) {
 				uint64_t candidate;
+				if (nowait && bit != candidate_block - group_first)
+					continue;
 
 				if (ext2_bitmap_test_bit(data, bit))
 					continue;
@@ -217,21 +270,46 @@ uint32_t ext2_alloc_block(struct inode *inode)
 
 		if (block) {
 			pgcache_put_page(page);
-			ret = ext2_zero_block(sb, block);
+			if (nowait) {
+				memset(page_cache_data(zero_page), 0, BLOCK_SIZE);
+				pgcache_mark_dirty(zero_page);
+				pgcache_put_page(zero_page);
+				ret = 0;
+			} else {
+				ret = ext2_zero_block(sb, block, false);
+			}
 			if (ret < 0) {
 				pr_err("ext2: failed to zero allocated block "
 				       "%u: %d\n",
 				       block, ret);
 				ext2_free_block(sb, block);
-				return 0;
+				return ret;
 			}
-			return block;
+			*out = block;
+			return 0;
 		}
 
+		pgcache_put_page(zero_page);
 		pgcache_put_page(page);
+		if (nowait && candidate_block)
+			return -EAGAIN;
 	}
 
-	return 0;
+	return -ENOSPC;
+}
+
+uint32_t ext2_alloc_block(struct inode *inode)
+{
+	uint32_t block = 0;
+	(void)ext2_alloc_block_core(inode, false, &block);
+	return block;
+}
+
+int ext2_alloc_block_nowait(struct inode *inode, uint32_t *block)
+{
+	if (!block)
+		return -EINVAL;
+	return ext2_alloc_block_core(inode, true, block);
 }
 
 void ext2_free_block(struct super_block *sb, uint32_t block)
@@ -277,7 +355,7 @@ void ext2_free_block(struct super_block *sb, uint32_t block)
 	page = pgcache_get_block(sb->s_dev, bitmap_block);
 	if (!page)
 		return;
-	ret = ext2_get_alloc_pages(sb, group, &counter_pages);
+	ret = ext2_get_alloc_pages(sb, group, &counter_pages, false);
 	if (ret < 0) {
 		pgcache_put_page(page);
 		sb->s_error = ret;
@@ -342,7 +420,7 @@ uint32_t ext2_alloc_inode(struct super_block *sb, uint16_t mode)
 		page = pgcache_get_block(sb->s_dev, bitmap_block);
 		if (!page)
 			return 0;
-		ret = ext2_get_alloc_pages(sb, group, &counter_pages);
+		ret = ext2_get_alloc_pages(sb, group, &counter_pages, false);
 		if (ret < 0) {
 			pgcache_put_page(page);
 			return 0;
@@ -433,7 +511,7 @@ void ext2_free_inode(struct super_block *sb, uint32_t ino, uint16_t mode)
 	page = pgcache_get_block(sb->s_dev, bitmap_block);
 	if (!page)
 		return;
-	ret = ext2_get_alloc_pages(sb, group, &counter_pages);
+	ret = ext2_get_alloc_pages(sb, group, &counter_pages, false);
 	if (ret < 0) {
 		pgcache_put_page(page);
 		sb->s_error = ret;

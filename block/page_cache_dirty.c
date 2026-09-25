@@ -21,6 +21,7 @@ void pgcache_clear_dirty(struct pgcache *page)
 	spin_lock_irqsave(&pgcache_lock, flags);
 	pgcache_clear_dirty_locked(page);
 	spin_unlock_irqrestore(&pgcache_lock, flags);
+	pgcache_signal_progress();
 }
 
 void pgcache_mark_dirty(struct pgcache *page)
@@ -36,6 +37,7 @@ void pgcache_mark_dirty(struct pgcache *page)
 	page->error = 0;
 	page->dirty_generation++;
 	spin_unlock_irqrestore(&pgcache_lock, flags);
+	pgcache_signal_progress();
 }
 
 struct pgcache *pgcache_dirty_any(void)

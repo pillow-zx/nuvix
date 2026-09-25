@@ -9,6 +9,7 @@
 #include <nuvix/page_mapping.h>
 #include <nuvix/types.h>
 #include <nuvix/compiler.h>
+#include <nuvix/list.h>
 #include <uapi/stat.h>
 
 /**
@@ -37,6 +38,24 @@
 
 struct blkdev;
 
+enum blk_request_op {
+	BLK_REQUEST_READ,
+	BLK_REQUEST_WRITE,
+	BLK_REQUEST_FLUSH,
+};
+
+/* The caller owns this request and its buffer until complete is called.
+ * A successful submit transfers completion ownership to the device. */
+struct blk_request {
+	struct list_head node;
+	enum blk_request_op op;
+	void *buffer;
+	uint64_t sector;
+	uint32_t nsec;
+	void (*complete)(struct blk_request *request, int result);
+	void *private_data;
+};
+
 /**
  * @struct block_device_operations
  * @brief Low-level sector I/O callbacks implemented by block drivers.
@@ -48,10 +67,11 @@ struct blkdev;
  * - @c write_sectors: Write @p nsec sectors starting at @p sector from @p buf.
  */
 struct blkdev_ops {
-	int (*read_sectors)(struct blkdev *bdev, void *buf, uint64_t sector,
-			    uint32_t nsec);
-	int (*write_sectors)(struct blkdev *bdev, const void *buf,
-			     uint64_t sector, uint32_t nsec);
+	int (*submit)(struct blkdev *bdev, struct blk_request *request);
+
+	int (*read_sectors)(struct blkdev *bdev, void *buf, uint64_t sector, uint32_t nsec);
+
+	int (*write_sectors)(struct blkdev *bdev, const void *buf, uint64_t sector, uint32_t nsec);
 };
 
 /**

@@ -7,12 +7,12 @@
 #include <nuvix/spinlock.h>
 #include <nuvix/types.h>
 
-#define WAIT_OUTCOME_EVENT 1u
-#define WAIT_OUTCOME_SIGNAL 2u
-#define WAIT_OUTCOME_TIMEOUT 3u
+#define WAIT_OUTCOME_EVENT	1u
+#define WAIT_OUTCOME_SIGNAL	2u
+#define WAIT_OUTCOME_TIMEOUT	3u
 #define WAIT_FLAG_INTERRUPTIBLE 0x01u
-#define WAIT_FLAG_KILLABLE 0x02u
-#define WAIT_FLAG_MASK (WAIT_FLAG_INTERRUPTIBLE | WAIT_FLAG_KILLABLE)
+#define WAIT_FLAG_KILLABLE	0x02u
+#define WAIT_FLAG_MASK		(WAIT_FLAG_INTERRUPTIBLE | WAIT_FLAG_KILLABLE)
 
 typedef uint32_t wait_outcome_t;
 typedef uint32_t wait_flags_t;
@@ -32,8 +32,6 @@ enum wait_phase {
 	WAIT_BLOCKED,
 };
 
-struct task_struct;
-struct task_wait;
 struct wait_deadline {
 	bool active;
 	uint64_t expires;
@@ -87,45 +85,65 @@ static inline struct wait_deadline wait_deadline_at(uint64_t expires)
 	return (struct wait_deadline){.active = true, .expires = expires};
 }
 
-#define WAIT_CHANNEL_INIT(name) \
-	{.lock = SPINLOCK_INIT, \
-	 .waiters = LIST_HEAD_INIT((name).waiters), \
+#define WAIT_CHANNEL_INIT(name)                                                \
+	{.lock = SPINLOCK_INIT,                                                \
+	 .waiters = LIST_HEAD_INIT((name).waiters),                            \
 	 .subscriptions = LIST_HEAD_INIT((name).subscriptions)}
+
+#define DEFINE_WAIT_CHANNEL(name)					       \
+	struct wait_channel name = WAIT_CHANNEL_INIT((name))
 
 static inline bool wait_context_can_sleep(void)
 {
 	return in_task_context() && !irqs_disabled() &&
 	       cpu_preempt_count(current_cpu()) == 0 && !spinlock_held();
 }
+
 bool wait_may_block(void);
+
 void wait_init(void);
 /* No faulting access, allocation, or nested sleeping lock until complete.
  * Predicate check and registration must share the predicate owner's lock. */
+
 int wait_scope_begin(struct wait_scope *scope, wait_flags_t flags,
-		     const struct wait_deadline *deadline);
+                const struct wait_deadline *deadline);
+
 int wait_scope_begin_signal_set(struct wait_scope *scope, wait_flags_t flags,
-				const struct wait_deadline *deadline,
-				uint64_t signal_set);
-int wait_scope_begin_signal_set_locked(struct wait_scope *scope,
-				      wait_flags_t flags,
-				      const struct wait_deadline *deadline,
-				      uint64_t signal_set);
-int wait_scope_prepare(struct wait_scope *scope, struct wait_channel *channel,
-		       bool exclusive);
+                const struct wait_deadline *deadline, uint64_t signal_set);
+
+int wait_scope_begin_signal_set_locked(struct wait_scope *scope, wait_flags_t flags,
+                const struct wait_deadline *deadline, uint64_t signal_set);
+
+int wait_scope_prepare(struct wait_scope *scope, struct wait_channel *channel, bool exclusive);
+
 int wait_scope_prepare_current(struct wait_channel *channel, bool exclusive);
+
 int wait_scope_block(struct wait_scope *scope, wait_outcome_t *outcome);
+
 void wait_scope_complete(struct wait_scope *scope);
+
 void wait_scope_cleanup(struct wait_scope *scope);
+
 void wait_cancel_current(void);
+
 #define __wait_scope __cleanup(wait_scope_cleanup)
 
 bool wait_wake_signal(struct task_struct *task, bool fatal);
+
 bool wait_wake_event(struct task_struct *task, uint64_t generation);
+
 bool wait_wake_exit(struct task_struct *task);
+
 int wait_sleep_until(const struct wait_deadline *deadline);
+
 void wait_expire_deadlines(uint64_t now);
+
 uint64_t wait_next_deadline(uint64_t fallback);
+
 void wait_channel_init(struct wait_channel *channel);
+
 bool wait_channel_wake_one(struct wait_channel *channel);
+
 void wait_channel_wake_all(struct wait_channel *channel);
+
 #endif
