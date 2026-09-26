@@ -121,12 +121,12 @@ static const struct file_operations ring_fops;
 
 static inline uint32_t load_acquire(uint32_t *value)
 {
-	return compiler_atomic_load_n(value, ATOMIC_ORDER_ACQUIRE);
+	return atomic_load_explicit(value, ATOMIC_ORDER_ACQUIRE);
 }
 
 static inline void store_release(uint32_t *value, uint32_t data)
 {
-	compiler_atomic_store_n(value, data, ATOMIC_ORDER_RELEASE);
+	atomic_store_explicit(value, data, ATOMIC_ORDER_RELEASE);
 }
 
 static void ring_kick(struct io_ring *ring)

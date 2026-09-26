@@ -5,7 +5,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/exit.h>
 #include <nuvix/buddy.h>
-#include <nuvix/compiler.h>
+#include <nuvix/atomic.h>
 #include <nuvix/fs.h>
 #include <nuvix/init.h>
 #include <nuvix/mm.h>
@@ -25,7 +25,8 @@
 #include <nuvix/page.h>
 #include <nuvix/trap.h>
 
-#define SIGNAL_STANDARD_MASK   ((1UL << (SIGRTMIN - 1)) - 1)
+#define SIGNAL_STANDARD_MASK ((1UL << (SIGRTMIN - 1)) - 1)
+
 enum signal_default_action {
 	SIGNAL_DEFAULT_TERMINATE,
 	SIGNAL_DEFAULT_IGNORE,
@@ -447,7 +448,8 @@ static int send_signal_info_internal(int sig, const siginfo_t *info,
 		spin_lock_irqsave(&signal->siglock, flags);
 	/* Dropped at raise: an unblocked, ignored (SIG_IGN / default-ignore /
 	 * init-suppressed) notification is neither queued nor woken.  Blocked
-	 * signals are never dropped. Exception/forced signals are never dropped. */
+	 * signals are never dropped. Exception/forced signals are never
+	 * dropped. */
 	if (!(task->signal.blocked & mask) &&
 	    signal_would_drop_at_raise_locked(task, sig, force)) {
 		if (signal)
@@ -516,7 +518,8 @@ static bool signal_group_would_drop_at_raise_locked(struct task_struct *leader,
 	handler = signal_handler_for_task_locked(leader, sig);
 	if (handler != SIG_IGN && handler != SIG_DFL)
 		return false;
-	proc_for_each_task(leader->proc, signal_group_drop_task_callback, &context);
+	proc_for_each_task(leader->proc, signal_group_drop_task_callback,
+			   &context);
 	if (context.retain)
 		return false;
 	return handler == SIG_IGN ||
@@ -568,7 +571,8 @@ static int setup_signal_frame(struct trap_frame *tf, int sig,
 {
 	struct task_struct *task = current_task();
 	uint64_t mask = task->signal.restore_mask_pending
-		? signal_take_restore_mask(task) : sig_blocked_mask(task);
+				? signal_take_restore_mask(task)
+				: sig_blocked_mask(task);
 	int ret = arch_signal_setup(tf, sig, info, action, mask);
 
 	if (ret < 0)
@@ -594,7 +598,8 @@ static int take_pending_from_set(uint64_t set, siginfo_t *info)
 
 			if (!(pending & mask))
 				continue;
-			signal_info_load(info, sig, &task->signal.pending_info[sig]);
+			signal_info_load(info, sig,
+					 &task->signal.pending_info[sig]);
 			signal_clear_pending_locked(task, mask);
 			return sig;
 		}
@@ -662,8 +667,7 @@ static int next_signal(bool *shared)
 static struct sigaction get_signal_action(int sig)
 {
 	struct task_struct *task = current_task();
-	struct signal_struct *signal =
-		task->proc ? &task->proc->signal : NULL;
+	struct signal_struct *signal = task->proc ? &task->proc->signal : NULL;
 	struct sigaction action = {0};
 	irq_flags_t flags;
 
@@ -689,9 +693,8 @@ static bool signal_restartable(size_t nr)
 
 bool sig_valid(int sig)
 {
-	return sig > 0 && sig < SIGRTMIN &&
-	       sig != SIGCONT && sig != SIGSTOP && sig != SIGTSTP &&
-	       sig != SIGTTIN && sig != SIGTTOU;
+	return sig > 0 && sig < SIGRTMIN && sig != SIGCONT && sig != SIGSTOP &&
+	       sig != SIGTSTP && sig != SIGTTIN && sig != SIGTTOU;
 }
 
 static uint64_t signal_mask(int sig)
@@ -867,8 +870,8 @@ bool sig_fatal_pending(struct task_struct *task)
 {
 	if (!task)
 		return false;
-	if (compiler_atomic_load_n(&task->exit_request, COMPILER_ATOMIC_ACQUIRE) == TASK_EXIT_REQUEST_EXEC ||
-	    (task->proc && compiler_atomic_load_n(&task->proc->group_exit_requested, COMPILER_ATOMIC_ACQUIRE)))
+	if (atomic_load_explicit(&task->exit_request, ATOMIC_ORDER_ACQUIRE) == TASK_EXIT_REQUEST_EXEC ||
+	    (task->proc && atomic_load_explicit(&task->proc->group_exit_requested, ATOMIC_ORDER_ACQUIRE)))
 		return true;
 	if (task->proc)
 		return atomic_read(&task->signal.has_fatal_pending) != 0;
@@ -1137,8 +1140,9 @@ int sig_force_info(int sig, const siginfo_t *info, struct task_struct *task)
 		return -ESRCH;
 
 	/* A synchronous fault raised while the same signal is blocked cannot be
-	 * delivered safely.  Restore the default disposition and terminate rather
-	 * than maintaining a kernel shadow stack of userspace signal frames. */
+	 * delivered safely.  Restore the default disposition and terminate
+	 * rather than maintaining a kernel shadow stack of userspace signal
+	 * frames. */
 	if (sig_blocked_mask(task) & signal_mask(sig)) {
 		if (task == current_task())
 			do_exit_signal(sig);
@@ -1265,8 +1269,9 @@ void sig_deliver(struct trap_frame *tf)
 							       flags);
 				continue;
 			}
-			signal_info_load(&info, sig,
-					 &current_task()->signal.pending_info[sig]);
+			signal_info_load(
+				&info, sig,
+				&current_task()->signal.pending_info[sig]);
 			forced = (current_task()->signal.forced_pending &
 				  mask) != 0;
 			signal_clear_pending_locked(current_task(), mask);
@@ -1454,8 +1459,8 @@ int sig_action(int sig, const struct sigaction *act, struct sigaction *oldact)
 		*oldact = signal->actions[sig];
 	if (act) {
 		if (discard_pending)
-			signal_discard_ignored_pending_locked(current_task()->proc,
-							      sig);
+			signal_discard_ignored_pending_locked(
+				current_task()->proc, sig);
 		signal->actions[sig] = kact;
 	}
 	spin_unlock_irqrestore(&signal->siglock, flags);

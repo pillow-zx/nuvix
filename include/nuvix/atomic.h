@@ -12,6 +12,10 @@
 #define ATOMIC_ORDER_ACQ_REL COMPILER_ATOMIC_ACQ_REL
 #define ATOMIC_ORDER_SEQ_CST COMPILER_ATOMIC_SEQ_CST
 
+#define atomic_load_explicit(ptr, order) compiler_atomic_load_n(ptr, order)
+#define atomic_store_explicit(ptr, value, order)			       \
+	compiler_atomic_store_n(ptr, value, order)
+
 #define ATOMIC_DEFINE_TYPE(name, value_type)                                   \
 	typedef struct {                                                       \
 		value_type counter;                                            \

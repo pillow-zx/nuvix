@@ -33,8 +33,7 @@ static atomic_t reap_pending = ATOMIC_INIT(1);
 
 static struct runqueue *home(struct task_struct *task)
 {
-	struct cpu *cpu = compiler_atomic_load_n(&task->cpu,
-						COMPILER_ATOMIC_ACQUIRE);
+	struct cpu *cpu = atomic_load_explicit(&task->cpu, ATOMIC_ORDER_ACQUIRE);
 	return &runqueues[cpu->id];
 }
 
@@ -178,8 +177,8 @@ static void rehome(struct task_struct *task)
 			task->run_state == TASK_MIGRATING;
 		if (task->run_state == TASK_RUNNABLE)
 			dequeue(src, task);
-		compiler_atomic_store_n(&task->cpu, &cpu_table[target],
-					COMPILER_ATOMIC_RELEASE);
+		atomic_store_explicit(&task->cpu, &cpu_table[target],
+				      ATOMIC_ORDER_RELEASE);
 		if (ready)
 			enqueue(dst, task);
 		if (second != first)
@@ -230,8 +229,8 @@ void sched_enqueue_new(struct task_struct *task)
 	rq = &runqueues[cpu];
 	spin_lock_irqsave(&rq->lock, flags);
 	BUG_ON(task->run_state != TASK_DORMANT);
-	compiler_atomic_store_n(&task->cpu, &cpu_table[cpu],
-				COMPILER_ATOMIC_RELEASE);
+	atomic_store_explicit(&task->cpu, &cpu_table[cpu],
+			      ATOMIC_ORDER_RELEASE);
 	enqueue(rq, task);
 	spin_unlock_irqrestore(&rq->lock, flags);
 	kick(cpu);
@@ -421,8 +420,8 @@ static void balance(void)
 			if (!cpumask_test_cpu(&task->allowed_cpus, dst->id))
 				continue;
 			dequeue(src, task);
-			compiler_atomic_store_n(&task->cpu, &cpu_table[dst->id],
-						COMPILER_ATOMIC_RELEASE);
+			atomic_store_explicit(&task->cpu, &cpu_table[dst->id],
+				      ATOMIC_ORDER_RELEASE);
 			enqueue(dst, task);
 			break;
 		}
@@ -439,7 +438,7 @@ void sched_notify_reaper(void)
 	struct task_struct *task;
 
 	atomic_set_release(&reap_pending, 1);
-	task = compiler_atomic_load_n(&reaper, COMPILER_ATOMIC_ACQUIRE);
+	task = atomic_load_explicit(&reaper, ATOMIC_ORDER_ACQUIRE);
 	if (task) {
 		uint64_t generation =
 			(uint64_t)atomic64_read_acquire(
@@ -454,7 +453,7 @@ void sched_reaper_sleep(void)
 	struct task_struct *task = current_task();
 	uint64_t generation;
 
-	compiler_atomic_store_n(&reaper, task, COMPILER_ATOMIC_RELEASE);
+	atomic_store_explicit(&reaper, task, ATOMIC_ORDER_RELEASE);
 	generation = sched_park_arm(task, TASK_WAIT_UNINTERRUPTIBLE, 0);
 	if (!atomic_xchg_acquire(&reap_pending, 0))
 		(void)sched_block_current(generation);
