@@ -2,6 +2,7 @@
 #define _NUVIX_ATOMIC_H
 
 #include <nuvix/ctypes.h>
+#include <nuvix/assert.h>
 
 typedef struct {
     int32_t counter __attribute__((aligned(4)));
@@ -14,12 +15,12 @@ typedef struct {
 #define ATOMIC_INIT(value)   {(value)}
 #define ATOMIC64_INIT(value) {(value)}
 
-_Static_assert(__atomic_always_lock_free(4, 0),
-               "32-bit atomics must be lock-free");
-_Static_assert(__atomic_always_lock_free(8, 0),
-               "64-bit atomics must be lock-free");
-_Static_assert(__atomic_always_lock_free(sizeof(void *), 0),
-               "pointer atomics must be lock-free");
+static_assert(__atomic_always_lock_free(4, 0),
+              "32-bit atomics must be lock-free");
+static_assert(__atomic_always_lock_free(8, 0),
+              "64-bit atomics must be lock-free");
+static_assert(__atomic_always_lock_free(sizeof(void *), 0),
+              "pointer atomics must be lock-free");
 
 #define __NUVIX_ATOMIC_BASE(prefix, type, value_type)                          \
     static inline value_type prefix##_read(const type *v)                      \
@@ -123,7 +124,7 @@ __NUVIX_ATOMIC_DEFINE(atomic64, atomic64_t, int64_t)
 #undef __NUVIX_ATOMIC_VOID
 
 #define __nuvix_atomic_check(ptr)                                              \
-    _Static_assert(                                                            \
+    static_assert(                                                             \
         (sizeof(*(ptr)) == 4 || sizeof(*(ptr)) == 8) &&                        \
             __atomic_always_lock_free(sizeof(*(ptr)), 0),                      \
         "atomic operand must be a lock-free 32/64-bit scalar or pointer")
@@ -176,8 +177,8 @@ __NUVIX_ATOMIC_DEFINE(atomic64, atomic64_t, int64_t)
     __nuvix_try_cmpxchg(ptr, old, value, __ATOMIC_RELEASE)
 
 #define __nuvix_atomic_ptr_check(ptr)                                          \
-    _Static_assert(__builtin_classify_type(*(ptr)) == 5,                       \
-                   "pointer slot required");                                   \
+    static_assert(__builtin_classify_type(*(ptr)) == 5,                        \
+                  "pointer slot required");                                    \
     __nuvix_atomic_check(ptr)
 
 #define __nuvix_atomic_ptr_read(ptr, order)                                    \
