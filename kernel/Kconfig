@@ -25,9 +25,10 @@ choice
 	prompt "Kernel log level"
 	default LOG_LEVEL_INFO
 	help
-	  Minimum message level emitted by printk; the numberic value becomes
-	  CONFIG_LOG_LEVEL and set the Log level at compile time. Messages
-	  below this level are dropped entirely.
+	  Minimum message severity emitted by printk_level and the pr_* macros.
+	  CONFIG_LOG_LEVEL sets the threshold at compile time: debug=1, info=2,
+	  notice=3, warning=4, error=5. Messages below this level are dropped
+	  without evaluating their arguments. Plain printk is unfiltered.
 
 config LOG_LEVEL_DEBUG
 	bool "debug"

@@ -10,7 +10,7 @@ void kernel_main(unsigned long hart, uintptr_t dtb)
     (void)dtb;
 
     IFDEF(CONFIG_UART, uart_init());
-    printk("Hello, Nuvix!\n");
+    pr_info("Hello, Nuvix!\n");
 
     for (;;)
         __asm__ volatile("wfi" ::: "memory");
