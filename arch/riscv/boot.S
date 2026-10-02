@@ -1,11 +1,12 @@
 #include <nuvix/arch/riscv/pgtable.h>
+#include <nuvix/arch/riscv/irq.h>
 
     .section .text.boot, "ax"
     .balign 4
     .globl _start
 _start:
     csrw        sie, zero
-    csrci       sstatus, 2
+    csrci       sstatus, SSTATUS_SIE
     csrw        sscratch, zero
     lla         t0, .Lpark
     csrw        stvec, t0

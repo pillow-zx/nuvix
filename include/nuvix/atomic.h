@@ -3,13 +3,14 @@
 
 #include <nuvix/ctypes.h>
 #include <nuvix/assert.h>
+#include <nuvix/compiler.h>
 
 typedef struct {
-    int32_t counter __attribute__((aligned(4)));
+    int32_t counter __aligned(4);
 } atomic_t;
 
 typedef struct {
-    int64_t counter __attribute__((aligned(8)));
+    int64_t counter __aligned(8);
 } atomic64_t;
 
 #define ATOMIC_INIT(value)   {(value)}
