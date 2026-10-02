@@ -1,0 +1,21 @@
+menu "Platform"
+
+config PLATFORM_QEMU_VIRT
+	bool "QEMU virt platform"
+	default y
+
+comment "Enabled platforms are selected by the DTB root compatible."
+
+config NR_CPUS
+	int "Maximum supported CPU count" if SMP
+	range 1 64
+	default 1 if !SMP
+	default 8
+	help
+	  Capacity of static CPU arrays. The DTB supplies the actual topology.
+	  SMP boot fails if enabled CPUs exceed this capacity. UP uses only
+	  the boot hart. Hart IDs need not be contiguous.
+
+endmenu
+
+

@@ -1,0 +1,11 @@
+#ifndef _NUVIX_RISCV_LAYOUT_H
+#define _NUVIX_RISCV_LAYOUT_H
+
+#define PAGE_SHIFT      12
+#define PAGE_SIZE       (1 << PAGE_SHIFT)
+#define KERNEL_PBASE    0x0000000080200000
+#define KERNEL_VBASE    0xffffffff80000000
+
+#define BOOT_STACK_SIZE (4 * PAGE_SIZE)
+
+#endif /* _NUVIX_RISCV_LAYOUT_H */

@@ -1,0 +1,129 @@
+# Ignore everything unless explicitly allowed below.
+*
+
+# Project root files and directories.
+!/.clang-format
+!/.editorconfig
+!/.gitignore
+!/Kconfig
+!/LICENSE
+!/LICENSES/
+!/Makefile
+!/arch/
+!/configs/
+!/drivers/
+!/fs/
+!/include/
+!/init/
+!/kernel/
+!/lib/
+!/mm/
+!/scripts/
+!/signal/
+
+# License notices.
+!LICENSES/*.spdx
+!LICENSES/*.txt
+
+# Architecture sources and build descriptions.
+!arch/riscv/
+!arch/riscv/*.c
+!arch/riscv/*.h
+!arch/riscv/*.S
+!arch/riscv/*.s
+!arch/riscv/*.mk
+!arch/riscv/Kconfig
+
+# Default kernel configurations.
+!configs/*_defconfig
+
+# Drivers.
+!drivers/*.c
+!drivers/*.h
+!drivers/*.S
+!drivers/*.s
+!drivers/*.mk
+!drivers/Kconfig
+
+# Filesystems.
+!fs/*.c
+!fs/*.h
+!fs/*.S
+!fs/*.s
+!fs/*.mk
+!fs/Kconfig
+!fs/ext2/
+!fs/ext2/*.c
+!fs/ext2/*.h
+!fs/ext2/*.S
+!fs/ext2/*.s
+!fs/ext2/*.mk
+!fs/vfs/
+!fs/vfs/*.c
+!fs/vfs/*.h
+!fs/vfs/*.S
+!fs/vfs/*.s
+!fs/vfs/*.mk
+
+# Public headers.
+!include/nuvix/
+!include/nuvix/*.h
+!include/nuvix/arch/
+!include/nuvix/arch/*.h
+!include/nuvix/arch/riscv/
+!include/nuvix/arch/riscv/*.h
+
+# Kernel initialization and core code.
+!init/*.c
+!init/*.h
+!init/*.S
+!init/*.s
+!init/*.mk
+!kernel/*.c
+!kernel/*.h
+!kernel/*.S
+!kernel/*.s
+!kernel/*.mk
+!kernel/Kconfig
+
+# Libraries.
+!lib/*.c
+!lib/*.h
+!lib/*.S
+!lib/*.s
+!lib/*.mk
+!lib/fdt/
+!lib/fdt/*.c
+!lib/fdt/*.h
+!lib/fdt/*.S
+!lib/fdt/*.s
+!lib/fdt/*.mk
+
+# Memory management.
+!mm/*.c
+!mm/*.h
+!mm/*.S
+!mm/*.s
+!mm/*.mk
+
+# Kconfig parser sources; build outputs under scripts/kconfig/build stay ignored.
+!scripts/kconfig/
+!scripts/kconfig/*.c
+!scripts/kconfig/*.h
+!scripts/kconfig/*.S
+!scripts/kconfig/*.s
+!scripts/kconfig/*.l
+!scripts/kconfig/*.y
+!scripts/kconfig/Makefile
+!scripts/kconfig/.gitignore
+!scripts/kconfig/lxdialog/
+!scripts/kconfig/lxdialog/*.c
+!scripts/kconfig/lxdialog/*.h
+!scripts/kconfig/lxdialog/*.S
+!scripts/kconfig/lxdialog/*.s
+
+# Signal subsystem.
+!signal/*.c
+!signal/*.h
+!signal/*.S
+!signal/*.s

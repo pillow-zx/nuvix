@@ -1,0 +1,12 @@
+menu "Drivers"
+
+config UART
+	bool "Basic serial device support"
+	default y
+
+config VIRTIO_BLK
+	bool "Virtio block device support" if PLATFORM_QEMU_VIRT
+	default y if PLATFORM_QEMU_VIRT
+	default n
+
+endmenu

@@ -1,0 +1,9 @@
+menu "File systems"
+
+config EXT2_FS
+	bool
+	default y
+
+endmenu
+
+
