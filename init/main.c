@@ -4,7 +4,7 @@
 #include <nuvix/printk.h>
 #include <nuvix/dtb.h>
 #include <nuvix/memblock.h>
-#include <nuvix/arch/riscv/cpu.h>
+#include <nuvix/assert.h>
 
 __noreturn
 void kernel_main(unsigned long hart, uintptr_t dtb_pa)
@@ -28,6 +28,5 @@ void kernel_main(unsigned long hart, uintptr_t dtb_pa)
     pr_info("Hello, Nuvix!\n");
 
 halt:
-    for (;;)
-        wfi();
+    panic("Kernel has been halted...\n");
 }

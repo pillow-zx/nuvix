@@ -1,10 +1,10 @@
 #include <nuvix/assert.h>
-#include <nuvix/printk.h>
 #include <nuvix/arch/riscv/trap.h>
-#include <nuvix/arch/riscv/cpu.h>
 
 __noreturn
 void trap_handler(const struct trap_frame *frame)
 {
-    arch_halt();
+    panic("unhandled supervisor %s\nscause=%p sepc=%p stval=%p",
+          frame->scause & SCAUSE_INTERRUPT ? "interrupt" : "exception",
+          (void *)frame->scause, (void *)frame->sepc, (void *)frame->stval);
 }
