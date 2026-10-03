@@ -6,6 +6,8 @@
 
 #ifndef __ASSEMBLER__
 
+#define SCAUSE_INTERRUPT (1UL << 63)
+
 /* CSR operands are assembler names or numbers, expanded before stringifying. */
 #define __csr_name(csr) #csr
 

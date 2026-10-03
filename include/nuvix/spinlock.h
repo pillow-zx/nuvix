@@ -2,7 +2,7 @@
 #define _NUVIX_SPINLOCK_H
 
 #include <nuvix/compiler.h>
-#include <nuvix/arch/riscv/irq.h>
+#include <nuvix/irq.h>
 
 /*
  * Temporary single-CPU implementation, valid only before scheduling exists.
@@ -25,7 +25,7 @@ static inline void spin_lock_init(spinlock_t *lock)
 static __always_inline inline unsigned long
 __spin_lock_irqsave(spinlock_t *lock)
 {
-    unsigned long flags = arch_local_irq_save();
+    unsigned long flags = local_irq_save();
 
     lock->irq_flags = flags;
     return flags;
@@ -40,7 +40,7 @@ static __always_inline inline void spin_unlock_irqrestore(spinlock_t *lock,
                                                           unsigned long flags)
 {
     (void)lock;
-    arch_local_irq_restore(flags);
+    local_irq_restore(flags);
 }
 
 static __always_inline inline void spin_unlock(spinlock_t *lock)
