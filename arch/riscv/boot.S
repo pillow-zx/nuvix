@@ -113,7 +113,7 @@ _start:
 .Lvirtual:
     add         sp, sp, s3
     add         s2, s2, s3
-    lla         t0, .Lpark
+    lla         t0, trap_entry
     csrw        stvec, t0
 
     mv          a0, s0

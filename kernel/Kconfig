@@ -92,6 +92,10 @@ endmenu
 
 menu "Features"
 
+config FPU
+	bool "User fpu support"
+	default n
+
 config SMP
 	bool "SMP subsystem support"
 	default n
