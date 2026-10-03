@@ -24,9 +24,7 @@ _start:
     lla         sp, boot_stack_top
     lla         s2, boot_pgd
 
-    li          t0, KERNEL_PBASE
-    srli        t0, t0, PGD_SHIFT
-    slli        t0, t0, PGD_SHIFT
+    li          t0, BOOT_IDMAP_PBASE
     srli        t0, t0, PAGE_SHIFT
     slli        t0, t0, PTE_PPN_SHIFT
     ori         t0, t0, PTE_BOOT_RWX
@@ -118,10 +116,6 @@ _start:
     lla         t0, .Lpark
     csrw        stvec, t0
 
-    li          t0, PGD_INDEX(KERNEL_PBASE) * PT_ENTRY_SIZE
-    add         t0, s2, t0
-    sd          zero, 0(t0)
-    sfence.vma  zero, zero
     mv          a0, s0
     mv          a1, s1
     call        kernel_main

@@ -9,4 +9,5 @@ endmenu
 source "arch/$(ARCH)/Kconfig"
 source "kernel/Kconfig"
 source "fs/Kconfig"
+source "mm/Kconfig"
 source "drivers/Kconfig"
