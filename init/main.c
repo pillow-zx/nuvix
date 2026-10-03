@@ -4,6 +4,7 @@
 #include <nuvix/printk.h>
 #include <nuvix/dtb.h>
 #include <nuvix/memblock.h>
+#include <nuvix/arch/riscv/cpu.h>
 
 __noreturn
 void kernel_main(unsigned long hart, uintptr_t dtb_pa)
@@ -28,5 +29,5 @@ void kernel_main(unsigned long hart, uintptr_t dtb_pa)
 
 halt:
     for (;;)
-        __asm__ volatile("wfi" ::: "memory");
+        wfi();
 }
