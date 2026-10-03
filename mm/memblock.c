@@ -51,6 +51,50 @@ int memblock_reserve(uint64_t base, uint64_t size, bool no_map)
     return 0;
 }
 
+int early_alloc(size_t size, size_t align, uint64_t start, uint64_t end,
+                uint64_t *phys_addr)
+{
+    uint64_t base, limit;
+    int ret;
+
+    if (!size || !IS_POWER_OF_2(align) || start >= end || !phys_addr)
+        return -EINVAL;
+    if (size > SIZE_MAX - (PAGE_SIZE - 1))
+        return -EOVERFLOW;
+    size = ALIGN_UP(size, (size_t)PAGE_SIZE);
+    align = MAX(align, (size_t)PAGE_SIZE);
+    base = MAX(start, memblock.memory.base);
+    limit = MIN(end, memblock.memory.base + memblock.memory.size);
+
+    /* Reserved regions are sorted by base, but may overlap. */
+    for (unsigned int i = 0;; ++i) {
+        const struct memblock_region *region;
+        uint64_t region_end;
+
+        if (base >= limit || align - 1 > UINT64_MAX - base)
+            return -ENOMEM;
+        base = ALIGN_UP(base, (uint64_t)align);
+        if (base >= limit || size > limit - base)
+            return -ENOMEM;
+        if (i == memblock.nr_reserved)
+            break;
+
+        region = &memblock.reserved[i];
+        region_end = region->base + region->size;
+        if (region_end <= base)
+            continue;
+        if (region->base >= base + size)
+            break;
+        base = region_end;
+    }
+
+    ret = memblock_reserve(base, size, false);
+    if (ret)
+        return ret;
+    *phys_addr = base;
+    return 0;
+}
+
 static int register_memory(const struct dtb_range *range, void *arg)
 {
     (void)arg;
