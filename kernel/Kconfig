@@ -73,8 +73,13 @@ config DEBUG_LOCK
 	default y
 
 config DEBUG_REFCOUNT
-	bool "Debug refcount underflow and zero->reuse, illegal quote" if DEBUG_INFO
+	bool "Debug refcount underflow, resurrection and invalid counts" if DEBUG_INFO
 	default y
+	help
+	  Assert on underflow, incrementing a zero count, overflow, out-of-range
+	  initialization and dropping the final reference through refcount_dec.
+	  With debugging disabled, guards still reject invalid count updates,
+	  but do not diagnose or recover from ownership errors.
 
 config DEBUG_ALLOC
 	bool "Debug slub/page poison and double-free" if DEBUG_INFO
