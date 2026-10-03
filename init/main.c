@@ -4,7 +4,9 @@
 #include <nuvix/printk.h>
 #include <nuvix/dtb.h>
 #include <nuvix/memblock.h>
+#include <nuvix/page.h>
 #include <nuvix/assert.h>
+#include <nuvix/pgtable.h>
 
 __noreturn
 void kernel_main(unsigned long hart, uintptr_t dtb_pa)
@@ -23,6 +25,12 @@ void kernel_main(unsigned long hart, uintptr_t dtb_pa)
     ret = memblock_init(&dtb);
     if (ret) {
         pr_err("memblock: initialization failed (%d)\n", ret);
+        goto halt;
+    }
+
+    ret = page_init(BOOT_IDMAP_PBASE, BOOT_IDMAP_PEND);
+    if (ret) {
+        pr_err("page: initialization failed (%d)\n", ret);
         goto halt;
     }
     pr_info("Hello, Nuvix!\n");
