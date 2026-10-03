@@ -26,6 +26,7 @@ static inline int getchar(void)
 }
 
 int vsprintf(char *buf, const char *fmt, va_list args) __printf(2, 0);
+int vprintk(const char *fmt, va_list args) __printf(1, 0);
 int printk(const char *fmt, ...) __printf(1, 2);
 
 #define LOG_LEVEL_DEBUG   1
