@@ -9,31 +9,32 @@
 #include <nuvix/pgtable.h>
 
 __noreturn
-void kernel_main(unsigned long hart, uintptr_t dtb_pa)
+void kernel_main(unsigned long hart, paddr_t dtb_pa)
 {
     struct dtb dtb;
     int ret;
 
     (void)hart;
     IFDEF(CONFIG_UART, uart_init());
+
+#define BOOTINFO(ret, name)                                                    \
+    ({                                                                         \
+        if (ret) {                                                             \
+            pr_err("%s: initialization failed (%d)\n", #name, ret);            \
+            goto halt;                                                         \
+        }                                                                      \
+        pr_info("%s: initialization success\n", #name);                        \
+    })
     ret = dtb_init(&dtb, (const void *)dtb_pa, dtb_pa);
-    if (ret) {
-        pr_err("DTB: initialization failed (%d)\n", ret);
-        goto halt;
-    }
+    BOOTINFO(ret, DTB);
 
     ret = memblock_init(&dtb);
-    if (ret) {
-        pr_err("memblock: initialization failed (%d)\n", ret);
-        goto halt;
-    }
+    BOOTINFO(ret, memblock);
 
     ret = page_init(BOOT_IDMAP_PBASE, BOOT_IDMAP_PEND);
-    if (ret) {
-        pr_err("page: initialization failed (%d)\n", ret);
-        goto halt;
-    }
-    pr_info("Hello, Nuvix!\n");
+    BOOTINFO(ret, page);
+
+#undef BOOTINFO
 
 halt:
     panic("Kernel has been halted...\n");

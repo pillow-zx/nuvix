@@ -36,4 +36,7 @@ typedef __PTRDIFF_TYPE__ ssize_t;
 #define true      1
 #define false     0
 
+typedef uintptr_t vaddr_t;
+typedef uint64_t paddr_t;
+
 #endif /* ifndef _NUVIX_CTYPES_H */
