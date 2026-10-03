@@ -68,3 +68,4 @@ ForEachMacros:
   - 'rb_for_each_safe'
   - 'rb_for_each_entry'
   - 'rb_for_each_entry_safe'
+  - 'fdt_for_each_subnode'

@@ -10,6 +10,9 @@
 #define PGD_SHIFT       (PMD_SHIFT + PT_INDEX_BITS)
 #define PGD_SIZE        (1 << PGD_SHIFT)
 
+#define BOOT_IDMAP_PBASE (KERNEL_PBASE & ~(PGD_SIZE - 1))
+#define BOOT_IDMAP_PEND  (BOOT_IDMAP_PBASE + PGD_SIZE)
+
 #define PGD_INDEX(addr) (((addr) >> PGD_SHIFT) & PT_INDEX_MASK)
 #define PMD_INDEX(addr) (((addr) >> PMD_SHIFT) & PT_INDEX_MASK)
 #define PTE_INDEX(addr) (((addr) >> PAGE_SHIFT) & PT_INDEX_MASK)
