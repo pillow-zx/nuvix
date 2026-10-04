@@ -70,5 +70,4 @@ SECTIONS
 
     ASSERT(__start < __end, "empty kernel image")
     ASSERT(_start == __start, "boot entry must be first in the image")
-    ASSERT(__end - __start <= PMD_SIZE, "bootstrap kernel mapping exceeds 2MiB")
 }

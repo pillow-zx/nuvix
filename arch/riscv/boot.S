@@ -32,45 +32,10 @@ _start:
     add         t1, s2, t1
     sd          t0, 0(t1)
 
-    lla         t0, boot_pmd
-    srli        t0, t0, PAGE_SHIFT
-    slli        t0, t0, PTE_PPN_SHIFT
-    ori         t0, t0, PTE_V
     li          t1, PGD_INDEX(KERNEL_VBASE) * PT_ENTRY_SIZE
     add         t1, s2, t1
     sd          t0, 0(t1)
-    lla         t1, boot_pmd
-    lla         t0, boot_pte
-    srli        t0, t0, PAGE_SHIFT
-    slli        t0, t0, PTE_PPN_SHIFT
-    ori         t0, t0, PTE_V
-    sd          t0, 0(t1)
 
-    lla         t1, boot_pte
-    li          t0, KERNEL_PBASE
-    lla         t2, __end
-    lla         t3, __text_end
-    lla         t4, __rodata_end
-.Lmap_kernel:
-    bgeu        t0, t2, .Lenable_mmu
-    li          t5, PTE_KERNEL_RO
-    bltu        t0, t3, .Ltext_page
-    bltu        t0, t4, .Linstall_page
-    li          t5, PTE_KERNEL_RW
-    j           .Linstall_page
-.Ltext_page:
-    li          t5, PTE_KERNEL_RX
-.Linstall_page:
-    srli        t6, t0, PAGE_SHIFT
-    slli        t6, t6, PTE_PPN_SHIFT
-    or          t6, t6, t5
-    sd          t6, 0(t1)
-    li          t6, PAGE_SIZE
-    add         t0, t0, t6
-    addi        t1, t1, PT_ENTRY_SIZE
-    j           .Lmap_kernel
-
-.Lenable_mmu:
 #ifdef CONFIG_UART
     lla         t0, boot_uart_pmd
     srli        t0, t0, PAGE_SHIFT
@@ -126,10 +91,6 @@ _start:
     .section .bss.boot, "aw", @nobits
     .balign PAGE_SIZE
 boot_pgd:
-    .skip PAGE_SIZE
-boot_pmd:
-    .skip PAGE_SIZE
-boot_pte:
     .skip PAGE_SIZE
 #ifdef CONFIG_UART
 boot_uart_pmd:
