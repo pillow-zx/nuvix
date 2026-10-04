@@ -12,6 +12,9 @@
 #define UART_VBASE       IOREMAP_VBASE
 #define UART_CLOCK       3686400
 
+#define KSTACK_ORDER     2
+#define KSTACK_SIZE      (PAGE_SIZE << KSTACK_ORDER)
+
 #define BOOT_STACK_SIZE  (4 * PAGE_SIZE)
 
 #endif /* _NUVIX_RISCV_LAYOUT_H */

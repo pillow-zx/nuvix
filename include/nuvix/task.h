@@ -1,0 +1,67 @@
+#ifndef _NUVIX_TASK_H
+#define _NUVIX_TASK_H
+
+#include <nuvix/ctypes.h>
+#include <nuvix/list.h>
+#include <nuvix/refcount.h>
+#include <asm/current.h>
+#include <asm/task.h>
+
+struct proc;
+
+#define TASK_CPU_NONE ((unsigned int)-1)
+
+enum task_state {
+    TASK_NEW,
+    TASK_RUNNABLE,
+    TASK_SLEEP_INTERRUPTIBLE,
+    TASK_SLEEP_UNINTERRUPTIBLE,
+    TASK_STOPPED,
+    TASK_DEAD,
+};
+
+struct task {
+    refcount_t refcount;
+    /* Fixed at construction; NULL for kernel tasks. */
+    struct proc *proc;
+    unsigned int tid;
+
+    /* Owned by rq once published; CPU is assigned at first publication. */
+    unsigned int cpu_id;
+    enum task_state state;
+    bool on_rq;
+    bool on_cpu;
+    bool need_resched;
+    struct list_head rq_node;
+    struct list_head proc_node;
+    unsigned int preempt_count;
+
+    /* Direct-mapped kernel stack base; all tasks use the configured order. */
+    void *kstack;
+    struct task_context ctx;
+};
+
+/*
+ * After slub_init(). Returns an unpublished NEW task with one caller reference,
+ * TID 0 and no CPU assignment. A non-NULL proc must be kept alive by the caller;
+ * success takes an additional reference, without registering a member.
+ * Allocation failure returns NULL and leaves the proc's references unchanged.
+ */
+struct task *task_alloc(struct proc *proc);
+
+/* get requires a held reference or equivalent lifetime protection. */
+void task_get(struct task *task);
+/*
+ * Final put currently supports only unpublished NEW tasks, in a context safe
+ * for allocator frees. It releases the kernel stack and construction-time proc
+ * reference.
+ */
+void task_put(struct task *task);
+
+/* CPU-local use requires the execution context to remain on this CPU. */
+static inline unsigned int current_cpu_id(void)
+{
+    return current->cpu_id;
+}
+
+#endif /* _NUVIX_TASK_H */
