@@ -1,5 +1,5 @@
-#include <nuvix/arch/riscv/csr.h>
-#include <nuvix/arch/riscv/trap.h>
+#include <asm/csr.h>
+#include <asm/trap.h>
 
     .section .text, "ax"
     .balign 4

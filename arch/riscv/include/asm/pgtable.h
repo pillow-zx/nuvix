@@ -1,7 +1,7 @@
 #ifndef _NUVIX_RISCV_PGTABLE_H
 #define _NUVIX_RISCV_PGTABLE_H
 
-#include <nuvix/arch/riscv/layout.h>
+#include <asm/layout.h>
 
 #define PT_INDEX_BITS    9
 #define PT_INDEX_MASK    ((1 << PT_INDEX_BITS) - 1)

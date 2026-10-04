@@ -9,7 +9,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/math.h>
 #include <nuvix/string.h>
-#include <nuvix/arch/riscv/csr.h>
+#include <asm/csr.h>
 
 extern char __text_start[], __text_end[], __rodata_end[], __end[];
 

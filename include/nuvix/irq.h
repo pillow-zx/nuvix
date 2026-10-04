@@ -1,7 +1,7 @@
 #ifndef _NUVIX_IRQ_H
 #define _NUVIX_IRQ_H
 
-#include <nuvix/arch/riscv/irq.h>
+#include <asm/irq.h>
 
 #define local_irq_disable()      arch_local_irq_disable()
 #define local_irq_enable()       arch_local_irq_enable()

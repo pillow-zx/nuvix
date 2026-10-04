@@ -3,7 +3,7 @@
 
 #include <nuvix/ctypes.h>
 #include <nuvix/compiler.h>
-#include <nuvix/arch/riscv/barrier.h>
+#include <asm/barrier.h>
 
 static __always_inline inline uint8_t readb(const volatile void *addr)
 {

@@ -1,5 +1,5 @@
-#include <nuvix/arch/riscv/io.h>
-#include <nuvix/arch/riscv/layout.h>
+#include <asm/io.h>
+#include <asm/layout.h>
 #include <nuvix/printk.h>
 
 #define UART_RX            0
@@ -49,6 +49,9 @@ void uart_init(void)
     uart_write(UART_FCR,
                UART_FCR_ENABLE | UART_FCR_CLEAR_RX | UART_FCR_CLEAR_TX);
     uart_write(UART_MCR, UART_MCR_DTR | UART_MCR_RTS);
+
+    putchar = uart_putchar;
+    getchar = uart_getchar;
 }
 
 int uart_putchar(int c)

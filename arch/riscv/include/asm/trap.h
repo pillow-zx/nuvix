@@ -1,7 +1,7 @@
 #ifndef _NUVIX_RISCV_TRAP_H
 #define _NUVIX_RISCV_TRAP_H
 
-#include <nuvix/arch/riscv/csr.h>
+#include <asm/csr.h>
 
 /* RV64 register slots; keep the assembly layout and C frame in agreement. */
 #define TRAP_REG_SIZE 8

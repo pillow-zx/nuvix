@@ -16,8 +16,6 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     struct dtb dtb;
     int ret;
 
-    IFDEF(CONFIG_UART, uart_init());
-
 #define BOOTINFO(ret, name)                                                    \
     ({                                                                         \
         if (ret) {                                                             \
@@ -40,6 +38,8 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
 
     ret = pgtable_init(&dtb);
     BOOTINFO(ret, pgtable);
+
+    IFDEF(CONFIG_UART, uart_init());
 
     ret = buddy_init();
     BOOTINFO(ret, buddy);

@@ -33,6 +33,9 @@
 !arch/riscv/*.s
 !arch/riscv/*.mk
 !arch/riscv/Kconfig
+!arch/riscv/include/
+!arch/riscv/include/asm/
+!arch/riscv/include/asm/*.h
 
 # Default kernel configurations.
 !configs/*_defconfig
@@ -68,10 +71,6 @@
 # Public headers.
 !include/nuvix/
 !include/nuvix/*.h
-!include/nuvix/arch/
-!include/nuvix/arch/*.h
-!include/nuvix/arch/riscv/
-!include/nuvix/arch/riscv/*.h
 
 # Kernel initialization and core code.
 !init/*.c

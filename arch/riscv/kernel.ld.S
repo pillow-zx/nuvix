@@ -1,7 +1,7 @@
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
-#include <nuvix/arch/riscv/pgtable.h>
+#include <asm/pgtable.h>
 
 PHDRS
 {

@@ -1,5 +1,5 @@
-#include <nuvix/arch/riscv/pgtable.h>
-#include <nuvix/arch/riscv/irq.h>
+#include <asm/pgtable.h>
+#include <asm/irq.h>
 
     .section .text.boot, "ax"
     .balign 4
@@ -36,34 +36,6 @@ _start:
     add         t1, s2, t1
     sd          t0, 0(t1)
 
-#ifdef CONFIG_UART
-    lla         t0, boot_uart_pmd
-    srli        t0, t0, PAGE_SHIFT
-    slli        t0, t0, PTE_PPN_SHIFT
-    ori         t0, t0, PTE_V
-    li          t1, PGD_INDEX(UART_VBASE) * PT_ENTRY_SIZE
-    add         t1, s2, t1
-    sd          t0, 0(t1)
-
-    lla         t0, boot_uart_pte
-    srli        t0, t0, PAGE_SHIFT
-    slli        t0, t0, PTE_PPN_SHIFT
-    ori         t0, t0, PTE_V
-    lla         t1, boot_uart_pmd
-    li          t2, PMD_INDEX(UART_VBASE) * PT_ENTRY_SIZE
-    add         t1, t1, t2
-    sd          t0, 0(t1)
-
-    li          t0, UART_PBASE
-    srli        t0, t0, PAGE_SHIFT
-    slli        t0, t0, PTE_PPN_SHIFT
-    ori         t0, t0, PTE_KERNEL_RW
-    lla         t1, boot_uart_pte
-    li          t2, PTE_INDEX(UART_VBASE) * PT_ENTRY_SIZE
-    add         t1, t1, t2
-    sd          t0, 0(t1)
-#endif
-
     li          s3, (KERNEL_VBASE - KERNEL_PBASE)
     lla         t1, .Lvirtual
     add         t1, t1, s3
@@ -92,12 +64,6 @@ _start:
     .balign PAGE_SIZE
 boot_pgd:
     .skip PAGE_SIZE
-#ifdef CONFIG_UART
-boot_uart_pmd:
-    .skip PAGE_SIZE
-boot_uart_pte:
-    .skip PAGE_SIZE
-#endif
     .balign 16
 boot_stack:
     .skip BOOT_STACK_SIZE

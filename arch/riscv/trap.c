@@ -1,5 +1,5 @@
 #include <nuvix/assert.h>
-#include <nuvix/arch/riscv/trap.h>
+#include <asm/trap.h>
 
 __noreturn
 void trap_handler(const struct trap_frame *frame)

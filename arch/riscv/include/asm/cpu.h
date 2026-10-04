@@ -2,9 +2,11 @@
 #define _NUVIX_RISCV_CPU_H
 
 #include <nuvix/compiler.h>
-#include <nuvix/arch/riscv/irq.h>
+#include <asm/irq.h>
 
 #define SMP_CACHE_BYTES 64
+
+long arch_send_ipi(unsigned int cpu_id);
 
 #define wfi()                                                                  \
     do {                                                                       \

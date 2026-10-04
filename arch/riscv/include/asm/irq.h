@@ -1,7 +1,7 @@
 #ifndef _NUVIX_RISCV_IRQ_H
 #define _NUVIX_RISCV_IRQ_H
 
-#include <nuvix/arch/riscv/csr.h>
+#include <asm/csr.h>
 
 #ifndef __ASSEMBLER__
 
