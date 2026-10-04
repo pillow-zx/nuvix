@@ -84,6 +84,10 @@ config DEBUG_REFCOUNT
 config DEBUG_ALLOC
 	bool "Debug slub/page poison and double-free" if DEBUG_INFO
 	default y
+	help
+	  Poison free slab objects and check for modification before reuse.
+	  Assert on invalid slab object addresses, double frees and corrupt
+	  freelists. These checks add allocation and freeing overhead.
 
 config DEBUG_CONTEXT
 	bool "Debug irq, preempt state and migh_sleep" if DEBUG_INFO
