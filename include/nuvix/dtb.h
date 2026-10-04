@@ -17,7 +17,7 @@ struct dtb_range {
 
 typedef int (*dtb_range_fn)(const struct dtb_range *range, void *arg);
 
-int dtb_init(struct dtb *dtb, const void *blob, uint64_t phys_addr);
+int dtb_init(struct dtb *dtb, const void *blob, paddr_t paddr);
 int dtb_get_string(const struct dtb *dtb, const char *path,
                    const char *property, const char **value);
 int dtb_get_u32(const struct dtb *dtb, const char *path, const char *property,

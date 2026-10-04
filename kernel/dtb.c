@@ -194,23 +194,23 @@ int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg)
     return node == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;
 }
 
-int dtb_init(struct dtb *dtb, const void *blob, uint64_t phys_addr)
+int dtb_init(struct dtb *dtb, const void *blob, paddr_t paddr)
 {
     uint32_t size;
 
     *dtb = (struct dtb){0};
-    if (!blob || (phys_addr & 7))
+    if (!blob || (paddr & 7))
         return -EINVAL;
     if (fdt_check_header(blob))
         return -EINVAL;
     size = fdt_totalsize(blob);
-    if (phys_addr > UINT64_MAX - size)
+    if (paddr > UINT64_MAX - size)
         return -EOVERFLOW;
     if (fdt_check_full(blob, size))
         return -EINVAL;
 
     dtb->blob = blob;
-    dtb->phys_addr = phys_addr;
+    dtb->phys_addr = paddr;
     dtb->size = size;
     return 0;
 }

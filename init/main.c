@@ -6,7 +6,6 @@
 #include <nuvix/memblock.h>
 #include <nuvix/page.h>
 #include <nuvix/assert.h>
-#include <nuvix/pgtable.h>
 
 __noreturn
 void kernel_main(unsigned long hart, paddr_t dtb_pa)
@@ -31,7 +30,7 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     ret = memblock_init(&dtb);
     BOOTINFO(ret, memblock);
 
-    ret = page_init(BOOT_IDMAP_PBASE, BOOT_IDMAP_PEND);
+    ret = page_init();
     BOOTINFO(ret, page);
 
 #undef BOOTINFO

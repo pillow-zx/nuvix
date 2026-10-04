@@ -23,13 +23,13 @@ extern struct page *mem_map;
 extern unsigned long min_pfn, max_pfn;
 
 /*
- * Boot-only, after memblock_init(). [start, end) must be identity-mapped RAM
- * accessible for metadata allocation. All descriptors start reserved, with
+ * Boot-only, after memblock_init(). RAM in memblock.memory must be
+ * identity-mapped for metadata allocation. All descriptors start reserved, with
  * zero references, no order and NULL list links. Buddy must consult the final
  * memblock reservations before releasing any pages.
  * The array pointer must be rebound before removing the identity mapping.
  */
-int page_init(uint64_t start, uint64_t end);
+int page_init(void);
 
 static inline bool pfn_valid(unsigned long pfn)
 {

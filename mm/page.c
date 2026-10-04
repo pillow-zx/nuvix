@@ -6,11 +6,11 @@
 struct page *mem_map;
 unsigned long min_pfn, max_pfn;
 
-int page_init(uint64_t start, uint64_t end)
+int page_init(void)
 {
     struct page *pages;
     unsigned long first_pfn, last_pfn;
-    uint64_t phys_addr;
+    uint64_t paddr;
     size_t nr_pages, bytes;
     int ret;
 
@@ -28,10 +28,10 @@ int page_init(uint64_t start, uint64_t end)
     if (check_mul_overflow(nr_pages, sizeof(*pages), &bytes))
         return -EOVERFLOW;
 
-    ret = early_alloc(bytes, PAGE_SIZE, start, end, &phys_addr);
+    ret = early_alloc(bytes, PAGE_SIZE, &paddr);
     if (ret)
         return ret;
-    pages = (struct page *)(uintptr_t)phys_addr;
+    pages = (struct page *)(uintptr_t)paddr;
 
     for (size_t i = 0; i < nr_pages; ++i) {
         pages[i] = (struct page){

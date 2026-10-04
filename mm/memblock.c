@@ -45,26 +45,25 @@ int memblock_reserve(uint64_t base, uint64_t size, bool no_map)
     while (pos < count && regions[pos].base < base)
         ++pos;
     memmove(&regions[pos + 1], &regions[pos], (count - pos) * sizeof(*regions));
-    regions[pos] =
-        (struct memblock_region){.base = base, .size = end - base, .no_map = no_map};
+    regions[pos] = (struct memblock_region){
+        .base = base, .size = end - base, .no_map = no_map};
     memblock.nr_reserved = count + 1;
     return 0;
 }
 
-int early_alloc(size_t size, size_t align, uint64_t start, uint64_t end,
-                uint64_t *phys_addr)
+int early_alloc(size_t size, size_t align, paddr_t *paddr)
 {
     uint64_t base, limit;
     int ret;
 
-    if (!size || !IS_POWER_OF_2(align) || start >= end || !phys_addr)
+    if (!size || !IS_POWER_OF_2(align) || !paddr)
         return -EINVAL;
     if (size > SIZE_MAX - (PAGE_SIZE - 1))
         return -EOVERFLOW;
     size = ALIGN_UP(size, (size_t)PAGE_SIZE);
     align = MAX(align, (size_t)PAGE_SIZE);
-    base = MAX(start, memblock.memory.base);
-    limit = MIN(end, memblock.memory.base + memblock.memory.size);
+    base = memblock.memory.base;
+    limit = base + memblock.memory.size;
 
     /* Reserved regions are sorted by base, but may overlap. */
     for (unsigned int i = 0;; ++i) {
@@ -91,7 +90,7 @@ int early_alloc(size_t size, size_t align, uint64_t start, uint64_t end,
     ret = memblock_reserve(base, size, false);
     if (ret)
         return ret;
-    *phys_addr = base;
+    *paddr = base;
     return 0;
 }
 
