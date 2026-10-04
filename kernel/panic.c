@@ -2,7 +2,7 @@
 #include <nuvix/ctypes.h>
 #include <nuvix/printk.h>
 #include <nuvix/irq.h>
-#include <nuvix/arch/riscv/cpu.h>
+#include <nuvix/cpu.h>
 
 __noreturn
 void __panic(const char *fmt, ...)
@@ -14,7 +14,7 @@ void __panic(const char *fmt, ...)
 
     local_irq_disable();
     if (panicking)
-        arch_halt();
+        halt();
     panicking = true;
 
     printk("\nPANIC: ");
@@ -24,5 +24,5 @@ void __panic(const char *fmt, ...)
     if (ret < 0)
         printk("<message formatting failed>");
     printk("\n");
-    arch_halt();
+    halt();
 }
