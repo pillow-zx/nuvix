@@ -13,8 +13,8 @@ config NR_CPUS
 	default 8
 	help
 	  Capacity of static CPU arrays. The DTB supplies the actual topology.
-	  SMP boot fails if enabled CPUs exceed this capacity. UP uses only
-	  the boot hart. Hart IDs need not be contiguous.
+	  Enabled harts beyond this capacity are not started and are reported.
+	  UP uses only the boot hart. Hart IDs need not be contiguous.
 
 endmenu
 

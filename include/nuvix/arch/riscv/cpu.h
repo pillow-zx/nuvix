@@ -4,6 +4,8 @@
 #include <nuvix/compiler.h>
 #include <nuvix/arch/riscv/irq.h>
 
+#define SMP_CACHE_BYTES 64
+
 #define wfi()                                                                  \
     do {                                                                       \
         __asm__ volatile("wfi" ::: "memory");                                  \
