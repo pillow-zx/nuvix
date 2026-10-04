@@ -37,6 +37,9 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     ret = pgtable_init(&dtb);
     BOOTINFO(ret, pgtable);
 
+    ret = buddy_init();
+    BOOTINFO(ret, buddy);
+
 #undef BOOTINFO
 
 halt:

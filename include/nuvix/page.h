@@ -5,10 +5,12 @@
 #include <nuvix/layout.h>
 #include <nuvix/list.h>
 #include <nuvix/refcount.h>
+#include <nuvix/cleanup.h>
 
 #define PG_RESERVED     BIT(0)
 #define PG_BUDDY        BIT(1)
 #define PG_PGTABLE      BIT(2)
+#define PG_ALLOCATED    BIT(3)
 #define PAGE_ORDER_NONE ((unsigned int)-1)
 
 struct page {
@@ -31,6 +33,34 @@ extern unsigned long min_pfn, max_pfn;
  * The array pointer must be rebound before removing the identity mapping.
  */
 int page_init(void);
+
+/* Boot-only, once after pgtable_init() and the final memblock reservation. */
+int buddy_init(void);
+void buddy_dump(void);
+
+/*
+ * Requires buddy_init(). Only the block head owns a reference;
+ * interior pages must not be referenced.
+ * Orders are in [0, CONFIG_MAX_ORDER); allocation does not zero memory.
+ */
+struct page *alloc_pages(int order);
+/*
+ * Drop one reference using the original head and order. NULL is a no-op;
+ * invalid frees are diagnosed and leave allocator state unchanged.
+ */
+void free_pages(struct page *page, int order);
+
+static inline struct page *alloc_page(void)
+{
+    return alloc_pages(0);
+}
+
+static inline void free_page(struct page *page)
+{
+    free_pages(page, 0);
+}
+
+CLEANUP_DEFINE(page, struct page *, if (_T) free_page(_T))
 
 static inline bool pfn_valid(unsigned long pfn)
 {
