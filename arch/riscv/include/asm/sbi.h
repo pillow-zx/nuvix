@@ -3,15 +3,18 @@
 
 #include <nuvix/compiler.h>
 
-#define SBI_MAX_ARGS                6
+#define SBI_MAX_ARGS                     6
 
-#define SBI_EXT_0_1_CONSOLE_PUTCHAR 0x01
-#define SBI_EXT_0_1_CONSOLE_GETCHAR 0x02
+#define SBI_EXT_0_1_CONSOLE_PUTCHAR      0x01
+#define SBI_EXT_0_1_CONSOLE_GETCHAR      0x02
 
-#define SBI_EXT_BASE                0x10
-#define SBI_EXT_BASE_PROBE_EXT      3
-#define SBI_EXT_IPI                 0x735049
-#define SBI_EXT_IPI_SEND_IPI        0
+#define SBI_EXT_BASE                     0x10
+#define SBI_EXT_BASE_PROBE_EXT           3
+#define SBI_EXT_IPI                      0x735049
+#define SBI_EXT_IPI_SEND_IPI             0
+#define SBI_EXT_RFENCE                   0x52464E43
+#define SBI_EXT_RFENCE_REMOTE_FENCE_I    0
+#define SBI_EXT_RFENCE_REMOTE_SFENCE_VMA 1
 
 struct sbiret {
     long error;
@@ -50,6 +53,22 @@ static inline struct sbiret sbi_send_ipi(unsigned long hart_mask,
                                          unsigned long hart_mask_base)
 {
     return sbi_call(SBI_EXT_IPI, SBI_EXT_IPI_SEND_IPI, hart_mask,
+                    hart_mask_base);
+}
+
+static inline struct sbiret sbi_remote_sfence_vma(unsigned long hart_mask,
+                                                  unsigned long hart_mask_base,
+                                                  unsigned long start_addr,
+                                                  unsigned long size)
+{
+    return sbi_call(SBI_EXT_RFENCE, SBI_EXT_RFENCE_REMOTE_SFENCE_VMA, hart_mask,
+                    hart_mask_base, start_addr, size);
+}
+
+static inline struct sbiret sbi_remote_fence_i(unsigned long hart_mask,
+                                               unsigned long hart_mask_base)
+{
+    return sbi_call(SBI_EXT_RFENCE, SBI_EXT_RFENCE_REMOTE_FENCE_I, hart_mask,
                     hart_mask_base);
 }
 
