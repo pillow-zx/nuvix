@@ -194,6 +194,54 @@ int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg)
     return node == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;
 }
 
+int dtb_scan_cpus(const struct dtb *dtb, dtb_cpu_fn visit, void *arg)
+{
+    const void *blob = dtb->blob;
+    int parent = fdt_path_offset(blob, "/cpus");
+    int address_cells, size_cells, node;
+
+    if (parent < 0)
+        return fdt_errno(parent);
+    address_cells = fdt_address_cells(blob, parent);
+    size_cells = fdt_size_cells(blob, parent);
+    if (address_cells < 0 || size_cells < 0)
+        return -EINVAL;
+    if ((address_cells != 1 && address_cells != 2) || size_cells != 0)
+        return -EOPNOTSUPP;
+
+    fdt_for_each_subnode (node, blob, parent) {
+        const char *type;
+        const fdt32_t *reg;
+        int len, ret = get_string(blob, node, "device_type", &type);
+
+        if (ret == -ENOENT)
+            continue;
+        if (ret)
+            return ret;
+        if (strcmp(type, "cpu"))
+            continue;
+        ret = node_available(blob, node);
+        if (ret < 0)
+            return ret;
+        if (!ret)
+            continue;
+        ret = fdt_node_check_compatible(blob, node, "riscv");
+        if (ret < 0)
+            return fdt_errno(ret);
+        if (ret)
+            return -EOPNOTSUPP;
+        reg = fdt_getprop(blob, node, "reg", &len);
+        if (!reg)
+            return fdt_errno(len);
+        if (len != address_cells * sizeof(*reg))
+            return -EINVAL;
+        ret = visit(read_cells(reg, address_cells), arg);
+        if (ret)
+            return ret;
+    }
+    return node == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;
+}
+
 int dtb_init(struct dtb *dtb, const void *blob, paddr_t paddr)
 {
     uint32_t size;

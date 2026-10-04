@@ -3,6 +3,7 @@
 #include <nuvix/macro.h>
 #include <nuvix/printk.h>
 #include <nuvix/dtb.h>
+#include <nuvix/cpu.h>
 #include <nuvix/memblock.h>
 #include <nuvix/page.h>
 #include <nuvix/assert.h>
@@ -15,7 +16,6 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     struct dtb dtb;
     int ret;
 
-    (void)hart;
     IFDEF(CONFIG_UART, uart_init());
 
 #define BOOTINFO(ret, name)                                                    \
@@ -28,6 +28,9 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     })
     ret = dtb_init(&dtb, (const void *)dtb_pa, dtb_pa);
     BOOTINFO(ret, DTB);
+
+    ret = cpu_init(&dtb, hart);
+    BOOTINFO(ret, CPU);
 
     ret = memblock_init(&dtb);
     BOOTINFO(ret, memblock);

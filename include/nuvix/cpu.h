@@ -21,6 +21,11 @@ struct cpu {
 extern struct cpu cpus[CONFIG_NR_CPUS];
 extern unsigned int nr_cpus;
 
+struct dtb;
+
+/* Boot-only, once after dtb_init(), before starting secondary harts. */
+int cpu_init(const struct dtb *dtb, unsigned long boot_hart);
+
 static inline enum cpu_state cpu_state_read(const struct cpu *cpu)
 {
     return __atomic_load_n(&cpu->state, __ATOMIC_ACQUIRE);

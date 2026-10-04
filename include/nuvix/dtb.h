@@ -16,6 +16,7 @@ struct dtb_range {
 };
 
 typedef int (*dtb_range_fn)(const struct dtb_range *range, void *arg);
+typedef int (*dtb_cpu_fn)(unsigned long hart_id, void *arg);
 
 int dtb_init(struct dtb *dtb, const void *blob, paddr_t paddr);
 int dtb_get_string(const struct dtb *dtb, const char *path,
@@ -24,5 +25,6 @@ int dtb_get_u32(const struct dtb *dtb, const char *path, const char *property,
                 uint32_t *value);
 int dtb_scan_memory(const struct dtb *dtb, dtb_range_fn visit, void *arg);
 int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg);
+int dtb_scan_cpus(const struct dtb *dtb, dtb_cpu_fn visit, void *arg);
 
 #endif /* _NUVIX_DTB_H */
