@@ -2,6 +2,7 @@
 #define _NUVIX_CPU_H
 
 #include <nuvix/atomic.h>
+#include <nuvix/arch/riscv/sbi.h>
 #include <nuvix/arch/riscv/cpu.h>
 
 enum cpu_state {
@@ -37,5 +38,9 @@ static inline void cpu_state_set(struct cpu *cpu, enum cpu_state state)
 }
 
 #define halt() arch_halt()
+
+#define send_ipi(mask, base) sbi_send_ipi(mask, base)
+
+#define probe_extension(eid) sbi_probe_extension(eid)
 
 #endif
