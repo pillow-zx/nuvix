@@ -24,7 +24,7 @@ _start:
     lla         sp, boot_stack_top
     lla         s2, boot_pgd
 
-    li          t0, BOOT_IDMAP_PBASE
+    li          t0, 0x0000000080000000
     srli        t0, t0, PAGE_SHIFT
     slli        t0, t0, PTE_PPN_SHIFT
     ori         t0, t0, PTE_BOOT_RWX

@@ -3,4 +3,8 @@
 
 #include <nuvix/arch/riscv/layout.h>
 
+#define __va(addr) (KERNEL_VBASE + (addr - KERNEL_PBASE))
+
+#define __pa(addr) (KERNEL_PBASE + (addr - KERNEL_VBASE))
+
 #endif /* ifndef _NUVIX_LAYOUT_H */

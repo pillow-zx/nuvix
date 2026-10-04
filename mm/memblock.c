@@ -122,7 +122,7 @@ int memblock_init(const struct dtb *dtb)
     ret = dtb_scan_reserved(dtb, register_reserved, NULL);
     if (ret)
         return ret;
-    ret = memblock_reserve(dtb->phys_addr, dtb->size, false);
+    ret = memblock_reserve(dtb->paddr, dtb->size, false);
     if (ret)
         return ret;
     return memblock_reserve(KERNEL_PBASE, ksize, false);

@@ -210,7 +210,7 @@ int dtb_init(struct dtb *dtb, const void *blob, paddr_t paddr)
         return -EINVAL;
 
     dtb->blob = blob;
-    dtb->phys_addr = paddr;
+    dtb->paddr = paddr;
     dtb->size = size;
     return 0;
 }

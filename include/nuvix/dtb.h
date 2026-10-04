@@ -5,7 +5,7 @@
 
 struct dtb {
     const void *blob;
-    uint64_t phys_addr;
+    uint64_t paddr;
     uint32_t size;
 };
 

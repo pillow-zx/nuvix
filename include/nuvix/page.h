@@ -8,6 +8,7 @@
 
 #define PG_RESERVED     BIT(0)
 #define PG_BUDDY        BIT(1)
+#define PG_PGTABLE      BIT(2)
 #define PAGE_ORDER_NONE ((unsigned int)-1)
 
 struct page {
