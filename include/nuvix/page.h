@@ -11,7 +11,11 @@
 #define PG_BUDDY        BIT(1)
 #define PG_PGTABLE      BIT(2)
 #define PG_ALLOCATED    BIT(3)
+#define PG_SLAB         BIT(4)
+#define PG_KMALLOC      BIT(5)
 #define PAGE_ORDER_NONE ((unsigned int)-1)
+
+struct kmem_cache;
 
 struct page {
     unsigned long flags;
@@ -19,6 +23,11 @@ struct page {
     /* Order and list membership apply only to a valid block head. */
     unsigned int order;
     struct list_head node;
+    struct {
+        struct kmem_cache *cache;
+        void *freelist;
+        unsigned int inuse;
+    } slab;
 };
 
 /* The flat array describes every complete RAM page in [min_pfn, max_pfn). */

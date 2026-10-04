@@ -7,6 +7,7 @@
 #include <nuvix/page.h>
 #include <nuvix/assert.h>
 #include <nuvix/pgtable.h>
+#include <nuvix/slab.h>
 
 __noreturn
 void kernel_main(unsigned long hart, paddr_t dtb_pa)
@@ -39,6 +40,9 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
 
     ret = buddy_init();
     BOOTINFO(ret, buddy);
+
+    slub_init();
+    pr_info("slub: initialization success\n");
 
 #undef BOOTINFO
 
