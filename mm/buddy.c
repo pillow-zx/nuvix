@@ -169,8 +169,6 @@ int buddy_init(void)
 {
     unsigned long start = min_pfn;
 
-    if (!mem_map)
-        return -ENODEV;
     for (unsigned int order = 0; order < CONFIG_MAX_ORDER; ++order)
         INIT_LIST_HEAD(&free_area[order].list);
 

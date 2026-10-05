@@ -56,8 +56,6 @@ int early_alloc(size_t size, size_t align, paddr_t *paddr)
     uint64_t base, limit;
     int ret;
 
-    if (!size || !IS_POWER_OF_2(align) || !paddr)
-        return -EINVAL;
     if (size > SIZE_MAX - (PAGE_SIZE - 1))
         return -EOVERFLOW;
     size = ALIGN_UP(size, (size_t)PAGE_SIZE);

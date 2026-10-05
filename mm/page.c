@@ -14,9 +14,6 @@ int page_init(void)
     size_t nr_pages, bytes;
     int ret;
 
-    if (mem_map)
-        return -EBUSY;
-
     /* Round the start up without overflowing the physical address. */
     first_pfn = memblock.memory.base >> PAGE_SHIFT;
     if (memblock.memory.base & (PAGE_SIZE - 1))
