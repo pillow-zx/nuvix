@@ -31,7 +31,7 @@
 #endif
 
 #if __has_attribute(always_inline)
-#define __always_inline __attribute__((__always_inline__))
+#define __always_inline inline __attribute__((__always_inline__))
 #endif
 
 #if __has_attribute(noinline)
@@ -84,10 +84,6 @@
 
 #if __has_attribute(nonnull)
 #define __nonnull(...) __attribute__((__nonnull__(__VA_ARGS__)))
-#endif
-
-#if __has_attribute(cleanup)
-#define __cleanup(func) __attribute__((__cleanup__(func)))
 #endif
 
 #if __has_attribute(deprecated)

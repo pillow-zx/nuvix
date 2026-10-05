@@ -11,6 +11,7 @@
 #define CONCAT5(x, y, z, w, v) CONCAT4(CONCAT(x, y), z, w, v)
 
 #define __SECOND(a, b, ...)    b
+#define __THIRD(a, b, c, ...)  c
 #define __MUX_WITH_COMMA(contain_comma, a, b) __SECOND(contain_comma a, b)
 #define __MUX_MACRO_PROPERTY(p, macro, a, b)                                   \
     __MUX_WITH_COMMA(CONCAT(p, macro), a, b)

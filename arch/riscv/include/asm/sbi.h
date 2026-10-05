@@ -21,7 +21,7 @@ struct sbiret {
     long value;
 };
 
-static __always_inline inline struct sbiret
+static __always_inline struct sbiret
 __sbi_call(int eid, int fid, const unsigned long args[SBI_MAX_ARGS])
 {
     register unsigned long a0 __asm__("a0") = args[0];

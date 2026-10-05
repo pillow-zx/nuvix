@@ -6,7 +6,7 @@
 struct task;
 
 /* Borrowed pointer, valid only after this CPU has bound its current task. */
-static __always_inline inline struct task *current_task(void)
+static __always_inline struct task *current_task(void)
 {
     struct task *task;
 

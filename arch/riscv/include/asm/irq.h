@@ -7,23 +7,23 @@
 
 #include <nuvix/compiler.h>
 
-static __always_inline inline void arch_local_irq_disable(void)
+static __always_inline void arch_local_irq_disable(void)
 {
     csr_clear(sstatus, SSTATUS_SIE);
 }
 
-static __always_inline inline void arch_local_irq_enable(void)
+static __always_inline void arch_local_irq_enable(void)
 {
     csr_set(sstatus, SSTATUS_SIE);
 }
 
-static __always_inline inline unsigned long arch_local_irq_save(void)
+static __always_inline unsigned long arch_local_irq_save(void)
 {
     unsigned long flags = csr_read_clear(sstatus, SSTATUS_SIE);
     return flags & SSTATUS_SIE;
 }
 
-static __always_inline inline void arch_local_irq_restore(unsigned long flags)
+static __always_inline void arch_local_irq_restore(unsigned long flags)
 {
     /* Restore only SIE; other sstatus fields may have changed meanwhile. */
     if (flags & SSTATUS_SIE)

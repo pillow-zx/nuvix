@@ -2,6 +2,7 @@
 #define _NUVIX_TASK_H
 
 #include <nuvix/ctypes.h>
+#include <nuvix/cleanup.h>
 #include <nuvix/list.h>
 #include <nuvix/refcount.h>
 #include <asm/current.h>
@@ -43,20 +44,24 @@ struct task {
 
 /*
  * After slub_init(). Returns an unpublished NEW task with one caller reference,
- * TID 0 and no CPU assignment. A non-NULL proc must be kept alive by the caller;
+ * a reserved TID and no CPU assignment. A leader requires a non-NULL proc and
+ * uses its TGID; other tasks reserve an independent TID. The caller must create
+ * at most one leader per proc. A non-NULL proc must be kept alive by the caller;
  * success takes an additional reference, without registering a member.
  * Allocation failure returns NULL and leaves the proc's references unchanged.
  */
-struct task *task_alloc(struct proc *proc);
+struct task *task_alloc(struct proc *proc, bool leader);
 
 /* get requires a held reference or equivalent lifetime protection. */
 void task_get(struct task *task);
 /*
  * Final put currently supports only unpublished NEW tasks, in a context safe
- * for allocator frees. It releases the kernel stack and construction-time proc
- * reference.
+ * for allocator frees. It releases the kernel stack, any independent TID and
+ * the construction-time proc reference.
  */
 void task_put(struct task *task);
+
+DECLARE_FREE(task_put, struct task *, if (_T) task_put(_T));
 
 /* CPU-local use requires the execution context to remain on this CPU. */
 static inline unsigned int current_cpu_id(void)

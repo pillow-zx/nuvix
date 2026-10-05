@@ -14,7 +14,7 @@ long arch_send_ipi(unsigned int cpu_id);
     } while (0)
 
 /* Permanently park this hart; this is not the normal idle path. */
-static __always_inline __noreturn inline void arch_halt(void)
+static __always_inline __noreturn void arch_halt(void)
 {
     arch_local_irq_disable();
     for (;;)

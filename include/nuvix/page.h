@@ -69,7 +69,8 @@ static inline void free_page(struct page *page)
     free_pages(page, 0);
 }
 
-CLEANUP_DEFINE(page, struct page *, if (_T) free_page(_T))
+DECLARE_FREE(page, struct page *, if (_T) free_page(_T))
+DECLARE_FREE(kstack, struct page *, if (_T) free_pages(_T, KSTACK_ORDER));
 
 static inline bool pfn_valid(unsigned long pfn)
 {

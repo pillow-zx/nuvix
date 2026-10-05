@@ -3,6 +3,7 @@
 
 #include <nuvix/list.h>
 #include <nuvix/refcount.h>
+#include <nuvix/cleanup.h>
 #include <nuvix/spinlock.h>
 
 enum proc_state {
@@ -30,13 +31,17 @@ struct proc {
 };
 
 /*
- * After slub_init(); returns an unpublished, empty NORMAL proc with TGID 0
- * and one caller reference. Allocation failure returns NULL.
+ * After slub_init(); returns an unpublished, empty NORMAL proc with a reserved
+ * TGID and one caller reference. Allocation failure returns NULL.
  */
 struct proc *proc_alloc(void);
 /* Requires a held reference or equivalent lifetime protection. */
 void proc_get(struct proc *proc);
-/* Final put currently supports only unpublished procs, outside short locks. */
+/*
+ * Final put releases the TGID; supports only unpublished procs outside short locks.
+ */
 void proc_put(struct proc *proc);
+
+DECLARE_FREE(proc_put, struct proc *, if (_T) proc_put(_T));
 
 #endif /* _NUVIX_PROC_H */

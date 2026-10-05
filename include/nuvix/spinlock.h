@@ -22,7 +22,7 @@ static inline void spin_lock_init(spinlock_t *lock)
     lock->irq_flags = 0;
 }
 
-static __always_inline inline unsigned long
+static __always_inline unsigned long
 __spin_lock_irqsave(spinlock_t *lock)
 {
     unsigned long flags = local_irq_save();
@@ -31,19 +31,19 @@ __spin_lock_irqsave(spinlock_t *lock)
     return flags;
 }
 
-static __always_inline inline void spin_lock(spinlock_t *lock)
+static __always_inline void spin_lock(spinlock_t *lock)
 {
     (void)__spin_lock_irqsave(lock);
 }
 
-static __always_inline inline void spin_unlock_irqrestore(spinlock_t *lock,
+static __always_inline void spin_unlock_irqrestore(spinlock_t *lock,
                                                           unsigned long flags)
 {
     (void)lock;
     local_irq_restore(flags);
 }
 
-static __always_inline inline void spin_unlock(spinlock_t *lock)
+static __always_inline void spin_unlock(spinlock_t *lock)
 {
     spin_unlock_irqrestore(lock, lock->irq_flags);
 }

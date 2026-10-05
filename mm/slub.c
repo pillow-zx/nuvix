@@ -1,6 +1,6 @@
-#include "nuvix/macro.h"
 #define pr_fmt(fmt) "slub: " fmt
 
+#include <nuvix/macro.h>
 #include <nuvix/slab.h>
 #include <nuvix/page.h>
 #include <nuvix/spinlock.h>
