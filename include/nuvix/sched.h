@@ -1,0 +1,73 @@
+#ifndef _NUVIX_SCHED_H
+#define _NUVIX_SCHED_H
+
+#include <nuvix/cpu.h>
+#include <nuvix/task.h>
+#include <nuvix/spinlock.h>
+
+struct rq {
+    spinlock_t lock;
+    struct task *curr;
+    struct task *idle;
+    struct list_head ready_list;
+    /* Includes the ordinary current task, but never idle. */
+    atomic_t nr_runnable;
+} __aligned(SMP_CACHE_BYTES);
+
+extern struct rq runqueues[CONFIG_NR_CPUS];
+
+static inline struct rq *cpu_rq(unsigned int cpu_id)
+{
+    return &runqueues[cpu_id];
+}
+
+/* Requires a published task held alive by the caller. */
+static inline struct rq *task_rq(const struct task *task)
+{
+    return cpu_rq(task->cpu_id);
+}
+
+/* Requires current to be bound and the execution context to stay on this CPU. */
+static inline struct rq *this_rq(void)
+{
+    return cpu_rq(current_cpu_id());
+}
+
+/* Boot-only, once after cpu_init(), before concurrent rq use. */
+void sched_init(void);
+/*
+ * Boot-only registration of a prepared NEW kernel task. Takes a permanent
+ * scheduler reference. CPU bring-up binds tp and sets idle->on_cpu before
+ * scheduling; this function does not mark an offline CPU as executing.
+ */
+void sched_init_idle(unsigned int cpu_id, struct task *idle);
+
+/*
+ * The selected CPUs must all be ready and the online set frozen. The caller
+ * owns a fully prepared NEW task; publication takes a scheduler reference.
+ * Current must be bound before locking. Publication and wakeup mark an idle
+ * current for rescheduling; IPI delivery is separate.
+ */
+void sched_publish(struct task *task);
+/*
+ * Requires a published task held alive by the caller, outside its rq lock.
+ * Returns true only when an ordinary sleeping task becomes RUNNABLE.
+ */
+bool sched_wake(struct task *task);
+
+/* Local ordinary current, IRQ off and rq.lock held; no load change yet. */
+void sched_set_sleep_locked(struct rq *rq, enum task_state state);
+
+/*
+ * Local switch operations: IRQ off, rq.lock held, and exactly one
+ * scheduler-owned preempt-disable level, using __spin_lock for rq.lock.
+ * Prepare hands the debug owner to next on a real switch. Retain the lock
+ * across arch_switch_to, then finish and __spin_unlock. These operations do
+ * not restore IRQs or preemption.
+ */
+/* rotate requests yield; otherwise RUNNABLE current rotates on need_resched. */
+struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate);
+/* Only after a real switch; prev is the task returned by arch_switch_to. */
+void sched_finish_switch_locked(struct rq *rq, struct task *prev);
+
+#endif /* _NUVIX_SCHED_H */

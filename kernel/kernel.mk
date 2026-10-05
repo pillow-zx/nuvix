@@ -5,3 +5,4 @@ obj-y += kernel/cpu.c
 obj-y += kernel/pid.c
 obj-y += kernel/task.c
 obj-y += kernel/proc.c
+obj-y += kernel/sched.c
