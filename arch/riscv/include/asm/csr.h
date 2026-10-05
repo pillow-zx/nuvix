@@ -3,13 +3,18 @@
 
 #define SSTATUS_SIE (1 << 1)
 #define SSTATUS_FS  (3 << 13)
+#define SIE_SSIE    (1 << 1)
+#define SIE_STIE    (1 << 5)
+#define SIP_SSIP    (1 << 1)
+#define SCAUSE_SSI  1
+#define SCAUSE_STI  5
 
 #ifndef __ASSEMBLER__
 
 #define SCAUSE_INTERRUPT (1UL << 63)
 
 /* CSR operands are assembler names or numbers, expanded before stringifying. */
-#define __csr_name(csr) #csr
+#define __csr_name(csr)  #csr
 
 /* These compiler barriers do not replace hardware memory/TLB fences. */
 #define csr_read(csr)                                                          \

@@ -22,6 +22,7 @@ struct rq {
     struct list_head ready_list;
     /* Includes the ordinary current task, but never idle. */
     atomic_t nr_runnable;
+    uint64_t quantum_deadline;
 } __aligned(SMP_CACHE_BYTES);
 
 extern struct rq runqueues[CONFIG_NR_CPUS];
@@ -43,7 +44,7 @@ static inline struct rq *this_rq(void)
     return cpu_rq(current_cpu_id());
 }
 
-/* Boot-only, once after cpu_init(), before concurrent rq use. */
+/* Boot-only, once after cpu_init() and tick_init(), before concurrent rq use. */
 void sched_init(void);
 /*
  * Boot-only registration of a prepared NEW kernel task. Takes a permanent
@@ -56,7 +57,7 @@ void sched_init_idle(unsigned int cpu_id, struct task *idle);
  * The selected CPUs must all be ready and the online set frozen. The caller
  * owns a fully prepared NEW task; publication takes a scheduler reference.
  * Current must be bound before locking. Publication and wakeup mark an idle
- * current for rescheduling; IPI delivery is separate.
+ * current for rescheduling and notify remote idle CPUs after unlocking.
  */
 void sched_publish(struct task *task);
 /*
@@ -95,5 +96,11 @@ void sched_switch(bool rotate);
  * that level and applies its own initial IRQ policy.
  */
 void sched_finish_switch(struct task *prev);
+
+/* IRQ handler requests rotation; the IRQ-off exit checks after irq_depth == 0. */
+void sched_tick(uint64_t now);
+void sched_irq_exit(void);
+/* Initial per-CPU idle context, with the boot preempt-disable level retained. */
+__noreturn void sched_idle(void);
 
 #endif /* _NUVIX_SCHED_H */

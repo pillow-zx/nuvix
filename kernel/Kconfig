@@ -99,6 +99,20 @@ config DEBUG_TRACE
 
 endmenu
 
+menu "Scheduling & CPU startup"
+
+config SCHED_QUANTUM_MS
+	int "Round-robin time slice (ms)"
+	range 1 1000
+	default 10
+
+config SMP_BOOT_TIMEOUT_MS
+	int "All-CPU startup timeout (ms)"
+	range 1 60000
+	default 1000
+
+endmenu
+
 menu "Features"
 
 config FPU
@@ -114,4 +128,3 @@ config FUTEX
 	default n
 
 endmenu
-

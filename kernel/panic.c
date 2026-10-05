@@ -4,18 +4,18 @@
 #include <nuvix/irq.h>
 #include <nuvix/cpu.h>
 
-__noreturn
-void __panic(const char *fmt, ...)
+__noreturn void __panic(const char *fmt, ...)
 {
-    /* The current kernel runs only the boot hart. */
-    static bool panicking;
+    static atomic_t panicking = ATOMIC_INIT(0);
     va_list args;
     int ret;
+    bool already_panicking;
 
     local_irq_disable();
-    if (panicking)
+    already_panicking = atomic_xchg(&panicking, 1);
+    cpu_boot_fail();
+    if (already_panicking)
         halt();
-    panicking = true;
 
     printk("\nPANIC: ");
     va_start(args, fmt);

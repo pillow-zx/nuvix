@@ -18,7 +18,7 @@
 #define TRAP_SIZE    TRAP_REG(70)
 #else
 /* Round 37 slots up to preserve the 16-byte ABI stack alignment. */
-#define TRAP_SIZE     TRAP_REG(38)
+#define TRAP_SIZE TRAP_REG(38)
 #endif
 
 #ifndef __ASSEMBLER__
@@ -37,7 +37,8 @@ struct trap_frame {
     IFDEF(CONFIG_FPU, unsigned long fcsr);
 } __aligned(16);
 
-__noreturn void trap_handler(const struct trap_frame *frame);
+/* Supported kernel IRQs return with local IRQs disabled; other traps panic. */
+void trap_handler(const struct trap_frame *frame);
 
 #endif /* __ASSEMBLER__ */
 

@@ -12,6 +12,10 @@
 #define SBI_EXT_BASE_PROBE_EXT           3
 #define SBI_EXT_IPI                      0x735049
 #define SBI_EXT_IPI_SEND_IPI             0
+#define SBI_EXT_TIME                     0x54494D45
+#define SBI_EXT_TIME_SET_TIMER           0
+#define SBI_EXT_HSM                      0x48534D
+#define SBI_EXT_HSM_HART_START           0
 #define SBI_EXT_RFENCE                   0x52464E43
 #define SBI_EXT_RFENCE_REMOTE_FENCE_I    0
 #define SBI_EXT_RFENCE_REMOTE_SFENCE_VMA 1
@@ -54,6 +58,18 @@ static inline struct sbiret sbi_send_ipi(unsigned long hart_mask,
 {
     return sbi_call(SBI_EXT_IPI, SBI_EXT_IPI_SEND_IPI, hart_mask,
                     hart_mask_base);
+}
+
+static inline struct sbiret sbi_set_timer(unsigned long deadline)
+{
+    return sbi_call(SBI_EXT_TIME, SBI_EXT_TIME_SET_TIMER, deadline);
+}
+
+static inline struct sbiret
+sbi_hart_start(unsigned long hart_id, unsigned long entry, unsigned long opaque)
+{
+    return sbi_call(SBI_EXT_HSM, SBI_EXT_HSM_HART_START, hart_id, entry,
+                    opaque);
 }
 
 static inline struct sbiret sbi_remote_sfence_vma(unsigned long hart_mask,

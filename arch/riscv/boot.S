@@ -1,5 +1,6 @@
 #include <asm/pgtable.h>
 #include <asm/irq.h>
+#include <asm/smp.h>
 
     .section .text.boot, "ax"
     .balign 4
@@ -63,6 +64,47 @@ _start:
 .Lpark:
     wfi
     j           .Lpark
+
+    .balign 4
+    .globl smp_entry
+    .type smp_entry, @function
+smp_entry:
+    csrw        sie, zero
+    csrci       sstatus, SSTATUS_SIE
+    csrw        sscratch, zero
+    lla         t0, .Lpark
+    csrw        stvec, t0
+
+    fence       r, rw
+    ld          s0, CPU_BOOT_TASK(a1)
+    ld          s1, CPU_BOOT_STACK(a1)
+    ld          s2, CPU_BOOT_SATP(a1)
+    lla         t0, boot_pgd
+    srli        t0, t0, PAGE_SHIFT
+    li          t2, SATP_SV39
+    or          t0, t0, t2
+    lla         t1, .Lsmp_virtual
+    li          t2, (KERNEL_VBASE - KERNEL_PBASE)
+    add         t1, t1, t2
+    sfence.vma  zero, zero
+    csrw        satp, t0
+    sfence.vma  zero, zero
+    jr          t1
+
+.Lsmp_virtual:
+    /* The final root maps stacks that may lie outside the boot mapping. */
+    lla         t0, .Lpark
+    csrw        stvec, t0
+    csrw        satp, s2
+    sfence.vma  zero, zero
+    fence.i
+    mv          tp, s0
+    mv          sp, s1
+    lla         t0, trap_entry
+    csrw        stvec, t0
+    call        smp_main
+    j           .Lpark
+    .size smp_entry, . - smp_entry
 
     .section .bss.boot, "aw", @nobits
     .balign PAGE_SIZE

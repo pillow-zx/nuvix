@@ -6,7 +6,7 @@
     .globl trap_entry
     .type trap_entry, @function
 trap_entry:
-    /* Fatal-only entry: use sscratch to preserve t0 before any stack access. */
+    /* Preserve t0 and install a stackless fallback before touching the stack. */
     csrrw       t0, sscratch, t0
     lla         t0, .Ltrap_halt
     csrw        stvec, t0
@@ -112,9 +112,54 @@ trap_entry:
 .Lfpu_saved:
 #endif
 
+    ld          t0, TRAP_SCAUSE(sp)
+    bgez        t0, .Ldispatch
+
+    /* IRQ exit may switch tasks; exceptions retain the stackless fallback. */
+    lla         t0, trap_entry
+    csrw        stvec, t0
+.Ldispatch:
     mv          a0, sp
     call        trap_handler
-    j           .Ltrap_halt
+
+    ld          t0, TRAP_SEPC(sp)
+    csrw        sepc, t0
+    ld          t0, TRAP_SSTATUS(sp)
+    csrw        sstatus, t0
+    /* An IRQ may interrupt LR/SC; do not return with another task's reservation. */
+    sc.d        zero, zero, (sp)
+    ld          ra, TRAP_REG(1)(sp)
+    ld          gp, TRAP_REG(3)(sp)
+    ld          tp, TRAP_REG(4)(sp)
+    ld          t0, TRAP_REG(5)(sp)
+    ld          t1, TRAP_REG(6)(sp)
+    ld          t2, TRAP_REG(7)(sp)
+    ld          s0, TRAP_REG(8)(sp)
+    ld          s1, TRAP_REG(9)(sp)
+    ld          a0, TRAP_REG(10)(sp)
+    ld          a1, TRAP_REG(11)(sp)
+    ld          a2, TRAP_REG(12)(sp)
+    ld          a3, TRAP_REG(13)(sp)
+    ld          a4, TRAP_REG(14)(sp)
+    ld          a5, TRAP_REG(15)(sp)
+    ld          a6, TRAP_REG(16)(sp)
+    ld          a7, TRAP_REG(17)(sp)
+    ld          s2, TRAP_REG(18)(sp)
+    ld          s3, TRAP_REG(19)(sp)
+    ld          s4, TRAP_REG(20)(sp)
+    ld          s5, TRAP_REG(21)(sp)
+    ld          s6, TRAP_REG(22)(sp)
+    ld          s7, TRAP_REG(23)(sp)
+    ld          s8, TRAP_REG(24)(sp)
+    ld          s9, TRAP_REG(25)(sp)
+    ld          s10, TRAP_REG(26)(sp)
+    ld          s11, TRAP_REG(27)(sp)
+    ld          t3, TRAP_REG(28)(sp)
+    ld          t4, TRAP_REG(29)(sp)
+    ld          t5, TRAP_REG(30)(sp)
+    ld          t6, TRAP_REG(31)(sp)
+    ld          sp, TRAP_REG(2)(sp)
+    sret
     .size trap_entry, . - trap_entry
 
     .balign 4

@@ -1,10 +1,12 @@
 #include <nuvix/sched.h>
 #include <nuvix/assert.h>
+#include <nuvix/tick.h>
 
 struct rq runqueues[CONFIG_NR_CPUS];
 
 static DEFINE_SPINLOCK(placement_lock);
 static unsigned int next_cpu;
+static uint64_t quantum_ticks;
 
 static void enqueue_task(struct rq *rq, struct task *task)
 {
@@ -55,6 +57,7 @@ void sched_init(void)
 {
     spin_lock_init(&placement_lock);
     next_cpu = 0;
+    quantum_ticks = time_ticks_from_ms(CONFIG_SCHED_QUANTUM_MS);
     for (unsigned int cpu_id = 0; cpu_id < nr_cpus; ++cpu_id) {
         struct rq *rq = cpu_rq(cpu_id);
 
@@ -63,6 +66,7 @@ void sched_init(void)
         rq->idle = NULL;
         INIT_LIST_HEAD(&rq->ready_list);
         atomic_set(&rq->nr_runnable, 0);
+        rq->quantum_deadline = 0;
     }
 }
 
@@ -87,6 +91,7 @@ void sched_publish(struct task *task)
     struct rq *rq;
     unsigned int cpu_id;
     unsigned long placement_flags, rq_flags;
+    bool notify_idle;
 
     Assert(task->state == TASK_NEW, "task already published\n");
     spin_lock_irqsave(&placement_lock, placement_flags);
@@ -98,8 +103,11 @@ void sched_publish(struct task *task)
     task->state = TASK_RUNNABLE;
     enqueue_task(rq, task);
     atomic_inc(&rq->nr_runnable);
+    notify_idle = rq->curr == rq->idle && cpu_id != current_cpu_id();
     spin_unlock_irqrestore(&rq->lock, rq_flags);
     spin_unlock_irqrestore(&placement_lock, placement_flags);
+    if (notify_idle)
+        cpu_send_resched(cpu_id);
 }
 
 bool sched_wake(struct task *task)
@@ -107,6 +115,7 @@ bool sched_wake(struct task *task)
     struct rq *rq = task_rq(task);
     unsigned long flags;
     bool woke = false;
+    bool notify_idle = false;
 
     spin_lock_irqsave(&rq->lock, flags);
     if (task->state == TASK_SLEEP_INTERRUPTIBLE ||
@@ -115,10 +124,14 @@ bool sched_wake(struct task *task)
         if (!task->on_cpu) {
             enqueue_task(rq, task);
             atomic_inc(&rq->nr_runnable);
+            notify_idle =
+                rq->curr == rq->idle && task->cpu_id != current_cpu_id();
         }
         woke = true;
     }
     spin_unlock_irqrestore(&rq->lock, flags);
+    if (notify_idle)
+        cpu_send_resched(task->cpu_id);
     return woke;
 }
 
@@ -146,6 +159,8 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
         atomic_dec(&rq->nr_runnable);
     } else {
         if (list_empty(&rq->ready_list)) {
+            if (prev != rq->idle && (rotate || prev->need_resched))
+                rq->quantum_deadline = time_read() + quantum_ticks;
             prev->need_resched = false;
             return prev;
         }
@@ -159,6 +174,7 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
     prev->need_resched = false;
     next = pick_next_task(rq);
     rq->curr = next;
+    rq->quantum_deadline = time_read() + quantum_ticks;
     next->on_cpu = true;
     __spin_handoff(&rq->lock, next);
     return next;
@@ -188,6 +204,8 @@ void sched_switch(bool rotate)
     struct task *prev;
     struct task *next;
 
+    IFDEF(CONFIG_DEBUG_CONTEXT, Assert(!cpus[current_cpu_id()].irq_depth,
+                                       "scheduling in hard IRQ context\n"));
     __spin_lock(&rq->lock);
     prev = rq->curr;
     next = sched_prepare_switch_locked(rq, rotate);
@@ -199,4 +217,62 @@ void sched_switch(bool rotate)
     }
     local_irq_restore(flags);
     preempt_enable_no_resched();
+}
+
+void sched_tick(uint64_t now)
+{
+    struct rq *rq = this_rq();
+
+    __spin_lock(&rq->lock);
+    if (rq->curr != rq->idle && now >= rq->quantum_deadline) {
+        if (!list_empty(&rq->ready_list))
+            rq->curr->need_resched = true;
+        else
+            rq->quantum_deadline = now + quantum_ticks;
+    }
+    __spin_unlock(&rq->lock);
+}
+
+void sched_irq_exit(void)
+{
+    struct rq *rq;
+    bool resched;
+
+    if (preempt_count())
+        return;
+    preempt_disable();
+    rq = this_rq();
+    __spin_lock(&rq->lock);
+    resched = rq->curr->need_resched;
+    __spin_unlock(&rq->lock);
+    if (resched)
+        sched_switch(false);
+    else
+        preempt_enable_no_resched();
+}
+
+__noreturn
+void sched_idle(void)
+{
+    struct rq *rq = this_rq();
+
+    IFDEF(CONFIG_DEBUG_CONTEXT,
+          Assert(current == rq->idle && preempt_count() == INIT_PREEMPT_COUNT,
+                 "invalid idle entry\n"));
+    for (;;) {
+        bool work;
+
+        local_irq_disable();
+        (void)cpu_handle_ipi();
+        __spin_lock(&rq->lock);
+        work = !list_empty(&rq->ready_list) || rq->curr->need_resched;
+        __spin_unlock(&rq->lock);
+        if (work) {
+            sched_switch(false);
+            preempt_disable();
+            continue;
+        }
+        arch_cpu_idle();
+        local_irq_enable();
+    }
 }
