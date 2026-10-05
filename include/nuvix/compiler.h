@@ -5,6 +5,8 @@
 #define __has_attribute(x) 0
 #endif
 
+#define barrier() __asm__ volatile("" ::: "memory")
+
 #if __has_attribute(packed)
 #define __packed __attribute__((__packed__))
 #endif

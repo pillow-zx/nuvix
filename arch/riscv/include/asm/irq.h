@@ -6,6 +6,12 @@
 #ifndef __ASSEMBLER__
 
 #include <nuvix/compiler.h>
+#include <nuvix/ctypes.h>
+
+static __always_inline bool arch_irqs_disabled(void)
+{
+    return !(csr_read(sstatus) & SSTATUS_SIE);
+}
 
 static __always_inline void arch_local_irq_disable(void)
 {
