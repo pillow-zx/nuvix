@@ -65,13 +65,14 @@ static void release_range(unsigned long start, unsigned long end)
 static unsigned long snapshot(unsigned long *counts)
 {
     unsigned long total = 0;
+    unsigned long flags;
 
-    spin_lock(&buddy_lock);
+    spin_lock_irqsave(&buddy_lock, flags);
     for (unsigned int order = 0; order < CONFIG_MAX_ORDER; ++order) {
         counts[order] = free_area[order].nr_free;
         total += counts[order] << order;
     }
-    spin_unlock(&buddy_lock);
+    spin_unlock_irqrestore(&buddy_lock, flags);
     return total;
 }
 
@@ -92,26 +93,29 @@ void buddy_dump(void)
 struct page *alloc_pages(int order)
 {
     struct page *page = NULL;
+    unsigned long flags;
 
     if (order < 0 || order >= CONFIG_MAX_ORDER)
         return NULL;
 
-    spin_lock(&buddy_lock);
-    for (unsigned int current = order; current < CONFIG_MAX_ORDER; ++current) {
-        if (list_empty(&free_area[current].list))
+    spin_lock_irqsave(&buddy_lock, flags);
+    for (unsigned int split_order = order; split_order < CONFIG_MAX_ORDER;
+         ++split_order) {
+        if (list_empty(&free_area[split_order].list))
             continue;
-        page = list_first_entry(&free_area[current].list, struct page, node);
+        page =
+            list_first_entry(&free_area[split_order].list, struct page, node);
         del_block(page);
-        while (current > (unsigned int)order) {
-            --current;
-            add_block(page + (1UL << current), current);
+        while (split_order > (unsigned int)order) {
+            --split_order;
+            add_block(page + (1UL << split_order), split_order);
         }
         page->flags |= PG_ALLOCATED;
         page->order = order;
         refcount_set(&page->refcount, 1);
         break;
     }
-    spin_unlock(&buddy_lock);
+    spin_unlock_irqrestore(&buddy_lock, flags);
     return page;
 }
 
@@ -142,12 +146,14 @@ static bool allocated_block(struct page *page, int order)
 
 void free_pages(struct page *page, int order)
 {
+    unsigned long flags;
+
     if (!page)
         return;
 
-    spin_lock(&buddy_lock);
+    spin_lock_irqsave(&buddy_lock, flags);
     if (!allocated_block(page, order)) {
-        spin_unlock(&buddy_lock);
+        spin_unlock_irqrestore(&buddy_lock, flags);
         pr_warn("reject free page=%p order=%d\n", (void *)page, order);
         return;
     }
@@ -156,7 +162,7 @@ void free_pages(struct page *page, int order)
         page->order = PAGE_ORDER_NONE;
         merge_block(page_to_pfn(page), order);
     }
-    spin_unlock(&buddy_lock);
+    spin_unlock_irqrestore(&buddy_lock, flags);
 }
 
 int buddy_init(void)

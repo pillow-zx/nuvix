@@ -96,14 +96,15 @@ static void *cache_alloc(struct kmem_cache *cache)
 {
     struct page *page;
     void *object;
+    unsigned long flags;
 
-    spin_lock(&cache->lock);
+    spin_lock_irqsave(&cache->lock, flags);
     if (list_empty(&cache->partial)) {
-        spin_unlock(&cache->lock);
+        spin_unlock_irqrestore(&cache->lock, flags);
         page = new_slab(cache);
         if (!page)
             return NULL;
-        spin_lock(&cache->lock);
+        spin_lock_irqsave(&cache->lock, flags);
         list_add(&page->node, &cache->partial);
     }
     page = list_first_entry(&cache->partial, struct page, node);
@@ -113,7 +114,7 @@ static void *cache_alloc(struct kmem_cache *cache)
     ++page->slab.inuse;
     if (!page->slab.freelist)
         list_move_tail(&page->node, &cache->full);
-    spin_unlock(&cache->lock);
+    spin_unlock_irqrestore(&cache->lock, flags);
     return object;
 }
 
@@ -156,6 +157,7 @@ void kfree(const void *ptr)
 {
     struct kmem_cache *cache;
     struct page *page;
+    unsigned long flags;
     bool empty;
 
     if (!ptr)
@@ -178,7 +180,7 @@ void kfree(const void *ptr)
     }
 
     cache = page->slab.cache;
-    spin_lock(&cache->lock);
+    spin_lock_irqsave(&cache->lock, flags);
     IFDEF(CONFIG_DEBUG_ALLOC, check_free(page, ptr);
           memset((void *)ptr, SLAB_POISON, cache->size));
     if (page->slab.inuse == cache->objects)
@@ -189,7 +191,7 @@ void kfree(const void *ptr)
     empty = !page->slab.inuse;
     if (empty)
         list_del(&page->node);
-    spin_unlock(&cache->lock);
+    spin_unlock_irqrestore(&cache->lock, flags);
 
     if (empty) {
         page->flags &= ~PG_SLAB;

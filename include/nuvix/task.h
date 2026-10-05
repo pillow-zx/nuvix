@@ -42,6 +42,10 @@ struct task {
     struct task_context ctx;
 };
 
+/* Permanent boot context; architecture startup supplies the existing stack. */
+extern struct task boot_task;
+void task_boot_init(void *kstack);
+
 /*
  * After slub_init(). Returns an unpublished NEW task with one caller reference,
  * a reserved TID and no CPU assignment. A leader requires a non-NULL proc and

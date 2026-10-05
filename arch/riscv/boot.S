@@ -53,6 +53,10 @@ _start:
     lla         t0, trap_entry
     csrw        stvec, t0
 
+    lla         tp, boot_task
+    lla         a0, boot_stack
+    call        task_boot_init
+
     mv          a0, s0
     mv          a1, s1
     call        kernel_main

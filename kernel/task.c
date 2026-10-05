@@ -5,9 +5,25 @@
 #include <nuvix/pid.h>
 #include <nuvix/layout.h>
 #include <nuvix/assert.h>
+#include <nuvix/preempt.h>
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
               "kernel task stack order must be smaller than MAX_ORDER");
+
+struct task boot_task = {
+    .refcount = REFCOUNT_INIT(1),
+    .cpu_id = 0,
+    .state = TASK_NEW,
+    .on_cpu = true,
+    .rq_node = LIST_INIT_HEAD(boot_task.rq_node),
+    .proc_node = LIST_INIT_HEAD(boot_task.proc_node),
+    .preempt_count = INIT_PREEMPT_COUNT,
+};
+
+void task_boot_init(void *kstack)
+{
+    boot_task.kstack = kstack;
+}
 
 struct task *task_alloc(struct proc *proc, bool leader)
 {
