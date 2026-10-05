@@ -172,3 +172,31 @@ void sched_finish_switch_locked(struct rq *rq, struct task *prev)
     Assert(prev != rq->curr, "switch finish requires a real switch\n");
     prev->on_cpu = false;
 }
+
+void sched_finish_switch(struct task *prev)
+{
+    struct rq *rq = this_rq();
+
+    sched_finish_switch_locked(rq, prev);
+    __spin_unlock(&rq->lock);
+}
+
+void sched_switch(bool rotate)
+{
+    unsigned long flags = local_irq_save();
+    struct rq *rq = this_rq();
+    struct task *prev;
+    struct task *next;
+
+    __spin_lock(&rq->lock);
+    prev = rq->curr;
+    next = sched_prepare_switch_locked(rq, rotate);
+    if (prev != next) {
+        prev = switch_to(prev, next);
+        sched_finish_switch(prev);
+    } else {
+        __spin_unlock(&rq->lock);
+    }
+    local_irq_restore(flags);
+    preempt_enable_no_resched();
+}

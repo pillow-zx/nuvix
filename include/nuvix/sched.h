@@ -5,6 +5,16 @@
 #include <nuvix/task.h>
 #include <nuvix/spinlock.h>
 
+/* Kernel continuation only; the returned task is the one just switched out. */
+static __always_inline struct task *switch_to(struct task *prev,
+                                              struct task *next)
+{
+    struct task *last = __switch_to(prev, next);
+
+    barrier();
+    return last;
+}
+
 struct rq {
     spinlock_t lock;
     struct task *curr;
@@ -69,5 +79,21 @@ void sched_set_sleep_locked(struct rq *rq, enum task_state state);
 struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate);
 /* Only after a real switch; prev is the task returned by arch_switch_to. */
 void sched_finish_switch_locked(struct rq *rq, struct task *prev);
+
+/*
+ * Caller hands over exactly one scheduler-owned preempt-disable level, with
+ * no ordinary spinlock held or hard IRQ context. Saves/restores local IRQs and
+ * consumes that level on return. rotate requests yield.
+ */
+void sched_switch(bool rotate);
+
+/*
+ * Common post-switch tail, also called by a first task entry with a0 as prev.
+ * Requires IRQ off, the inherited rq lock and preempt_count == 1. Clears
+ * prev->on_cpu and unlocks only. A first entry must be prepared with ctx.ra,
+ * an ABI-aligned ctx.sp and preempt_count == 1; after this call it consumes
+ * that level and applies its own initial IRQ policy.
+ */
+void sched_finish_switch(struct task *prev);
 
 #endif /* _NUVIX_SCHED_H */
