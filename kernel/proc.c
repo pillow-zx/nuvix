@@ -7,11 +7,11 @@
 struct proc *proc_alloc(void)
 {
     struct proc *proc __free(kfree) = kzalloc(sizeof(*proc));
-    int tgid __free(pid) = 0;
 
     if (!proc)
         return NULL;
-    tgid = pid_alloc();
+    int tgid __free(pid) = pid_alloc();
+
     if (tgid < 0)
         return NULL;
     refcount_set(&proc->refcount, 1);

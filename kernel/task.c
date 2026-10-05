@@ -28,20 +28,18 @@ void task_boot_init(void *kstack)
 struct task *task_alloc(struct proc *proc, bool leader)
 {
     struct task *task __free(kfree) = kzalloc(sizeof(*task));
-    struct page *page __free(kstack) = NULL;
-    int tid __free(pid) = 0;
 
     Assert(!leader || proc, "task leader requires a proc\n");
     if (!task)
         return NULL;
-    page = alloc_pages(KSTACK_ORDER);
+    struct page *page __free(kstack) = alloc_pages(KSTACK_ORDER);
+
     if (!page)
         return NULL;
-    if (!leader) {
-        tid = pid_alloc();
-        if (tid < 0)
-            return NULL;
-    }
+    int tid __free(pid) = leader ? 0 : pid_alloc();
+
+    if (tid < 0)
+        return NULL;
 
     refcount_set(&task->refcount, 1);
     task->tid = leader ? proc->tgid : move(tid);
