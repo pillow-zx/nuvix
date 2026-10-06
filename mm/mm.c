@@ -1,7 +1,6 @@
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
 #include <nuvix/slab.h>
-#include <nuvix/assert.h>
 
 struct mm_struct *mm_alloc(void)
 {
@@ -28,10 +27,16 @@ void mm_get(struct mm_struct *mm)
 
 void mm_put(struct mm_struct *mm)
 {
+    struct rb_node *node, *next;
+
     if (!refcount_dec_and_test(&mm->refcount))
         return;
-    Assert(RB_EMPTY_ROOT(&mm->vma_tree),
-           "mm destruction requires an empty VMA tree\n");
+    rb_for_each_safe (node, next, &mm->vma_tree) {
+        struct vm_area_struct *vma __free(vma) =
+            rb_entry(node, struct vm_area_struct, vm_node);
+
+        vma_remove(vma);
+    }
     free_pgd(mm->pgd);
     kfree(mm);
 }

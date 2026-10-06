@@ -42,8 +42,28 @@
 
 #ifndef __ASSEMBLER__
 #include <nuvix/ctypes.h>
+#include <nuvix/mm.h>
 
 typedef uint64_t pt_entry_t;
+
+/*
+ * Initial user-leaf flags; COW/write tracking must further restrict them.
+ * No R/W/X returns 0 (invalid). Sv39 writable leaves are also readable.
+ */
+static inline uint64_t vma_to_pte(unsigned long vma_flags)
+{
+    uint64_t flags = PTE_V | PTE_U | PTE_A;
+
+    if (!(vma_flags & (VM_READ | VM_WRITE | VM_EXEC)))
+        return 0;
+    if (vma_flags & VM_READ)
+        flags |= PTE_R;
+    if (vma_flags & VM_WRITE)
+        flags |= PTE_R | PTE_W;
+    if (vma_flags & VM_EXEC)
+        flags |= PTE_X;
+    return flags;
+}
 
 static inline pt_entry_t pt_entry_make(paddr_t paddr, uint64_t flags)
 {
