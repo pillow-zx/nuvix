@@ -15,7 +15,7 @@ static void enqueue_task(struct rq *rq, struct task *task)
     list_add_tail(&task->rq_node, &rq->ready_list);
     task->on_rq = true;
     if (rq->curr == rq->idle)
-        rq->curr->need_resched = true;
+        task_set_need_resched(rq->curr, true);
 }
 
 static struct task *pick_next_task(struct rq *rq)
@@ -81,7 +81,7 @@ void sched_init_idle(unsigned int cpu_id, struct task *idle)
     idle->state = TASK_RUNNABLE;
     idle->on_rq = false;
     idle->on_cpu = false;
-    idle->need_resched = false;
+    task_set_need_resched(idle, false);
     rq->idle = idle;
     rq->curr = idle;
 }
@@ -159,19 +159,19 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
         atomic_dec(&rq->nr_runnable);
     } else {
         if (list_empty(&rq->ready_list)) {
-            if (prev != rq->idle && (rotate || prev->need_resched))
+            if (prev != rq->idle && (rotate || task_need_resched(prev)))
                 rq->quantum_deadline = time_read() + quantum_ticks;
-            prev->need_resched = false;
+            task_set_need_resched(prev, false);
             return prev;
         }
         if (prev != rq->idle) {
-            if (!rotate && !prev->need_resched)
+            if (!rotate && !task_need_resched(prev))
                 return prev;
             enqueue_task(rq, prev);
         }
     }
 
-    prev->need_resched = false;
+    task_set_need_resched(prev, false);
     next = pick_next_task(rq);
     rq->curr = next;
     rq->quantum_deadline = time_read() + quantum_ticks;
@@ -219,6 +219,14 @@ void sched_switch(bool rotate)
     preempt_enable_no_resched();
 }
 
+void preempt_schedule(void)
+{
+    do {
+        preempt_disable();
+        sched_switch(false);
+    } while (task_need_resched(current));
+}
+
 void sched_tick(uint64_t now)
 {
     struct rq *rq = this_rq();
@@ -226,7 +234,7 @@ void sched_tick(uint64_t now)
     __spin_lock(&rq->lock);
     if (rq->curr != rq->idle && now >= rq->quantum_deadline) {
         if (!list_empty(&rq->ready_list))
-            rq->curr->need_resched = true;
+            task_set_need_resched(rq->curr, true);
         else
             rq->quantum_deadline = now + quantum_ticks;
     }
@@ -235,20 +243,10 @@ void sched_tick(uint64_t now)
 
 void sched_irq_exit(void)
 {
-    struct rq *rq;
-    bool resched;
-
-    if (preempt_count())
+    if (preempt_count() || !task_need_resched(current))
         return;
     preempt_disable();
-    rq = this_rq();
-    __spin_lock(&rq->lock);
-    resched = rq->curr->need_resched;
-    __spin_unlock(&rq->lock);
-    if (resched)
-        sched_switch(false);
-    else
-        preempt_enable_no_resched();
+    sched_switch(false);
 }
 
 __noreturn
@@ -265,7 +263,7 @@ void sched_idle(void)
         local_irq_disable();
         (void)cpu_handle_ipi();
         __spin_lock(&rq->lock);
-        work = !list_empty(&rq->ready_list) || rq->curr->need_resched;
+        work = !list_empty(&rq->ready_list) || task_need_resched(rq->curr);
         __spin_unlock(&rq->lock);
         if (work) {
             sched_switch(false);

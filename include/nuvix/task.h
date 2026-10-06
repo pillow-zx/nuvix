@@ -32,6 +32,7 @@ struct task {
     enum task_state state;
     bool on_rq;
     bool on_cpu;
+    /* Atomic hint; published writes and consumption stay under rq.lock. */
     bool need_resched;
     struct list_head rq_node;
     struct list_head proc_node;
@@ -78,6 +79,16 @@ void task_get(struct task *task);
 void task_put(struct task *task);
 
 DECLARE_FREE(task_put, struct task *, if (_T) task_put(_T));
+
+static __always_inline bool task_need_resched(const struct task *task)
+{
+    return __atomic_load_n(&task->need_resched, __ATOMIC_RELAXED);
+}
+
+static __always_inline void task_set_need_resched(struct task *task, bool value)
+{
+    __atomic_store_n(&task->need_resched, value, __ATOMIC_RELAXED);
+}
 
 /* CPU-local use requires the execution context to remain on this CPU. */
 static inline unsigned int current_cpu_id(void)

@@ -6,6 +6,9 @@
 
 #define INIT_PREEMPT_COUNT 1U
 
+/* Ordinary reschedule entry: preempt_count == 0 and IRQs enabled. */
+void preempt_schedule(void);
+
 /* Only this CPU's execution context modifies current's count. */
 static __always_inline unsigned int preempt_count(void)
 {
@@ -35,6 +38,13 @@ static __always_inline void preempt_enable_no_resched(void)
 static __always_inline bool preemptible(void)
 {
     return preempt_count() == 0 && !irqs_disabled();
+}
+
+static __always_inline void preempt_enable(void)
+{
+    preempt_enable_no_resched();
+    if (preemptible() && task_need_resched(current))
+        preempt_schedule();
 }
 
 #endif /* _NUVIX_PREEMPT_H */

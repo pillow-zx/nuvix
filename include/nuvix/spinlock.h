@@ -6,8 +6,8 @@
 
 /*
  * Non-recursive TTAS locks. Ordinary operations account for preemption;
- * IRQ-shared locks require irqsave. Unlock currently restores the count only:
- * automatic rescheduling will be connected with the actual switch path.
+ * IRQ-shared locks require irqsave. Ordinary unlock restores preemption and
+ * handles pending rescheduling once the context is preemptible.
  */
 typedef struct {
     atomic_t locked;
@@ -80,7 +80,7 @@ static __always_inline void spin_lock(spinlock_t *lock)
 static __always_inline void spin_unlock(spinlock_t *lock)
 {
     __spin_unlock(lock);
-    preempt_enable_no_resched();
+    preempt_enable();
 }
 
 static __always_inline bool spin_trylock(spinlock_t *lock)
@@ -88,7 +88,7 @@ static __always_inline bool spin_trylock(spinlock_t *lock)
     preempt_disable();
     if (__spin_trylock(lock))
         return true;
-    preempt_enable_no_resched();
+    preempt_enable();
     return false;
 }
 
@@ -105,7 +105,7 @@ static __always_inline void spin_unlock_irqrestore(spinlock_t *lock,
 {
     __spin_unlock(lock);
     local_irq_restore(flags);
-    preempt_enable_no_resched();
+    preempt_enable();
 }
 
 #define spin_lock_irqsave(lock, flags)                                         \
