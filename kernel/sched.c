@@ -227,6 +227,18 @@ void preempt_schedule(void)
     } while (task_need_resched(current));
 }
 
+void sched_park(void)
+{
+    IFDEF(CONFIG_DEBUG_CONTEXT,
+          Assert(preempt_count() == 1 && !irqs_disabled() &&
+                     !cpus[current_cpu_id()].irq_depth &&
+                     current != this_rq()->idle,
+                 "invalid park context\n"));
+    sched_switch(false);
+    if (preemptible() && task_need_resched(current))
+        preempt_schedule();
+}
+
 void sched_tick(uint64_t now)
 {
     struct rq *rq = this_rq();

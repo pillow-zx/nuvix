@@ -89,6 +89,13 @@ void sched_finish_switch_locked(struct rq *rq, struct task *prev);
 void sched_switch(bool rotate);
 
 /*
+ * Wait commit: no caller locks, IRQs enabled, exactly one wait-owned
+ * preempt-disable level. Rechecks state under rq.lock; consumes the level and
+ * restores ordinary preemption on return.
+ */
+void sched_park(void);
+
+/*
  * Common post-switch tail, also called by a first task entry with a0 as prev.
  * Requires IRQ off, the inherited rq lock and preempt_count == 1. Clears
  * prev->on_cpu and unlocks only. A first entry must be prepared with ctx.ra,

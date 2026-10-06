@@ -6,4 +6,5 @@ obj-y += kernel/pid.c
 obj-y += kernel/task.c
 obj-y += kernel/proc.c
 obj-y += kernel/sched.c
+obj-y += kernel/wait.c
 obj-y += kernel/tick.c
