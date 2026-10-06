@@ -2,6 +2,7 @@
 #define _NUVIX_PGTABLE_H
 
 #include <asm/pgtable.h>
+#include <nuvix/cleanup.h>
 
 struct dtb;
 
@@ -29,5 +30,21 @@ int alloc_pgtable(paddr_t *paddr);
  * short locks. Reserved boot pages must not be passed here.
  */
 void pgtable_free(paddr_t paddr);
+
+/*
+ * After pgtable_init() and pgtable_use_buddy(). Allocates an independent root
+ * with an empty user half and shared kernel entries, holding one ownership
+ * reference. Returns 0 or a negative errno without changing *paddr on failure.
+ */
+int alloc_pgd(paddr_t *paddr);
+
+/*
+ * Releases only a root returned by alloc_pgd(); the user half must be empty.
+ * Requires the same exclusive ownership and TLB synchronization as
+ * pgtable_free(). Shared kernel tables remain permanently reserved.
+ */
+void free_pgd(paddr_t paddr);
+
+DECLARE_FREE(pgd, paddr_t, if (_T) free_pgd(_T));
 
 #endif /* ifndef _NUVIX_PGTABLE_H */

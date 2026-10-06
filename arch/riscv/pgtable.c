@@ -14,6 +14,8 @@
 
 extern char __text_start[], __text_end[], __rodata_end[], __end[];
 
+static paddr_t kernel_pgd;
+
 static inline pt_entry_t *pgtable_ptr(paddr_t paddr)
 {
     return (pt_entry_t *)__va(paddr);
@@ -66,6 +68,30 @@ void pgtable_free(paddr_t paddr)
            "page table free requires exclusive ownership of a buddy page\n");
     page->flags &= ~PG_PGTABLE;
     free_page(page);
+}
+
+int alloc_pgd(paddr_t *paddr)
+{
+    paddr_t root;
+    int ret = alloc_pgtable(&root);
+
+    if (ret)
+        return ret;
+    memcpy(pgtable_ptr(root) + KERNEL_PGD_FIRST,
+           pgtable_ptr(kernel_pgd) + KERNEL_PGD_FIRST,
+           (PT_ENTRIES - KERNEL_PGD_FIRST) * sizeof(pt_entry_t));
+    *paddr = root;
+    return 0;
+}
+
+void free_pgd(paddr_t paddr)
+{
+    pt_entry_t *pgd = pgtable_ptr(paddr);
+
+    for (unsigned int i = 0; i < KERNEL_PGD_FIRST; ++i)
+        Assert(!pt_entry_read(&pgd[i]),
+               "root destruction requires an empty user half\n");
+    pgtable_free(paddr);
 }
 
 static __maybe_unused int walk_pte(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
@@ -201,5 +227,6 @@ int pgtable_init(struct dtb *dtb)
     local_flush_tlb_all();
     mem_map = pages;
     dtb->blob = blob;
+    kernel_pgd = root;
     return 0;
 }
