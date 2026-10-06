@@ -9,4 +9,5 @@ obj-y += kernel/sched.c
 obj-y += kernel/wait.c
 obj-y += kernel/mutex.c
 obj-y += kernel/completion.c
+obj-y += kernel/timer.c
 obj-y += kernel/tick.c

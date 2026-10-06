@@ -2,6 +2,7 @@
 #include <nuvix/dtb.h>
 #include <nuvix/cpu.h>
 #include <nuvix/sched.h>
+#include <nuvix/timer.h>
 #include <nuvix/errno.h>
 #include <nuvix/printk.h>
 
@@ -46,5 +47,6 @@ void tick_handle(void)
         cpu->next_tick +=
             ((now - cpu->next_tick) / tick_period + 1) * tick_period;
     (void)arch_set_timer(cpu->next_tick);
+    timer_tick(now);
     sched_tick(now);
 }

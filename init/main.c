@@ -11,6 +11,7 @@
 #include <nuvix/slab.h>
 #include <nuvix/tick.h>
 #include <nuvix/sched.h>
+#include <nuvix/timer.h>
 
 __noreturn
 void kernel_main(unsigned long hart, paddr_t dtb_pa)
@@ -51,6 +52,9 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
 
     ret = tick_init(&dtb);
     BOOTINFO(ret, clock);
+
+    timers_init();
+    pr_info("timer: initialization success\n");
 
     ret = smp_init();
     BOOTINFO(ret, SMP);
