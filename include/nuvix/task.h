@@ -40,6 +40,10 @@ struct task {
     /* Direct-mapped kernel stack base; all tasks use the configured order. */
     void *kstack;
     struct task_context ctx;
+
+    /* Kernel thread entry and caller-owned argument. */
+    int (*thread_fn)(void *);
+    void *thread_arg;
 };
 
 /* Permanent boot context; architecture startup supplies the existing stack. */
@@ -55,6 +59,14 @@ void task_boot_init(void *kstack);
  * Allocation failure returns NULL and leaves the proc's references unchanged.
  */
 struct task *task_alloc(struct proc *proc, bool leader);
+
+/*
+ * Same allocation contract as task_alloc(NULL, false), with a prepared first
+ * entry. Publish with sched_publish() after all CPUs are ready. fn must be valid
+ * and must not return until task exit is implemented; arg must remain valid
+ * while used by the thread. The caller owns the returned reference.
+ */
+struct task *create_kthread(int (*fn)(void *), void *arg);
 
 /* get requires a held reference or equivalent lifetime protection. */
 void task_get(struct task *task);

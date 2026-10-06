@@ -6,6 +6,7 @@
 #include <nuvix/layout.h>
 #include <nuvix/assert.h>
 #include <nuvix/preempt.h>
+#include <nuvix/sched.h>
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
               "kernel task stack order must be smaller than MAX_ORDER");
@@ -52,6 +53,33 @@ struct task *task_alloc(struct proc *proc, bool leader)
     if (proc)
         proc_get(proc);
     task->proc = proc;
+    return move(task);
+}
+
+static __noreturn void kthread_entry(struct task *prev)
+{
+    int (*fn)(void *) = current->thread_fn;
+    void *arg = current->thread_arg;
+
+    sched_finish_switch(prev);
+    preempt_enable_no_resched();
+    local_irq_enable();
+
+    int ret = fn(arg);
+
+    panic("kernel thread returned without an exit path: %d\n", ret);
+}
+
+struct task *create_kthread(int (*fn)(void *), void *arg)
+{
+    struct task *task __free(task_put) = task_alloc(NULL, false);
+
+    if (!task)
+        return NULL;
+    task->thread_fn = fn;
+    task->thread_arg = arg;
+    task->ctx.ra = (unsigned long)kthread_entry;
+    task->preempt_count = INIT_PREEMPT_COUNT;
     return move(task);
 }
 
