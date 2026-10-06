@@ -56,45 +56,33 @@ struct task *task_alloc(struct proc *proc, bool leader)
     return move(task);
 }
 
-static __noreturn void kthread_entry(struct task *prev)
-{
-    int (*fn)(void *) = current->thread_fn;
-    void *arg = current->thread_arg;
-
-    sched_finish_switch(prev);
-    preempt_enable_no_resched();
-    local_irq_enable();
-
-    int ret = fn(arg);
-
-    panic("kernel thread returned without an exit path: %d\n", ret);
-}
-
-struct task *create_kthread(int (*fn)(void *), void *arg)
-{
-    struct task *task __free(task_put) = task_alloc(NULL, false);
-
-    if (!task)
-        return NULL;
-    task->thread_fn = fn;
-    task->thread_arg = arg;
-    task->ctx.ra = (unsigned long)kthread_entry;
-    task->preempt_count = INIT_PREEMPT_COUNT;
-    return move(task);
-}
-
 void task_get(struct task *task)
 {
     refcount_inc(&task->refcount);
+}
+
+void task_reap(struct task *task)
+{
+    might_sleep();
+    Assert(task->state == TASK_DEAD && !task->on_cpu && !task->on_rq &&
+               list_empty(&task->rq_node) && list_empty(&task->proc_node),
+           "task reaping requires completed exit and switch teardown\n");
+    free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
+    task->kstack = NULL;
+    task_put(task);
 }
 
 void task_put(struct task *task)
 {
     if (!refcount_dec_and_test(&task->refcount))
         return;
-    Assert(task->state == TASK_NEW,
+    Assert(task->state == TASK_NEW ||
+               (task->state == TASK_DEAD && !task->kstack),
            "cannot destroy a published task without scheduler teardown\n");
-    free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
+    if (task->state == TASK_NEW) {
+        free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
+        task->kstack = NULL;
+    }
     if (!task->proc || task->tid != task->proc->tgid)
         pid_free(task->tid);
     if (task->proc)

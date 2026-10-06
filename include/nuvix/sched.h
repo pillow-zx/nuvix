@@ -20,6 +20,8 @@ struct rq {
     struct task *curr;
     struct task *idle;
     struct list_head ready_list;
+    /* Holds the scheduler references of DEAD tasks after switch finish. */
+    struct list_head dead_list;
     /* Includes the ordinary current task, but never idle. */
     atomic_t nr_runnable;
     uint64_t quantum_deadline;
@@ -55,6 +57,8 @@ static inline struct rq *this_rq(void)
 
 /* Boot-only, once after cpu_init() and tick_init(), before concurrent rq use. */
 void sched_init(void);
+/* Boot-only, after SMP is ready, before publishing other ordinary tasks. */
+int task_reaper_init(void);
 /*
  * Boot-only registration of a prepared NEW kernel task. Takes a permanent
  * scheduler reference. CPU bring-up binds tp and sets idle->on_cpu before
@@ -98,6 +102,12 @@ void sched_finish_switch_locked(struct rq *rq, struct task *prev);
 void sched_switch(bool rotate);
 
 /*
+ * Last switch after exit cleanup. Ordinary current, IRQs enabled, no caller
+ * locks, exactly one scheduler-owned preempt-disable level; never returns.
+ */
+__noreturn void sched_exit(void);
+
+/*
  * Wait commit: no caller locks, IRQs enabled, exactly one wait-owned
  * preempt-disable level. Rechecks state under rq.lock; consumes the level and
  * restores ordinary preemption on return.
@@ -107,7 +117,8 @@ void sched_park(void);
 /*
  * Common post-switch tail, also called by a first task entry with a0 as prev.
  * Requires IRQ off, the inherited rq lock and preempt_count == 1. Clears
- * prev->on_cpu and unlocks only. A first entry must be prepared with ctx.ra,
+ * prev->on_cpu, hands DEAD tasks to the reaper and notifies after unlocking.
+ * A first entry must be prepared with ctx.ra,
  * an ABI-aligned ctx.sp and preempt_count == 1; after this call it consumes
  * that level and applies its own initial IRQ policy.
  */

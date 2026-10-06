@@ -1,12 +1,59 @@
 #include <nuvix/sched.h>
 #include <nuvix/assert.h>
 #include <nuvix/tick.h>
+#include <nuvix/wait.h>
+#include <nuvix/errno.h>
+#include <nuvix/kthread.h>
 
 struct rq runqueues[CONFIG_NR_CPUS];
 
 static DEFINE_SPINLOCK(placement_lock);
 static unsigned int next_cpu;
 static uint64_t quantum_ticks;
+static DEFINE_WAIT_QUEUE(reaper_wait);
+/* Protected by reaper_wait.lock; consumed before scanning all CPU lists. */
+static bool reaper_pending;
+
+static int task_reaper(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        unsigned long flags;
+
+        wait_event(&reaper_wait, reaper_pending);
+        spin_lock_irqsave(&reaper_wait.lock, flags);
+        reaper_pending = false;
+        spin_unlock_irqrestore(&reaper_wait.lock, flags);
+
+        for (unsigned int cpu_id = 0; cpu_id < nr_cpus; ++cpu_id) {
+            struct rq *rq = cpu_rq(cpu_id);
+
+            for (;;) {
+                struct task *task;
+
+                spin_lock_irqsave(&rq->lock, flags);
+                if (list_empty(&rq->dead_list)) {
+                    spin_unlock_irqrestore(&rq->lock, flags);
+                    break;
+                }
+                task = list_first_entry(&rq->dead_list, struct task, rq_node);
+                list_del_init(&task->rq_node);
+                spin_unlock_irqrestore(&rq->lock, flags);
+                task_reap(task);
+            }
+        }
+    }
+}
+
+int task_reaper_init(void)
+{
+    struct task *task __free(task_put) = create_kthread(task_reaper, NULL);
+
+    if (!task)
+        return -ENOMEM;
+    sched_publish(task);
+    return 0;
+}
 
 static void enqueue_task(struct rq *rq, struct task *task)
 {
@@ -65,6 +112,7 @@ void sched_init(void)
         rq->curr = NULL;
         rq->idle = NULL;
         INIT_LIST_HEAD(&rq->ready_list);
+        INIT_LIST_HEAD(&rq->dead_list);
         atomic_set(&rq->nr_runnable, 0);
         rq->quantum_deadline = 0;
     }
@@ -154,8 +202,9 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
                                        "invalid scheduling context\n"));
     if (prev->state != TASK_RUNNABLE) {
         Assert(prev->state == TASK_SLEEP_INTERRUPTIBLE ||
-                   prev->state == TASK_SLEEP_UNINTERRUPTIBLE,
-               "stop and exit require their lifecycle paths\n");
+                   prev->state == TASK_SLEEP_UNINTERRUPTIBLE ||
+                   prev->state == TASK_DEAD,
+               "stop requires its lifecycle path\n");
         atomic_dec(&rq->nr_runnable);
     } else {
         if (list_empty(&rq->ready_list)) {
@@ -187,14 +236,39 @@ void sched_finish_switch_locked(struct rq *rq, struct task *prev)
                                        "invalid switch finish context\n"));
     Assert(prev != rq->curr, "switch finish requires a real switch\n");
     prev->on_cpu = false;
+    if (prev->state == TASK_DEAD)
+        list_add_tail(&prev->rq_node, &rq->dead_list);
 }
 
 void sched_finish_switch(struct task *prev)
 {
     struct rq *rq = this_rq();
+    bool dead = prev->state == TASK_DEAD;
+    unsigned long flags;
 
     sched_finish_switch_locked(rq, prev);
     __spin_unlock(&rq->lock);
+    if (dead) {
+        spin_lock_irqsave(&reaper_wait.lock, flags);
+        reaper_pending = true;
+        wake_up_one_locked(&reaper_wait);
+        spin_unlock_irqrestore(&reaper_wait.lock, flags);
+    }
+}
+
+__noreturn void sched_exit(void)
+{
+    struct rq *rq = this_rq();
+    struct task *prev = current;
+    struct task *next;
+
+    local_irq_disable();
+    __spin_lock(&rq->lock);
+    Assert(prev != rq->idle, "idle cannot exit\n");
+    prev->state = TASK_DEAD;
+    next = sched_prepare_switch_locked(rq, false);
+    (void)switch_to(prev, next);
+    panic("dead task resumed\n");
 }
 
 void sched_switch(bool rotate)

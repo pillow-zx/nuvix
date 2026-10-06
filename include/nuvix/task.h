@@ -34,6 +34,7 @@ struct task {
     bool on_cpu;
     /* Atomic hint; published writes and consumption stay under rq.lock. */
     bool need_resched;
+    /* Ready-list membership, or dead-list membership after the final switch. */
     struct list_head rq_node;
     struct list_head proc_node;
     unsigned int preempt_count;
@@ -61,20 +62,15 @@ void task_boot_init(void *kstack);
  */
 struct task *task_alloc(struct proc *proc, bool leader);
 
-/*
- * Same allocation contract as task_alloc(NULL, false), with a prepared first
- * entry. Publish with sched_publish() after all CPUs are ready. fn must be valid
- * and must not return until task exit is implemented; arg must remain valid
- * while used by the thread. The caller owns the returned reference.
- */
-struct task *create_kthread(int (*fn)(void *), void *arg);
+/* Reaper-only, outside short locks: releases the stack and scheduler reference. */
+void task_reap(struct task *task);
 
 /* get requires a held reference or equivalent lifetime protection. */
 void task_get(struct task *task);
 /*
- * Final put currently supports only unpublished NEW tasks, in a context safe
- * for allocator frees. It releases the kernel stack, any independent TID and
- * the construction-time proc reference.
+ * Final put supports unpublished NEW tasks and DEAD tasks whose stacks have
+ * been reaped, in a context safe for allocator frees. Releases any remaining
+ * NEW stack, independent TID and construction-time proc reference.
  */
 void task_put(struct task *task);
 
