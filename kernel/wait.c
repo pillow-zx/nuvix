@@ -28,6 +28,26 @@ void finish_wait_locked(struct wait_queue *queue, struct wait_entry *entry)
     list_del_init(&entry->node);
 }
 
+void wake_up_one_locked(struct wait_queue *queue)
+{
+    struct wait_entry *entry;
+
+    assert_spin_locked(&queue->lock);
+    list_for_each_entry (entry, &queue->waiters, node) {
+        if (sched_wake(entry->task))
+            break;
+    }
+}
+
+void wake_up_one(struct wait_queue *queue)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&queue->lock, flags);
+    wake_up_one_locked(queue);
+    spin_unlock_irqrestore(&queue->lock, flags);
+}
+
 void wake_up_all_locked(struct wait_queue *queue)
 {
     struct wait_entry *entry;

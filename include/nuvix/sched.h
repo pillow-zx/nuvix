@@ -44,6 +44,15 @@ static inline struct rq *this_rq(void)
     return cpu_rq(current_cpu_id());
 }
 
+/* Ordinary sleepable thread context; diagnostic only. */
+#define might_sleep()                                                          \
+    do {                                                                       \
+        IFDEF(CONFIG_DEBUG_CONTEXT,                                            \
+              Assert(preemptible() && !cpus[current_cpu_id()].irq_depth &&     \
+                         current != this_rq()->idle,                           \
+                     "invalid sleep context\n"));                              \
+    } while (0)
+
 /* Boot-only, once after cpu_init() and tick_init(), before concurrent rq use. */
 void sched_init(void);
 /*

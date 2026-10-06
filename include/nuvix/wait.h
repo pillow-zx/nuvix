@@ -34,6 +34,8 @@ void prepare_to_wait_locked(struct wait_queue *queue, struct wait_entry *entry);
 void finish_wait_locked(struct wait_queue *queue, struct wait_entry *entry);
 
 /* Publish the persistent condition before notifying; locked form needs IRQ off. */
+void wake_up_one_locked(struct wait_queue *queue);
+void wake_up_one(struct wait_queue *queue);
 void wake_up_all_locked(struct wait_queue *queue);
 void wake_up_all(struct wait_queue *queue);
 
@@ -48,10 +50,7 @@ void wake_up_all(struct wait_queue *queue);
         struct wait_entry __wait;                                              \
         unsigned long __flags;                                                 \
                                                                                \
-        IFDEF(CONFIG_DEBUG_CONTEXT,                                            \
-              Assert(preemptible() && !cpus[current_cpu_id()].irq_depth &&     \
-                         current != this_rq()->idle,                           \
-                     "invalid wait context\n"));                               \
+        might_sleep();                                                         \
         wait_entry_init(&__wait);                                              \
         for (;;) {                                                             \
             preempt_disable();                                                 \
