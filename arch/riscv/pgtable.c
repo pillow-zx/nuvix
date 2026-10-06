@@ -7,6 +7,7 @@
 #include <nuvix/irq.h>
 #include <nuvix/tlb.h>
 #include <nuvix/errno.h>
+#include <nuvix/assert.h>
 #include <nuvix/math.h>
 #include <nuvix/string.h>
 #include <asm/csr.h>
@@ -18,26 +19,56 @@ static inline pt_entry_t *pgtable_ptr(paddr_t paddr)
     return (pt_entry_t *)__va(paddr);
 }
 
-static void mark_table(paddr_t paddr)
-{
-    struct page *page = phys_to_page(paddr);
-
-    page->flags |= PG_PGTABLE;
-    refcount_set(&page->refcount, 1);
-}
-
-static int alloc_pgtable(paddr_t *paddr)
+static int pgtable_alloc_early(paddr_t *paddr)
 {
     int ret = early_alloc(PAGE_SIZE, PAGE_SIZE, paddr);
 
     if (ret)
         return ret;
-    memset(pgtable_ptr(*paddr), 0, PAGE_SIZE);
-    mark_table(*paddr);
+    refcount_set(&phys_to_page(*paddr)->refcount, 1);
     return 0;
 }
 
-static __unused int walk_pte(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
+static int pgtable_alloc_buddy(paddr_t *paddr)
+{
+    struct page *page = alloc_page();
+
+    if (!page)
+        return -ENOMEM;
+    *paddr = page_to_phys(page);
+    return 0;
+}
+
+static int (*pgtable_alloc)(paddr_t *paddr) = pgtable_alloc_early;
+
+void pgtable_use_buddy(void)
+{
+    pgtable_alloc = pgtable_alloc_buddy;
+}
+
+int alloc_pgtable(paddr_t *paddr)
+{
+    int ret = pgtable_alloc(paddr);
+
+    if (ret)
+        return ret;
+    memset(pgtable_ptr(*paddr), 0, PAGE_SIZE);
+    phys_to_page(*paddr)->flags |= PG_PGTABLE;
+    return 0;
+}
+
+void pgtable_free(paddr_t paddr)
+{
+    struct page *page = phys_to_page(paddr);
+
+    Assert(page->flags == (PG_ALLOCATED | PG_PGTABLE) && page->order == 0 &&
+               refcount_read(&page->refcount) == 1,
+           "page table free requires exclusive ownership of a buddy page\n");
+    page->flags &= ~PG_PGTABLE;
+    free_page(page);
+}
+
+static __maybe_unused int walk_pte(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
 {
     pt_entry_t entry = pt_entry_read(&pgd[PGD_INDEX(addr)]);
     pt_entry_t *pmd;
