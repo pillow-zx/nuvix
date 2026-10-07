@@ -130,6 +130,28 @@ __NUVIX_ATOMIC_DEFINE(atomic64, atomic64_t, int64_t)
             __atomic_always_lock_free(sizeof(*(ptr)), 0),                      \
         "atomic operand must be a lock-free 32/64-bit scalar or pointer")
 
+/* Naturally aligned 32/64-bit scalar or pointer slots. */
+#define __nuvix_atomic_load(ptr, order)                                        \
+    ({                                                                         \
+        __auto_type __atomic_ptr = (ptr);                                      \
+        __nuvix_atomic_check(__atomic_ptr);                                    \
+        __atomic_load_n(__atomic_ptr, order);                                  \
+    })
+
+#define __nuvix_atomic_store(ptr, value, order)                                \
+    do {                                                                       \
+        __auto_type __atomic_ptr = (ptr);                                      \
+        __nuvix_atomic_check(__atomic_ptr);                                    \
+        __atomic_store_n(__atomic_ptr, (value), order);                        \
+    } while (0)
+
+#define load_relaxed(ptr) __nuvix_atomic_load(ptr, __ATOMIC_RELAXED)
+#define load_acquire(ptr) __nuvix_atomic_load(ptr, __ATOMIC_ACQUIRE)
+#define store_relaxed(ptr, value)                                              \
+    __nuvix_atomic_store(ptr, value, __ATOMIC_RELAXED)
+#define store_release(ptr, value)                                              \
+    __nuvix_atomic_store(ptr, value, __ATOMIC_RELEASE)
+
 #define __nuvix_xchg(ptr, value, order)                                        \
     ({                                                                         \
         __auto_type __atomic_ptr = (ptr);                                      \

@@ -1,11 +1,19 @@
 #ifndef _NUVIX_KFIFO_H
 #define _NUVIX_KFIFO_H
 
+#include <nuvix/atomic.h>
 #include <nuvix/ctypes.h>
 #include <nuvix/errno.h>
 #include <nuvix/math.h>
 #include <nuvix/string.h>
 
+/*
+ * One concurrent producer and one concurrent consumer need no external lock.
+ * Serialize additional producers with each other, and consumers with each other.
+ * Initialize before publication; init/reset require exclusive access.
+ * Queries are transient snapshots; other observers need synchronization for a
+ * consistent length. Do not access in/out directly during concurrent use.
+ */
 struct kfifo {
     unsigned int in;
     unsigned int out;
@@ -37,7 +45,10 @@ static inline unsigned int kfifo_size(const struct kfifo *fifo)
 
 static inline unsigned int kfifo_len(const struct kfifo *fifo)
 {
-    return fifo->in - fifo->out;
+    unsigned int out = load_acquire(&fifo->out);
+    unsigned int in = load_acquire(&fifo->in);
+
+    return in - out;
 }
 
 static inline unsigned int kfifo_avail(const struct kfifo *fifo)
@@ -47,7 +58,7 @@ static inline unsigned int kfifo_avail(const struct kfifo *fifo)
 
 static inline bool kfifo_is_empty(const struct kfifo *fifo)
 {
-    return fifo->in == fifo->out;
+    return kfifo_len(fifo) == 0;
 }
 
 static inline bool kfifo_is_full(const struct kfifo *fifo)
@@ -57,19 +68,25 @@ static inline bool kfifo_is_full(const struct kfifo *fifo)
 
 static inline bool kfifo_put(struct kfifo *fifo, uint8_t value)
 {
-    if (kfifo_is_full(fifo))
+    unsigned int in = load_relaxed(&fifo->in);
+    unsigned int out = load_acquire(&fifo->out);
+
+    if (in - out == kfifo_size(fifo))
         return false;
-    fifo->data[fifo->in & fifo->mask] = value;
-    ++fifo->in;
+    fifo->data[in & fifo->mask] = value;
+    store_release(&fifo->in, in + 1);
     return true;
 }
 
 static inline bool kfifo_get(struct kfifo *fifo, uint8_t *value)
 {
-    if (kfifo_is_empty(fifo))
+    unsigned int out = load_relaxed(&fifo->out);
+    unsigned int in = load_acquire(&fifo->in);
+
+    if (in == out)
         return false;
-    *value = fifo->data[fifo->out & fifo->mask];
-    ++fifo->out;
+    *value = fifo->data[out & fifo->mask];
+    store_release(&fifo->out, out + 1);
     return true;
 }
 
@@ -77,34 +94,38 @@ static inline bool kfifo_get(struct kfifo *fifo, uint8_t *value)
 static inline unsigned int kfifo_in(struct kfifo *fifo, const void *buffer,
                                     unsigned int len)
 {
-    unsigned int offset = fifo->in & fifo->mask;
+    unsigned int in = load_relaxed(&fifo->in);
+    unsigned int out = load_acquire(&fifo->out);
+    unsigned int offset = in & fifo->mask;
     unsigned int first;
     const uint8_t *src = buffer;
 
-    len = MIN(len, kfifo_avail(fifo));
+    len = MIN(len, kfifo_size(fifo) - (in - out));
     if (!len)
         return 0;
     first = MIN(len, kfifo_size(fifo) - offset);
     memcpy(fifo->data + offset, src, first);
     memcpy(fifo->data, src + first, len - first);
-    fifo->in += len;
+    store_release(&fifo->in, in + len);
     return len;
 }
 
 static inline unsigned int kfifo_out(struct kfifo *fifo, void *buffer,
                                      unsigned int len)
 {
-    unsigned int offset = fifo->out & fifo->mask;
+    unsigned int out = load_relaxed(&fifo->out);
+    unsigned int in = load_acquire(&fifo->in);
+    unsigned int offset = out & fifo->mask;
     unsigned int first;
     uint8_t *dst = buffer;
 
-    len = MIN(len, kfifo_len(fifo));
+    len = MIN(len, in - out);
     if (!len)
         return 0;
     first = MIN(len, kfifo_size(fifo) - offset);
     memcpy(dst, fifo->data + offset, first);
     memcpy(dst + first, fifo->data, len - first);
-    fifo->out += len;
+    store_release(&fifo->out, out + len);
     return len;
 }
 
