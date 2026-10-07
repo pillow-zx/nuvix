@@ -1,4 +1,7 @@
 #include <nuvix/completion.h>
+#include <nuvix/timer.h>
+#include <nuvix/tick.h>
+#include <nuvix/errno.h>
 
 void init_completion(struct completion *completion)
 {
@@ -61,6 +64,66 @@ void wait_for_completion(struct completion *completion)
         spin_unlock_irqrestore(&completion->wait.lock, flags);
         sched_park();
     }
+}
+
+struct completion_timeout {
+    struct timer timer;
+    struct completion *completion;
+    struct task *task;
+};
+
+static void completion_timed_out(struct timer *timer)
+{
+    struct completion_timeout *timeout =
+        container_of(timer, struct completion_timeout, timer);
+    unsigned long flags;
+
+    /* Pair notification with the deadline check and sleep registration. */
+    spin_lock_irqsave(&timeout->completion->wait.lock, flags);
+    (void)sched_wake(timeout->task);
+    spin_unlock_irqrestore(&timeout->completion->wait.lock, flags);
+}
+
+int wait_for_completion_until(struct completion *completion, uint64_t deadline)
+{
+    struct completion_timeout timeout;
+    struct wait_entry wait;
+    unsigned long flags;
+    bool armed = false;
+    int ret;
+
+    might_sleep();
+    timeout.completion = completion;
+    timeout.task = current;
+    timer_init(&timeout.timer, current_cpu_id(), completion_timed_out);
+    wait_entry_init(&wait);
+    for (;;) {
+        preempt_disable();
+        spin_lock_irqsave(&completion->wait.lock, flags);
+        finish_wait_locked(&completion->wait, &wait);
+        if (take_completion_locked(completion)) {
+            ret = 0;
+            break;
+        }
+        if (time_read() >= deadline) {
+            ret = -ETIMEDOUT;
+            break;
+        }
+        if (!armed) {
+            ret = timer_start(&timeout.timer, deadline);
+            if (ret)
+                break;
+            armed = true;
+        }
+        prepare_to_wait_locked(&completion->wait, &wait);
+        spin_unlock_irqrestore(&completion->wait.lock, flags);
+        sched_park();
+    }
+    spin_unlock_irqrestore(&completion->wait.lock, flags);
+    preempt_enable();
+    if (armed)
+        timer_cancel_sync(&timeout.timer);
+    return ret;
 }
 
 bool try_wait_for_completion(struct completion *completion)

@@ -24,6 +24,15 @@ void complete_all(struct completion *completion);
 
 /* Ordinary sleepable context; consumes one completion unless complete_all. */
 void wait_for_completion(struct completion *completion);
+/*
+ * Uninterruptible wait with an absolute hardware-time deadline. Ordinary
+ * sleepable context, no caller locks or preempt-disable levels; timers ready.
+ * Returns 0 after consuming a completion (unless complete_all), or -ETIMEDOUT.
+ * Available completion takes precedence over expiry at each locked decision.
+ * Returns with the private timer drained; timeout does not cancel the producer.
+ * Keep completion and producer context alive until all their users finish.
+ */
+int wait_for_completion_until(struct completion *completion, uint64_t deadline);
 /* IRQ-safe, nonblocking consumption; false if no completion is available. */
 bool try_wait_for_completion(struct completion *completion);
 
