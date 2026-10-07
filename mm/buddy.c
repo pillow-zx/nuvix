@@ -2,6 +2,7 @@
 
 #include <nuvix/page.h>
 #include <nuvix/memblock.h>
+#include <nuvix/pgtable.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/printk.h>
 #include <nuvix/errno.h>
@@ -188,6 +189,7 @@ int buddy_init(void)
         start = MIN(last, max_pfn);
     }
     release_range(start, max_pfn);
+    pgtable_use_buddy();
 
     buddy_dump();
     return 0;
