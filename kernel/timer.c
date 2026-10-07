@@ -1,6 +1,8 @@
 #include <nuvix/timer.h>
 #include <nuvix/wait.h>
 #include <nuvix/errno.h>
+#include <nuvix/completion.h>
+#include <nuvix/tick.h>
 
 struct timer_base {
     /* drain.lock protects the tree, cached first node and execution state. */
@@ -125,6 +127,52 @@ void timer_cancel_sync(struct timer *timer)
         spin_unlock_irqrestore(&base->drain.lock, flags);
         sched_park();
     }
+}
+
+struct timer_sleeper {
+    struct timer timer;
+    struct completion done;
+};
+
+static void timer_sleep_complete(struct timer *timer)
+{
+    struct timer_sleeper *sleeper =
+        container_of(timer, struct timer_sleeper, timer);
+
+    complete(&sleeper->done);
+}
+
+int timer_sleep_until(uint64_t deadline)
+{
+    struct timer_sleeper sleeper;
+    int ret;
+
+    might_sleep();
+    if (deadline <= time_read())
+        return 0;
+    init_completion(&sleeper.done);
+    timer_init(&sleeper.timer, current_cpu_id(), timer_sleep_complete);
+    ret = timer_start(&sleeper.timer, deadline);
+    if (ret)
+        return ret;
+    wait_for_completion(&sleeper.done);
+    /* Completion may precede the timer core's final access to the stack. */
+    timer_cancel_sync(&sleeper.timer);
+    return 0;
+}
+
+int timer_sleep_ns(uint64_t ns)
+{
+    uint64_t deadline;
+    int ret;
+
+    might_sleep();
+    if (!ns)
+        return 0;
+    ret = time_deadline_from_ns(ns, &deadline);
+    if (ret)
+        return ret;
+    return timer_sleep_until(deadline);
 }
 
 void timer_tick(uint64_t now)
