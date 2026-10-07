@@ -3,7 +3,7 @@
 
 #include <asm/layout.h>
 
-#define UVADDR_MIN 0x10000
+#define UVADDR_START 0x10000
 
 #define __va(addr) (KERNEL_VBASE + (addr - KERNEL_PBASE))
 

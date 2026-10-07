@@ -37,6 +37,6 @@ void mm_put(struct mm_struct *mm)
 
         vma_remove(vma);
     }
-    free_pgd(mm->pgd);
+    pgtable_free(mm->pgd);
     kfree(mm);
 }

@@ -68,7 +68,7 @@ int vma_insert(struct mm_struct *mm, struct vm_area_struct *vma)
 
     Assert(!vma->vm_mm && RB_EMPTY_NODE(&vma->vm_node),
            "VMA insert requires a detached VMA\n");
-    if (vma->vm_start < UVADDR_MIN || vma->vm_end > UVADDR_END ||
+    if (vma->vm_start < UVADDR_START || vma->vm_end > UVADDR_END ||
         vma->vm_start >= vma->vm_end ||
         ((vma->vm_start | vma->vm_end) & (PAGE_SIZE - 1)) ||
         !(vma->vm_flags & VM_ANON) ||

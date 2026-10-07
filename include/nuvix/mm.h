@@ -46,8 +46,8 @@ struct mm_struct *mm_alloc(void);
 /* Requires a held reference or equivalent lifetime protection. */
 void mm_get(struct mm_struct *mm);
 /*
- * Final put frees owned VMAs and requires an empty user half, no
- * task/CPU/software users, and completed TLB synchronization. Call outside
+ * Final put frees owned VMAs, user mappings and the root. Requires no
+ * task/CPU/software users and completed TLB synchronization. Call outside
  * short locks. CPU root users must retain an mm reference until switching away.
  */
 void mm_put(struct mm_struct *mm);

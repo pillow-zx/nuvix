@@ -43,11 +43,6 @@ static int pgtable_alloc_buddy(paddr_t *paddr)
 
 static int (*pgtable_alloc)(paddr_t *paddr) = pgtable_alloc_early;
 
-void pgtable_use_buddy(void)
-{
-    pgtable_alloc = pgtable_alloc_buddy;
-}
-
 int alloc_pgtable(paddr_t *paddr)
 {
     int ret = pgtable_alloc(paddr);
@@ -59,42 +54,7 @@ int alloc_pgtable(paddr_t *paddr)
     return 0;
 }
 
-void pgtable_free(paddr_t paddr)
-{
-    struct page *page = phys_to_page(paddr);
-
-    Assert(page->flags == (PG_ALLOCATED | PG_PGTABLE) && page->order == 0 &&
-               refcount_read(&page->refcount) == 1,
-           "page table free requires exclusive ownership of a buddy page\n");
-    page->flags &= ~PG_PGTABLE;
-    free_page(page);
-}
-
-int alloc_pgd(paddr_t *paddr)
-{
-    paddr_t root;
-    int ret = alloc_pgtable(&root);
-
-    if (ret)
-        return ret;
-    memcpy(pgtable_ptr(root) + KERNEL_PGD_FIRST,
-           pgtable_ptr(kernel_pgd) + KERNEL_PGD_FIRST,
-           (PT_ENTRIES - KERNEL_PGD_FIRST) * sizeof(pt_entry_t));
-    *paddr = root;
-    return 0;
-}
-
-void free_pgd(paddr_t paddr)
-{
-    pt_entry_t *pgd = pgtable_ptr(paddr);
-
-    for (unsigned int i = 0; i < KERNEL_PGD_FIRST; ++i)
-        Assert(!pt_entry_read(&pgd[i]),
-               "root destruction requires an empty user half\n");
-    pgtable_free(paddr);
-}
-
-static __maybe_unused int walk_pte(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
+static int walk_pte(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
 {
     pt_entry_t entry = pt_entry_read(&pgd[PGD_INDEX(addr)]);
     pt_entry_t *pmd;
@@ -149,22 +109,120 @@ static int map_page(pt_entry_t *pgd, vaddr_t addr, paddr_t paddr, uint64_t prot)
     return 0;
 }
 
-int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size)
+int alloc_pgd(paddr_t *paddr)
 {
-    int ret = 0;
+    paddr_t root;
+    int ret = alloc_pgtable(&root);
 
-    if (!size || ((vaddr | paddr | size) & (PAGE_SIZE - 1)) ||
-        vaddr < IOREMAP_VBASE)
-        return -EINVAL;
-    if (size > UINT64_MAX - vaddr || size > UINT64_MAX - paddr)
-        return -EOVERFLOW;
-    for (size_t offset = 0; offset < size; offset += PAGE_SIZE) {
-        ret = map_page(pgtable_ptr(kernel_pgd), vaddr + offset, paddr + offset,
-                       PTE_KERNEL_RW);
-        if (ret)
-            break;
+    if (ret)
+        return ret;
+    memcpy(pgtable_ptr(root) + KERNEL_PGD_FIRST,
+           pgtable_ptr(kernel_pgd) + KERNEL_PGD_FIRST,
+           (PT_ENTRIES - KERNEL_PGD_FIRST) * sizeof(pt_entry_t));
+    *paddr = root;
+    return 0;
+}
+
+void pgtable_free(paddr_t paddr)
+{
+    pt_entry_t *pgd = pgtable_ptr(paddr);
+    struct page *page;
+
+    for (unsigned int i = 0; i < KERNEL_PGD_FIRST; ++i) {
+        pt_entry_t entry = pt_entry_read(&pgd[i]);
+        pt_entry_t *pmd;
+        paddr_t pmd_paddr;
+
+        if (!(entry & PTE_V))
+            continue;
+        pt_entry_write(&pgd[i], 0);
+        pmd_paddr = pt_entry_paddr(entry);
+        pmd = pgtable_ptr(pmd_paddr);
+        for (unsigned int j = 0; j < PT_ENTRIES; ++j) {
+            pt_entry_t *pte;
+            paddr_t pte_paddr;
+
+            entry = pt_entry_read(&pmd[j]);
+            if (!(entry & PTE_V))
+                continue;
+            pt_entry_write(&pmd[j], 0);
+            pte_paddr = pt_entry_paddr(entry);
+            pte = pgtable_ptr(pte_paddr);
+            for (unsigned int k = 0; k < PT_ENTRIES; ++k) {
+                entry = pt_entry_read(&pte[k]);
+                if (!(entry & PTE_V))
+                    continue;
+                pt_entry_write(&pte[k], 0);
+                free_page(phys_to_page(pt_entry_paddr(entry)));
+            }
+            page = phys_to_page(pte_paddr);
+            Assert(
+                page->flags == (PG_ALLOCATED | PG_PGTABLE) &&
+                    page->order == 0 && refcount_read(&page->refcount) == 1,
+                "page table free requires exclusive ownership of a buddy page\n");
+            page->flags &= ~PG_PGTABLE;
+            free_page(page);
+        }
+        page = phys_to_page(pmd_paddr);
+        Assert(
+            page->flags == (PG_ALLOCATED | PG_PGTABLE) && page->order == 0 &&
+                refcount_read(&page->refcount) == 1,
+            "page table free requires exclusive ownership of a buddy page\n");
+        page->flags &= ~PG_PGTABLE;
+        free_page(page);
     }
-    local_flush_tlb_all();
+    page = phys_to_page(paddr);
+    Assert(page->flags == (PG_ALLOCATED | PG_PGTABLE) && page->order == 0 &&
+               refcount_read(&page->refcount) == 1,
+           "page table free requires exclusive ownership of a buddy page\n");
+    page->flags &= ~PG_PGTABLE;
+    free_page(page);
+}
+
+int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
+                     unsigned long vm_flags)
+{
+    uint64_t prot;
+    unsigned long flags;
+    int ret;
+
+    might_sleep();
+    if (addr < UVADDR_START || addr >= UVADDR_END || (addr & (PAGE_SIZE - 1)) ||
+        (vm_flags & ~(VM_READ | VM_WRITE | VM_EXEC | VM_ANON)))
+        return -EINVAL;
+    prot = vma_to_pte(vm_flags);
+    if (!prot)
+        return -EINVAL;
+    /* Code must be synchronized before any CPU can observe the executable PTE. */
+    if (prot & PTE_X)
+        flush_icache_all();
+    spin_lock_irqsave(&mm->pgtable_lock, flags);
+    ret = map_page(pgtable_ptr(mm->pgd), addr, page_to_phys(page), prot);
+    spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+    if (!ret)
+        flush_tlb_all();
+    return ret;
+}
+
+int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr)
+{
+    pt_entry_t *pte;
+    pt_entry_t entry;
+    unsigned long flags;
+    int ret;
+
+    if (addr < UVADDR_START || addr >= UVADDR_END)
+        return -EINVAL;
+    spin_lock_irqsave(&mm->pgtable_lock, flags);
+    ret = walk_pte(pgtable_ptr(mm->pgd), addr, &pte);
+    if (!ret) {
+        entry = pt_entry_read(pte);
+        if (!(entry & PTE_V))
+            ret = -ENOENT;
+        else
+            *paddr = pt_entry_paddr(entry) + (addr & (PAGE_SIZE - 1));
+    }
+    spin_unlock_irqrestore(&mm->pgtable_lock, flags);
     return ret;
 }
 
@@ -257,4 +315,28 @@ int pgtable_init(struct dtb *dtb)
     dtb->blob = blob;
     kernel_pgd = root;
     return 0;
+}
+
+void pgtable_use_buddy(void)
+{
+    pgtable_alloc = pgtable_alloc_buddy;
+}
+
+int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size)
+{
+    int ret = 0;
+
+    if (!size || ((vaddr | paddr | size) & (PAGE_SIZE - 1)) ||
+        vaddr < IOREMAP_VBASE)
+        return -EINVAL;
+    if (size > UINT64_MAX - vaddr || size > UINT64_MAX - paddr)
+        return -EOVERFLOW;
+    for (size_t offset = 0; offset < size; offset += PAGE_SIZE) {
+        ret = map_page(pgtable_ptr(kernel_pgd), vaddr + offset, paddr + offset,
+                       PTE_KERNEL_RW);
+        if (ret)
+            break;
+    }
+    local_flush_tlb_all();
+    return ret;
 }
