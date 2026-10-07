@@ -99,6 +99,8 @@ static __maybe_unused int walk_pte(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **p
     pt_entry_t entry = pt_entry_read(&pgd[PGD_INDEX(addr)]);
     pt_entry_t *pmd;
 
+    if (!(entry & PTE_V))
+        return -ENOENT;
     pmd = pgtable_ptr(pt_entry_paddr(entry)) + PMD_INDEX(addr);
     entry = pt_entry_read(pmd);
     if (!(entry & PTE_V))
@@ -114,6 +116,13 @@ static int walk_pte_create(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
     paddr_t paddr;
     int ret;
 
+    if (!(entry & PTE_V)) {
+        ret = alloc_pgtable(&paddr);
+        if (ret)
+            return ret;
+        entry = pt_entry_make(paddr, PTE_TABLE);
+        pt_entry_write(&pgd[PGD_INDEX(addr)], entry);
+    }
     pmd = pgtable_ptr(pt_entry_paddr(entry)) + PMD_INDEX(addr);
     entry = pt_entry_read(pmd);
     if (!(entry & PTE_V)) {
