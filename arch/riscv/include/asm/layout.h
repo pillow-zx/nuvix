@@ -13,6 +13,8 @@
 #define UART_VBASE      IOREMAP_VBASE
 #define UART_CLOCK      3686400
 
+#define PLIC_VBASE      (IOREMAP_VBASE + PAGE_SIZE)
+
 #define KSTACK_ORDER    2
 #define KSTACK_SIZE     (PAGE_SIZE << KSTACK_ORDER)
 

@@ -16,6 +16,14 @@ int pgtable_init(struct dtb *dtb);
 void pgtable_use_buddy(void);
 
 /*
+ * Boot-only after pgtable_use_buddy(), before SMP or user roots are created.
+ * Maps page-aligned MMIO into the IOREMAP window of the permanent kernel root.
+ * Caller owns the virtual range. Failure leaves partial mappings in place;
+ * mappings and page tables remain permanent. Completes a local TLB flush.
+ */
+int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size);
+
+/*
  * After page_init(). Allocates one zeroed page with PG_PGTABLE and one ownership
  * reference. Returns 0 and a page-aligned physical address, or a negative errno
  * without changing *paddr. Early pages remain reserved; after the backend switch

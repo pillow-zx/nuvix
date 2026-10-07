@@ -140,6 +140,25 @@ static int map_page(pt_entry_t *pgd, vaddr_t addr, paddr_t paddr, uint64_t prot)
     return 0;
 }
 
+int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size)
+{
+    int ret = 0;
+
+    if (!size || ((vaddr | paddr | size) & (PAGE_SIZE - 1)) ||
+        vaddr < IOREMAP_VBASE)
+        return -EINVAL;
+    if (size > UINT64_MAX - vaddr || size > UINT64_MAX - paddr)
+        return -EOVERFLOW;
+    for (size_t offset = 0; offset < size; offset += PAGE_SIZE) {
+        ret = map_page(pgtable_ptr(kernel_pgd), vaddr + offset, paddr + offset,
+                       PTE_KERNEL_RW);
+        if (ret)
+            break;
+    }
+    local_flush_tlb_all();
+    return ret;
+}
+
 static bool range_no_map(paddr_t paddr, size_t size)
 {
     for (unsigned int i = 0; i < memblock.nr_reserved; ++i) {

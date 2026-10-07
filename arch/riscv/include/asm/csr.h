@@ -8,6 +8,7 @@
 #define SIP_SSIP    (1 << 1)
 #define SCAUSE_SSI  1
 #define SCAUSE_STI  5
+#define SCAUSE_SEI  9
 
 #ifndef __ASSEMBLER__
 

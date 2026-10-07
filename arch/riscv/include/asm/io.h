@@ -22,4 +22,21 @@ static __always_inline void writeb(uint8_t value, volatile void *addr)
     io_mb();
 }
 
+static __always_inline uint32_t readl(const volatile void *addr)
+{
+    uint32_t value;
+
+    io_mb();
+    value = *(const volatile uint32_t *)addr;
+    io_mb();
+    return value;
+}
+
+static __always_inline void writel(uint32_t value, volatile void *addr)
+{
+    io_mb();
+    *(volatile uint32_t *)addr = value;
+    io_mb();
+}
+
 #endif /* _NUVIX_RISCV_IO_H */
