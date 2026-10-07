@@ -44,8 +44,6 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     ret = pgtable_init(&dtb);
     BOOTINFO(ret, pgtable);
 
-    IFDEF(CONFIG_UART, uart_init());
-
     ret = buddy_init();
     BOOTINFO(ret, buddy);
 
@@ -54,6 +52,11 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
 
     ret = irq_init(&dtb);
     BOOTINFO(ret, IRQ);
+
+    IFDEF(CONFIG_UART, {
+        ret = uart_init(&dtb);
+        BOOTINFO(ret, UART);
+    });
 
     ret = tick_init(&dtb);
     BOOTINFO(ret, clock);

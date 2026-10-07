@@ -6,7 +6,8 @@
 #include <nuvix/macro.h>
 
 #ifdef CONFIG_UART
-void uart_init(void);
+struct dtb;
+int uart_init(const struct dtb *dtb);
 int uart_putchar(int c);
 int uart_getchar(void);
 #endif
