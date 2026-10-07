@@ -38,7 +38,7 @@ struct trap_frame {
 } __aligned(16);
 
 /* Supported kernel IRQs return with local IRQs disabled; other traps panic. */
-void trap_handler(const struct trap_frame *frame);
+void trap_handler(struct trap_frame *frame);
 
 #endif /* __ASSEMBLER__ */
 

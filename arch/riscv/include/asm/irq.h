@@ -8,7 +8,17 @@
 #include <nuvix/compiler.h>
 #include <nuvix/ctypes.h>
 
-static __always_inline bool arch_irqs_disabled(void)
+struct dtb;
+
+/* Boot-only; leaves sources disabled and returns the highest valid IRQ ID. */
+int arch_irq_init(const struct dtb *dtb, unsigned int *nr_irqs);
+int arch_irq_enable(unsigned int irq);
+int arch_irq_disable(unsigned int irq);
+
+/* CPU0, hard IRQ context with local IRQs off. */
+void arch_handle_external_irq(void);
+
+static __always_inline bool arch_local_irqs_disabled(void)
 {
     return !(csr_read(sstatus) & SSTATUS_SIE);
 }
@@ -37,6 +47,22 @@ static __always_inline void arch_local_irq_restore(unsigned long flags)
     else
         arch_local_irq_disable();
 }
+
+/* Boot-only after pgtable_use_buddy(), before SMP; leaves all sources disabled. */
+int plic_init(const struct dtb *dtb);
+
+/* After init; highest valid source ID, with sources numbered from one. */
+unsigned int plic_nr_irqs(void);
+
+/* After init; routes only to CPU0. Returns -EINVAL for an invalid source. */
+int plic_enable(unsigned int irq);
+/* Masks delivery; does not drain handlers or stop device activity. */
+int plic_disable(unsigned int irq);
+
+/* CPU0, hard IRQ context with local IRQs off. Zero means no pending source. */
+unsigned int plic_claim(void);
+/* Complete a nonzero source returned by claim, after handling device state. */
+void plic_complete(unsigned int irq);
 
 #endif /* __ASSEMBLER__ */
 

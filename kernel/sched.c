@@ -198,7 +198,7 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
     struct task *next;
 
     assert_spin_locked(&rq->lock);
-    IFDEF(CONFIG_DEBUG_CONTEXT, Assert(irqs_disabled() && preempt_count() == 1,
+    IFDEF(CONFIG_DEBUG_CONTEXT, Assert(local_irqs_disabled() && preempt_count() == 1,
                                        "invalid scheduling context\n"));
     if (prev->state != TASK_RUNNABLE) {
         Assert(prev->state == TASK_SLEEP_INTERRUPTIBLE ||
@@ -232,7 +232,7 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
 void sched_finish_switch_locked(struct rq *rq, struct task *prev)
 {
     assert_spin_locked(&rq->lock);
-    IFDEF(CONFIG_DEBUG_CONTEXT, Assert(irqs_disabled() && preempt_count() == 1,
+    IFDEF(CONFIG_DEBUG_CONTEXT, Assert(local_irqs_disabled() && preempt_count() == 1,
                                        "invalid switch finish context\n"));
     Assert(prev != rq->curr, "switch finish requires a real switch\n");
     prev->on_cpu = false;
@@ -304,7 +304,7 @@ void preempt_schedule(void)
 void sched_park(void)
 {
     IFDEF(CONFIG_DEBUG_CONTEXT,
-          Assert(preempt_count() == 1 && !irqs_disabled() &&
+          Assert(preempt_count() == 1 && !local_irqs_disabled() &&
                      !cpus[current_cpu_id()].irq_depth &&
                      current != this_rq()->idle,
                  "invalid park context\n"));

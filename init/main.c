@@ -13,7 +13,7 @@
 #include <nuvix/sched.h>
 #include <nuvix/timer.h>
 #include <nuvix/kthread.h>
-#include <nuvix/plic.h>
+#include <nuvix/irq.h>
 
 __noreturn
 void kernel_main(unsigned long hart, paddr_t dtb_pa)
@@ -55,8 +55,8 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     slub_init();
     pr_info("slub: initialization success\n");
 
-    ret = plic_init(&dtb);
-    BOOTINFO(ret, PLIC);
+    ret = irq_init(&dtb);
+    BOOTINFO(ret, IRQ);
 
     ret = tick_init(&dtb);
     BOOTINFO(ret, clock);

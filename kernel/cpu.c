@@ -87,7 +87,7 @@ static bool cpu_boot_failed(void)
 void cpu_boot_fail(void)
 {
     (void)atomic_cmpxchg_release(&boot_state, CPU_BOOT_WAITING,
-                                CPU_BOOT_FAILED);
+                                 CPU_BOOT_FAILED);
 }
 
 static int prepare_idle_tasks(void)
@@ -121,7 +121,8 @@ static void cpu_local_ready(void)
     ret = tick_cpu_init();
     if (ret) {
         cpu_state_set(cpu, CPU_FAILED);
-        panic("CPU%u: SBI TIME setup failed (%d)\n", current_cpu_id(), (int)ret);
+        panic("CPU%u: SBI TIME setup failed (%d)\n", current_cpu_id(),
+              (int)ret);
     }
     arch_cpu_init();
     /* A timeout may have marked this CPU failed while it initialized. */

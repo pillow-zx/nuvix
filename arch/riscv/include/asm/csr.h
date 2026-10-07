@@ -5,6 +5,7 @@
 #define SSTATUS_FS  (3 << 13)
 #define SIE_SSIE    (1 << 1)
 #define SIE_STIE    (1 << 5)
+#define SIE_SEIE    (1 << 9)
 #define SIP_SSIP    (1 << 1)
 #define SCAUSE_SSI  1
 #define SCAUSE_STI  5

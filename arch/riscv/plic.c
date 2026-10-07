@@ -1,6 +1,6 @@
 #define pr_fmt(fmt) "plic: " fmt
 
-#include <nuvix/plic.h>
+#include <nuvix/irq.h>
 #include <nuvix/cpu.h>
 #include <nuvix/dtb.h>
 #include <nuvix/errno.h>
@@ -208,6 +208,11 @@ int plic_init(const struct dtb *dtb)
     pr_info("%u sources, CPU0 hart %p S-mode context %u\n", nr_irqs,
             (void *)cpus[0].hart_id, contexts[0]);
     return 0;
+}
+
+unsigned int plic_nr_irqs(void)
+{
+    return plic.nr_irqs;
 }
 
 static int plic_toggle(unsigned int irq, bool enable)

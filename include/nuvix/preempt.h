@@ -37,7 +37,7 @@ static __always_inline void preempt_enable_no_resched(void)
 
 static __always_inline bool preemptible(void)
 {
-    return preempt_count() == 0 && !irqs_disabled();
+    return preempt_count() == 0 && !local_irqs_disabled();
 }
 
 static __always_inline void preempt_enable(void)

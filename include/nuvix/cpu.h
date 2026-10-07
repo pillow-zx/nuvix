@@ -1,6 +1,7 @@
 #ifndef _NUVIX_CPU_H
 #define _NUVIX_CPU_H
 
+#include <nuvix/task.h>
 #include <nuvix/atomic.h>
 #include <asm/cpu.h>
 
@@ -48,6 +49,11 @@ static inline enum cpu_state cpu_state_read(const struct cpu *cpu)
 static inline void cpu_state_set(struct cpu *cpu, enum cpu_state state)
 {
     __atomic_store_n(&cpu->state, state, __ATOMIC_RELEASE);
+}
+
+static inline struct cpu *this_cpu()
+{
+    return &cpus[current_cpu_id()];
 }
 
 #define halt() arch_halt()

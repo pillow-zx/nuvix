@@ -133,7 +133,7 @@ void timer_tick(uint64_t now)
     unsigned long flags;
 
     IFDEF(CONFIG_DEBUG_CONTEXT,
-          Assert(irqs_disabled() && cpus[current_cpu_id()].irq_depth,
+          Assert(local_irqs_disabled() && cpus[current_cpu_id()].irq_depth,
                  "timer tick outside hard IRQ context\n"));
     for (;;) {
         struct timer *timer;

@@ -35,4 +35,7 @@ void arch_cpu_init(void)
     arch_clear_ipi();
     csr_write(stvec, (unsigned long)trap_entry);
     csr_write(sie, SIE_SSIE | SIE_STIE);
+    /* only allow cpu 0 to handle external irq */
+    if (current_cpu_id() == 0)
+        csr_set(sie, SIE_SEIE);
 }
