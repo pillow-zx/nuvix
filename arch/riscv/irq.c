@@ -10,6 +10,11 @@ int arch_irq_init(const struct dtb *dtb, unsigned int *nr_irqs)
     return 0;
 }
 
+int arch_irq_parse(const struct dtb *dtb, int node, unsigned int *irq)
+{
+    return plic_irq_parse(dtb, node, irq);
+}
+
 int arch_irq_enable(unsigned int irq)
 {
     return plic_enable(irq);

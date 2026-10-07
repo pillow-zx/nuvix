@@ -27,6 +27,7 @@
 #define PLIC_CONTEXT_NONE    ((unsigned int)-1)
 
 static struct {
+    int node;
     unsigned int nr_irqs;
     volatile uint32_t *enable;
     volatile void *claim;
@@ -187,6 +188,7 @@ int plic_init(const struct dtb *dtb)
     if (ret)
         return ret;
 
+    plic.node = node;
     plic.nr_irqs = nr_irqs;
     priority = (volatile uint32_t *)(PLIC_VBASE + PLIC_PRIORITY_BASE);
     plic.enable = (volatile uint32_t *)(PLIC_VBASE + PLIC_ENABLE_BASE +
@@ -207,6 +209,37 @@ int plic_init(const struct dtb *dtb)
     writel(0, (volatile void *)(PLIC_VBASE + control + PLIC_THRESHOLD));
     pr_info("%u sources, CPU0 hart %p S-mode context %u\n", nr_irqs,
             (void *)cpus[0].hart_id, contexts[0]);
+    return 0;
+}
+
+int plic_irq_parse(const struct dtb *dtb, int node, unsigned int *irq)
+{
+    const void *blob = dtb->blob;
+    const fdt32_t *cells;
+    int parent = node, controller, len;
+
+    if (fdt_getprop(blob, node, "interrupts-extended", &len))
+        return -EOPNOTSUPP;
+    for (;;) {
+        cells = fdt_getprop(blob, parent, "interrupt-parent", &len);
+        if (cells)
+            break;
+        parent = fdt_parent_offset(blob, parent);
+        if (parent < 0)
+            return -EINVAL;
+    }
+    if (len != sizeof(*cells))
+        return -EINVAL;
+    controller = fdt_node_offset_by_phandle(blob, fdt32_to_cpu(*cells));
+    if (controller < 0 || controller != plic.node)
+        return -EOPNOTSUPP;
+    cells = fdt_getprop(blob, controller, "#interrupt-cells", &len);
+    if (!cells || len != sizeof(*cells) || fdt32_to_cpu(*cells) != 1)
+        return -EOPNOTSUPP;
+    cells = fdt_getprop(blob, node, "interrupts", &len);
+    if (!cells || len != sizeof(*cells))
+        return -EINVAL;
+    *irq = fdt32_to_cpu(*cells);
     return 0;
 }
 

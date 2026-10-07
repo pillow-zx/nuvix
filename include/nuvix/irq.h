@@ -21,6 +21,9 @@ struct dtb;
  */
 int irq_init(const struct dtb *dtb);
 
+/* Boot-only after irq_init(); resolves one device node's interrupt source. */
+int irq_parse(const struct dtb *dtb, int node, unsigned int *irq);
+
 /*
  * After irq_init(), before SMP, with local IRQs off; one handler per source.
  * Handler/data must outlive the kernel. Does not enable the hardware source.

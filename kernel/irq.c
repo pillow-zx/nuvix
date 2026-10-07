@@ -28,6 +28,19 @@ int irq_init(const struct dtb *dtb)
     return 0;
 }
 
+int irq_parse(const struct dtb *dtb, int node, unsigned int *irq)
+{
+    unsigned int source;
+    int ret = arch_irq_parse(dtb, node, &source);
+
+    if (ret)
+        return ret;
+    if (!source || source > nr_sources)
+        return -EINVAL;
+    *irq = source;
+    return 0;
+}
+
 int irq_register(unsigned int irq, irq_handler_t handler, void *data)
 {
     struct irq_action *action;

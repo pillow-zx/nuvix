@@ -12,6 +12,7 @@ struct dtb;
 
 /* Boot-only; leaves sources disabled and returns the highest valid IRQ ID. */
 int arch_irq_init(const struct dtb *dtb, unsigned int *nr_irqs);
+int arch_irq_parse(const struct dtb *dtb, int node, unsigned int *irq);
 int arch_irq_enable(unsigned int irq);
 int arch_irq_disable(unsigned int irq);
 
@@ -50,6 +51,9 @@ static __always_inline void arch_local_irq_restore(unsigned long flags)
 
 /* Boot-only after pgtable_use_buddy(), before SMP; leaves all sources disabled. */
 int plic_init(const struct dtb *dtb);
+
+/* Boot-only after init; supports one source from this PLIC per device node. */
+int plic_irq_parse(const struct dtb *dtb, int node, unsigned int *irq);
 
 /* After init; highest valid source ID, with sources numbered from one. */
 unsigned int plic_nr_irqs(void);
