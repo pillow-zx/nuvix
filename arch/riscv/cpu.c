@@ -30,7 +30,7 @@ long arch_start_cpu(unsigned int cpu_id, struct task *idle)
 void arch_cpu_init(void)
 {
     arch_local_irq_disable();
-    csr_clear(sstatus, SSTATUS_FS);
+    csr_clear(sstatus, SSTATUS_FS | SSTATUS_SUM | SSTATUS_MXR);
     csr_write(sscratch, 0);
     arch_clear_ipi();
     csr_write(stvec, (unsigned long)__alltraps);

@@ -24,6 +24,9 @@
 #define TASK_CTX_FREG(n) (208 + (n) * __SIZEOF_LONG__)
 #define TASK_CTX_FCSR    464
 #define TASK_CTX_FS      472
+#define TASK_CTX_SUM     480
+#else
+#define TASK_CTX_SUM 208
 #endif
 
 #ifndef __ASSEMBLER__
@@ -43,6 +46,7 @@ struct task_context {
     unsigned long fcsr;
     unsigned long fs;
 #endif
+    unsigned long sum;
 };
 
 struct task;

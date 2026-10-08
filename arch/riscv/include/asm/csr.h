@@ -4,6 +4,8 @@
 #define SSTATUS_SIE (1 << 1)
 #define SSTATUS_SPP (1 << 8)
 #define SSTATUS_FS  (3 << 13)
+#define SSTATUS_SUM (1 << 18)
+#define SSTATUS_MXR (1 << 19)
 #define SIE_SSIE    (1 << 1)
 #define SIE_STIE    (1 << 5)
 #define SIE_SEIE    (1 << 9)

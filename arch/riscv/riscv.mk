@@ -12,6 +12,7 @@ ARCH_CC_TARGET    := riscv64-unknown-elf
 obj-y += arch/riscv/boot.o
 obj-y += arch/riscv/entry.S
 obj-y += arch/riscv/switch.S
+obj-y += arch/riscv/uaccess.S
 obj-y += arch/riscv/trap.c
 obj-y += arch/riscv/irq.c
 obj-y += arch/riscv/pgtable.c

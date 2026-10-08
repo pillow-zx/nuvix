@@ -10,6 +10,8 @@
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
               "kernel task stack order must be smaller than MAX_ORDER");
+static_assert(offsetof(struct task, ctx.sum) == TASK_CTX_SUM,
+              "invalid task SUM context offset");
 
 struct task boot_task = {
     .refcount = REFCOUNT_INIT(1),

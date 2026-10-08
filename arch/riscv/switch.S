@@ -22,6 +22,11 @@ __switch_to:
     sd          s10, TASK_CTX_S10(a0)
     sd          s11, TASK_CTX_S11(a0)
 
+    li          t1, SSTATUS_SUM
+    csrrc       t0, sstatus, t1
+    and         t0, t0, t1
+    sd          t0, TASK_CTX_SUM(a0)
+
 #ifdef CONFIG_FPU
     csrr        t0, sstatus
     li          t1, SSTATUS_FS
@@ -126,6 +131,10 @@ __switch_to:
     ld          s9, TASK_CTX_S9(a1)
     ld          s10, TASK_CTX_S10(a1)
     ld          s11, TASK_CTX_S11(a1)
+    ld          t0, TASK_CTX_SUM(a1)
+    li          t1, SSTATUS_SUM
+    csrc        sstatus, t1
+    csrs        sstatus, t0
     mv          tp, a1
     ret
     .size __switch_to, . - __switch_to

@@ -78,7 +78,8 @@ __alltraps:
 
     csrr        t0, sepc
     sd          t0, TRAP_SEPC(sp)
-    csrr        t0, sstatus
+    li          t0, SSTATUS_SUM
+    csrrc       t0, sstatus, t0
     sd          t0, TRAP_SSTATUS(sp)
     csrr        t0, scause
     sd          t0, TRAP_SCAUSE(sp)
