@@ -5,6 +5,7 @@
 #include <nuvix/refcount.h>
 #include <nuvix/cleanup.h>
 #include <nuvix/spinlock.h>
+#include <nuvix/fdtable.h>
 
 enum proc_state {
     PROC_NORMAL,
@@ -26,6 +27,7 @@ struct proc {
 
     /* Owned address space; prepared before task publication, then immutable. */
     struct mm_struct *mm;
+    struct fdtable files;
 
     /* Parent/child links will be protected by the process-tree lock. */
     struct proc *parent;
@@ -34,14 +36,15 @@ struct proc {
 };
 
 /*
- * After slub_init(); returns an unpublished NORMAL proc with an empty mm,
+ * After slub_init(); returns an unpublished NORMAL proc with an empty mm/fdtable,
  * a reserved TGID and one caller reference. Allocation failure returns NULL.
  */
 struct proc *proc_alloc(void);
 /* Requires a held reference or equivalent lifetime protection. */
 void proc_get(struct proc *proc);
 /*
- * Final put releases mm and TGID; supports only unpublished procs outside short locks.
+ * Final put releases mm, empty fdtable and TGID; supports only unpublished procs
+ * outside short locks.
  */
 void proc_put(struct proc *proc);
 

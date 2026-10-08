@@ -19,6 +19,8 @@ struct proc *proc_alloc(void)
 
     if (!mm)
         return NULL;
+    if (fdtable_init(&proc->files))
+        return NULL;
     refcount_set(&proc->refcount, 1);
     spin_lock_init(&proc->state_lock);
     proc->tgid = move(tgid);
@@ -43,6 +45,7 @@ void proc_put(struct proc *proc)
                list_empty(&proc->children) && list_empty(&proc->sibling),
            "cannot destroy a published proc without process teardown\n");
     mm_put(proc->mm);
+    fdtable_destroy(&proc->files);
     pid_free(proc->tgid);
     kfree(proc);
 }

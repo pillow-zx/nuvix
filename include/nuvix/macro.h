@@ -60,4 +60,6 @@
 #define PTR_ERR(ptr)    ((int)(long)(ptr))
 #define IS_ERR(ptr)     IS_ERR_VALUE((unsigned long)(ptr))
 
+#define auto            __auto_type
+
 #endif /* ifndef _NUVIX_MACRO_H */
