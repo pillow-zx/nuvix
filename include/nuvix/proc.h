@@ -24,6 +24,9 @@ struct proc {
     struct list_head members;
     unsigned int nr_live;
 
+    /* Owned address space; prepared before task publication, then immutable. */
+    struct mm_struct *mm;
+
     /* Parent/child links will be protected by the process-tree lock. */
     struct proc *parent;
     struct list_head children;
@@ -31,14 +34,14 @@ struct proc {
 };
 
 /*
- * After slub_init(); returns an unpublished, empty NORMAL proc with a reserved
- * TGID and one caller reference. Allocation failure returns NULL.
+ * After slub_init(); returns an unpublished NORMAL proc with an empty mm,
+ * a reserved TGID and one caller reference. Allocation failure returns NULL.
  */
 struct proc *proc_alloc(void);
 /* Requires a held reference or equivalent lifetime protection. */
 void proc_get(struct proc *proc);
 /*
- * Final put releases the TGID; supports only unpublished procs outside short locks.
+ * Final put releases mm and TGID; supports only unpublished procs outside short locks.
  */
 void proc_put(struct proc *proc);
 

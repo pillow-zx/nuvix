@@ -179,6 +179,14 @@ void pgtable_free(paddr_t paddr)
     free_page(page);
 }
 
+void pgtable_switch(struct mm_struct *mm)
+{
+    paddr_t pgd = mm ? mm->pgd : kernel_pgd;
+
+    csr_write(satp, SATP_SV39 | (pgd >> PAGE_SHIFT));
+    local_flush_tlb_all();
+}
+
 int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
                      unsigned long vm_flags)
 {

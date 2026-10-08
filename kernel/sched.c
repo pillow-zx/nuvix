@@ -4,6 +4,9 @@
 #include <nuvix/wait.h>
 #include <nuvix/errno.h>
 #include <nuvix/kthread.h>
+#include <nuvix/proc.h>
+#include <nuvix/mm.h>
+#include <nuvix/pgtable.h>
 
 struct rq runqueues[CONFIG_NR_CPUS];
 
@@ -111,6 +114,8 @@ void sched_init(void)
         spin_lock_init(&rq->lock);
         rq->curr = NULL;
         rq->idle = NULL;
+        rq->active_mm = NULL;
+        rq->prev_mm = NULL;
         INIT_LIST_HEAD(&rq->ready_list);
         INIT_LIST_HEAD(&rq->dead_list);
         atomic_set(&rq->nr_runnable, 0);
@@ -196,10 +201,12 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
 {
     struct task *prev = rq->curr;
     struct task *next;
+    struct mm_struct *mm;
 
     assert_spin_locked(&rq->lock);
-    IFDEF(CONFIG_DEBUG_CONTEXT, Assert(local_irqs_disabled() && preempt_count() == 1,
-                                       "invalid scheduling context\n"));
+    IFDEF(CONFIG_DEBUG_CONTEXT,
+          Assert(local_irqs_disabled() && preempt_count() == 1,
+                 "invalid scheduling context\n"));
     if (prev->state != TASK_RUNNABLE) {
         Assert(prev->state == TASK_SLEEP_INTERRUPTIBLE ||
                    prev->state == TASK_SLEEP_UNINTERRUPTIBLE ||
@@ -222,6 +229,14 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
 
     task_set_need_resched(prev, false);
     next = pick_next_task(rq);
+    mm = next->proc ? next->proc->mm : NULL;
+    if (mm != rq->active_mm) {
+        if (mm)
+            mm_get(mm);
+        pgtable_switch(mm);
+        rq->prev_mm = rq->active_mm;
+        rq->active_mm = mm;
+    }
     rq->curr = next;
     rq->quantum_deadline = time_read() + quantum_ticks;
     next->on_cpu = true;
@@ -229,25 +244,34 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
     return next;
 }
 
-void sched_finish_switch_locked(struct rq *rq, struct task *prev)
+struct mm_struct *sched_finish_switch_locked(struct rq *rq, struct task *prev)
 {
+    struct mm_struct *mm;
+
     assert_spin_locked(&rq->lock);
-    IFDEF(CONFIG_DEBUG_CONTEXT, Assert(local_irqs_disabled() && preempt_count() == 1,
-                                       "invalid switch finish context\n"));
+    IFDEF(CONFIG_DEBUG_CONTEXT,
+          Assert(local_irqs_disabled() && preempt_count() == 1,
+                 "invalid switch finish context\n"));
     Assert(prev != rq->curr, "switch finish requires a real switch\n");
     prev->on_cpu = false;
     if (prev->state == TASK_DEAD)
         list_add_tail(&prev->rq_node, &rq->dead_list);
+    mm = rq->prev_mm;
+    rq->prev_mm = NULL;
+    return mm;
 }
 
 void sched_finish_switch(struct task *prev)
 {
     struct rq *rq = this_rq();
     bool dead = prev->state == TASK_DEAD;
+    struct mm_struct *mm;
     unsigned long flags;
 
-    sched_finish_switch_locked(rq, prev);
+    mm = sched_finish_switch_locked(rq, prev);
     __spin_unlock(&rq->lock);
+    if (mm)
+        mm_put(mm);
     if (dead) {
         spin_lock_irqsave(&reaper_wait.lock, flags);
         reaper_pending = true;

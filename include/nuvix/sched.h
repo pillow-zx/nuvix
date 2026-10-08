@@ -19,6 +19,10 @@ struct rq {
     spinlock_t lock;
     struct task *curr;
     struct task *idle;
+    /* CPU root reference; NULL denotes the permanent kernel root. */
+    struct mm_struct *active_mm;
+    /* Old CPU reference transferred to switch finish for release after unlock. */
+    struct mm_struct *prev_mm;
     struct list_head ready_list;
     /* Holds the scheduler references of DEAD tasks after switch finish. */
     struct list_head dead_list;
@@ -85,14 +89,15 @@ void sched_set_sleep_locked(struct rq *rq, enum task_state state);
 /*
  * Local switch operations: IRQ off, rq.lock held, and exactly one
  * scheduler-owned preempt-disable level, using __spin_lock for rq.lock.
- * Prepare hands the debug owner to next on a real switch. Retain the lock
- * across arch_switch_to, then finish and __spin_unlock. These operations do
- * not restore IRQs or preemption.
+ * Prepare switches address spaces and hands the debug owner to next on a real
+ * switch. Retain the lock across arch_switch_to, then finish and __spin_unlock.
+ * Finish returns an old CPU mm reference, or NULL; release it after unlocking.
+ * These operations do not restore IRQs or preemption.
  */
 /* rotate requests yield; otherwise RUNNABLE current rotates on need_resched. */
 struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate);
 /* Only after a real switch; prev is the task returned by arch_switch_to. */
-void sched_finish_switch_locked(struct rq *rq, struct task *prev);
+struct mm_struct *sched_finish_switch_locked(struct rq *rq, struct task *prev);
 
 /*
  * Caller hands over exactly one scheduler-owned preempt-disable level, with
@@ -117,7 +122,8 @@ void sched_park(void);
 /*
  * Common post-switch tail, also called by a first task entry with a0 as prev.
  * Requires IRQ off, the inherited rq lock and preempt_count == 1. Clears
- * prev->on_cpu, hands DEAD tasks to the reaper and notifies after unlocking.
+ * prev->on_cpu, hands DEAD tasks to the reaper, releases the old CPU mm reference
+ * and notifies after unlocking.
  * A first entry must be prepared with ctx.ra,
  * an ABI-aligned ctx.sp and preempt_count == 1; after this call it consumes
  * that level and applies its own initial IRQ policy.

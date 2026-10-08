@@ -33,6 +33,13 @@ int alloc_pgd(paddr_t *paddr);
 void pgtable_free(paddr_t paddr);
 
 /*
+ * Local CPU, IRQ off. Loads mm's root, or the permanent kernel root for NULL,
+ * with ASID 0 and a complete local TLB flush. The caller holds mm alive while
+ * loaded and skips this operation when the address space has not changed.
+ */
+void pgtable_switch(struct mm_struct *mm);
+
+/*
  * After SMP is ready, in ordinary thread context with mm held alive and its
  * mmap_lock held. Maps one page-aligned user address with VM_READ/WRITE/EXEC;
  * VM_ANON is accepted. No access permissions or invalid bounds return -EINVAL.
