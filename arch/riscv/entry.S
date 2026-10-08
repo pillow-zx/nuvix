@@ -136,6 +136,7 @@ __alltraps:
     csrw        stvec, t0
     mv          a0, sp
     call        trap_handler
+    j           __trapret
     .size __alltraps, . - __alltraps
 
     .balign 4

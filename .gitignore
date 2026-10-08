@@ -104,6 +104,7 @@
 !mm/*.S
 !mm/*.s
 !mm/*.mk
+!mm/Kconfig
 
 # Kconfig parser sources; build outputs under scripts/kconfig/build stay ignored.
 !scripts/kconfig/

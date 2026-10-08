@@ -1,0 +1,19 @@
+menu "Memory Management"
+
+config MAX_ORDER
+	int "Number of buddy orders"
+	range 1 11
+	default 11
+	help
+	  Number of free-list levels, not the largest valid order. A value of 11
+	  allows orders 0 through 10, with a largest block of 4 MiB on 4 KiB pages.
+
+config USTACK_PAGES
+	int "Initial user stack reservation in pages"
+	range 1 256
+	default 16
+	help
+	  Main user stack size in 4 KiB pages, with an unmapped guard below it.
+	  Only pages containing startup arguments are allocated during creation.
+
+endmenu
