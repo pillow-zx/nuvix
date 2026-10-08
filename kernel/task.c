@@ -43,7 +43,7 @@ struct task *task_alloc(struct proc *proc, bool leader)
         return NULL;
 
     refcount_set(&task->refcount, 1);
-    task->tid = leader ? proc->tgid : move(tid);
+    task->tid = leader ? proc->tgid : (unsigned int)move(tid);
     task->cpu_id = TASK_CPU_NONE;
     task->state = TASK_NEW;
     INIT_LIST_HEAD(&task->rq_node);

@@ -54,7 +54,8 @@ int time_ticks_from_timespec(const struct timespec64 *ts, uint64_t *ticks)
 {
     uint64_t value, fraction;
 
-    if (ts->tv_sec < 0 || ts->tv_nsec < 0 || ts->tv_nsec >= NSEC_PER_SEC)
+    if (ts->tv_sec < 0 || ts->tv_nsec < 0 ||
+        ts->tv_nsec >= (int64_t)NSEC_PER_SEC)
         return -EINVAL;
     if (check_mul_overflow((uint64_t)ts->tv_sec, timebase_frequency, &value))
         return -EOVERFLOW;

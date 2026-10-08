@@ -103,7 +103,7 @@ static int scan_reg(const void *blob, int node, int parent, bool no_map,
     if (len <= 0 || len % (stride * sizeof(*reg)))
         return -EINVAL;
 
-    for (int i = 0; i < len / sizeof(*reg); i += stride) {
+    for (int i = 0; i < len / (int)sizeof(*reg); i += stride) {
         uint64_t base = read_cells(reg + i, address_cells);
         uint64_t size = read_cells(reg + i + address_cells, size_cells);
         int ret = visit_range(base, size, no_map, visit, arg);
@@ -233,7 +233,7 @@ int dtb_scan_cpus(const struct dtb *dtb, dtb_cpu_fn visit, void *arg)
         reg = fdt_getprop(blob, node, "reg", &len);
         if (!reg)
             return fdt_errno(len);
-        if (len != address_cells * sizeof(*reg))
+        if (len != address_cells * (int)sizeof(*reg))
             return -EINVAL;
         ret = visit(read_cells(reg, address_cells), arg);
         if (ret)

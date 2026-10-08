@@ -62,7 +62,7 @@ static int plic_reg(const void *blob, int node, paddr_t *base, uint64_t *size)
             return -EOPNOTSUPP;
     }
     reg = fdt_getprop(blob, node, "reg", &len);
-    if (!reg || len != (address_cells + size_cells) * sizeof(*reg))
+    if (!reg || len != (address_cells + size_cells) * (int)sizeof(*reg))
         return -EINVAL;
     *base = read_cells(reg, address_cells);
     *size = read_cells(reg + address_cells, size_cells);
@@ -108,7 +108,7 @@ static int plic_contexts(const void *blob, int node, unsigned int *contexts)
         if (address_cells != 1 && address_cells != 2)
             return -EOPNOTSUPP;
         reg = fdt_getprop(blob, cpu_node, "reg", &prop_len);
-        if (!reg || prop_len != address_cells * sizeof(*reg))
+        if (!reg || prop_len != address_cells * (int)sizeof(*reg))
             return -EINVAL;
         hart_id = read_cells(reg, address_cells);
         for (unsigned int cpu = 0; cpu < nr_cpus; ++cpu) {

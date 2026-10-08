@@ -51,7 +51,7 @@ static inline void cpu_state_set(struct cpu *cpu, enum cpu_state state)
     __atomic_store_n(&cpu->state, state, __ATOMIC_RELEASE);
 }
 
-static inline struct cpu *this_cpu()
+static inline struct cpu *this_cpu(void)
 {
     return &cpus[current_cpu_id()];
 }

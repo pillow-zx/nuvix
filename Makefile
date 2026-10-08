@@ -159,7 +159,9 @@ COMMON_FLAGS += -I arch/$(ARCH)/include
 COMMON_FLAGS += -I include
 COMMON_FLAGS += -include $(AUTOCONF_H)
 
-CFLAGS := -Wall -Werror -Wformat
+CFLAGS := -Wall -Wextra -Werror -Wformat=2
+CFLAGS += -Wstrict-prototypes -Wmissing-prototypes -Wundef
+CFLAGS += -Wframe-larger-than=2048
 CFLAGS += -Wno-unknown-attributes
 CFLAGS += -Wno-main
 CFLAGS += -std=gnu17

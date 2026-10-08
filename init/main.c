@@ -15,7 +15,9 @@
 #include <nuvix/kthread.h>
 #include <nuvix/irq.h>
 
-__noreturn
+/* Called by the architecture's boot assembly. */
+void kernel_main(unsigned long hart, paddr_t dtb_pa) __noreturn;
+
 void kernel_main(unsigned long hart, paddr_t dtb_pa)
 {
     struct dtb dtb;
