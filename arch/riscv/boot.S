@@ -51,7 +51,7 @@ _start:
 .Lvirtual:
     add         sp, sp, s3
     add         s2, s2, s3
-    lla         t0, trap_entry
+    lla         t0, __alltraps
     csrw        stvec, t0
 
     lla         tp, boot_task
@@ -100,7 +100,7 @@ smp_entry:
     fence.i
     mv          tp, s0
     mv          sp, s1
-    lla         t0, trap_entry
+    lla         t0, __alltraps
     csrw        stvec, t0
     call        smp_main
     j           .Lpark

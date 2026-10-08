@@ -2,6 +2,7 @@
 #define _NUVIX_RISCV_TASK_H
 
 /* RV64 offsets from struct task; keep in sync with task and task_context. */
+#define TASK_KSTACK  72
 #define TASK_CTX_RA  80
 #define TASK_CTX_SP  88
 #define TASK_CTX_S0  96
@@ -16,16 +17,32 @@
 #define TASK_CTX_S9  168
 #define TASK_CTX_S10 176
 #define TASK_CTX_S11 184
+#define TASK_TRAP_T0 192
+#define TASK_TRAP_T1 200
+
+#ifdef CONFIG_FPU
+#define TASK_CTX_FREG(n) (208 + (n) * __SIZEOF_LONG__)
+#define TASK_CTX_FCSR    464
+#define TASK_CTX_FS      472
+#endif
 
 #ifndef __ASSEMBLER__
 
 #include <nuvix/ctypes.h>
 
-/* Kernel continuation; user registers belong to the trap/return path. */
+/* Kernel continuation and live FP state; user integers are in trap frames. */
 struct task_context {
     unsigned long ra;
     unsigned long sp;
     unsigned long s[12];
+    /* Temporary user-entry values, copied into the trap frame before C code. */
+    unsigned long trap_t0;
+    unsigned long trap_t1;
+#ifdef CONFIG_FPU
+    unsigned long fregs[32];
+    unsigned long fcsr;
+    unsigned long fs;
+#endif
 };
 
 struct task;

@@ -2,6 +2,7 @@
 #define _NUVIX_RISCV_CSR_H
 
 #define SSTATUS_SIE (1 << 1)
+#define SSTATUS_SPP (1 << 8)
 #define SSTATUS_FS  (3 << 13)
 #define SIE_SSIE    (1 << 1)
 #define SIE_STIE    (1 << 5)

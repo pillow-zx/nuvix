@@ -4,7 +4,7 @@
 #include <asm/smp.h>
 #include <asm/sbi.h>
 
-extern char smp_entry[], trap_entry[];
+extern char smp_entry[], __alltraps[];
 
 static struct cpu_boot_data boot_data[CONFIG_NR_CPUS];
 
@@ -33,7 +33,7 @@ void arch_cpu_init(void)
     csr_clear(sstatus, SSTATUS_FS);
     csr_write(sscratch, 0);
     arch_clear_ipi();
-    csr_write(stvec, (unsigned long)trap_entry);
+    csr_write(stvec, (unsigned long)__alltraps);
     csr_write(sie, SIE_SSIE | SIE_STIE);
     /* only allow cpu 0 to handle external irq */
     if (current_cpu_id() == 0)
