@@ -92,9 +92,9 @@ static inline unsigned long page_to_pfn(const struct page *page)
 }
 
 /* Returns the descriptor for the containing physical page, or NULL. */
-static inline struct page *phys_to_page(uint64_t phys_addr)
+static inline struct page *phys_to_page(uint64_t paddr)
 {
-    return pfn_to_page(phys_addr >> PAGE_SHIFT);
+    return pfn_to_page(paddr >> PAGE_SHIFT);
 }
 
 /* Returns a physical address, not a kernel virtual address. */
