@@ -26,10 +26,18 @@ int irq_parse(const struct dtb *dtb, int node, unsigned int *irq);
 
 /*
  * After irq_init(), before SMP, with local IRQs off; one handler per source.
- * Handler/data must outlive the kernel. Does not enable the hardware source.
+ * Handler/data must remain alive until unregistered, or for the kernel's lifetime.
+ * Does not enable the hardware source.
  * Returns -EINVAL for invalid arguments, -EEXIST for an already bound source.
  */
 int irq_register(unsigned int irq, irq_handler_t handler, void *data);
+
+/*
+ * Before SMP, with local IRQs off; masks the source and clears handler/data.
+ * Does not stop device activity. Returns -EINVAL for an invalid IRQ,
+ * -ENOENT for an unbound source, or the controller's disable error.
+ */
+int irq_unregister(unsigned int irq);
 
 /* After irq_init(); returns -EINVAL for an invalid IRQ. */
 int irq_enable(unsigned int irq);

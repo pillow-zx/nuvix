@@ -55,6 +55,25 @@ int irq_register(unsigned int irq, irq_handler_t handler, void *data)
     return 0;
 }
 
+int irq_unregister(unsigned int irq)
+{
+    struct irq_action *action;
+    int ret;
+
+    if (!irq || irq > nr_sources)
+        return -EINVAL;
+    Assert(local_irqs_disabled(), "IRQ unregister requires local IRQs off\n");
+    action = &irq_actions[irq];
+    if (!action->handler)
+        return -ENOENT;
+    ret = arch_irq_disable(irq);
+    if (ret)
+        return ret;
+    action->handler = NULL;
+    action->data = NULL;
+    return 0;
+}
+
 int irq_enable(unsigned int irq)
 {
     if (!irq || irq > nr_sources)

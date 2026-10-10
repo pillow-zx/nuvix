@@ -30,4 +30,6 @@
 #define __move_2(p, invalid) __move(p, invalid)
 #define move(...) __THIRD(__VA_ARGS__, __move_2, __move_1)(__VA_ARGS__)
 
+#define keep(p)   ((void)move(p))
+
 #endif
