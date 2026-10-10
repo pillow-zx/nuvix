@@ -8,25 +8,25 @@
 #define BLK_MAX_IO_SIZE PAGE_SIZE
 
 struct page;
-struct block_device;
+struct blkdev;
 
 /* All operations are supplied; read/write receive already validated ranges. */
-struct block_device_ops {
-    int (*read)(struct block_device *dev, uint64_t sector, struct page *page,
+struct blkdev_ops {
+    int (*read)(struct blkdev *dev, uint64_t sector, struct page *page,
                 size_t offset, size_t length);
-    int (*write)(struct block_device *dev, uint64_t sector, struct page *page,
+    int (*write)(struct blkdev *dev, uint64_t sector, struct page *page,
                  size_t offset, size_t length);
-    int (*flush)(struct block_device *dev);
+    int (*flush)(struct blkdev *dev);
 };
 
 /* Immutable after boot; the device and its ops remain alive permanently. */
-struct block_device {
+struct blkdev {
     uint64_t sectors;
-    const struct block_device_ops *ops;
+    const struct blkdev_ops *ops;
 };
 
 /* Published at boot after the root driver starts successfully; NULL until then. */
-extern struct block_device *root_bdev;
+extern struct blkdev *root_bdev;
 
 /*
  * Ordinary sleepable context, with no caller short locks/preempt-disable levels;
@@ -38,9 +38,9 @@ extern struct block_device *root_bdev;
  * Returns 0 for the entire transfer or a negative errno. An error may still
  * leave some read data changed or some disk sectors written; no automatic retry.
  */
-int blk_read(struct block_device *dev, uint64_t sector, struct page *page,
+int blk_read(struct blkdev *dev, uint64_t sector, struct page *page,
              size_t offset, size_t length);
-int blk_write(struct block_device *dev, uint64_t sector, struct page *page,
+int blk_write(struct blkdev *dev, uint64_t sector, struct page *page,
               size_t offset, size_t length);
 
 /*
@@ -48,6 +48,6 @@ int blk_write(struct block_device *dev, uint64_t sector, struct page *page,
  * persistence; this flush does not wait for other in-flight requests or exclude
  * new submissions. Returns 0 or a negative errno.
  */
-int blk_flush(struct block_device *dev);
+int blk_flush(struct blkdev *dev);
 
 #endif /* _NUVIX_BLKDEV_H */

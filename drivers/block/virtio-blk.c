@@ -60,7 +60,7 @@ struct virtio_blk_request {
 };
 
 struct virtio_blk {
-    struct block_device bdev;
+    struct blkdev bdev;
     struct virtqueue *vq;
     struct virtio_blk_wire *wire;
     /* Lock order: available.lock before vq->lock. */
@@ -158,7 +158,7 @@ release:
     return ret;
 }
 
-static int virtio_blk_read(struct block_device *dev, uint64_t sector,
+static int virtio_blk_read(struct blkdev *dev, uint64_t sector,
                            struct page *page, size_t offset, size_t length)
 {
     struct virtio_blk *blk = container_of(dev, struct virtio_blk, bdev);
@@ -166,7 +166,7 @@ static int virtio_blk_read(struct block_device *dev, uint64_t sector,
     return submit_request(blk, VIRTIO_BLK_T_IN, sector, page, offset, length);
 }
 
-static int virtio_blk_write(struct block_device *dev, uint64_t sector,
+static int virtio_blk_write(struct blkdev *dev, uint64_t sector,
                             struct page *page, size_t offset, size_t length)
 {
     struct virtio_blk *blk = container_of(dev, struct virtio_blk, bdev);
@@ -174,14 +174,14 @@ static int virtio_blk_write(struct block_device *dev, uint64_t sector,
     return submit_request(blk, VIRTIO_BLK_T_OUT, sector, page, offset, length);
 }
 
-static int virtio_blk_flush(struct block_device *dev)
+static int virtio_blk_flush(struct blkdev *dev)
 {
     struct virtio_blk *blk = container_of(dev, struct virtio_blk, bdev);
 
     return submit_request(blk, VIRTIO_BLK_T_FLUSH, 0, NULL, 0, 0);
 }
 
-static const struct block_device_ops virtio_blk_ops = {
+static const struct blkdev_ops virtio_blk_ops = {
     .read = virtio_blk_read,
     .write = virtio_blk_write,
     .flush = virtio_blk_flush,

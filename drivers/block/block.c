@@ -1,9 +1,9 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 
-struct block_device *root_bdev;
+struct blkdev *root_bdev;
 
-static int blk_validate(const struct block_device *dev, uint64_t sector,
+static int blk_validate(const struct blkdev *dev, uint64_t sector,
                         const struct page *page, size_t offset, size_t length)
 {
     if (!dev)
@@ -18,7 +18,7 @@ static int blk_validate(const struct block_device *dev, uint64_t sector,
     return 0;
 }
 
-int blk_read(struct block_device *dev, uint64_t sector, struct page *page,
+int blk_read(struct blkdev *dev, uint64_t sector, struct page *page,
              size_t offset, size_t length)
 {
     int ret = blk_validate(dev, sector, page, offset, length);
@@ -26,7 +26,7 @@ int blk_read(struct block_device *dev, uint64_t sector, struct page *page,
     return ret ? ret : dev->ops->read(dev, sector, page, offset, length);
 }
 
-int blk_write(struct block_device *dev, uint64_t sector, struct page *page,
+int blk_write(struct blkdev *dev, uint64_t sector, struct page *page,
               size_t offset, size_t length)
 {
     int ret = blk_validate(dev, sector, page, offset, length);
@@ -34,7 +34,7 @@ int blk_write(struct block_device *dev, uint64_t sector, struct page *page,
     return ret ? ret : dev->ops->write(dev, sector, page, offset, length);
 }
 
-int blk_flush(struct block_device *dev)
+int blk_flush(struct blkdev *dev)
 {
     return dev ? dev->ops->flush(dev) : -ENODEV;
 }
