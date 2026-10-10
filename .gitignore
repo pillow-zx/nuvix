@@ -47,6 +47,10 @@
 !drivers/*.s
 !drivers/*.mk
 !drivers/Kconfig
+!drivers/char/
+!drivers/char/*.c
+!drivers/block/
+!drivers/block/*.c
 !drivers/virtio/
 !drivers/virtio/*.c
 
