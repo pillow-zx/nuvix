@@ -23,6 +23,10 @@ int dtb_get_string(const struct dtb *dtb, const char *path,
                    const char *property, const char **value);
 int dtb_get_u32(const struct dtb *dtb, const char *path, const char *property,
                 uint32_t *value);
+/* 1 for an available node, 0 for a disabled node, or a negative error. */
+int dtb_node_available(const struct dtb *dtb, int node);
+/* CPU physical ranges; currently only identity-translated peripheral buses. */
+int dtb_scan_reg(const struct dtb *dtb, int node, dtb_range_fn visit, void *arg);
 int dtb_scan_memory(const struct dtb *dtb, dtb_range_fn visit, void *arg);
 int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg);
 int dtb_scan_cpus(const struct dtb *dtb, dtb_cpu_fn visit, void *arg);

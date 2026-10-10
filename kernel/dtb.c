@@ -62,6 +62,11 @@ static int node_available(const void *blob, int node)
     return !strcmp(status, "okay") || !strcmp(status, "ok");
 }
 
+int dtb_node_available(const struct dtb *dtb, int node)
+{
+    return node_available(dtb->blob, node);
+}
+
 static uint64_t read_cells(const fdt32_t *cells, int count)
 {
     uint64_t value = 0;
@@ -112,6 +117,21 @@ static int scan_reg(const void *blob, int node, int parent, bool no_map,
             return ret;
     }
     return 0;
+}
+
+int dtb_scan_reg(const struct dtb *dtb, int node, dtb_range_fn visit, void *arg)
+{
+    const void *blob = dtb->blob;
+    int parent = fdt_parent_offset(blob, node);
+    int len;
+
+    if (parent < 0)
+        return -EINVAL;
+    /* Only identity-translated buses, as used by QEMU virt. */
+    for (int bus = parent; bus > 0; bus = fdt_parent_offset(blob, bus))
+        if (!fdt_getprop(blob, bus, "ranges", &len) || len)
+            return -EOPNOTSUPP;
+    return scan_reg(blob, node, parent, false, visit, arg);
 }
 
 int dtb_scan_memory(const struct dtb *dtb, dtb_range_fn visit, void *arg)
