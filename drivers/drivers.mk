@@ -7,3 +7,4 @@ obj-$(CONFIG_VIRTIO_BLK)								+= drivers/virtio-blk.c
 
 obj-y += drivers/device.c
 obj-y += drivers/platform.c
+obj-y += drivers/init.c

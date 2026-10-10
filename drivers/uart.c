@@ -1,13 +1,11 @@
 #include <asm/io.h>
 #include <asm/layout.h>
 #include <nuvix/assert.h>
-#include <nuvix/dtb.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
 #include <nuvix/kfifo.h>
-#include <nuvix/libfdt.h>
+#include <nuvix/platform.h>
 #include <nuvix/printk.h>
-#include <nuvix/string.h>
 #include <nuvix/wait.h>
 
 #define UART_RX           0
@@ -59,6 +57,9 @@ static struct {
     uint64_t lsr_errors;
 } uart_rx;
 
+static int uart_putchar(int c);
+static int uart_getchar(void);
+
 static inline uint8_t uart_read(unsigned int reg)
 {
     return readb((const volatile void *)(uintptr_t)(UART_VBASE + reg));
@@ -77,22 +78,6 @@ static uint8_t uart_read_lsr(void)
     if (lsr & UART_LSR_ERRORS)
         __atomic_fetch_add(&uart_rx.lsr_errors, 1, __ATOMIC_RELAXED);
     return lsr;
-}
-
-static int uart_irq_source(const struct dtb *dtb, unsigned int *irq)
-{
-    const void *blob = dtb->blob;
-    const char *status;
-    int node, len;
-
-    node = fdt_node_offset_by_compatible(blob, -1, "ns16550a");
-    if (node < 0)
-        return -ENODEV;
-    status = fdt_getprop(blob, node, "status", &len);
-    if (status && !((len == 5 && !memcmp(status, "okay", 5)) ||
-                    (len == 3 && !memcmp(status, "ok", 3))))
-        return -ENODEV;
-    return irq_parse(dtb, node, irq);
 }
 
 static void uart_irq(void *data)
@@ -132,20 +117,27 @@ static void uart_irq(void *data)
         wake_up_all(&uart_rx.wait);
 }
 
-int uart_init(const struct dtb *dtb)
+static int uart_probe(struct device *dev)
 {
+    const struct platform_device *pdev = to_platform_device(dev);
+    const struct resource *mem = platform_get_resource(pdev, RES_MEM, 0);
+    const struct resource *irq_res = platform_get_resource(pdev, RES_IRQ, 0);
     unsigned int divisor = UART_CLOCK / (UART_CLOCK_DIVISOR * UART_BAUD);
     unsigned int irq;
-    int ret = uart_irq_source(dtb, &irq);
+    int ret;
 
-    if (ret)
-        return ret;
+    if (!mem || !irq_res)
+        return -EINVAL;
+    if (pdev->nres != 2 || mem->start != UART_PBASE || mem->size <= UART_MSR ||
+        mem->size > PAGE_SIZE)
+        return -EOPNOTSUPP;
+    irq = irq_res->start;
     wait_queue_init(&uart_rx.wait);
     ret = kfifo_init(&uart_rx.fifo, uart_rx.buffer, sizeof(uart_rx.buffer));
     if (ret)
         return ret;
 
-    /* Clear DLAB before accessing IER and keep RX masked until registration. */
+    /* Clear DLAB before accessing IER and keep RX masked until IRQ setup succeeds. */
     uart_write(UART_LCR, UART_LCR_8N1);
     uart_write(UART_IER, 0);
     uart_write(UART_LCR, UART_LCR_8N1 | UART_LCR_DLAB);
@@ -163,16 +155,19 @@ int uart_init(const struct dtb *dtb)
     if (ret)
         return ret;
     ret = irq_enable(irq);
-    if (ret)
+    if (ret) {
+        Assert(!irq_unregister(irq), "UART IRQ unregister failed\n");
         return ret;
+    }
     uart_write(UART_IER, UART_IER_RDI | UART_IER_RLSI);
 
+    dev->drvdata = &uart_rx;
     putchar = uart_putchar;
     getchar = uart_getchar;
     return 0;
 }
 
-int uart_putchar(int c)
+static int uart_putchar(int c)
 {
     while (!(uart_read_lsr() & UART_LSR_THRE))
         ;
@@ -180,10 +175,30 @@ int uart_putchar(int c)
     return (uint8_t)c;
 }
 
-int uart_getchar(void)
+static int uart_getchar(void)
 {
     uint8_t c;
 
     wait_event(&uart_rx.wait, kfifo_get(&uart_rx.fifo, &c));
     return c;
+}
+
+static const struct of_device_id uart_ids[] = {
+    {.compatible = "ns16550a"},
+    {NULL},
+};
+
+static struct platform_driver uart_driver = {
+    .drv =
+        {
+            .name = "uart",
+            .bus = &platform_bus,
+            .probe = uart_probe,
+        },
+    .ids = uart_ids,
+};
+
+int uart_register(void)
+{
+    return driver_register(&uart_driver.drv);
 }

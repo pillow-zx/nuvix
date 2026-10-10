@@ -5,13 +5,6 @@
 #include <nuvix/stdarg.h>
 #include <nuvix/macro.h>
 
-#ifdef CONFIG_UART
-struct dtb;
-int uart_init(const struct dtb *dtb);
-int uart_putchar(int c);
-int uart_getchar(void);
-#endif
-
 extern int (*putchar)(int c);
 extern int (*getchar)(void);
 

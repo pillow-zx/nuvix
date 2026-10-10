@@ -14,6 +14,7 @@
 #include <nuvix/timer.h>
 #include <nuvix/kthread.h>
 #include <nuvix/irq.h>
+#include <nuvix/device.h>
 
 /* Called by the architecture's boot assembly. */
 void kernel_main(unsigned long hart, paddr_t dtb_pa) __noreturn;
@@ -55,16 +56,17 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     ret = irq_init(&dtb);
     BOOTINFO(ret, IRQ);
 
-    IFDEF(CONFIG_UART, {
-        ret = uart_init(&dtb);
-        BOOTINFO(ret, UART);
-    });
-
     ret = tick_init(&dtb);
     BOOTINFO(ret, clock);
 
     timers_init();
     pr_info("timer: initialization success\n");
+
+    ret = device_init(&dtb);
+    BOOTINFO(ret, devices);
+
+    ret = driver_init();
+    BOOTINFO(ret, drivers);
 
     ret = smp_init();
     BOOTINFO(ret, SMP);
