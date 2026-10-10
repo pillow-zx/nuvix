@@ -2,6 +2,7 @@
 #define _NUVIX_SPINLOCK_H
 
 #include <nuvix/atomic.h>
+#include <nuvix/cleanup.h>
 #include <nuvix/preempt.h>
 
 /*
@@ -112,5 +113,13 @@ static __always_inline void spin_unlock_irqrestore(spinlock_t *lock,
     do {                                                                       \
         (flags) = __spin_lock_irqsave(lock);                                   \
     } while (0)
+
+DECLARE_GUARD(spinlock, spinlock_t *, spin_lock(state->value),
+              spin_unlock(state->value))
+
+DECLARE_GUARD(spinlock_irqsave, spinlock_t *,
+              spin_lock_irqsave(state->value, state->flags),
+              spin_unlock_irqrestore(state->value, state->flags),
+              unsigned long flags)
 
 #endif /* _NUVIX_SPINLOCK_H */

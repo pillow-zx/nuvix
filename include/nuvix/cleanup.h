@@ -32,4 +32,27 @@
 
 #define keep(p)   ((void)move(p))
 
+#define DECLARE_GUARD(_name, _type, _acquire, _release, ...)                   \
+    typedef struct {                                                           \
+        _type value;                                                           \
+        __VA_ARGS__;                                                           \
+    } guard_##_name##_t;                                                       \
+    static __maybe_unused __always_inline void __guard_##_name##_leave(        \
+        guard_##_name##_t *state)                                              \
+    {                                                                          \
+        _release;                                                              \
+    }                                                                          \
+    static __maybe_unused __always_inline guard_##_name##_t                    \
+    __guard_##_name##_enter(_type value)                                       \
+    {                                                                          \
+        guard_##_name##_t saved = {.value = value};                            \
+        guard_##_name##_t *state = &saved;                                     \
+        _acquire;                                                              \
+        return saved;                                                          \
+    }
+
+#define guard(name, value)                                                     \
+    guard_##name##_t UNIQUE(guard) __cleanup(__guard_##name##_leave) =         \
+        __guard_##name##_enter(value)
+
 #endif
