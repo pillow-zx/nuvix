@@ -47,6 +47,8 @@
 !drivers/*.s
 !drivers/*.mk
 !drivers/Kconfig
+!drivers/virtio/
+!drivers/virtio/*.c
 
 # Filesystems.
 !fs/*.c
