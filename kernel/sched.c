@@ -360,7 +360,7 @@ void sched_irq_exit(void)
 }
 
 __noreturn
-void sched_idle(void)
+void sched_task(void)
 {
     struct rq *rq = this_rq();
 

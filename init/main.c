@@ -76,7 +76,7 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
 
 #undef BOOTINFO
 
-    sched_idle();
+    sched_task();
 
 halt:
     panic("Kernel has been halted...\n");

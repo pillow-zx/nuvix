@@ -190,7 +190,7 @@ void smp_main(void)
         if (cpu_boot_failed())
             halt();
     }
-    sched_idle();
+    sched_task();
 }
 
 void cpu_send_resched(unsigned int cpu_id)

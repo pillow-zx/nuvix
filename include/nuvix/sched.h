@@ -134,6 +134,6 @@ void sched_finish_switch(struct task *prev);
 void sched_tick(uint64_t now);
 void sched_irq_exit(void);
 /* Initial per-CPU idle context, with the boot preempt-disable level retained. */
-__noreturn void sched_idle(void);
+__noreturn void sched_task(void);
 
 #endif /* _NUVIX_SCHED_H */
