@@ -11,6 +11,7 @@ COMMON_SRCS += $(obj)/lexer.lex.c $(obj)/parser.tab.c
 HOSTCFLAGS ?= -O2 -g
 HOSTCFLAGS += -Wall -Wmissing-prototypes -Wstrict-prototypes
 HOSTCFLAGS += -DYYDEBUG -I. -I$(obj)
+HOSTCFLAGS += -MMD -MP
 
 ifeq ($(NAME),conf)
 SRCS := $(COMMON_SRCS) conf.c
@@ -30,12 +31,12 @@ objs := $(patsubst %.c,$(obj)/obj-$(NAME)/%.o,$(SRCS))
 
 all: $(target)
 
-$(target): $(objs)
+$(target): $(objs) Makefile
 	@mkdir -p $(dir $@)
 	@printf '  HOSTLD  %s\n' '$@'
 	@$(HOSTCC) -o $@ $(objs) $(HOSTLDLIBS)
 
-$(obj)/obj-$(NAME)/%.o: %.c
+$(obj)/obj-$(NAME)/%.o: %.c Makefile
 	@mkdir -p $(dir $@)
 	@printf '  HOSTCC  %s\n' '$@'
 	@$(HOSTCC) $(HOSTCFLAGS) -c -o $@ $<
@@ -45,7 +46,7 @@ $(obj)/lexer.lex.c: lexer.l $(obj)/parser.tab.h
 	@printf '  LEX     %s\n' '$@'
 	@$(LEX) -o $@ $<
 
-$(obj)/parser.tab.c $(obj)/parser.tab.h: parser.y
+$(obj)/parser.tab.c $(obj)/parser.tab.h &: parser.y
 	@mkdir -p $(dir $@)
 	@printf '  YACC    %s\n' '$(obj)/parser.tab.c'
 	@$(BISON) -v $< --defines=$(obj)/parser.tab.h -o $(obj)/parser.tab.c
@@ -58,5 +59,7 @@ mconf:
 
 clean:
 	@rm -rf $(obj)
+
+-include $(objs:.o=.d)
 
 .PHONY: all conf mconf clean
