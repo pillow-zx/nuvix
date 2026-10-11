@@ -206,6 +206,7 @@ include kernel/kernel.mk
 include mm/mm.mk
 include lib/lib.mk
 include drivers/drivers.mk
+include fs/fs.mk
 
 # Object collection, generic rules, and the kernel image.
 #
