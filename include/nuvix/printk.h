@@ -19,7 +19,7 @@ int printk(const char *fmt, ...) __printf(1, 2);
 #define LOG_LEVEL_ERROR   5
 
 #define printk_level(level, fmt, ...)                                          \
-    ((level) >= CONFIG_LOG_LEVEL ? printk(fmt, ##__VA_ARGS__) : 0)
+    ((void)((level) >= CONFIG_LOG_LEVEL ? printk(fmt, ##__VA_ARGS__) : 0))
 
 #ifndef pr_fmt
 #define pr_fmt(fmt) fmt
