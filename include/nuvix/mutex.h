@@ -24,7 +24,4 @@ bool mutex_trylock(struct mutex *mutex);
 /* Owner-only, outside hard IRQ; keep the mutex alive until this returns. */
 void mutex_unlock(struct mutex *mutex);
 
-DECLARE_GUARD(mutex, struct mutex *, mutex_lock(state->value),
-              mutex_unlock(state->value))
-
 #endif /* _NUVIX_MUTEX_H */
