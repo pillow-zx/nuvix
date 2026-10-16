@@ -9,25 +9,22 @@ struct file;
 
 struct fdtable {
     spinlock_t lock;
-    /* Indexed by fd; NULL slots have no installed file. Protected by lock. */
-    vector(struct file *) files;
+    struct file **files;
+    unsigned long bitmap;
 };
 
-/* Exclusive initialization; reserves empty slots for stdin/stdout/stderr. */
-static inline int fdtable_init(struct fdtable *table)
-{
-    spin_lock_init(&table->lock);
-    vector_init(table->files);
-    return vector_resize(table->files, 3);
-}
+int fdtable_init(struct fdtable *fdt);
 
-/* Exclusive teardown after all file references have been detached. */
-static inline void fdtable_destroy(struct fdtable *table)
-{
-    for (size_t fd = 0; fd < vector_size(table->files); ++fd)
-        Assert(!vector_at(table->files, fd),
-               "fdtable destruction requires detached files\n");
-    vector_destroy(table->files);
-}
+void fdtable_destroy(struct fdtable *fdt);
+
+int fd_alloc(struct fdtable *fdt);
+
+void fd_release(struct fdtable *fdt, unsigned long fd);
+
+void fd_install(struct fdtable *fdt, unsigned long fd, struct file *file);
+
+struct file *fd_open(struct fdtable *fdt, unsigned long fd);
+
+int fd_close(struct fdtable *fdt, unsigned long fd);
 
 #endif /* _NUVIX_FDTABLE_H */
