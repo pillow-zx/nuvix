@@ -67,6 +67,12 @@
 !fs/ext2/*.S
 !fs/ext2/*.s
 !fs/ext2/*.mk
+!fs/fat/
+!fs/fat/*.c
+!fs/fat/*.h
+!fs/fat/*.S
+!fs/fat/*.s
+!fs/fat/*.mk
 !fs/vfs/
 !fs/vfs/*.c
 !fs/vfs/*.h

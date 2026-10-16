@@ -4,6 +4,12 @@
 #include <nuvix/refcount.h>
 #include <nuvix/mutex.h>
 #include <nuvix/ctypes.h>
+
+#define O_RDONLY  00000000
+#define O_WRONLY  00000001
+#define O_RDWR    00000002
+#define O_ACCMODE 00000003
+
 struct file;
 struct file_operations;
 
@@ -29,5 +35,8 @@ struct file *fget(struct file *file);
 
 void fput(struct file *file);
 
+int vfs_mount(void);
+
+struct file *vfs_open(const char *path, unsigned long flags);
 
 #endif /* ifndef _NUVIX_VFS_H */
