@@ -41,6 +41,8 @@ struct trap_frame {
     IFDEF(CONFIG_FPU, unsigned long fcsr);
 } __aligned(16);
 
+#define syscallarg(frame, n) ((frame)->regs[10 + (n)])
+
 void trap_handler(struct trap_frame *frame);
 
 #endif /* __ASSEMBLER__ */

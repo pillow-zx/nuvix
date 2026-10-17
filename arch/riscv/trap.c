@@ -7,6 +7,7 @@
 #include <nuvix/irq.h>
 #include <nuvix/mm.h>
 #include <nuvix/printk.h>
+#include <nuvix/syscall.h>
 
 static_assert(sizeof(struct trap_frame) == TRAP_SIZE,
               "invalid trap frame size");
@@ -65,6 +66,12 @@ static void do_exception(struct trap_frame *frame)
               (void *)frame->scause, (void *)frame->sepc, (void *)frame->stval);
 
     switch (frame->scause) {
+    case SCAUSE_ECALL_U:
+        frame->sepc += 4;
+        local_irq_enable();
+        syscallarg(frame, 0) = syscall_dispatch(frame->regs[17], frame);
+        local_irq_disable();
+        return;
     case SCAUSE_INST_PAGE_FAULT:
         access = VM_EXEC;
         break;
