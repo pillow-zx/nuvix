@@ -14,6 +14,7 @@ obj-y += arch/riscv/entry.S
 obj-y += arch/riscv/switch.S
 obj-y += arch/riscv/uaccess.S
 obj-y += arch/riscv/trap.c
+obj-y += arch/riscv/task.c
 obj-y += arch/riscv/irq.c
 obj-y += arch/riscv/pgtable.c
 obj-y += arch/riscv/cpu.c

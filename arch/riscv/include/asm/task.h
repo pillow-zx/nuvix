@@ -46,19 +46,12 @@ struct task;
 
 struct task *__switch_to(struct task *prev, struct task *next);
 
-__noreturn void __ktask_entry(void);
+int arch_utask_init(struct task *task, vaddr_t entry, vaddr_t sp);
+void utask_entry(struct task *prev);
+__noreturn void __utask_entry(void);
 
-/*
- * First entry of a kernel task: ra = __kthread_entry with fn/arg in s0/s1,
- * delivered to kthread_entry(prev, fn, arg) on the first switch.
- */
-static inline void arch_ktask_init(struct task_context *ctx,
-                                     int (*fn)(void *), void *arg)
-{
-    ctx->ra = (unsigned long)__ktask_entry;
-    ctx->s[0] = (unsigned long)fn;
-    ctx->s[1] = (unsigned long)arg;
-}
+void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg);
+__noreturn void __ktask_entry(void);
 
 #endif /* __ASSEMBLER__ */
 

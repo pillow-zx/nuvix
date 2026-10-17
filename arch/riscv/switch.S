@@ -147,3 +147,11 @@ __ktask_entry:
     mv          a2, s1
     tail        ktask_entry
     .size __ktask_entry, . - __ktask_entry
+
+    .balign 4
+    .globl __utask_entry
+    .type __utask_entry, @function
+__utask_entry:
+    call        utask_entry
+    j           __trapret
+    .size __utask_entry, . - __utask_entry
