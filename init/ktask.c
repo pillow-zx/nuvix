@@ -7,6 +7,7 @@
 #include <nuvix/assert.h>
 #include <nuvix/wait.h>
 #include <nuvix/spinlock.h>
+#include <nuvix/execve.h>
 
 DEFINE_WAIT_QUEUE(reaper_wait);
 bool reaper_pending;
@@ -63,11 +64,17 @@ static int task_reaper(void *arg)
 static int kernel_init(void *args)
 {
     (void)args;
+    const char *const argv[] = {"sbin/init", NULL};
+    const char *const envp[] = {NULL};
     int ret;
 
     ret = vfs_mount();
     if (ret)
         panic("FAT mount failed (%d)\n", ret);
+
+    ret = execve("sbin/init", argv, envp);
+    if (ret)
+        panic("sbin/init load failed (%d)\n", ret);
     return 0;
 }
 
