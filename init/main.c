@@ -12,7 +12,7 @@
 #include <nuvix/tick.h>
 #include <nuvix/sched.h>
 #include <nuvix/timer.h>
-#include <nuvix/kthread.h>
+#include <nuvix/task.h>
 #include <nuvix/irq.h>
 #include <nuvix/device.h>
 
@@ -71,7 +71,7 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     ret = smp_init();
     BOOTINFO(ret, SMP);
 
-    ret = kthread_init();
+    ret = ktask_init();
     BOOTINFO(ret, kthread);
 
 #undef BOOTINFO

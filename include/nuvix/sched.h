@@ -32,6 +32,8 @@ struct rq {
 } __aligned(SMP_CACHE_BYTES);
 
 extern struct rq runqueues[CONFIG_NR_CPUS];
+extern struct wait_queue reaper_wait;
+extern bool reaper_pending;
 
 static inline struct rq *cpu_rq(unsigned int cpu_id)
 {

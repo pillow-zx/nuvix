@@ -3,8 +3,6 @@
 #include <nuvix/tick.h>
 #include <nuvix/wait.h>
 #include <nuvix/errno.h>
-#include <nuvix/kthread.h>
-#include <nuvix/proc.h>
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
 
@@ -13,50 +11,6 @@ struct rq runqueues[CONFIG_NR_CPUS];
 static DEFINE_SPINLOCK(placement_lock);
 static unsigned int next_cpu;
 static uint64_t quantum_ticks;
-static DEFINE_WAIT_QUEUE(reaper_wait);
-/* Protected by reaper_wait.lock; consumed before scanning all CPU lists. */
-static bool reaper_pending;
-
-static int task_reaper(void *arg)
-{
-    (void)arg;
-    for (;;) {
-        unsigned long flags;
-
-        wait_event(&reaper_wait, reaper_pending);
-        spin_lock_irqsave(&reaper_wait.lock, flags);
-        reaper_pending = false;
-        spin_unlock_irqrestore(&reaper_wait.lock, flags);
-
-        for (unsigned int cpu_id = 0; cpu_id < nr_cpus; ++cpu_id) {
-            struct rq *rq = cpu_rq(cpu_id);
-
-            for (;;) {
-                struct task *task;
-
-                spin_lock_irqsave(&rq->lock, flags);
-                if (list_empty(&rq->dead_list)) {
-                    spin_unlock_irqrestore(&rq->lock, flags);
-                    break;
-                }
-                task = list_first_entry(&rq->dead_list, struct task, rq_node);
-                list_del_init(&task->rq_node);
-                spin_unlock_irqrestore(&rq->lock, flags);
-                task_reap(task);
-            }
-        }
-    }
-}
-
-int task_reaper_init(void)
-{
-    struct task *task __free(task_put) = create_kthread(task_reaper, NULL);
-
-    if (!task)
-        return -ENOMEM;
-    sched_publish(task);
-    return 0;
-}
 
 static void enqueue_task(struct rq *rq, struct task *task)
 {
@@ -127,7 +81,7 @@ void sched_init_idle(unsigned int cpu_id, struct task *idle)
 {
     struct rq *rq = cpu_rq(cpu_id);
 
-    Assert(!rq->idle && idle->state == TASK_NEW && !idle->proc,
+    Assert(!rq->idle && idle->state == TASK_NEW && !idle->parent,
            "idle registration requires an unregistered NEW kernel task\n");
     task_get(idle);
     idle->cpu_id = cpu_id;
@@ -229,7 +183,7 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
 
     task_set_need_resched(prev, false);
     next = pick_next_task(rq);
-    mm = next->proc ? next->proc->mm : NULL;
+    mm = next->mm;
     if (mm != rq->active_mm) {
         if (mm)
             mm_get(mm);
