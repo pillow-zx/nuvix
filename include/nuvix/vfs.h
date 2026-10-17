@@ -6,10 +6,18 @@
 #include <nuvix/ctypes.h>
 #include <nuvix/cleanup.h>
 
-#define O_RDONLY  00000000
-#define O_WRONLY  00000001
-#define O_RDWR    00000002
-#define O_ACCMODE 00000003
+#define PATH_MAX         4096
+#define AT_FDCWD         (-100)
+
+#define O_RDONLY         00000000
+#define O_WRONLY         00000001
+#define O_RDWR           00000002
+#define O_ACCMODE        00000003
+#define O_LARGEFILE      00100000
+
+#define FILE_READ(file)  (((file)->f_flags & O_ACCMODE) != O_WRONLY)
+#define FILE_WRITE(file) (((file)->f_flags & O_ACCMODE) != O_RDONLY)
+#define FILE_RDWR(file)  (((file)->f_flags & O_ACCMODE) == O_RDWR)
 
 struct file;
 struct file_operations;
@@ -34,12 +42,16 @@ struct file {
 
 struct file *fget(struct file *file);
 
-void fput(struct file *file);
+int fput(struct file *file);
 
 DECLARE_FREE(fput, struct file *, if (_T) fput(_T));
 
 int vfs_mount(void);
 
 struct file *vfs_open(const char *path, unsigned long flags);
+
+ssize_t vfs_read(struct file *, void *, size_t, loff_t);
+
+ssize_t vfs_write(struct file *, const void *, size_t, loff_t);
 
 #endif /* ifndef _NUVIX_VFS_H */

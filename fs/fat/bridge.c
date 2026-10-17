@@ -12,7 +12,6 @@
 #include <nuvix/string.h>
 #include "diskio.h"
 #include "ff.h"
-#include "nuvix/layout.h"
 
 static DEFINE_MUTEX(fat_lock);
 

@@ -66,7 +66,7 @@
 #define __NR_renameat2       276
 #define __NR_syscalls        (__NR_renameat2 + 1)
 
-#define SYSCALL_LIST(X)
+#define SYSCALL_LIST(X) X(openat) X(close) X(read) X(write) X(readv) X(writev)
 
 struct trap_frame;
 

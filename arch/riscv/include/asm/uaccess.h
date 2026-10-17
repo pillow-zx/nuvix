@@ -7,4 +7,6 @@
 size_t __copy_from_user(void *dst, const void *src, size_t size);
 size_t __copy_to_user(void *dst, const void *src, size_t size);
 
+extern char __uaccess_load[], __uaccess_store[], __uaccess_fixup[];
+
 #endif /* _NUVIX_RISCV_UACCESS_H */

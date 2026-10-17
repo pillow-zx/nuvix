@@ -100,6 +100,7 @@ int fd_close(struct fdtable *fdt, unsigned long fd)
         }
     }
     spin_unlock_irqrestore(&fdt->lock, flags);
-    fput(file);
-    return 0;
+    if (!file)
+        return -EBADF;
+    return fput(file);
 }

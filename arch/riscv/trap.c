@@ -1,6 +1,6 @@
 #include <nuvix/assert.h>
-#include <asm/trap.h>
 #include <nuvix/cpu.h>
+#include <nuvix/errno.h>
 #include <nuvix/preempt.h>
 #include <nuvix/sched.h>
 #include <nuvix/tick.h>
@@ -8,6 +8,9 @@
 #include <nuvix/mm.h>
 #include <nuvix/printk.h>
 #include <nuvix/syscall.h>
+#include <nuvix/uaccess.h>
+#include <asm/uaccess.h>
+#include <asm/trap.h>
 
 static_assert(sizeof(struct trap_frame) == TRAP_SIZE,
               "invalid trap frame size");
@@ -19,23 +22,37 @@ IFDEF(CONFIG_FPU,
       static_assert(offsetof(struct trap_frame, fcsr) == TRAP_FCSR,
                     "invalid trap FCSR offset");)
 
-#define IRQ_S_SOFT  SCAUSE_INTERRUPT | SCAUSE_SSI
-#define IRQ_S_TIMER SCAUSE_INTERRUPT | SCAUSE_STI
-#define IRQ_S_EXT   SCAUSE_INTERRUPT | SCAUSE_SEI
+#define SUPERVISOR(frame) (frame->sstatus & SSTATUS_SPP)
+
+#define IRQ_S_SOFT        SCAUSE_INTERRUPT | SCAUSE_SSI
+#define IRQ_S_TIMER       SCAUSE_INTERRUPT | SCAUSE_STI
+#define IRQ_S_EXT         SCAUSE_INTERRUPT | SCAUSE_SEI
+
+#define die(frame, what, err)                                                  \
+    do {                                                                       \
+        if (SUPERVISOR(frame))                                                 \
+            panic("%s in supervisor mode\nscause=%#lx sepc=%#lx stval=%#lx",   \
+                  what, frame->scause, frame->sepc, frame->stval);             \
+        local_irq_enable();                                                    \
+        local_irq_disable();                                                   \
+        pr_err("task %u: %s (%d) scause=%#lx sepc=%#lx stval=%#lx\n",          \
+               current->tid, what, err, frame->scause, frame->sepc,            \
+               frame->stval);                                                  \
+        preempt_disable();                                                     \
+        sched_exit();                                                          \
+    } while (0)
 
 static bool handle_interrupt(struct trap_frame *frame)
 {
     switch (frame->scause) {
     case IRQ_S_SOFT:
         return cpu_handle_ipi();
-    case IRQ_S_TIMER: {
+    case IRQ_S_TIMER:
         tick_handle();
         return true;
-    }
-    case IRQ_S_EXT: {
+    case IRQ_S_EXT:
         arch_handle_external_irq();
         return true;
-    }
     default:
         panic("unhandled supervisor interrupt\nscause=%p sepc=%p stval=%p",
               (void *)frame->scause, (void *)frame->sepc, (void *)frame->stval);
@@ -56,21 +73,61 @@ static void do_interrupt(struct trap_frame *frame)
         sched_irq_exit();
 }
 
+static bool uaccess_fault(const struct trap_frame *frame, unsigned long access)
+{
+    unsigned long pc;
+
+    switch (access) {
+    case VM_READ:
+        pc = (unsigned long)__uaccess_load;
+        break;
+    case VM_WRITE:
+        pc = (unsigned long)__uaccess_store;
+        break;
+    default:
+        return false;
+    }
+
+    return frame->sepc == pc && SUPERVISOR(frame) &&
+           access_ok((void *)frame->stval, 1) && current->mm;
+}
+
+static int do_page_fault(struct trap_frame *frame, unsigned long access)
+{
+    int ret;
+
+    if (SUPERVISOR(frame) && !uaccess_fault(frame, access))
+        return -EFAULT;
+
+    if (!SUPERVISOR(frame) ||
+        (SUPERVISOR(frame) && !preempt_count() && !this_cpu()->irq_depth)) {
+        local_irq_enable();
+        ret = handle_page_fault(current->mm, frame->stval, access);
+        local_irq_disable();
+        if (!ret || !SUPERVISOR(frame))
+            return ret;
+    }
+
+    frame->sepc = (unsigned long)__uaccess_fixup;
+    return 0;
+}
+
+static void do_syscall(struct trap_frame *frame)
+{
+    frame->sepc += 4;
+    local_irq_enable();
+    syscallarg(frame, 0) = syscall_dispatch(frame->regs[17], frame);
+    local_irq_disable();
+}
+
 static void do_exception(struct trap_frame *frame)
 {
     unsigned long access;
     int ret;
 
-    if (frame->sstatus & SSTATUS_SPP)
-        panic("unhandled supervisor exception\nscause=%p sepc=%p stval=%p",
-              (void *)frame->scause, (void *)frame->sepc, (void *)frame->stval);
-
     switch (frame->scause) {
     case SCAUSE_ECALL_U:
-        frame->sepc += 4;
-        local_irq_enable();
-        syscallarg(frame, 0) = syscall_dispatch(frame->regs[17], frame);
-        local_irq_disable();
+        do_syscall(frame);
         return;
     case SCAUSE_INST_PAGE_FAULT:
         access = VM_EXEC;
@@ -82,24 +139,12 @@ static void do_exception(struct trap_frame *frame)
         access = VM_WRITE;
         break;
     default:
-        local_irq_enable();
-        pr_err("task %u: unhandled user exception scause=%p sepc=%p stval=%p\n",
-               current->tid, (void *)frame->scause, (void *)frame->sepc,
-               (void *)frame->stval);
-        preempt_disable();
-        sched_exit();
+        die(frame, "unhandled exception", 0);
     }
 
-    local_irq_enable();
-    ret = handle_page_fault(current->mm, frame->stval, access);
-    if (ret) {
-        pr_err("task %u: user page fault (%d) scause=%p sepc=%p stval=%p\n",
-               current->tid, ret, (void *)frame->scause, (void *)frame->sepc,
-               (void *)frame->stval);
-        preempt_disable();
-        sched_exit();
-    }
-    local_irq_disable();
+    ret = do_page_fault(frame, access);
+    if (ret)
+        die(frame, "page fault", ret);
 }
 
 void trap_handler(struct trap_frame *frame)
