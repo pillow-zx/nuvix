@@ -102,7 +102,8 @@ static int prepare_idle_tasks(void)
             return -ENOMEM;
         refcount_set(&idle->refcount, 1);
         INIT_LIST_HEAD(&idle->rq_node);
-        INIT_LIST_HEAD(&idle->proc_node);
+        INIT_LIST_HEAD(&idle->children);
+        INIT_LIST_HEAD(&idle->sibling);
         idle->kstack = (void *)__va(page_to_phys(move(stack)));
         idle->preempt_count = INIT_PREEMPT_COUNT;
         sched_init_idle(cpu_id, idle);
