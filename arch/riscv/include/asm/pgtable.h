@@ -59,7 +59,7 @@ static inline uint64_t vma_to_pte(unsigned long vma_flags)
     if (vma_flags & VM_READ)
         flags |= PTE_R;
     if (vma_flags & VM_WRITE)
-        flags |= PTE_R | PTE_W;
+        flags |= PTE_R | PTE_W | PTE_D;
     if (vma_flags & VM_EXEC)
         flags |= PTE_X;
     return flags;

@@ -35,6 +35,8 @@ struct vm_area_struct {
     vaddr_t vm_end;
     unsigned long vm_flags;
     struct rb_node vm_node;
+    struct page **vm_pages;
+    size_t vm_nr_pages;
 };
 
 /*
@@ -79,5 +81,7 @@ struct vm_area_struct *vma_find_intersection(struct mm_struct *mm,
 int vma_insert(struct mm_struct *mm, struct vm_area_struct *vma);
 /* Detaches a linked VMA and transfers ownership back to the caller. */
 void vma_remove(struct vm_area_struct *vma);
+
+int handle_page_fault(struct mm_struct *mm, vaddr_t addr, unsigned long access);
 
 #endif /* _NUVIX_MM_H */

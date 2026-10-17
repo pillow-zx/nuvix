@@ -41,7 +41,6 @@ struct trap_frame {
     IFDEF(CONFIG_FPU, unsigned long fcsr);
 } __aligned(16);
 
-/* Supported kernel IRQs return with local IRQs disabled; other traps panic. */
 void trap_handler(struct trap_frame *frame);
 
 #endif /* __ASSEMBLER__ */

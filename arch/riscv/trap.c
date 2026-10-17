@@ -5,6 +5,8 @@
 #include <nuvix/sched.h>
 #include <nuvix/tick.h>
 #include <nuvix/irq.h>
+#include <nuvix/mm.h>
+#include <nuvix/printk.h>
 
 static_assert(sizeof(struct trap_frame) == TRAP_SIZE,
               "invalid trap frame size");
@@ -55,8 +57,42 @@ static void do_interrupt(struct trap_frame *frame)
 
 static void do_exception(struct trap_frame *frame)
 {
-    panic("unhandled supervisor exception\nscause=%p sepc=%p stval=%p",
-          (void *)frame->scause, (void *)frame->sepc, (void *)frame->stval);
+    unsigned long access;
+    int ret;
+
+    if (frame->sstatus & SSTATUS_SPP)
+        panic("unhandled supervisor exception\nscause=%p sepc=%p stval=%p",
+              (void *)frame->scause, (void *)frame->sepc, (void *)frame->stval);
+
+    switch (frame->scause) {
+    case SCAUSE_INST_PAGE_FAULT:
+        access = VM_EXEC;
+        break;
+    case SCAUSE_LOAD_PAGE_FAULT:
+        access = VM_READ;
+        break;
+    case SCAUSE_STORE_PAGE_FAULT:
+        access = VM_WRITE;
+        break;
+    default:
+        local_irq_enable();
+        pr_err("task %u: unhandled user exception scause=%p sepc=%p stval=%p\n",
+               current->tid, (void *)frame->scause, (void *)frame->sepc,
+               (void *)frame->stval);
+        preempt_disable();
+        sched_exit();
+    }
+
+    local_irq_enable();
+    ret = handle_page_fault(current->mm, frame->stval, access);
+    if (ret) {
+        pr_err("task %u: user page fault (%d) scause=%p sepc=%p stval=%p\n",
+               current->tid, ret, (void *)frame->scause, (void *)frame->sepc,
+               (void *)frame->stval);
+        preempt_disable();
+        sched_exit();
+    }
+    local_irq_disable();
 }
 
 void trap_handler(struct trap_frame *frame)

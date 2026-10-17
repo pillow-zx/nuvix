@@ -3,6 +3,7 @@
 #include <nuvix/slab.h>
 #include <nuvix/errno.h>
 #include <nuvix/assert.h>
+#include <nuvix/page.h>
 
 struct vm_area_struct *vma_alloc(void)
 {
@@ -19,6 +20,9 @@ void vma_free(struct vm_area_struct *vma)
 {
     Assert(!vma->vm_mm && RB_EMPTY_NODE(&vma->vm_node),
            "VMA free requires a detached VMA\n");
+    for (size_t i = 0; i < vma->vm_nr_pages; ++i)
+        free_page(vma->vm_pages[i]);
+    kfree(vma->vm_pages);
     kfree(vma);
 }
 
@@ -98,5 +102,6 @@ void vma_remove(struct vm_area_struct *vma)
     Assert(vma->vm_mm && !RB_EMPTY_NODE(&vma->vm_node),
            "VMA remove requires a linked VMA\n");
     rb_erase(&vma->vm_node, &vma->vm_mm->vma_tree);
+    RB_CLEAR_NODE(&vma->vm_node);
     vma->vm_mm = NULL;
 }

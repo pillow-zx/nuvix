@@ -7,3 +7,4 @@ obj-y += mm/mm.c
 obj-y += mm/vma.c
 obj-y += mm/tlb.c
 obj-y += mm/uaccess.c
+obj-y += mm/page_fault.c
