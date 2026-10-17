@@ -13,6 +13,10 @@
 #define ELF_CLASS                 ELFCLASS64
 #define ELF_DATA                  ELFDATA2LSB
 
+#define ELF_HWCAP                                                              \
+    ((1UL << ('I' - 'A')) | (1UL << ('M' - 'A')) | (1UL << ('A' - 'A')) |      \
+     (1UL << ('F' - 'A')) | (1UL << ('D' - 'A')) | (1UL << ('C' - 'A')))
+
 static inline bool elf_check_arch(const struct elf64_ehdr *ehdr)
 {
     return ehdr->e_machine == ELF_ARCH &&
