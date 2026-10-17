@@ -117,7 +117,7 @@ menu "Features"
 
 config FPU
 	bool "User fpu support"
-	default n
+	default y
 
 config SMP
 	bool "SMP subsystem support"
