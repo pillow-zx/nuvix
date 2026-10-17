@@ -138,3 +138,12 @@ __switch_to:
     mv          tp, a1
     ret
     .size __switch_to, . - __switch_to
+
+    .balign 4
+    .globl __ktask_entry
+    .type __ktask_entry, @function
+__ktask_entry:
+    mv          a1, s0
+    mv          a2, s1
+    tail        ktask_entry
+    .size __ktask_entry, . - __ktask_entry

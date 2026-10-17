@@ -1,6 +1,4 @@
 #include <asm/csr.h>
-#include <asm/layout.h>
-#include <asm/task.h>
 #include <asm/trap.h>
 
     .section .text, "ax"
@@ -8,15 +6,18 @@
     .globl __alltraps
     .type __alltraps, @function
 __alltraps:
-    csrrw       tp, sscratch, tp
-    bnez        tp, .Lfrom_user
-
-    csrrw       tp, sscratch, tp
+    // switch t0 = old sscratch, sscratch = old t0
     csrrw       t0, sscratch, t0
+
+    // if sscratch is not equal to 0 -> from user
+    bnez        t0, .Lfrom_user
+
+    // ktrap path:
+    // t0 = 0
+    // sscratch = old t0
     lla         t0, .Ltrap_halt
     csrw        stvec, t0
-    csrrw       t0, sscratch, t0
-    csrw        sscratch, zero
+    csrrw       t0, sscratch, zero
 
     addi        sp, sp, -TRAP_SIZE
     sd          tp, TRAP_REG(4)(sp)
@@ -25,27 +26,22 @@ __alltraps:
     sd          t0, TRAP_REG(2)(sp)
     j           .L__context
 
+    // utrap path:
+    // t0 = frame addr
+    // sscratch = user t0
 .Lfrom_user:
-    sd          t0, TASK_TRAP_T0(tp)
-    sd          t1, TASK_TRAP_T1(tp)
-    lla         t0, .Ltrap_halt
     csrw        stvec, t0
-
-    ld          t0, TASK_KSTACK(tp)
-    li          t1, KSTACK_SIZE
-    add         t0, t0, t1
-    addi        t0, t0, -TRAP_SIZE
+    lla         t0, .Ltrap_halt
+    csrrw       t0, stvec, t0
     sd          sp, TRAP_REG(2)(t0)
+    sd          tp, TRAP_REG(4)(t0)
     mv          sp, t0
-
-    csrr        t0, sscratch
-    sd          t0, TRAP_REG(4)(sp)
-    csrw        sscratch, zero
-    ld          t0, TASK_TRAP_T0(tp)
-    ld          t1, TASK_TRAP_T1(tp)
+    csrrw       t0, sscratch, zero
     sd          t0, TRAP_REG(5)(sp)
+    ld          tp, TRAP_TASK(sp)
 
 .L__context:
+    sd          tp, TRAP_TASK(sp)
     sd          zero, TRAP_REG(0)(sp)
     sd          ra, TRAP_REG(1)(sp)
     sd          gp, TRAP_REG(3)(sp)
@@ -188,7 +184,6 @@ __trapret:
     fld         f31, TRAP_FREG(31)(sp)
     ld          t1, TRAP_FCSR(sp)
     csrw        fcsr, t1
-    /* FP restores can mark FS dirty; preserve the saved status instead. */
     csrw        sstatus, t0
 .Lno_fpu_restore:
 #endif
@@ -227,7 +222,8 @@ __trapret:
     andi        t0, t0, SSTATUS_SPP
     bnez        t0, .Lret_super
 
-    csrw        sscratch, tp
+    sd          tp, TRAP_TASK(sp)
+    csrw        sscratch, sp
     ld          tp, TRAP_REG(4)(sp)
     ld          t0, TRAP_REG(5)(sp)
     ld          sp, TRAP_REG(2)(sp)

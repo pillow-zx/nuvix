@@ -6,6 +6,16 @@
 #include <nuvix/tick.h>
 #include <nuvix/irq.h>
 
+static_assert(sizeof(struct trap_frame) == TRAP_SIZE,
+              "invalid trap frame size");
+static_assert(offsetof(struct trap_frame, task) == TRAP_TASK,
+              "invalid trap task offset");
+IFDEF(CONFIG_FPU,
+      static_assert(offsetof(struct trap_frame, fregs) == TRAP_FREG(0),
+                    "invalid trap FPU offset");
+      static_assert(offsetof(struct trap_frame, fcsr) == TRAP_FCSR,
+                    "invalid trap FCSR offset");)
+
 #define IRQ_S_SOFT  SCAUSE_INTERRUPT | SCAUSE_SSI
 #define IRQ_S_TIMER SCAUSE_INTERRUPT | SCAUSE_STI
 #define IRQ_S_EXT   SCAUSE_INTERRUPT | SCAUSE_SEI
