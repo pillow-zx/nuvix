@@ -4,6 +4,7 @@
 #include <nuvix/refcount.h>
 #include <nuvix/mutex.h>
 #include <nuvix/ctypes.h>
+#include <nuvix/cleanup.h>
 
 #define O_RDONLY  00000000
 #define O_WRONLY  00000001
@@ -34,6 +35,8 @@ struct file {
 struct file *fget(struct file *file);
 
 void fput(struct file *file);
+
+DECLARE_FREE(fput, struct file *, if (_T) fput(_T));
 
 int vfs_mount(void);
 
