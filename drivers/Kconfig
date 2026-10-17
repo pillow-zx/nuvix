@@ -1,6 +1,6 @@
 menu "Drivers"
 
-config UART
+config NS16550A 
 	bool "Basic serial device support"
 	default y
 

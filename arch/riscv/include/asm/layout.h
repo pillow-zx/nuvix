@@ -19,7 +19,6 @@
 
 #define IOREMAP_VBASE   0xffffffe000000000
 
-#define UART_PBASE      0x0000000010000000
 #define UART_VBASE      IOREMAP_VBASE
 #define UART_CLOCK      3686400
 

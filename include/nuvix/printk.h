@@ -4,9 +4,22 @@
 #include <nuvix/compiler.h>
 #include <nuvix/stdarg.h>
 #include <nuvix/macro.h>
+#include <asm/sbi.h>
 
-extern int (*putchar)(int c);
-extern int (*getchar)(void);
+static inline int putchar(int c)
+{
+    return sbi_putchar(c);
+}
+
+static inline int getchar(void)
+{
+    int c;
+
+    do {
+        c = sbi_getchar();
+    } while (c < 0);
+    return c;
+}
 
 int vsprintf(char *buf, const char *fmt, va_list args) __printf(2, 0);
 int vprintk(const char *fmt, va_list args) __printf(1, 0);

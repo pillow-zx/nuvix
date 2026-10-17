@@ -58,6 +58,5 @@ const struct resource *platform_get_resource(const struct platform_device *dev,
                                              enum resource_type type,
                                              unsigned int index);
 int platform_scan(const struct dtb *dtb);
-int uart_register(void);
 
 #endif /* _NUVIX_PLATFORM_H */

@@ -1,5 +1,6 @@
 #include <nuvix/device.h>
 #include <nuvix/platform.h>
+#include <nuvix/ns16550a.h>
 #include <nuvix/virtio.h>
 #include <nuvix/macro.h>
 
@@ -19,8 +20,8 @@ int device_init(const struct dtb *dtb)
 
 int driver_init(void)
 {
-    IFDEF(CONFIG_UART, {
-        int ret = uart_register();
+    IFDEF(CONFIG_NS16550A, {
+        int ret = ns16550a_register();
 
         if (ret)
             return ret;

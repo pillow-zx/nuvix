@@ -90,9 +90,8 @@ static inline struct sbiret sbi_remote_fence_i(unsigned long hart_mask,
 
 static inline int sbi_putchar(int c)
 {
-    long ret = sbi_call(SBI_EXT_0_1_CONSOLE_PUTCHAR, 0, (unsigned char)c).error;
-
-    return ret < 0 ? (int)ret : (unsigned char)c;
+    sbi_call(SBI_EXT_0_1_CONSOLE_PUTCHAR, 0, (unsigned char)c);
+    return (unsigned char)c;
 }
 
 static inline int sbi_getchar(void)

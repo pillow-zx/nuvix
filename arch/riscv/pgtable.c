@@ -307,11 +307,6 @@ int pgtable_init(struct dtb *dtb)
     ret = map_ram(pgtable_ptr(root));
     if (ret)
         return ret;
-#ifdef CONFIG_UART
-    ret = map_page(pgtable_ptr(root), UART_VBASE, UART_PBASE, PTE_KERNEL_RW);
-    if (ret)
-        return ret;
-#endif
 
     pages = (struct page *)__va((uintptr_t)mem_map);
     blob = (const void *)__va(dtb->paddr);
