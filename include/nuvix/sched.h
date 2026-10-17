@@ -63,8 +63,7 @@ static inline struct rq *this_rq(void)
 
 /* Boot-only, once after cpu_init() and tick_init(), before concurrent rq use. */
 void sched_init(void);
-/* Boot-only, after SMP is ready, before publishing other ordinary tasks. */
-int task_reaper_init(void);
+
 /*
  * Boot-only registration of a prepared NEW kernel task. Takes a permanent
  * scheduler reference. CPU bring-up binds tp and sets idle->on_cpu before

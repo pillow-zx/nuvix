@@ -85,7 +85,7 @@ int ktask_init(void)
     kreaper = task_alloc(false);
     if (!kreaper)
         return -ENOMEM;
-    arch_ktask_init(&kinit->ctx, task_reaper, NULL);
+    arch_ktask_init(&kreaper->ctx, task_reaper, NULL);
     sched_publish(kreaper);
 
     return 0;
