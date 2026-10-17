@@ -2,7 +2,6 @@
 #define _NUVIX_SPINLOCK_H
 
 #include <nuvix/atomic.h>
-#include <nuvix/cleanup.h>
 #include <nuvix/preempt.h>
 
 /*

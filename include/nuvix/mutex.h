@@ -1,7 +1,6 @@
 #ifndef _NUVIX_MUTEX_H
 #define _NUVIX_MUTEX_H
 
-#include <nuvix/cleanup.h>
 #include <nuvix/wait.h>
 
 struct mutex {
