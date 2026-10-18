@@ -70,7 +70,7 @@ static int check_layout(struct exec_image *image)
 
         if (phdr->p_type == PT_DYNAMIC)
             return -ENOEXEC;
-        if (phdr->p_type != PT_LOAD || !phdr->p_memsz)
+        if (phdr->p_type != PT_LOAD || !phdr->p_filesz)
             continue;
         if (phdr->p_vaddr < UVADDR_START ||
             phdr->p_vaddr + phdr->p_memsz > USTACK_BOTTOM - PAGE_SIZE ||

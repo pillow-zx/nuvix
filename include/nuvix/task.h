@@ -5,6 +5,7 @@
 #include <nuvix/cleanup.h>
 #include <nuvix/list.h>
 #include <nuvix/refcount.h>
+#include <nuvix/pid.h>
 #include <asm/task.h>
 
 struct fdtable;
@@ -22,9 +23,9 @@ enum task_state {
 
 struct task {
     refcount_t refcount;
-    unsigned int tid;
-    unsigned int tgid;
-    unsigned int pgid;
+    pid_t tid;
+    pid_t tgid;
+    pid_t pgid;
 
     /* Owned by rq once published; CPU is assigned at first publication. */
     unsigned int cpu_id;

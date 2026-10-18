@@ -66,7 +66,12 @@
 #define __NR_renameat2       276
 #define __NR_syscalls        (__NR_renameat2 + 1)
 
-#define SYSCALL_LIST(X) X(openat) X(close) X(read) X(write) X(readv) X(writev)
+// clang-format off
+#define SYSCALL_LIST(X)                                                        \
+    X(openat) X(close) X(read) X(write) X(readv) X(writev) X(setpgid)          \
+    X(getpgid) X(getsid) X(setsid) X(umask) X(getpid) X(getuid) X(geteuid)     \
+    X(getgid) X(getegid) X(gettid)
+// clang-format on
 
 struct trap_frame;
 

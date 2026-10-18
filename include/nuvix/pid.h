@@ -3,6 +3,8 @@
 
 #include <nuvix/cleanup.h>
 
+typedef int pid_t;
+
 /* PID and TID share [1, PID_MAX); zero is never allocated. */
 #define PID_MAX 32768
 
