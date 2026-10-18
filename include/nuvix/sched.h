@@ -24,16 +24,12 @@ struct rq {
     /* Old CPU reference transferred to switch finish for release after unlock. */
     struct mm_struct *prev_mm;
     struct list_head ready_list;
-    /* Holds the scheduler references of DEAD tasks after switch finish. */
-    struct list_head dead_list;
     /* Includes the ordinary current task, but never idle. */
     atomic_t nr_runnable;
     uint64_t quantum_deadline;
 } __aligned(SMP_CACHE_BYTES);
 
 extern struct rq runqueues[CONFIG_NR_CPUS];
-extern struct wait_queue reaper_wait;
-extern bool reaper_pending;
 
 static inline struct rq *cpu_rq(unsigned int cpu_id)
 {
@@ -120,15 +116,6 @@ __noreturn void sched_exit(void);
  */
 void sched_park(void);
 
-/*
- * Common post-switch tail, also called by a first task entry with a0 as prev.
- * Requires IRQ off, the inherited rq lock and preempt_count == 1. Clears
- * prev->on_cpu, hands DEAD tasks to the reaper, releases the old CPU mm reference
- * and notifies after unlocking.
- * A first entry must be prepared with ctx.ra,
- * an ABI-aligned ctx.sp and preempt_count == 1; after this call it consumes
- * that level and applies its own initial IRQ policy.
- */
 void sched_finish_switch(struct task *prev);
 
 /* IRQ handler requests rotation; the IRQ-off exit checks after irq_depth == 0. */

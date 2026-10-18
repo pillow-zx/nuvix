@@ -397,7 +397,7 @@ out:
 
 int execve(const char *path, const char *const argv[], const char *const envp[])
 {
-    struct task *task __free(task_put) = NULL;
+    struct task *task __free(task) = NULL;
     struct file *file __free(fput) = NULL;
     int ret;
 
@@ -414,5 +414,6 @@ int execve(const char *path, const char *const argv[], const char *const envp[])
         return ret;
 
     sched_publish(task);
+    keep(task);
     return 0;
 }

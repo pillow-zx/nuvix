@@ -34,12 +34,10 @@ IFDEF(CONFIG_FPU,
             panic("%s in supervisor mode\nscause=%#lx sepc=%#lx stval=%#lx",   \
                   what, frame->scause, frame->sepc, frame->stval);             \
         local_irq_enable();                                                    \
-        local_irq_disable();                                                   \
         pr_err("task %u: %s (%d) scause=%#lx sepc=%#lx stval=%#lx\n",          \
                current->tid, what, err, frame->scause, frame->sepc,            \
                frame->stval);                                                  \
-        preempt_disable();                                                     \
-        sched_exit();                                                          \
+        task_exit();                                                           \
     } while (0)
 
 static bool handle_interrupt(struct trap_frame *frame)

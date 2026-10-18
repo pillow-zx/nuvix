@@ -84,12 +84,40 @@ void task_get(struct task *task)
     refcount_inc(&task->refcount);
 }
 
-void task_reap(struct task *task)
+static void free_resource(struct task *task)
 {
+    struct mm_struct *mm __free(mm_put) = move(task->mm);
+    struct fdtable *fdt __free(kfree) = move(task->fdtable);
+    fdtable_destroy(fdt);
+}
+
+void task_free(struct task *task)
+{
+    Assert(task->state == TASK_NEW, "cannot discard a published task\n");
+    if (task->parent) {
+        free_resource(task);
+        pid_free(task->tid);
+    }
+    free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
+    task->kstack = NULL;
+    task_put(task);
+}
+
+__noreturn void task_exit(void)
+{
+    struct task *task = current;
     might_sleep();
+    if (task->parent)
+        free_resource(task);
+    preempt_disable();
+    sched_exit();
+}
+
+void task_finish_exit(struct task *task)
+{
     Assert(task->state == TASK_DEAD && !task->on_cpu && !task->on_rq &&
-               list_empty(&task->rq_node),
-           "task reaping requires completed exit and switch teardown\n");
+               list_empty(&task->rq_node) && !task->mm && !task->fdtable,
+           "task exit requires completed resource cleanup and switch\n");
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
     task->kstack = NULL;
     task_put(task);
@@ -99,21 +127,12 @@ void task_put(struct task *task)
 {
     if (!refcount_dec_and_test(&task->refcount))
         return;
-    Assert(task->state == TASK_NEW ||
-               (task->state == TASK_DEAD && !task->kstack),
-           "cannot destroy a published task without scheduler teardown\n");
+    Assert((task->state == TASK_NEW || task->state == TASK_DEAD) &&
+               !task->on_cpu && !task->on_rq && list_empty(&task->rq_node) &&
+               !task->kstack && !task->mm && !task->fdtable,
+           "cannot destroy a task before resource and scheduler teardown\n");
     Assert((!task->parent || task->parent == task) &&
                list_empty(&task->children) && list_empty(&task->sibling),
            "cannot destroy a task linked in the process tree\n");
-    if (task->state == TASK_NEW) {
-        free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
-        task->kstack = NULL;
-    }
-    if (task->parent) {
-        mm_put(task->mm);
-        fdtable_destroy(task->fdtable);
-        kfree(task->fdtable);
-        pid_free(task->tid);
-    }
     kfree(task);
 }

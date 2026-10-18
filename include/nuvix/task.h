@@ -61,7 +61,11 @@ void task_boot_init(void *kstack);
 
 struct task *task_alloc(bool user);
 
-void task_reap(struct task *task);
+void task_free(struct task *task);
+
+__noreturn void task_exit(void);
+
+void task_finish_exit(struct task *task);
 
 void task_get(struct task *task);
 
@@ -73,6 +77,7 @@ __noreturn void ktask_entry(struct task *prev, int (*fn)(void *), void *arg);
 __noreturn void ktask_exit(void);
 
 DECLARE_FREE(task_put, struct task *, if (_T) task_put(_T));
+DECLARE_FREE(task, struct task *, if (_T) task_free(_T));
 
 static __always_inline bool task_need_resched(const struct task *task)
 {

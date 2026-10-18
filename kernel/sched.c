@@ -1,8 +1,6 @@
 #include <nuvix/sched.h>
 #include <nuvix/assert.h>
 #include <nuvix/tick.h>
-#include <nuvix/wait.h>
-#include <nuvix/errno.h>
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
 
@@ -71,7 +69,6 @@ void sched_init(void)
         rq->active_mm = NULL;
         rq->prev_mm = NULL;
         INIT_LIST_HEAD(&rq->ready_list);
-        INIT_LIST_HEAD(&rq->dead_list);
         atomic_set(&rq->nr_runnable, 0);
         rq->quantum_deadline = 0;
     }
@@ -208,8 +205,6 @@ struct mm_struct *sched_finish_switch_locked(struct rq *rq, struct task *prev)
                  "invalid switch finish context\n"));
     Assert(prev != rq->curr, "switch finish requires a real switch\n");
     prev->on_cpu = false;
-    if (prev->state == TASK_DEAD)
-        list_add_tail(&prev->rq_node, &rq->dead_list);
     mm = rq->prev_mm;
     rq->prev_mm = NULL;
     return mm;
@@ -219,19 +214,11 @@ void sched_finish_switch(struct task *prev)
 {
     struct rq *rq = this_rq();
     bool dead = prev->state == TASK_DEAD;
-    struct mm_struct *mm;
-    unsigned long flags;
+    struct mm_struct *mm __free(mm_put) = sched_finish_switch_locked(rq, prev);
 
-    mm = sched_finish_switch_locked(rq, prev);
     __spin_unlock(&rq->lock);
-    if (mm)
-        mm_put(mm);
-    if (dead) {
-        spin_lock_irqsave(&reaper_wait.lock, flags);
-        reaper_pending = true;
-        wake_up_one_locked(&reaper_wait);
-        spin_unlock_irqrestore(&reaper_wait.lock, flags);
-    }
+    if (dead)
+        task_finish_exit(prev);
 }
 
 __noreturn void sched_exit(void)
@@ -243,6 +230,8 @@ __noreturn void sched_exit(void)
     local_irq_disable();
     __spin_lock(&rq->lock);
     Assert(prev != rq->idle, "idle cannot exit\n");
+    Assert(!prev->mm && !prev->fdtable,
+           "task resources must be detached before scheduler exit\n");
     prev->state = TASK_DEAD;
     next = sched_prepare_switch_locked(rq, false);
     (void)switch_to(prev, next);
@@ -313,8 +302,7 @@ void sched_irq_exit(void)
     sched_switch(false);
 }
 
-__noreturn
-void sched_task(void)
+__noreturn void sched_task(void)
 {
     struct rq *rq = this_rq();
 
