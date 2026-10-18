@@ -53,6 +53,16 @@ __noreturn void __utask_entry(void);
 void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg);
 __noreturn void __ktask_entry(void);
 
+static __always_inline struct task *current_task(void)
+{
+    struct task *task;
+
+    __asm__ volatile("mv %0, tp" : "=r"(task));
+    return task;
+}
+
+#define current current_task()
+
 #endif /* __ASSEMBLER__ */
 
 #endif /* _NUVIX_RISCV_TASK_H */

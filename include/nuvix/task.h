@@ -5,7 +5,6 @@
 #include <nuvix/cleanup.h>
 #include <nuvix/list.h>
 #include <nuvix/refcount.h>
-#include <asm/current.h>
 #include <asm/task.h>
 
 struct fdtable;
