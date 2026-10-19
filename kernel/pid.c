@@ -4,6 +4,8 @@
 #include <nuvix/errno.h>
 #include <nuvix/hashtable.h>
 #include <nuvix/slab.h>
+#include <nuvix/syscall.h>
+#include <asm/trap.h>
 
 static DECLARE_BITMAP(pidmap, PID_MAX) = {BIT_MASK(0)};
 static unsigned int next_pid = PID_INIT;
@@ -45,6 +47,27 @@ void pid_put(struct pid *pid)
     clear_bit(pid->nr, pidmap);
     spin_unlock(&pid_lock);
     kfree(pid);
+}
+
+static struct pid *find_pid_locked(pid_t nr)
+{
+    struct pid *pid;
+
+    assert_spin_locked(&pid_lock);
+    hash_for_each_possible (pid_table, pid, hash_node, nr) {
+        if (pid->nr == nr)
+            return pid;
+    }
+    return NULL;
+}
+
+static struct task *pid_task_locked(struct pid *pid, enum pid_type type)
+{
+    assert_spin_locked(&pid_lock);
+    if (!pid)
+        return NULL;
+    return hlist_entry_safe(pid->tasks[type].first, struct task,
+                            pid_links[type]);
 }
 
 pid_t task_pid_nr(const struct task *task, enum pid_type type)
@@ -113,4 +136,146 @@ void pid_unpublish(struct task *task)
         unhash_unused_pid(task->pids[type]);
     }
     spin_unlock(&pid_lock);
+}
+
+static void change_pid(struct task *task, enum pid_type type, struct pid *pid)
+{
+    struct pid *old = task->pids[type];
+
+    assert_spin_locked(&pid_lock);
+    hlist_del(&task->pid_links[type]);
+    refcount_inc(&pid->refcount);
+    task->pids[type] = pid;
+    hlist_add_head(&task->pid_links[type], &pid->tasks[type]);
+    unhash_unused_pid(old);
+    refcount_dec(&old->refcount);
+}
+
+long sys_setpgid(struct trap_frame *frame)
+{
+    pid_t nr = (pid_t)syscallarg(frame, 0);
+    pid_t pgid = (pid_t)syscallarg(frame, 1);
+    struct pid *old __free(pid_put) = NULL;
+    struct pid *tgid, *pgrp;
+    struct task *task, *member;
+    int ret;
+
+    spin_lock(&pid_lock);
+    if (!nr)
+        nr = current->pids[PIDTYPE_TGID]->nr;
+    if (!pgid)
+        pgid = nr;
+    ret = -EINVAL;
+    if (pgid < 0)
+        goto out;
+    ret = -ESRCH;
+    task = pid_task_locked(find_pid_locked(nr), PIDTYPE_TID);
+    if (!task)
+        goto out;
+    tgid = task->pids[PIDTYPE_TGID];
+    ret = -EINVAL;
+    if (task->pids[PIDTYPE_TID] != tgid)
+        goto out;
+    if (task != current) {
+        ret = -ESRCH;
+        if (task->parent != current)
+            goto out;
+        ret = -EPERM;
+        if (task->pids[PIDTYPE_SID] != current->pids[PIDTYPE_SID])
+            goto out;
+        ret = -EACCES;
+        if (task->did_exec)
+            goto out;
+    }
+
+    ret = -EPERM;
+    if (task->pids[PIDTYPE_SID] == tgid)
+        goto out;
+    pgrp = find_pid_locked(pgid);
+    if (pgrp != tgid) {
+        member = pid_task_locked(pgrp, PIDTYPE_PGID);
+        if (!member || member->pids[PIDTYPE_SID] != task->pids[PIDTYPE_SID])
+            goto out;
+    }
+    ret = 0;
+    old = task->pids[PIDTYPE_PGID];
+    refcount_inc(&old->refcount);
+    if (old == pgrp)
+        goto out;
+    hlist_for_each_entry (member, &tgid->tasks[PIDTYPE_TGID],
+                          pid_links[PIDTYPE_TGID]) {
+        change_pid(member, PIDTYPE_PGID, pgrp);
+    }
+out:
+    spin_unlock(&pid_lock);
+    return ret;
+}
+
+int pid_setsid(struct task *task)
+{
+    struct pid *old_pgrp __free(pid_put) = NULL;
+    struct pid *old_sid __free(pid_put) = NULL;
+    struct task *member;
+    int ret = -EPERM;
+
+    spin_lock(&pid_lock);
+    struct pid *tgid = task->pids[PIDTYPE_TGID];
+
+    if (task->pids[PIDTYPE_SID] == tgid ||
+        !hlist_empty(&tgid->tasks[PIDTYPE_PGID]))
+        goto out;
+    old_pgrp = task->pids[PIDTYPE_PGID];
+    old_sid = task->pids[PIDTYPE_SID];
+    refcount_inc(&old_pgrp->refcount);
+    refcount_inc(&old_sid->refcount);
+    hlist_for_each_entry (member, &tgid->tasks[PIDTYPE_TGID],
+                          pid_links[PIDTYPE_TGID]) {
+        change_pid(member, PIDTYPE_PGID, tgid);
+        change_pid(member, PIDTYPE_SID, tgid);
+    }
+    ret = tgid->nr;
+out:
+    spin_unlock(&pid_lock);
+    return ret;
+}
+
+static long query_pid(pid_t nr, enum pid_type type)
+{
+    struct task *task;
+    long ret = -ESRCH;
+
+    spin_lock(&pid_lock);
+    task = nr ? pid_task_locked(find_pid_locked(nr), PIDTYPE_TID) : current;
+    if (task)
+        ret = task->pids[type]->nr;
+    spin_unlock(&pid_lock);
+    return ret;
+}
+
+long sys_getpid(struct trap_frame *frame)
+{
+    (void)frame;
+    return task_pid_nr(current, PIDTYPE_TGID);
+}
+
+long sys_gettid(struct trap_frame *frame)
+{
+    (void)frame;
+    return task_pid_nr(current, PIDTYPE_TID);
+}
+
+long sys_getpgid(struct trap_frame *frame)
+{
+    return query_pid((pid_t)syscallarg(frame, 0), PIDTYPE_PGID);
+}
+
+long sys_getsid(struct trap_frame *frame)
+{
+    return query_pid((pid_t)syscallarg(frame, 0), PIDTYPE_SID);
+}
+
+long sys_setsid(struct trap_frame *frame)
+{
+    (void)frame;
+    return pid_setsid(current);
 }

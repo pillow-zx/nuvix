@@ -8,6 +8,7 @@
 #include <nuvix/assert.h>
 #include <nuvix/preempt.h>
 #include <nuvix/sched.h>
+#include <nuvix/syscall.h>
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
               "kernel task stack order must be smaller than MAX_ORDER");
@@ -136,4 +137,34 @@ void task_put(struct task *task)
         struct pid *pid __free(pid_put) = move(task->pids[type]);
     }
     kfree(task);
+}
+
+long sys_umask(struct trap_frame *frame)
+{
+    (void)frame;
+    return 0;
+}
+
+long sys_getegid(struct trap_frame *frame)
+{
+    (void)frame;
+    return 0;
+}
+
+long sys_geteuid(struct trap_frame *frame)
+{
+    (void)frame;
+    return 0;
+}
+
+long sys_getuid(struct trap_frame *frame)
+{
+    (void)frame;
+    return 0;
+}
+
+long sys_getgid(struct trap_frame *frame)
+{
+    (void)frame;
+    return 0;
 }
