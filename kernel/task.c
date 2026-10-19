@@ -189,3 +189,9 @@ long sys_dup(struct trap_frame *frame)
     fd_install(fdt, (unsigned long)newfd, move(file));
     return newfd;
 }
+
+long sys_set_tid_address(struct trap_frame *frame)
+{
+    (void)frame;
+    return 0;
+}
