@@ -82,6 +82,10 @@ int vma_insert(struct mm_struct *mm, struct vm_area_struct *vma);
 /* Detaches a linked VMA and transfers ownership back to the caller. */
 void vma_remove(struct vm_area_struct *vma);
 
+struct vm_area_struct *map_range(struct mm_struct *mm, vaddr_t start,
+                                 vaddr_t end, unsigned long vm_flags);
+void unmap_range(struct mm_struct *mm, vaddr_t start, vaddr_t end);
+
 int handle_page_fault(struct mm_struct *mm, vaddr_t addr, unsigned long access);
 
 #endif /* _NUVIX_MM_H */

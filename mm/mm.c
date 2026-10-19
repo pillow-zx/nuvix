@@ -1,6 +1,26 @@
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
 #include <nuvix/slab.h>
+#include <nuvix/page.h>
+#include <nuvix/tlb.h>
+#include <nuvix/errno.h>
+
+#define UNMAP_BATCH_PAGES 32
+
+struct unmaps {
+    struct page *pages[UNMAP_BATCH_PAGES];
+    size_t nr_pages;
+};
+
+static void unmaps_flush(struct unmaps *batch)
+{
+    if (!batch->nr_pages)
+        return;
+    flush_tlb_all();
+    for (size_t i = 0; i < batch->nr_pages; ++i)
+        free_page(batch->pages[i]);
+    batch->nr_pages = 0;
+}
 
 struct mm_struct *mm_alloc(void)
 {
@@ -23,6 +43,45 @@ struct mm_struct *mm_alloc(void)
 void mm_get(struct mm_struct *mm)
 {
     refcount_inc(&mm->refcount);
+}
+
+struct vm_area_struct *map_range(struct mm_struct *mm, vaddr_t start,
+                                 vaddr_t end, unsigned long vm_flags)
+{
+    struct vm_area_struct *vma __free(vma) = vma_alloc();
+    int ret;
+
+    if (!vma)
+        return ERR_PTR(-ENOMEM);
+    vma->vm_start = start;
+    vma->vm_end = end;
+    vma->vm_flags |= vm_flags;
+    ret = vma_insert(mm, vma);
+    if (ret)
+        return ERR_PTR(ret);
+    return move(vma);
+}
+
+void unmap_range(struct mm_struct *mm, vaddr_t start, vaddr_t end)
+{
+    struct unmaps batch = {0};
+
+    might_sleep();
+    Assert(mm->mmap_lock.owner == current,
+           "unmap requires the address-space lock\n");
+    Assert(start <= end && start >= UVADDR_START && end <= UVADDR_END &&
+               !((start | end) & (PAGE_SIZE - 1)),
+           "unmap requires a page-aligned user range\n");
+    for (vaddr_t addr = start; addr < end; addr += PAGE_SIZE) {
+        struct page *page = pgtable_unmap_page(mm, addr);
+
+        if (!page)
+            continue;
+        batch.pages[batch.nr_pages++] = page;
+        if (batch.nr_pages == UNMAP_BATCH_PAGES)
+            unmaps_flush(&batch);
+    }
+    unmaps_flush(&batch);
 }
 
 void mm_put(struct mm_struct *mm)

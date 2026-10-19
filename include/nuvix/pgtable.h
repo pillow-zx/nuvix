@@ -52,6 +52,7 @@ void pgtable_switch(struct mm_struct *mm);
  */
 int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
                      unsigned long vm_flags);
+struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr);
 /*
  * mm held alive, outside its pgtable_lock. Returns a physical address including
  * the offset within a page, or -EINVAL/-ENOENT without changing *paddr.

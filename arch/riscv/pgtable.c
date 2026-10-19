@@ -212,6 +212,27 @@ int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
     return ret;
 }
 
+struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr)
+{
+    pt_entry_t *pte;
+    pt_entry_t entry = 0;
+    unsigned long flags;
+
+    Assert(addr >= UVADDR_START && addr < UVADDR_END &&
+               !(addr & (PAGE_SIZE - 1)),
+           "unmap requires a page-aligned user address\n");
+    spin_lock_irqsave(&mm->pgtable_lock, flags);
+    if (!walk_pte(pgtable_ptr(mm->pgd), addr, &pte))
+        entry = __atomic_exchange_n(pte, 0, __ATOMIC_ACQ_REL);
+    spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+
+    if (!entry)
+        return NULL;
+    Assert((entry & PTE_V) && (entry & PTE_U) && (entry & PTE_LEAF),
+           "unmap requires an ordinary user leaf\n");
+    return phys_to_page(pt_entry_paddr(entry));
+}
+
 int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr)
 {
     pt_entry_t *pte;

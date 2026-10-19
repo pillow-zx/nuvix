@@ -122,16 +122,13 @@ static int load_range(struct mm_struct *mm, struct file *file,
                       const struct elf64_phdr *phdr, vaddr_t start, vaddr_t end,
                       unsigned long flags)
 {
-    struct vm_area_struct *vma __free(vma) = vma_alloc();
+    struct vm_area_struct *vma = map_range(mm, start, end, flags);
     vaddr_t data_start = MAX(start, phdr->p_vaddr);
     vaddr_t data_end = MIN(end, phdr->p_vaddr + phdr->p_filesz);
     int ret;
 
-    if (!vma)
-        return -ENOMEM;
-    vma->vm_start = start;
-    vma->vm_end = end;
-    vma->vm_flags |= flags;
+    if (IS_ERR(vma))
+        return PTR_ERR(vma);
     if (data_start < data_end) {
         size_t nr_pages = DIV_ROUND_UP(data_end - start, PAGE_SIZE);
 
@@ -158,10 +155,7 @@ static int load_range(struct mm_struct *mm, struct file *file,
                 return ret;
         }
     }
-    ret = vma_insert(mm, vma);
-    if (!ret)
-        keep(vma);
-    return ret;
+    return 0;
 }
 
 static int load_segments(struct mm_struct *mm, struct file *file,
@@ -257,21 +251,15 @@ static int setup_stack(struct mm_struct *mm, const struct exec_image *image,
                        const char *path, const char *const argv[],
                        const char *const envp[], vaddr_t *user_sp)
 {
-    struct vm_area_struct *vma __free(vma) = vma_alloc();
+    struct vm_area_struct *vma =
+        map_range(mm, USTACK_BOTTOM, USTACK_TOP, VM_READ | VM_WRITE);
     size_t argc = 0, envc = 0;
     vaddr_t sp = USTACK_TOP, execfn, random_addr, phdr_addr = image->phdr_addr;
     size_t phsize = (size_t)image->ehdr.e_phnum * sizeof(*image->phdrs);
     int ret;
 
-    if (!vma)
-        return -ENOMEM;
-    vma->vm_start = USTACK_BOTTOM;
-    vma->vm_end = USTACK_TOP;
-    vma->vm_flags |= VM_READ | VM_WRITE;
-    ret = vma_insert(mm, vma);
-    if (ret)
-        return ret;
-    keep(vma);
+    if (IS_ERR(vma))
+        return PTR_ERR(vma);
 
     while (argv[argc])
         ++argc;
