@@ -13,3 +13,4 @@ obj-y += kernel/timer.c
 obj-y += kernel/tick.c
 obj-y += kernel/execve.c
 obj-y += kernel/syscall.c
+obj-y += kernel/console.c

@@ -10,6 +10,7 @@
 #include <nuvix/page.h>
 #include <nuvix/vfs.h>
 #include <nuvix/sched.h>
+#include <nuvix/console.h>
 #include <asm/elf.h>
 
 #define ELF_MAGIC_NUMBER 0x9e3779b97f4a7c15ULL
@@ -414,6 +415,10 @@ int execve(const char *path, const char *const argv[], const char *const envp[])
         return PTR_ERR(move(file));
 
     ret = load_exec(task, file, path, argv, envp);
+    if (ret)
+        return ret;
+
+    ret = console_init(task->fdtable);
     if (ret)
         return ret;
 

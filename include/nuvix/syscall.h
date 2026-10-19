@@ -70,7 +70,8 @@
 #define SYSCALL_LIST(X)                                                        \
     X(openat) X(close) X(read) X(write) X(readv) X(writev) X(setpgid)          \
     X(getpgid) X(getsid) X(setsid) X(umask) X(getpid) X(getuid) X(geteuid)     \
-    X(getgid) X(getegid) X(gettid) X(dup) X(fchmodat) X(set_tid_address)
+    X(getgid) X(getegid) X(gettid) X(dup) X(fchmodat) X(set_tid_address)      \
+    X(exit) X(exit_group)
 // clang-format on
 
 struct trap_frame;

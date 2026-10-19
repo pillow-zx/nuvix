@@ -13,6 +13,10 @@ struct fdtable {
     unsigned long bitmap;
 };
 
+#define stdin  0
+#define stdout 1
+#define stderr 2
+
 int fdtable_init(struct fdtable *fdt);
 
 void fdtable_destroy(struct fdtable *fdt);

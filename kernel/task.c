@@ -141,6 +141,18 @@ void task_put(struct task *task)
     kfree(task);
 }
 
+long sys_exit(struct trap_frame *frame)
+{
+    (void)frame;
+    task_exit();
+}
+
+long sys_exit_group(struct trap_frame *frame)
+{
+    (void)frame;
+    task_exit();
+}
+
 long sys_umask(struct trap_frame *frame)
 {
     (void)frame;

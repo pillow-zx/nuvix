@@ -17,9 +17,9 @@ int fdtable_init(struct fdtable *fdt)
     spin_lock_init(&fdt->lock);
     bitmap_zero(&fdt->bitmap, BITS_PER_LONG);
     fdt->files = move(files);
-    set_bit(0, &fdt->bitmap);
-    set_bit(1, &fdt->bitmap);
-    set_bit(2, &fdt->bitmap);
+    set_bit(stdin, &fdt->bitmap);
+    set_bit(stdout, &fdt->bitmap);
+    set_bit(stderr, &fdt->bitmap);
     return 0;
 }
 
