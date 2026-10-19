@@ -116,30 +116,12 @@ long sys_close(struct trap_frame *frame)
     return fd_close(current->fdtable, fd);
 }
 
-long sys_read(struct trap_frame *frame)
+static ssize_t file_uread_locked(struct file *file, void *ubuf, size_t len,
+                                 void *buf)
 {
-    unsigned int fd = syscallarg(frame, 0);
-    char *ubuf = (char *)syscallarg(frame, 1);
-    size_t len = syscallarg(frame, 2);
-
-    char *buf __free(kfree) = NULL;
-    struct fdtable *fdt = current->fdtable;
-    struct file *file __free(fput) = fd_open(fdt, fd);
     size_t done = 0;
     ssize_t ret = 0;
 
-    if (!file || !FILE_READ(file))
-        return -EBADF;
-
-    len = MIN(len, (size_t)SSIZE_MAX);
-    if (!len)
-        return 0;
-
-    buf = kmalloc(MIN(len, (size_t)PAGE_SIZE));
-    if (!buf)
-        return -ENOMEM;
-
-    mutex_lock(&file->f_pos_lock);
     while (done < len) {
         size_t count = MIN(len - done, (size_t)PAGE_SIZE);
         size_t missing;
@@ -160,35 +142,15 @@ long sys_read(struct trap_frame *frame)
         if ((size_t)ret < count)
             break;
     }
-    mutex_unlock(&file->f_pos_lock);
-
     return done ? (ssize_t)done : ret;
 }
 
-long sys_write(struct trap_frame *frame)
+static ssize_t file_uwrite_locked(struct file *file, const void *ubuf,
+                                  size_t len, void *buf)
 {
-    unsigned int fd = syscallarg(frame, 0);
-    const char *ubuf = (const char *)syscallarg(frame, 1);
-    size_t len = syscallarg(frame, 2);
-
-    char *buf __free(kfree) = NULL;
-    struct fdtable *fdt = current->fdtable;
-    struct file *file __free(fput) = fd_open(fdt, fd);
     size_t done = 0;
     ssize_t ret = 0;
 
-    if (!file || !FILE_WRITE(file))
-        return -EBADF;
-
-    len = MIN(len, (size_t)SSIZE_MAX);
-    if (!len)
-        return 0;
-
-    buf = kmalloc(MIN(len, (size_t)PAGE_SIZE));
-    if (!buf)
-        return -ENOMEM;
-
-    mutex_lock(&file->f_pos_lock);
     while (done < len) {
         size_t count = MIN(len - done, (size_t)PAGE_SIZE);
         size_t missing = copy_from_user(buf, ubuf + done, count);
@@ -208,19 +170,207 @@ long sys_write(struct trap_frame *frame)
         if ((size_t)ret < count)
             break;
     }
+    return done ? (ssize_t)done : ret;
+}
+
+long sys_read(struct trap_frame *frame)
+{
+    unsigned int fd = syscallarg(frame, 0);
+    char *ubuf = (char *)syscallarg(frame, 1);
+    size_t len = syscallarg(frame, 2);
+
+    char *buf __free(kfree) = NULL;
+    struct fdtable *fdt = current->fdtable;
+    struct file *file __free(fput) = fd_open(fdt, fd);
+    ssize_t ret;
+
+    if (!file || !FILE_READ(file))
+        return -EBADF;
+
+    len = MIN(len, (size_t)SSIZE_MAX);
+    if (!len)
+        return 0;
+
+    buf = kmalloc(MIN(len, (size_t)PAGE_SIZE));
+    if (!buf)
+        return -ENOMEM;
+
+    mutex_lock(&file->f_pos_lock);
+    ret = file_uread_locked(file, ubuf, len, buf);
+    mutex_unlock(&file->f_pos_lock);
+
+    return ret;
+}
+
+long sys_write(struct trap_frame *frame)
+{
+    unsigned int fd = syscallarg(frame, 0);
+    const char *ubuf = (const char *)syscallarg(frame, 1);
+    size_t len = syscallarg(frame, 2);
+
+    char *buf __free(kfree) = NULL;
+    struct fdtable *fdt = current->fdtable;
+    struct file *file __free(fput) = fd_open(fdt, fd);
+    ssize_t ret;
+
+    if (!file || !FILE_WRITE(file))
+        return -EBADF;
+
+    len = MIN(len, (size_t)SSIZE_MAX);
+    if (!len)
+        return 0;
+
+    buf = kmalloc(MIN(len, (size_t)PAGE_SIZE));
+    if (!buf)
+        return -ENOMEM;
+
+    mutex_lock(&file->f_pos_lock);
+    ret = file_uwrite_locked(file, ubuf, len, buf);
+    mutex_unlock(&file->f_pos_lock);
+
+    return ret;
+}
+
+long sys_readv(struct trap_frame *frame)
+{
+    unsigned int fd = syscallarg(frame, 0);
+    const struct iovec *uiov = (const struct iovec *)syscallarg(frame, 1);
+    int iovcnt = syscallarg(frame, 2);
+
+    struct file *file __free(fput) = NULL;
+    struct iovec *iov __free(kfree) = NULL;
+    void *buf __free(kfree) = NULL;
+
+    size_t total = 0;
+    size_t done = 0;
+    size_t bytes;
+    ssize_t ret = 0;
+
+    file = fd_open(current->fdtable, fd);
+    if (!file)
+        return -EBADF;
+
+    if (!FILE_READ(file))
+        return -EBADF;
+
+    if (iovcnt < 0 || iovcnt > UIO_MAXIOV)
+        return -EINVAL;
+
+    if (!iovcnt)
+        return 0;
+
+    bytes = (size_t)iovcnt * sizeof(*iov);
+    iov = kmalloc(bytes);
+    if (!iov)
+        return -ENOMEM;
+
+    if (copy_from_user(iov, uiov, bytes))
+        return -EFAULT;
+
+    for (int i = 0; i < iovcnt; ++i) {
+        if (iov[i].iov_len > (size_t)SSIZE_MAX - total)
+            return -EINVAL;
+        total += iov[i].iov_len;
+    }
+
+    if (!total)
+        return 0;
+
+    buf = kmalloc(MIN(total, (size_t)PAGE_SIZE));
+    if (!buf)
+        return -ENOMEM;
+
+    mutex_lock(&file->f_pos_lock);
+    for (int i = 0; i < iovcnt; ++i) {
+        size_t len = iov[i].iov_len;
+
+        if (!len)
+            continue;
+
+        ret = file_uread_locked(file, iov[i].iov_base, len, buf);
+        if (ret < 0)
+            break;
+
+        done += (size_t)ret;
+        if ((size_t)ret < len)
+            break;
+    }
     mutex_unlock(&file->f_pos_lock);
 
     return done ? (ssize_t)done : ret;
 }
 
-long sys_readv(struct trap_frame *frame)
-{
-    (void)frame;
-    return -ENOSYS;
-}
-
 long sys_writev(struct trap_frame *frame)
 {
-    (void)(frame);
-    return -ENOSYS;
+    unsigned int fd = syscallarg(frame, 0);
+    const struct iovec *uiov = (const struct iovec *)syscallarg(frame, 1);
+    int iovcnt = syscallarg(frame, 2);
+
+    struct file *file __free(fput) = NULL;
+    struct iovec *iov __free(kfree) = NULL;
+    void *buf __free(kfree) = NULL;
+
+    size_t total = 0;
+    size_t done = 0;
+    size_t bytes;
+    ssize_t ret = 0;
+
+    file = fd_open(current->fdtable, fd);
+    if (!file)
+        return -EBADF;
+
+    if (!FILE_WRITE(file))
+        return -EBADF;
+
+    if (iovcnt < 0 || iovcnt > UIO_MAXIOV)
+        return -EINVAL;
+
+    if (!iovcnt)
+        return 0;
+
+    bytes = (size_t)iovcnt * sizeof(*iov);
+    iov = kmalloc(bytes);
+    if (!iov)
+        return -ENOMEM;
+
+    if (copy_from_user(iov, uiov, bytes))
+        return -EFAULT;
+
+    for (int i = 0; i < iovcnt; ++i) {
+        if (iov[i].iov_len > (size_t)SSIZE_MAX - total)
+            return -EINVAL;
+        total += iov[i].iov_len;
+    }
+
+    if (!total)
+        return 0;
+
+    buf = kmalloc(MIN(total, (size_t)PAGE_SIZE));
+    if (!buf)
+        return -ENOMEM;
+
+    mutex_lock(&file->f_pos_lock);
+    for (int i = 0; i < iovcnt; ++i) {
+        size_t len = iov[i].iov_len;
+
+        if (!len)
+            continue;
+
+        ret = file_uwrite_locked(file, iov[i].iov_base, len, buf);
+        if (ret < 0)
+            break;
+
+        done += (size_t)ret;
+        if ((size_t)ret < len)
+            break;
+    }
+    mutex_unlock(&file->f_pos_lock);
+
+    return done ? (ssize_t)done : ret;
+}
+
+long sys_fchmodat(struct trap_frame *frame)
+{
+    (void)frame;
+    return 0;
 }

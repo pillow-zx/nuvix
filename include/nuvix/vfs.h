@@ -46,6 +46,13 @@ int fput(struct file *file);
 
 DECLARE_FREE(fput, struct file *, if (_T) fput(_T));
 
+struct iovec {
+    void *iov_base;
+    size_t iov_len;
+};
+
+#define UIO_MAXIOV 64
+
 int vfs_mount(void);
 
 struct file *vfs_open(const char *path, unsigned long flags);

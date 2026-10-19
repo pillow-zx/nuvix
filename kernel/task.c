@@ -8,7 +8,9 @@
 #include <nuvix/assert.h>
 #include <nuvix/preempt.h>
 #include <nuvix/sched.h>
+#include <nuvix/vfs.h>
 #include <nuvix/syscall.h>
+#include <asm/trap.h>
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
               "kernel task stack order must be smaller than MAX_ORDER");
@@ -167,4 +169,23 @@ long sys_getgid(struct trap_frame *frame)
 {
     (void)frame;
     return 0;
+}
+
+long sys_dup(struct trap_frame *frame)
+{
+    unsigned int oldfd = syscallarg(frame, 0);
+    struct fdtable *fdt = current->fdtable;
+    struct file *file __free(fput) = NULL;
+    int newfd;
+
+    file = fd_open(fdt, oldfd);
+    if (!file)
+        return -EBADF;
+
+    newfd = fd_alloc(fdt);
+    if (newfd < 0)
+        return newfd;
+
+    fd_install(fdt, (unsigned long)newfd, move(file));
+    return newfd;
 }
