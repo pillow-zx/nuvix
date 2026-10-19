@@ -95,8 +95,8 @@ static int check_layout(struct exec_image *image)
         if (phdr->p_type == PT_PHDR) {
             if (!image->phdr_addr || phdr->p_vaddr != image->phdr_addr)
                 return -ENOEXEC;
-        } else if (phdr->p_type == PT_TLS && phdr->p_memsz) {
-            load = find_load(image, phdr->p_vaddr, phdr->p_memsz);
+        } else if (phdr->p_type == PT_TLS && phdr->p_filesz) {
+            load = find_load(image, phdr->p_vaddr, phdr->p_filesz);
             if (!load || !(load->p_flags & PF_R) ||
                 phdr->p_vaddr - load->p_vaddr > load->p_filesz ||
                 phdr->p_filesz >
