@@ -2,17 +2,45 @@
 #define _NUVIX_PID_H
 
 #include <nuvix/cleanup.h>
+#include <nuvix/hlist.h>
+#include <nuvix/refcount.h>
 
 typedef int pid_t;
 
-/* PID and TID share [1, PID_MAX); zero is never allocated. */
-#define PID_MAX 32768
+#define PID_INIT 1
+#define PID_MAX  32768
 
-/* Reserves a number, without publishing an object; exhaustion returns -EAGAIN. */
-int pid_alloc(void);
-/* Caller owns a valid reserved number and releases it exactly once. */
-void pid_free(unsigned int pid);
+enum pid_type {
+    PIDTYPE_TID,
+    PIDTYPE_TGID,
+    PIDTYPE_PGID,
+    PIDTYPE_SID,
+    PIDTYPE_MAX,
+};
 
-DECLARE_FREE(pid, int, if (_T > 0) pid_free(_T))
+struct pid {
+    refcount_t refcount;
+    pid_t nr;
+    struct hlist_node hash_node;
+    struct hlist_head tasks[PIDTYPE_MAX];
+};
+
+struct task;
+
+struct pid *pid_alloc(void);
+
+void pid_put(struct pid *pid);
+
+pid_t task_pid_nr(const struct task *task, enum pid_type type);
+
+int pid_prepare(struct task *task, struct task *parent);
+
+void pid_publish(struct task *task);
+
+void pid_unpublish(struct task *task);
+
+int pid_setsid(struct task *task);
+
+DECLARE_FREE(pid_put, struct pid *, if (_T) pid_put(_T))
 
 #endif /* _NUVIX_PID_H */

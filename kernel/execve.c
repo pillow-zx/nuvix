@@ -343,7 +343,7 @@ static int setup_stack(struct mm_struct *mm, const struct exec_image *image,
 }
 
 static int load_exec(struct task *task, struct file *file, const char *path,
-                        const char *const argv[], const char *const envp[])
+                     const char *const argv[], const char *const envp[])
 {
     struct elf64_phdr *phdrs __free(kfree) = NULL;
     struct exec_image image = {0};
@@ -405,6 +405,10 @@ int execve(const char *path, const char *const argv[], const char *const envp[])
     if (!task)
         return -ENOMEM;
 
+    ret = pid_prepare(task, NULL);
+    if (ret)
+        return ret;
+
     file = vfs_open(path, O_RDONLY);
     if (IS_ERR(file))
         return PTR_ERR(move(file));
@@ -413,7 +417,8 @@ int execve(const char *path, const char *const argv[], const char *const envp[])
     if (ret)
         return ret;
 
+    task->did_exec = true;
     sched_publish(task);
-    keep(task);
+    task_put(move(task));
     return 0;
 }

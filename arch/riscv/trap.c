@@ -34,9 +34,9 @@ IFDEF(CONFIG_FPU,
             panic("%s in supervisor mode\nscause=%#lx sepc=%#lx stval=%#lx",   \
                   what, frame->scause, frame->sepc, frame->stval);             \
         local_irq_enable();                                                    \
-        pr_err("task %u: %s (%d) scause=%#lx sepc=%#lx stval=%#lx\n",          \
-               current->tid, what, err, frame->scause, frame->sepc,            \
-               frame->stval);                                                  \
+        pr_err("task %d: %s (%d) scause=%#lx sepc=%#lx stval=%#lx\n",          \
+               task_pid_nr(current, PIDTYPE_TID), what, err, frame->scause,    \
+               frame->sepc, frame->stval);                                     \
         task_exit();                                                           \
     } while (0)
 

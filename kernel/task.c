@@ -44,14 +44,10 @@ struct task *task_alloc(bool user)
 
     if (!page)
         return NULL;
-    int tid __free(pid) = 0;
     struct mm_struct *mm __free(mm_put) = NULL;
     struct fdtable *files __free(kfree) = NULL;
 
     if (user) {
-        tid = pid_alloc();
-        if (tid < 0)
-            return NULL;
         mm = mm_alloc();
         if (!mm)
             return NULL;
@@ -63,8 +59,6 @@ struct task *task_alloc(bool user)
     }
 
     refcount_set(&task->refcount, 1);
-    task->tid = (unsigned int)move(tid);
-    task->tgid = task->tid;
     task->parent = user ? task : NULL;
     task->cpu_id = TASK_CPU_NONE;
     task->state = TASK_NEW;
@@ -94,10 +88,8 @@ static void free_resource(struct task *task)
 void task_free(struct task *task)
 {
     Assert(task->state == TASK_NEW, "cannot discard a published task\n");
-    if (task->parent) {
+    if (task->parent)
         free_resource(task);
-        pid_free(task->tid);
-    }
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
     task->kstack = NULL;
     task_put(task);
@@ -107,8 +99,12 @@ __noreturn void task_exit(void)
 {
     struct task *task = current;
     might_sleep();
-    if (task->parent)
+    if (task->parent) {
+        Assert(task_pid_nr(task, PIDTYPE_TGID) != PID_INIT,
+               "init cannot exit\n");
+        pid_unpublish(task);
         free_resource(task);
+    }
     preempt_disable();
     sched_exit();
 }
@@ -134,5 +130,10 @@ void task_put(struct task *task)
     Assert((!task->parent || task->parent == task) &&
                list_empty(&task->children) && list_empty(&task->sibling),
            "cannot destroy a task linked in the process tree\n");
+    for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type) {
+        Assert(hlist_unhashed(&task->pid_links[type]),
+               "cannot destroy a task with published identities\n");
+        struct pid *pid __free(pid_put) = move(task->pids[type]);
+    }
     kfree(task);
 }

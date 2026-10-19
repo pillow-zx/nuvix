@@ -101,9 +101,10 @@ void sched_publish(struct task *task)
     spin_lock_irqsave(&placement_lock, placement_flags);
     cpu_id = select_cpu();
     rq = cpu_rq(cpu_id);
+    task->cpu_id = cpu_id;
+    pid_publish(task);
     spin_lock_irqsave(&rq->lock, rq_flags);
     task_get(task);
-    task->cpu_id = cpu_id;
     task->state = TASK_RUNNABLE;
     enqueue_task(rq, task);
     atomic_inc(&rq->nr_runnable);

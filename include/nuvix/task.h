@@ -23,9 +23,6 @@ enum task_state {
 
 struct task {
     refcount_t refcount;
-    pid_t tid;
-    pid_t tgid;
-    pid_t pgid;
 
     /* Owned by rq once published; CPU is assigned at first publication. */
     unsigned int cpu_id;
@@ -42,6 +39,9 @@ struct task {
     void *kstack;
     struct task_context ctx;
 
+    struct pid *pids[PIDTYPE_MAX];
+    struct hlist_node pid_links[PIDTYPE_MAX];
+
     struct mm_struct *mm;
     struct fdtable *fdtable;
 
@@ -53,6 +53,7 @@ struct task {
     struct task *parent;
     struct list_head children;
     struct list_head sibling;
+    bool did_exec;
 };
 
 extern struct task boot_task;
