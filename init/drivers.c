@@ -2,7 +2,6 @@
 #include <nuvix/platform.h>
 #include <nuvix/ns16550a.h>
 #include <nuvix/virtio.h>
-#include <nuvix/macro.h>
 
 int device_init(const struct dtb *dtb)
 {
@@ -10,27 +9,17 @@ int device_init(const struct dtb *dtb)
 
     if (ret)
         return ret;
-    IFDEF(CONFIG_VIRTIO, {
-        ret = virtio_mmio_scan(dtb);
-        if (ret)
-            return ret;
-    });
-    return 0;
+    return virtio_mmio_scan(dtb);
 }
 
 int driver_init(void)
 {
-    IFDEF(CONFIG_NS16550A, {
-        int ret = ns16550a_register();
+    int ret = ns16550a_register();
 
-        if (ret)
-            return ret;
-    });
-    IFDEF(CONFIG_VIRTIO_BLK, {
-        int ret = virtio_blk_register();
-
-        if (ret)
-            return ret;
-    });
+    if (ret)
+        return ret;
+    ret = virtio_blk_register();
+    if (ret)
+        return ret;
     return devices_probe();
 }
