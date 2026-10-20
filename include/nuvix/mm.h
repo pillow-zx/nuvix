@@ -13,12 +13,23 @@
 #define VM_WRITE      BIT(1)
 #define VM_EXEC       BIT(2)
 
+#define PROT_NONE     0x0
+#define PROT_READ     0x1
+#define PROT_WRITE    0x2
+#define PROT_EXEC     0x4
+
+#define MAP_PRIVATE   0x02
+#define MAP_FIXED     0x10
+#define MAP_ANONYMOUS 0x20
+
 struct mm_struct {
     refcount_t refcount;
 
     /* Protects VMA layout and ordinary fault submission. */
     struct mutex mmap_lock;
     struct rb_root vma_tree;
+    vaddr_t start_brk;
+    vaddr_t brk;
 
     /* Protects this mm's software page-table access and detachment. */
     spinlock_t pgtable_lock;

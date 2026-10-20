@@ -172,7 +172,9 @@ static int load_segments(struct mm_struct *mm, struct file *file,
                 return ret;
             start = stop;
         }
+        mm->start_brk = MAX(mm->start_brk, end);
     }
+    mm->brk = mm->start_brk;
     return 0;
 }
 

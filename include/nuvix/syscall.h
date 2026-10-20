@@ -71,7 +71,7 @@
     X(openat) X(close) X(read) X(write) X(readv) X(writev) X(setpgid)          \
     X(getpgid) X(getsid) X(setsid) X(umask) X(getpid) X(getuid) X(geteuid)     \
     X(getgid) X(getegid) X(gettid) X(dup) X(fchmodat) X(set_tid_address)      \
-    X(exit) X(exit_group)
+    X(exit) X(exit_group) X(brk) X(mmap) X(munmap) X(mprotect)
 // clang-format on
 
 struct trap_frame;
