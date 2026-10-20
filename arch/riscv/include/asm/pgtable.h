@@ -28,6 +28,7 @@
 #define PTE_G            (1 << 5)
 #define PTE_A            (1 << 6)
 #define PTE_D            (1 << 7)
+#define PTE_NONE    (1 << 8)
 
 #define PTE_TABLE        PTE_V
 #define PTE_LEAF         (PTE_R | PTE_W | PTE_X)
@@ -46,16 +47,12 @@
 
 typedef uint64_t pt_entry_t;
 
-/*
- * Initial user-leaf flags; COW/write tracking must further restrict them.
- * No R/W/X returns 0 (invalid). Sv39 writable leaves are also readable.
- */
 static inline uint64_t vma_to_pte(unsigned long vma_flags)
 {
     uint64_t flags = PTE_V | PTE_U | PTE_A;
 
     if (!(vma_flags & (VM_READ | VM_WRITE | VM_EXEC)))
-        return 0;
+        return PTE_U | PTE_NONE;
     if (vma_flags & VM_READ)
         flags |= PTE_R;
     if (vma_flags & VM_WRITE)
@@ -79,6 +76,21 @@ static inline paddr_t pt_entry_paddr(pt_entry_t entry)
 static inline pt_entry_t pt_entry_read(const pt_entry_t *entry)
 {
     return __atomic_load_n(entry, __ATOMIC_RELAXED);
+}
+
+static inline bool pt_entry_none(pt_entry_t entry)
+{
+    return entry == 0;
+}
+
+static inline bool pt_entry_valid(pt_entry_t entry)
+{
+    return entry & PTE_V;
+}
+
+static inline bool pt_entry_present(pt_entry_t entry)
+{
+    return entry & (PTE_V | PTE_NONE);
 }
 
 static inline void pt_entry_write(pt_entry_t *entry, pt_entry_t value)

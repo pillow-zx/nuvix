@@ -41,8 +41,7 @@ void pgtable_switch(struct mm_struct *mm);
 
 /*
  * After SMP is ready, in ordinary thread context with mm held alive and its
- * mmap_lock held. Maps one page-aligned user address with VM_READ/WRITE/EXEC;
- * No access permissions or invalid bounds return -EINVAL.
+ * mmap_lock held. Maps one page-aligned user address with VM_READ/WRITE/EXEC.
  * Page must be a fully initialized ordinary order-0 allocation; success takes
  * one caller-owned reference without incrementing it. Failure keeps that
  * reference with the caller; empty intermediate tables may remain owned by mm.
@@ -53,6 +52,8 @@ void pgtable_switch(struct mm_struct *mm);
 int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
                      unsigned long vm_flags);
 struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr);
+bool pgtable_protect_page(struct mm_struct *mm, vaddr_t addr,
+                          unsigned long vm_flags);
 /*
  * mm held alive, outside its pgtable_lock. Returns a physical address including
  * the offset within a page, or -EINVAL/-ENOENT without changing *paddr.

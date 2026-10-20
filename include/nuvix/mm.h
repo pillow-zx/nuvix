@@ -85,7 +85,9 @@ void vma_remove(struct vm_struct *vma);
 
 struct vm_struct *map_range(struct mm_struct *mm, vaddr_t start, vaddr_t end,
                             unsigned long vm_flags);
-void unmap_range(struct mm_struct *mm, vaddr_t start, vaddr_t end);
+int unmap_range(struct mm_struct *mm, vaddr_t start, vaddr_t end);
+int protect_range(struct mm_struct *mm, vaddr_t start, vaddr_t end,
+                  unsigned long vm_flags);
 
 int handle_page_fault(struct mm_struct *mm, vaddr_t addr, unsigned long access);
 

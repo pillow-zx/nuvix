@@ -4,7 +4,27 @@
 #include <nuvix/errno.h>
 #include <nuvix/assert.h>
 #include <nuvix/page.h>
+#include <nuvix/pgtable.h>
+#include <nuvix/tlb.h>
 #include <nuvix/vfs.h>
+#include <nuvix/math.h>
+
+#define UNMAP_BATCH_PAGES 32
+
+struct unmaps {
+    struct page *pages[UNMAP_BATCH_PAGES];
+    size_t nr_pages;
+};
+
+static void unmaps_flush(struct unmaps *batch)
+{
+    if (!batch->nr_pages)
+        return;
+    flush_tlb_all();
+    for (size_t i = 0; i < batch->nr_pages; ++i)
+        free_page(batch->pages[i]);
+    batch->nr_pages = 0;
+}
 
 struct vm_struct *vma_alloc(void)
 {
@@ -100,3 +120,127 @@ void vma_remove(struct vm_struct *vma)
     vma->vm_mm = NULL;
 }
 
+struct vm_struct *map_range(struct mm_struct *mm, vaddr_t start, vaddr_t end,
+                            unsigned long vm_flags)
+{
+    struct vm_struct *vma __free(vma) = vma_alloc();
+    int ret;
+
+    if (!vma)
+        return ERR_PTR(-ENOMEM);
+    vma->vm_start = start;
+    vma->vm_end = end;
+    vma->vm_flags = vm_flags;
+    ret = vma_insert(mm, vma);
+    if (ret)
+        return ERR_PTR(ret);
+    return move(vma);
+}
+
+static void vma_split(struct vm_struct *vma, vaddr_t addr,
+                      struct vm_struct *right)
+{
+    struct mm_struct *mm = vma->vm_mm;
+    int ret;
+
+    *right = *vma;
+    right->vm_mm = NULL;
+    RB_CLEAR_NODE(&right->vm_node);
+    right->vm_start = addr;
+    if (right->vm_file) {
+        fget(right->vm_file);
+        right->vm_offset += addr - vma->vm_start;
+        right->vm_fstart = MAX(addr, right->vm_fstart);
+        right->vm_fend = MAX(addr, right->vm_fend);
+    }
+    vma_remove(vma);
+    vma->vm_end = addr;
+    if (vma->vm_file) {
+        vma->vm_fstart = MIN(addr, vma->vm_fstart);
+        vma->vm_fend = MIN(addr, vma->vm_fend);
+    }
+    ret = vma_insert(mm, vma);
+    Assert(!ret, "failed to reinsert split VMA\n");
+    ret = vma_insert(mm, right);
+    Assert(!ret, "failed to insert split VMA\n");
+}
+
+static int split_range(struct mm_struct *mm, vaddr_t start, vaddr_t end)
+{
+    struct vm_struct *left __free(vma) = NULL;
+    struct vm_struct *right __free(vma) = NULL;
+    struct vm_struct *first = vma_find(mm, start);
+    struct vm_struct *last = vma_find(mm, end - 1);
+
+    Assert(mm->mmap_lock.owner == current && start < end &&
+               !((start | end) & (PAGE_SIZE - 1)),
+           "range modification requires locked, aligned bounds\n");
+    if (first && first->vm_start < start) {
+        left = vma_alloc();
+        if (!left)
+            return -ENOMEM;
+    }
+    if (last && end < last->vm_end) {
+        right = vma_alloc();
+        if (!right)
+            return -ENOMEM;
+    }
+    if (left)
+        vma_split(first, start, move(left));
+    if (right)
+        vma_split(vma_find(mm, end - 1), end, move(right));
+    return 0;
+}
+
+int unmap_range(struct mm_struct *mm, vaddr_t start, vaddr_t end)
+{
+    struct unmaps batch = {0};
+    struct vm_struct *found;
+    int ret = split_range(mm, start, end);
+
+    if (ret)
+        return ret;
+    while ((found = vma_find_intersection(mm, start, end))) {
+        struct vm_struct *vma __free(vma) = found;
+
+        vma_remove(vma);
+        for (vaddr_t addr = vma->vm_start; addr < vma->vm_end;
+             addr += PAGE_SIZE) {
+            struct page *page = pgtable_unmap_page(mm, addr);
+
+            if (!page)
+                continue;
+            batch.pages[batch.nr_pages++] = page;
+            if (batch.nr_pages == UNMAP_BATCH_PAGES)
+                unmaps_flush(&batch);
+        }
+    }
+    unmaps_flush(&batch);
+    return 0;
+}
+
+int protect_range(struct mm_struct *mm, vaddr_t start, vaddr_t end,
+                  unsigned long vm_flags)
+{
+    bool changed = false;
+    int ret = split_range(mm, start, end);
+
+    if (ret)
+        return ret;
+    if (vm_flags & VM_EXEC)
+        flush_icache_all();
+    while (start < end) {
+        struct vm_struct *vma = vma_find(mm, start);
+
+        if (!vma) {
+            ret = -ENOMEM;
+            break;
+        }
+        vma->vm_flags = vm_flags;
+        for (; start < vma->vm_end; start += PAGE_SIZE)
+            changed |= pgtable_protect_page(mm, start, vm_flags);
+    }
+    if (changed)
+        flush_tlb_all();
+    return ret;
+}

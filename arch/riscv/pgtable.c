@@ -103,7 +103,7 @@ static int map_page(pt_entry_t *pgd, vaddr_t addr, paddr_t paddr, uint64_t prot)
 
     if (ret)
         return ret;
-    if (pt_entry_read(pte) & PTE_V)
+    if (!pt_entry_none(pt_entry_read(pte)))
         return -EEXIST;
     pt_entry_write(pte, pt_entry_make(paddr, prot));
     return 0;
@@ -150,7 +150,7 @@ void pgtable_free(paddr_t paddr)
             pte = pgtable_ptr(pte_paddr);
             for (unsigned int k = 0; k < PT_ENTRIES; ++k) {
                 entry = pt_entry_read(&pte[k]);
-                if (!(entry & PTE_V))
+                if (!pt_entry_present(entry))
                     continue;
                 pt_entry_write(&pte[k], 0);
                 free_page(phys_to_page(pt_entry_paddr(entry)));
@@ -199,8 +199,6 @@ int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
         (vm_flags & ~(VM_READ | VM_WRITE | VM_EXEC)))
         return -EINVAL;
     prot = vma_to_pte(vm_flags);
-    if (!prot)
-        return -EINVAL;
     /* Code must be synchronized before any CPU can observe the executable PTE. */
     if (prot & PTE_X)
         flush_icache_all();
@@ -228,9 +226,35 @@ struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr)
 
     if (!entry)
         return NULL;
-    Assert((entry & PTE_V) && (entry & PTE_U) && (entry & PTE_LEAF),
+    Assert(pt_entry_present(entry) && (entry & PTE_U),
            "unmap requires an ordinary user leaf\n");
     return phys_to_page(pt_entry_paddr(entry));
+}
+
+bool pgtable_protect_page(struct mm_struct *mm, vaddr_t addr,
+                          unsigned long vm_flags)
+{
+    pt_entry_t *pte;
+    pt_entry_t entry;
+    uint64_t prot = vma_to_pte(vm_flags);
+    unsigned long flags;
+    bool changed = false;
+
+    spin_lock_irqsave(&mm->pgtable_lock, flags);
+    if (!walk_pte(pgtable_ptr(mm->pgd), addr, &pte)) {
+        entry = pt_entry_read(pte);
+        if (pt_entry_present(entry)) {
+            pt_entry_t value;
+
+            do {
+                value = (entry & ~(PTE_V | PTE_LEAF | PTE_NONE)) | prot;
+            } while (!__atomic_compare_exchange_n(
+                pte, &entry, value, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
+            changed = true;
+        }
+    }
+    spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+    return changed;
 }
 
 int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr)
@@ -246,7 +270,7 @@ int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr)
     ret = walk_pte(pgtable_ptr(mm->pgd), addr, &pte);
     if (!ret) {
         entry = pt_entry_read(pte);
-        if (!(entry & PTE_V))
+        if (!pt_entry_valid(entry))
             ret = -ENOENT;
         else
             *paddr = pt_entry_paddr(entry) + (addr & (PAGE_SIZE - 1));
