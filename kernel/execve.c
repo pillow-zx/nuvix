@@ -122,38 +122,17 @@ static int load_range(struct mm_struct *mm, struct file *file,
                       const struct elf64_phdr *phdr, vaddr_t start, vaddr_t end,
                       unsigned long flags)
 {
-    struct vm_area_struct *vma = map_range(mm, start, end, flags);
+    struct vm_struct *vma = map_range(mm, start, end, flags);
     vaddr_t data_start = MAX(start, phdr->p_vaddr);
     vaddr_t data_end = MIN(end, phdr->p_vaddr + phdr->p_filesz);
-    int ret;
 
     if (IS_ERR(vma))
         return PTR_ERR(vma);
     if (data_start < data_end) {
-        size_t nr_pages = DIV_ROUND_UP(data_end - start, PAGE_SIZE);
-
-        vma->vm_pages = kzalloc(nr_pages * sizeof(*vma->vm_pages));
-        if (!vma->vm_pages)
-            return -ENOMEM;
-        vma->vm_nr_pages = nr_pages;
-
-        for (size_t i = 0; i < nr_pages; ++i) {
-            struct page *page = alloc_page();
-            vaddr_t addr = start + i * PAGE_SIZE;
-            vaddr_t first = MAX(addr, data_start);
-            vaddr_t last = MIN(addr + PAGE_SIZE, data_end);
-            void *data;
-
-            if (!page)
-                return -ENOMEM;
-            vma->vm_pages[i] = page;
-            data = (void *)__va(page_to_phys(page));
-            memset(data, 0, PAGE_SIZE);
-            ret = read_exact(file, (char *)data + (first - addr), last - first,
-                             phdr->p_offset + first - phdr->p_vaddr);
-            if (ret)
-                return ret;
-        }
+        vma->vm_file = fget(file);
+        vma->vm_offset = phdr->p_offset + start - phdr->p_vaddr;
+        vma->vm_fstart = data_start;
+        vma->vm_fend = data_end;
     }
     return 0;
 }
@@ -216,7 +195,7 @@ static int stack_copy(struct mm_struct *mm, vaddr_t addr, const void *src,
             paddr = page_to_phys(page);
             memset((void *)__va(paddr), 0, PAGE_SIZE);
             ret = pgtable_map_page(mm, ALIGN_DOWN(addr, (vaddr_t)PAGE_SIZE),
-                                   page, VM_READ | VM_WRITE | VM_ANON);
+                                   page, VM_READ | VM_WRITE);
             if (ret)
                 return ret;
             keep(page);
@@ -251,7 +230,7 @@ static int setup_stack(struct mm_struct *mm, const struct exec_image *image,
                        const char *path, const char *const argv[],
                        const char *const envp[], vaddr_t *user_sp)
 {
-    struct vm_area_struct *vma =
+    struct vm_struct *vma =
         map_range(mm, USTACK_BOTTOM, USTACK_TOP, VM_READ | VM_WRITE);
     size_t argc = 0, envc = 0;
     vaddr_t sp = USTACK_TOP, execfn, random_addr, phdr_addr = image->phdr_addr;

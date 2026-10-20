@@ -42,7 +42,7 @@ void pgtable_switch(struct mm_struct *mm);
 /*
  * After SMP is ready, in ordinary thread context with mm held alive and its
  * mmap_lock held. Maps one page-aligned user address with VM_READ/WRITE/EXEC;
- * VM_ANON is accepted. No access permissions or invalid bounds return -EINVAL.
+ * No access permissions or invalid bounds return -EINVAL.
  * Page must be a fully initialized ordinary order-0 allocation; success takes
  * one caller-owned reference without incrementing it. Failure keeps that
  * reference with the caller; empty intermediate tables may remain owned by mm.

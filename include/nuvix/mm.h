@@ -9,10 +9,9 @@
 #include <nuvix/rbtree.h>
 #include <nuvix/bitops.h>
 
-#define VM_READ  BIT(0)
-#define VM_WRITE BIT(1)
-#define VM_EXEC  BIT(2)
-#define VM_ANON  BIT(3)
+#define VM_READ       BIT(0)
+#define VM_WRITE      BIT(1)
+#define VM_EXEC       BIT(2)
 
 struct mm_struct {
     refcount_t refcount;
@@ -27,7 +26,7 @@ struct mm_struct {
     paddr_t pgd;
 };
 
-struct vm_area_struct {
+struct vm_struct {
     /* Borrowed while linked; NULL while caller-owned. */
     struct mm_struct *vm_mm;
     /* [vm_start, vm_end); page-aligned while linked. */
@@ -35,8 +34,11 @@ struct vm_area_struct {
     vaddr_t vm_end;
     unsigned long vm_flags;
     struct rb_node vm_node;
-    struct page **vm_pages;
-    size_t vm_nr_pages;
+    struct file *vm_file;
+    uint64_t vm_offset;
+    /* [vm_fstart, vm_fend); file-backed virtual range. */
+    vaddr_t vm_fstart;
+    vaddr_t vm_fend;
 };
 
 /*
@@ -56,12 +58,11 @@ void mm_put(struct mm_struct *mm);
 
 DECLARE_FREE(mm_put, struct mm_struct *, if (_T) mm_put(_T));
 
-/* After slub_init(); returns a detached VM_ANON VMA, or NULL on failure. */
-struct vm_area_struct *vma_alloc(void);
+struct vm_struct *vma_alloc(void);
 /* Requires a detached, caller-owned VMA. */
-void vma_free(struct vm_area_struct *vma);
+void vma_free(struct vm_struct *vma);
 
-DECLARE_FREE(vma, struct vm_area_struct *, if (_T) vma_free(_T));
+DECLARE_FREE(vma, struct vm_struct *, if (_T) vma_free(_T));
 
 /*
  * Tree operations require mmap_lock, except during exclusive final mm
@@ -70,20 +71,20 @@ DECLARE_FREE(vma, struct vm_area_struct *, if (_T) vma_free(_T));
  * These operations change metadata only, not PTEs or TLBs.
  */
 /* Returns only the VMA containing addr, or NULL for a hole. */
-struct vm_area_struct *vma_find(struct mm_struct *mm, vaddr_t addr);
+struct vm_struct *vma_find(struct mm_struct *mm, vaddr_t addr);
 /* First VMA intersecting [start, end), or NULL; requires start < end. */
-struct vm_area_struct *vma_find_intersection(struct mm_struct *mm,
-                                             vaddr_t start, vaddr_t end);
+struct vm_struct *vma_find_intersection(struct mm_struct *mm, vaddr_t start,
+                                        vaddr_t end);
 /*
- * Inserts a detached anonymous VMA. Success transfers ownership to mm;
+ * Inserts a detached VMA. Success transfers ownership to mm;
  * -EINVAL for invalid bounds/flags and -EEXIST for overlap leave it caller-owned.
  */
-int vma_insert(struct mm_struct *mm, struct vm_area_struct *vma);
+int vma_insert(struct mm_struct *mm, struct vm_struct *vma);
 /* Detaches a linked VMA and transfers ownership back to the caller. */
-void vma_remove(struct vm_area_struct *vma);
+void vma_remove(struct vm_struct *vma);
 
-struct vm_area_struct *map_range(struct mm_struct *mm, vaddr_t start,
-                                 vaddr_t end, unsigned long vm_flags);
+struct vm_struct *map_range(struct mm_struct *mm, vaddr_t start, vaddr_t end,
+                            unsigned long vm_flags);
 void unmap_range(struct mm_struct *mm, vaddr_t start, vaddr_t end);
 
 int handle_page_fault(struct mm_struct *mm, vaddr_t addr, unsigned long access);

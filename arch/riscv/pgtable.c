@@ -196,7 +196,7 @@ int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
 
     might_sleep();
     if (addr < UVADDR_START || addr >= UVADDR_END || (addr & (PAGE_SIZE - 1)) ||
-        (vm_flags & ~(VM_READ | VM_WRITE | VM_EXEC | VM_ANON)))
+        (vm_flags & ~(VM_READ | VM_WRITE | VM_EXEC)))
         return -EINVAL;
     prot = vma_to_pte(vm_flags);
     if (!prot)

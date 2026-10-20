@@ -45,10 +45,10 @@ void mm_get(struct mm_struct *mm)
     refcount_inc(&mm->refcount);
 }
 
-struct vm_area_struct *map_range(struct mm_struct *mm, vaddr_t start,
+struct vm_struct *map_range(struct mm_struct *mm, vaddr_t start,
                                  vaddr_t end, unsigned long vm_flags)
 {
-    struct vm_area_struct *vma __free(vma) = vma_alloc();
+    struct vm_struct *vma __free(vma) = vma_alloc();
     int ret;
 
     if (!vma)
@@ -91,8 +91,8 @@ void mm_put(struct mm_struct *mm)
     if (!refcount_dec_and_test(&mm->refcount))
         return;
     rb_for_each_safe (node, next, &mm->vma_tree) {
-        struct vm_area_struct *vma __free(vma) =
-            rb_entry(node, struct vm_area_struct, vm_node);
+        struct vm_struct *vma __free(vma) =
+            rb_entry(node, struct vm_struct, vm_node);
 
         vma_remove(vma);
     }
