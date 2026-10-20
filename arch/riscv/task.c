@@ -4,6 +4,7 @@
 #include <nuvix/string.h>
 #include <nuvix/errno.h>
 #include <asm/trap.h>
+#include <asm/signal.h>
 
 void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg)
 {

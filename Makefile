@@ -169,6 +169,7 @@ LDFLAGS += --no-relax
 # .mk files of the directories under it.
 include init/init.mk
 include kernel/kernel.mk
+include signal/signal.mk
 include mm/mm.mk
 include lib/lib.mk
 include drivers/drivers.mk

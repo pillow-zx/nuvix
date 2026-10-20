@@ -3,6 +3,7 @@
 
 #include <nuvix/atomic.h>
 #include <nuvix/preempt.h>
+#include <asm/task.h>
 
 /*
  * Non-recursive TTAS locks. Ordinary operations account for preemption;

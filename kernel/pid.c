@@ -1,4 +1,5 @@
 #include <nuvix/pid.h>
+#include <nuvix/task.h>
 #include <nuvix/bitmap.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/errno.h>

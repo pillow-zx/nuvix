@@ -73,6 +73,8 @@ struct task *task_alloc(bool user)
     task->ctx.sp = (vaddr_t)task->kstack + KSTACK_SIZE;
     task->mm = move(mm);
     task->fdtable = move(files);
+    if (user)
+        signal_task_init(task);
     return move(task);
 }
 
@@ -91,8 +93,10 @@ static void free_resource(struct task *task)
 void task_free(struct task *task)
 {
     Assert(task->state == TASK_NEW, "cannot discard a published task\n");
-    if (task->parent)
+    if (task->parent) {
+        signal_task_free(task);
         free_resource(task);
+    }
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
     task->kstack = NULL;
     task_put(task);

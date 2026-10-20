@@ -6,6 +6,8 @@
 #include <nuvix/list.h>
 #include <nuvix/refcount.h>
 #include <nuvix/pid.h>
+#include <nuvix/signal.h>
+#include <nuvix/spinlock.h>
 #include <asm/task.h>
 
 struct fdtable;
@@ -54,6 +56,11 @@ struct task {
     struct list_head children;
     struct list_head sibling;
     bool did_exec;
+
+    spinlock_t signal_lock;
+    struct sigpending pending;
+    sigset_t blocked;
+    struct sigaction actions[SIG_MAX];
 };
 
 extern struct task boot_task;
