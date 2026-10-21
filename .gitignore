@@ -19,7 +19,6 @@
 !/lib/
 !/mm/
 !/scripts/
-!/signal/
 
 # License notices.
 !LICENSES/*.spdx
@@ -133,10 +132,3 @@
 !scripts/kconfig/lxdialog/*.h
 !scripts/kconfig/lxdialog/*.S
 !scripts/kconfig/lxdialog/*.s
-
-# Signal subsystem.
-!signal/*.c
-!signal/*.h
-!signal/*.S
-!signal/*.s
-!signal/*.mk

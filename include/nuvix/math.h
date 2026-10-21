@@ -3,6 +3,7 @@
 
 #include <nuvix/assert.h>
 #include <nuvix/compiler.h>
+#include <nuvix/macro.h>
 
 #define MIN(a, b)                                                              \
     ({                                                                         \
@@ -48,5 +49,11 @@
 #define ROUND_UP(x, a)     (((x) + (a) - 1) & ~((a) - 1))
 #define ROUND_DOWN(x, a)   ((x) & ~((a) - 1))
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+
+#define ABS(x)                                                                 \
+    ({                                                                         \
+        TYPEOF(x) _x = (x);                                                    \
+        _x < 0 ? -_x : _x;                                                     \
+    })
 
 #endif /* ifndef _NUVIX_MATH_H */

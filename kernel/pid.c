@@ -1,5 +1,6 @@
 #include <nuvix/pid.h>
 #include <nuvix/task.h>
+#include <nuvix/signal.h>
 #include <nuvix/bitmap.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/errno.h>
@@ -69,6 +70,66 @@ static struct task *pid_task_locked(struct pid *pid, enum pid_type type)
         return NULL;
     return hlist_entry_safe(pid->tasks[type].first, struct task,
                             pid_links[type]);
+}
+
+struct task *pid_get_task(pid_t nr, enum pid_type type)
+{
+    struct task *task;
+    spin_lock(&pid_lock);
+    task = pid_task_locked(find_pid_locked(nr), type);
+    if (task)
+        task_get(task);
+    spin_unlock(&pid_lock);
+
+    return task;
+}
+
+int broadcast_signal(const struct siginfo *info)
+{
+    struct pid *pid;
+    size_t bucket;
+    int ret = -ESRCH;
+
+    spin_lock(&pid_lock);
+    hash_for_each (pid_table, bucket, pid, hash_node) {
+        struct task *task;
+        int err;
+
+        if (pid->nr == PID_INIT || pid == current->pids[PIDTYPE_TGID])
+            continue;
+        task = pid_task_locked(pid, PIDTYPE_TGID);
+        if (!task)
+            continue;
+
+        err = send_signal(task, info);
+        if (ret)
+            ret = err;
+    }
+    spin_unlock(&pid_lock);
+    return ret;
+}
+
+int send_group_signal(pid_t pgid, const struct siginfo *info)
+{
+    struct pid *pgrp;
+    struct task *task;
+    int ret = -ESRCH;
+
+    spin_lock(&pid_lock);
+    pgrp = pgid ? find_pid_locked(pgid) : current->pids[PIDTYPE_PGID];
+
+    if (pgrp) {
+        hlist_for_each_entry (task, &pgrp->tasks[PIDTYPE_PGID],
+                              pid_links[PIDTYPE_PGID]) {
+            int err = send_signal(task, info);
+
+            if (ret)
+                ret = err;
+        }
+    }
+
+    spin_unlock(&pid_lock);
+    return ret;
 }
 
 pid_t task_pid_nr(const struct task *task, enum pid_type type)

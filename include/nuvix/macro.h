@@ -55,11 +55,13 @@
 #define member_size(type, member) sizeof(((type *)0)->member)
 
 #define MAX_ERRNO                 4095
-#define IS_ERR_VALUE(x) ((unsigned long)(x) >= (unsigned long)(-MAX_ERRNO))
-#define ERR_PTR(err)    ((void *)(long)(err))
-#define PTR_ERR(ptr)    ((int)(long)(ptr))
-#define IS_ERR(ptr)     IS_ERR_VALUE((unsigned long)(ptr))
+#define IS_ERR_VALUE(x)   ((unsigned long)(x) >= (unsigned long)(-MAX_ERRNO))
+#define ERR_PTR(err)      ((void *)(long)(err))
+#define PTR_ERR(ptr)      ((int)(long)(ptr))
+#define IS_ERR(ptr)       IS_ERR_VALUE((unsigned long)(ptr))
 
-#define auto            __auto_type
+#define auto              __auto_type
+
+#define IN_RANGE(n, s, e) (((n) >= (s)) && ((n) <= (e)))
 
 #endif /* ifndef _NUVIX_MACRO_H */

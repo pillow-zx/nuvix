@@ -96,7 +96,13 @@ struct sigpending {
 
 struct task;
 
+#define sig_valid(task, sig)   (!(((task)->pending.signal) & sigmask((sig))))
+#define sig_pending(task, sig) (!!(((task)->pending.signal) & sigmask((sig))))
+
 void signal_task_init(struct task *task);
 void signal_task_free(struct task *task);
+
+/* Pending publication only; caller keeps task alive. Does not acquire PID locks. */
+int send_signal(struct task *task, const siginfo_t *info);
 
 #endif

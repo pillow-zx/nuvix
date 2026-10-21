@@ -26,6 +26,7 @@ struct pid {
 };
 
 struct task;
+struct siginfo;
 
 struct pid *pid_alloc(void);
 
@@ -42,5 +43,11 @@ void pid_unpublish(struct task *task);
 int pid_setsid(struct task *task);
 
 DECLARE_FREE(pid_put, struct pid *, if (_T) pid_put(_T))
+
+struct task *pid_get_task(pid_t nr, enum pid_type type);
+
+int broadcast_signal(const struct siginfo *info);
+
+int send_group_signal(pid_t pgid, const struct siginfo *info);
 
 #endif /* _NUVIX_PID_H */
