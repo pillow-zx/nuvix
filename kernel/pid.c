@@ -185,7 +185,7 @@ long sys_setpgid(struct trap_frame *frame)
         if (task->pids[PIDTYPE_SID] != current->pids[PIDTYPE_SID])
             goto out;
         ret = -EACCES;
-        if (task->did_exec)
+        if (task_test_flag(task, TF_EXEC))
             goto out;
     }
 

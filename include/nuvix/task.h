@@ -1,6 +1,7 @@
 #ifndef _NUVIX_TASK_H
 #define _NUVIX_TASK_H
 
+#include <nuvix/atomic.h>
 #include <nuvix/ctypes.h>
 #include <nuvix/cleanup.h>
 #include <nuvix/list.h>
@@ -12,7 +13,10 @@
 
 struct fdtable;
 
-#define TASK_CPU_NONE ((unsigned int)-1)
+#define TASK_CPU_NONE   ((unsigned int)-1)
+
+#define TF_NEED_RESCHED (1U << 0)
+#define TF_EXEC         (1U << 1)
 
 enum task_state {
     TASK_NEW,
@@ -32,11 +36,10 @@ struct task {
     bool on_rq;
     bool on_cpu;
 
-    /* Atomic hint; published writes and consumption stay under rq.lock. */
-    bool need_resched;
-
     struct list_head rq_node;
     unsigned int preempt_count;
+
+    atomic_t flags;
 
     void *kstack;
     struct task_context ctx;
@@ -55,7 +58,6 @@ struct task {
     struct task *parent;
     struct list_head children;
     struct list_head sibling;
-    bool did_exec;
 
     spinlock_t signal_lock;
     struct sigpending pending;
@@ -87,14 +89,21 @@ __noreturn void ktask_exit(void);
 DECLARE_FREE(task_put, struct task *, if (_T) task_put(_T));
 DECLARE_FREE(task, struct task *, if (_T) task_free(_T));
 
+#define task_test_flag(task, mask)  (!!(atomic_read(&(task)->flags) & (mask)))
+#define task_set_flag(task, mask)   atomic_or((mask), &(task)->flags)
+#define task_clear_flag(task, mask) atomic_and(~(mask), &(task)->flags)
+
 static __always_inline bool task_need_resched(const struct task *task)
 {
-    return __atomic_load_n(&task->need_resched, __ATOMIC_RELAXED);
+    return task_test_flag(task, TF_NEED_RESCHED);
 }
 
 static __always_inline void task_set_need_resched(struct task *task, bool value)
 {
-    __atomic_store_n(&task->need_resched, value, __ATOMIC_RELAXED);
+    if (value)
+        task_set_flag(task, TF_NEED_RESCHED);
+    else
+        task_clear_flag(task, TF_NEED_RESCHED);
 }
 
 static inline unsigned int current_cpu_id(void)

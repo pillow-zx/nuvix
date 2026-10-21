@@ -391,7 +391,7 @@ int execve(const char *path, const char *const argv[], const char *const envp[])
     if (ret)
         return ret;
 
-    task->did_exec = true;
+    task_set_flag(task, TF_EXEC);
     sched_publish(task);
     task_put(move(task));
     return 0;

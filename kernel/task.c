@@ -30,6 +30,7 @@ struct task boot_task = {
     .children = LIST_INIT_HEAD(boot_task.children),
     .sibling = LIST_INIT_HEAD(boot_task.sibling),
     .preempt_count = INIT_PREEMPT_COUNT,
+    .flags = ATOMIC_INIT(0),
 };
 
 void task_boot_init(void *kstack)
