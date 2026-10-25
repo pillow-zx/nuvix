@@ -1,4 +1,3 @@
-#include <nuvix/assert.h>
 #include <nuvix/cpu.h>
 #include <nuvix/errno.h>
 #include <nuvix/preempt.h>
@@ -6,41 +5,20 @@
 #include <nuvix/tick.h>
 #include <nuvix/irq.h>
 #include <nuvix/mm.h>
-#include <nuvix/printk.h>
 #include <nuvix/syscall.h>
 #include <nuvix/uaccess.h>
+#include <nuvix/assert.h>
+#include <nuvix/task.h>
 #include <nuvix/signal.h>
 #include <asm/signal.h>
 #include <asm/uaccess.h>
 #include <asm/trap.h>
-
-static_assert(sizeof(struct trap_frame) == TRAP_SIZE,
-              "invalid trap frame size");
-static_assert(offsetof(struct trap_frame, task) == TRAP_TASK,
-              "invalid trap task offset");
-IFDEF(CONFIG_FPU,
-      static_assert(offsetof(struct trap_frame, fregs) == TRAP_FREG(0),
-                    "invalid trap FPU offset");
-      static_assert(offsetof(struct trap_frame, fcsr) == TRAP_FCSR,
-                    "invalid trap FCSR offset");)
 
 #define SUPERVISOR(frame) (frame->sstatus & SSTATUS_SPP)
 
 #define IRQ_S_SOFT        SCAUSE_INTERRUPT | SCAUSE_SSI
 #define IRQ_S_TIMER       SCAUSE_INTERRUPT | SCAUSE_STI
 #define IRQ_S_EXT         SCAUSE_INTERRUPT | SCAUSE_SEI
-
-#define die(frame, what, err)                                                  \
-    do {                                                                       \
-        if (SUPERVISOR(frame))                                                 \
-            panic("%s in supervisor mode\nscause=%#lx sepc=%#lx stval=%#lx",   \
-                  what, frame->scause, frame->sepc, frame->stval);             \
-        local_irq_enable();                                                    \
-        pr_err("task %d: %s (%d) scause=%#lx sepc=%#lx stval=%#lx\n",          \
-               task_pid_nr(current, PIDTYPE_TID), what, err, frame->scause,    \
-               frame->sepc, frame->stval);                                     \
-        task_exit(SIGSEGV);                                                    \
-    } while (0)
 
 static bool handle_interrupt(struct trap_frame *frame)
 {
@@ -120,7 +98,19 @@ static void do_syscall(struct trap_frame *frame)
     local_irq_disable();
 }
 
-static void do_exception(struct trap_frame *frame)
+static void set_fault_signal(struct trap_frame *frame, siginfo_t *fault,
+                             int sig, int code, unsigned long addr)
+{
+    if (SUPERVISOR(frame))
+        panic(
+            "unhandled supervisor exception\nscause=%#lx sepc=%#lx stval=%#lx",
+            frame->scause, frame->sepc, frame->stval);
+    fault->si_signo = sig;
+    fault->si_code = code;
+    fault->si_addr = (void *)addr;
+}
+
+static void do_exception(struct trap_frame *frame, siginfo_t *fault)
 {
     unsigned long access;
     int ret;
@@ -128,6 +118,22 @@ static void do_exception(struct trap_frame *frame)
     switch (frame->scause) {
     case SCAUSE_ECALL_U:
         do_syscall(frame);
+        return;
+    case SCAUSE_ILLEGAL_INST:
+        set_fault_signal(frame, fault, SIGILL, ILL_ILLOPC, frame->sepc);
+        return;
+    case SCAUSE_BREAKPOINT:
+        set_fault_signal(frame, fault, SIGTRAP, TRAP_BRKPT, frame->sepc);
+        return;
+    case SCAUSE_INST_MISALIGNED:
+    case SCAUSE_LOAD_MISALIGNED:
+    case SCAUSE_STORE_MISALIGNED:
+        set_fault_signal(frame, fault, SIGBUS, BUS_ADRALN, frame->sepc);
+        return;
+    case SCAUSE_INST_ACCESS_FAULT:
+    case SCAUSE_LOAD_ACCESS_FAULT:
+    case SCAUSE_STORE_ACCESS_FAULT:
+        set_fault_signal(frame, fault, SIGSEGV, SEGV_ACCERR, frame->sepc);
         return;
     case SCAUSE_INST_PAGE_FAULT:
         access = VM_EXEC;
@@ -139,24 +145,37 @@ static void do_exception(struct trap_frame *frame)
         access = VM_WRITE;
         break;
     default:
-        die(frame, "unhandled exception", 0);
+        set_fault_signal(frame, fault, SIGILL, ILL_ILLTRP, frame->sepc);
+        return;
     }
 
     ret = do_page_fault(frame, access);
-    if (ret)
-        die(frame, "page fault", ret);
+    if (!ret)
+        return;
+    if (ret == -ENOMEM) {
+        local_irq_enable();
+        task_exit(SIGSEGV);
+    }
+    if (ret == -EFAULT)
+        set_fault_signal(frame, fault, SIGSEGV, SEGV_MAPERR, frame->stval);
+    else if (ret == -EACCES)
+        set_fault_signal(frame, fault, SIGSEGV, SEGV_ACCERR, frame->stval);
+    else
+        set_fault_signal(frame, fault, SIGBUS, BUS_ADRERR, frame->stval);
 }
 
 void trap_handler(struct trap_frame *frame)
 {
+    siginfo_t fault = {0};
+
     if (frame->scause & SCAUSE_INTERRUPT)
         do_interrupt(frame);
     else
-        do_exception(frame);
+        do_exception(frame, &fault);
 
     if (!SUPERVISOR(frame)) {
         local_irq_enable();
-        arch_do_signal(frame, NULL);
+        arch_do_signal(frame, fault.si_signo ? &fault : NULL);
         local_irq_disable();
     }
 }
