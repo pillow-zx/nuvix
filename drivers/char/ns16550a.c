@@ -200,16 +200,19 @@ port:
     return ret;
 }
 
-size_t ns16550a_read(void *buffer, size_t count)
+ssize_t ns16550a_read(void *buffer, size_t count)
 {
     struct ns16550a_port *port = ns16550a;
     unsigned int len = MIN(count, (size_t)UART_RX_FIFO_SIZE);
     unsigned int received;
+    int ret;
 
     if (!count)
         return 0;
-    wait_event(&port->rx_wait,
-               (received = kfifo_out(&port->rx_fifo, buffer, len)));
+    ret = wait_event_interruptible(
+        &port->rx_wait, (received = kfifo_out(&port->rx_fifo, buffer, len)));
+    if (ret)
+        return -EINTR;
     return received;
 }
 
@@ -226,19 +229,29 @@ static bool ns16550a_transmit(struct ns16550a_port *port, uint8_t c)
     return ready;
 }
 
-size_t ns16550a_write(const void *buffer, size_t count)
+ssize_t ns16550a_write(const void *buffer, size_t count)
 {
     struct ns16550a_port *port = ns16550a;
     const uint8_t *bytes = buffer;
+    size_t written = 0;
+    int ret;
 
     if (!count)
         return 0;
-    mutex_lock(&port->tx_lock);
-    for (size_t i = 0; i < count; ++i)
-        while (!ns16550a_transmit(port, bytes[i]))
-            ;
+    ret = mutex_lock_interruptible(&port->tx_lock);
+    if (ret)
+        return ret;
+    for (; written < count; ++written) {
+        while (!ns16550a_transmit(port, bytes[written])) {
+            if (signal_pending(current)) {
+                ret = -EINTR;
+                goto out;
+            }
+        }
+    }
+out:
     mutex_unlock(&port->tx_lock);
-    return count;
+    return written ? (ssize_t)written : ret;
 }
 
 static const struct of_device_id ns16550a_ids[] = {

@@ -195,7 +195,9 @@ long sys_read(struct trap_frame *frame)
     if (!buf)
         return -ENOMEM;
 
-    mutex_lock(&file->f_pos_lock);
+    ret = mutex_lock_interruptible(&file->f_pos_lock);
+    if (ret)
+        return ret;
     ret = file_uread_locked(file, ubuf, len, buf);
     mutex_unlock(&file->f_pos_lock);
 
@@ -224,7 +226,9 @@ long sys_write(struct trap_frame *frame)
     if (!buf)
         return -ENOMEM;
 
-    mutex_lock(&file->f_pos_lock);
+    ret = mutex_lock_interruptible(&file->f_pos_lock);
+    if (ret)
+        return ret;
     ret = file_uwrite_locked(file, ubuf, len, buf);
     mutex_unlock(&file->f_pos_lock);
 
@@ -280,7 +284,9 @@ long sys_readv(struct trap_frame *frame)
     if (!buf)
         return -ENOMEM;
 
-    mutex_lock(&file->f_pos_lock);
+    ret = mutex_lock_interruptible(&file->f_pos_lock);
+    if (ret)
+        return ret;
     for (int i = 0; i < iovcnt; ++i) {
         size_t len = iov[i].iov_len;
 
@@ -349,7 +355,9 @@ long sys_writev(struct trap_frame *frame)
     if (!buf)
         return -ENOMEM;
 
-    mutex_lock(&file->f_pos_lock);
+    ret = mutex_lock_interruptible(&file->f_pos_lock);
+    if (ret)
+        return ret;
     for (int i = 0; i < iovcnt; ++i) {
         size_t len = iov[i].iov_len;
 
