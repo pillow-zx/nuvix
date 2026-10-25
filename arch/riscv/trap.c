@@ -10,6 +10,7 @@
 #include <nuvix/syscall.h>
 #include <nuvix/uaccess.h>
 #include <nuvix/signal.h>
+#include <asm/signal.h>
 #include <asm/uaccess.h>
 #include <asm/trap.h>
 
@@ -152,4 +153,10 @@ void trap_handler(struct trap_frame *frame)
         do_interrupt(frame);
     else
         do_exception(frame);
+
+    if (!SUPERVISOR(frame)) {
+        local_irq_enable();
+        arch_do_signal(frame, NULL);
+        local_irq_disable();
+    }
 }

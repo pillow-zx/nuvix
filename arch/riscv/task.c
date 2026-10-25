@@ -1,10 +1,14 @@
 #include <nuvix/task.h>
 #include <nuvix/sched.h>
+#include <nuvix/page.h>
 #include <nuvix/layout.h>
 #include <nuvix/string.h>
+#include <nuvix/pgtable.h>
 #include <nuvix/errno.h>
 #include <asm/trap.h>
 #include <asm/signal.h>
+
+extern const char __sigret_start[], __sigret_end[];
 
 void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg)
 {
@@ -15,9 +19,26 @@ void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg)
 
 int arch_utask_init(struct task *task, vaddr_t entry, vaddr_t sp)
 {
-    struct trap_frame *frame =
-        (void *)((vaddr_t)task->kstack + KSTACK_SIZE - TRAP_SIZE);
+    struct trap_frame *frame;
+    struct page *page __free(page) = NULL;
+    void *code;
+    int ret;
 
+    page = alloc_page();
+    if (!page)
+        return -ENOMEM;
+
+    code = (void *)__va(page_to_phys(page));
+    memset(code, 0, PAGE_SIZE);
+    memcpy(code, __sigret_start, __sigret_end - __sigret_start);
+
+    ret = pgtable_map_page(task->mm, USER_TRAMPOLINE, page,
+                           VM_READ | VM_WRITE | VM_EXEC);
+    if (ret)
+        return ret;
+    keep(page);
+
+    frame = (void *)((vaddr_t)task->kstack + KSTACK_SIZE - TRAP_SIZE);
     memset(frame, 0, sizeof(*frame));
     frame->regs[2] = sp;
     frame->sepc = entry;

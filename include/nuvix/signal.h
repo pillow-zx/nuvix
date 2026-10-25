@@ -48,18 +48,35 @@
 #define SA_NODEFER   0x40000000UL
 #define SA_RESETHAND 0x80000000UL
 
+#define SS_ONSTACK   1
+#define SS_DISABLE   2
+
 #define SI_USER      0
 #define SI_KERNEL    0x80
 #define SI_TKILL     (-6)
 
-typedef uint64_t sigset_t;
+#define ILL_ILLOPC   1
+#define ILL_ILLTRP   4
+#define TRAP_BRKPT   1
+#define BUS_ADRALN   1
+#define BUS_ADRERR   2
+#define SEGV_MAPERR  1
+#define SEGV_ACCERR  2
+
+typedef unsigned long sigset_t;
 typedef void (*sighandler_t)(int);
 
 #define SIG_DFL         ((sighandler_t)0)
 #define SIG_IGN         ((sighandler_t)1)
 
+#define SIG_BLOCK       0
+#define SIG_UNBLOCK     1
+#define SIG_SETMASK     2
+
 #define sigmask(sig)    (1UL << ((sig) - 1))
-#define SIG_UNBLOCKABLE (sigmask(SIGKILL) | sigmask(SIGSTOP))
+#define SIG_UNBLOCKMASK (sigmask(SIGKILL) | sigmask(SIGSTOP))
+#define SIG_STOPMASK                                                           \
+    (sigmask(SIGSTOP) | sigmask(SIGTSTP) | sigmask(SIGTTIN) | sigmask(SIGTTOU))
 
 struct sigaction {
     sighandler_t sa_handler;
@@ -77,12 +94,22 @@ typedef struct siginfo {
             pid_t pid;
             uint32_t uid;
         } kill;
+        struct {
+            void *addr;
+        } fault;
         uint64_t padding[(SIGINFO_SIZE - 4 * sizeof(int)) / sizeof(uint64_t)];
     } fields;
 } siginfo_t;
 
-#define si_pid fields.kill.pid
-#define si_uid fields.kill.uid
+#define si_pid  fields.kill.pid
+#define si_uid  fields.kill.uid
+#define si_addr fields.fault.addr
+
+struct ksignal {
+    siginfo_t info;
+    struct sigaction action;
+    sigset_t oldmask;
+};
 
 struct sigqueue {
     struct list_head list;
@@ -102,7 +129,13 @@ struct task;
 void signal_task_init(struct task *task);
 void signal_task_free(struct task *task);
 
-/* Pending publication only; caller keeps task alive. Does not acquire PID locks. */
+bool get_signal(struct ksignal *signal, const siginfo_t *fault);
+void signal_delivered(const struct ksignal *signal);
+
+/* signal_lock held; pair every pending/mask/action change with this update. */
+void recalc_sigpending(struct task *task);
+
+/* Published user task held alive by caller; no PID, signal or rq locks held. */
 int send_signal(struct task *task, const siginfo_t *info);
 
 #endif
