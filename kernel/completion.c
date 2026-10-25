@@ -44,10 +44,12 @@ void complete_all(struct completion *completion)
     spin_unlock_irqrestore(&completion->wait.lock, flags);
 }
 
-void wait_for_completion(struct completion *completion)
+static int wait_for_completion_state(struct completion *completion,
+                                     enum task_state state)
 {
     struct wait_entry wait;
     unsigned long flags;
+    int ret = 0;
 
     might_sleep();
     wait_entry_init(&wait);
@@ -55,16 +57,29 @@ void wait_for_completion(struct completion *completion)
         preempt_disable();
         spin_lock_irqsave(&completion->wait.lock, flags);
         finish_wait_locked(&completion->wait, &wait);
-        if (take_completion_locked(completion)) {
-            spin_unlock_irqrestore(&completion->wait.lock, flags);
-            preempt_enable();
-            return;
+        if (take_completion_locked(completion))
+            break;
+        if (state == TASK_SLEEP_INTERRUPTIBLE && signal_pending(current)) {
+            ret = -ERESTARTSYS;
+            break;
         }
-        prepare_to_wait_locked(&completion->wait, &wait,
-                               TASK_SLEEP_UNINTERRUPTIBLE);
+        prepare_to_wait_locked(&completion->wait, &wait, state);
         spin_unlock_irqrestore(&completion->wait.lock, flags);
         sched_park();
     }
+    spin_unlock_irqrestore(&completion->wait.lock, flags);
+    preempt_enable();
+    return ret;
+}
+
+void wait_for_completion(struct completion *completion)
+{
+    (void)wait_for_completion_state(completion, TASK_SLEEP_UNINTERRUPTIBLE);
+}
+
+int wait_for_completion_interruptible(struct completion *completion)
+{
+    return wait_for_completion_state(completion, TASK_SLEEP_INTERRUPTIBLE);
 }
 
 struct completion_timeout {

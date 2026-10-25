@@ -22,8 +22,9 @@ void reinit_completion(struct completion *completion);
 void complete(struct completion *completion);
 void complete_all(struct completion *completion);
 
-/* Ordinary sleepable context; consumes one completion unless complete_all. */
 void wait_for_completion(struct completion *completion);
+int wait_for_completion_interruptible(struct completion *completion);
+
 /*
  * Uninterruptible wait with an absolute hardware-time deadline. Ordinary
  * sleepable context, no caller locks or preempt-disable levels; timers ready.
