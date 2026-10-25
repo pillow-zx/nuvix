@@ -17,6 +17,8 @@ struct fdtable;
 
 #define TF_NEED_RESCHED (1U << 0)
 #define TF_EXEC         (1U << 1)
+#define TF_SIGPENDING   (1U << 2)
+#define TF_STOPPENDING  (1U << 3)
 
 enum task_state {
     TASK_NEW,
@@ -105,6 +107,11 @@ static __always_inline void task_set_need_resched(struct task *task, bool value)
         task_set_flag(task, TF_NEED_RESCHED);
     else
         task_clear_flag(task, TF_NEED_RESCHED);
+}
+
+static __always_inline bool signal_pending(const struct task *task)
+{
+    return task_test_flag(task, TF_SIGPENDING);
 }
 
 static inline unsigned int current_cpu_id(void)

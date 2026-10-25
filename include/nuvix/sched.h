@@ -74,11 +74,14 @@ void sched_init_idle(unsigned int cpu_id, struct task *idle);
  * current for rescheduling and notify remote idle CPUs after unlocking.
  */
 void sched_publish(struct task *task);
-/*
- * Requires a published task held alive by the caller, outside its rq lock.
- * Returns true only when an ordinary sleeping task becomes RUNNABLE.
- */
+
 bool sched_wake(struct task *task);
+
+bool sched_wake_interruptible(struct task *task);
+
+bool sched_resume(struct task *task);
+
+void sched_stop(void);
 
 /* Local ordinary current, IRQ off and rq.lock held; no load change yet. */
 void sched_set_sleep_locked(struct rq *rq, enum task_state state);

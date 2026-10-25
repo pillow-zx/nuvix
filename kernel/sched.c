@@ -3,6 +3,7 @@
 #include <nuvix/tick.h>
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
+#include <nuvix/bitops.h>
 
 struct rq runqueues[CONFIG_NR_CPUS];
 
@@ -115,7 +116,7 @@ void sched_publish(struct task *task)
         cpu_send_resched(cpu_id);
 }
 
-bool sched_wake(struct task *task)
+static bool wake_task(struct task *task, unsigned long states)
 {
     struct rq *rq = task_rq(task);
     unsigned long flags;
@@ -123,8 +124,7 @@ bool sched_wake(struct task *task)
     bool notify_idle = false;
 
     spin_lock_irqsave(&rq->lock, flags);
-    if (task->state == TASK_SLEEP_INTERRUPTIBLE ||
-        task->state == TASK_SLEEP_UNINTERRUPTIBLE) {
+    if (states & BIT(task->state)) {
         task->state = TASK_RUNNABLE;
         if (!task->on_cpu) {
             enqueue_task(rq, task);
@@ -138,6 +138,38 @@ bool sched_wake(struct task *task)
     if (notify_idle)
         cpu_send_resched(task->cpu_id);
     return woke;
+}
+
+bool sched_wake(struct task *task)
+{
+    return wake_task(task, BIT(TASK_SLEEP_INTERRUPTIBLE) |
+                               BIT(TASK_SLEEP_UNINTERRUPTIBLE));
+}
+
+bool sched_wake_interruptible(struct task *task)
+{
+    return wake_task(task, BIT(TASK_SLEEP_INTERRUPTIBLE));
+}
+
+bool sched_resume(struct task *task)
+{
+    return wake_task(task, BIT(TASK_STOPPED));
+}
+
+void sched_stop(void)
+{
+    struct rq *rq = this_rq();
+    unsigned long flags;
+
+    might_sleep();
+    preempt_disable();
+    spin_lock_irqsave(&rq->lock, flags);
+    if (task_test_flag(current, TF_STOPPENDING)) {
+        task_clear_flag(current, TF_STOPPENDING);
+        current->state = TASK_STOPPED;
+    }
+    spin_unlock_irqrestore(&rq->lock, flags);
+    sched_park();
 }
 
 void sched_set_sleep_locked(struct rq *rq, enum task_state state)
@@ -159,11 +191,9 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
     IFDEF(CONFIG_DEBUG_CONTEXT,
           Assert(local_irqs_disabled() && preempt_count() == 1,
                  "invalid scheduling context\n"));
+    if (prev->state == TASK_SLEEP_INTERRUPTIBLE && signal_pending(prev))
+        prev->state = TASK_RUNNABLE;
     if (prev->state != TASK_RUNNABLE) {
-        Assert(prev->state == TASK_SLEEP_INTERRUPTIBLE ||
-                   prev->state == TASK_SLEEP_UNINTERRUPTIBLE ||
-                   prev->state == TASK_DEAD,
-               "stop requires its lifecycle path\n");
         atomic_dec(&rq->nr_runnable);
     } else {
         if (list_empty(&rq->ready_list)) {
