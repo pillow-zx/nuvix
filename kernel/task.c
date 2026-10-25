@@ -94,10 +94,8 @@ static void free_resource(struct task *task)
 void task_free(struct task *task)
 {
     Assert(task->state == TASK_NEW, "cannot discard a published task\n");
-    if (task->parent) {
-        signal_task_free(task);
+    if (task->parent)
         free_resource(task);
-    }
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
     task->kstack = NULL;
     task_put(task);
@@ -140,6 +138,8 @@ void task_put(struct task *task)
     Assert((!task->parent || task->parent == task) &&
                list_empty(&task->children) && list_empty(&task->sibling),
            "cannot destroy a task linked in the process tree\n");
+    if (task->parent)
+        signal_task_free(task);
     for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type) {
         Assert(hlist_unhashed(&task->pid_links[type]),
                "cannot destroy a task with published identities\n");

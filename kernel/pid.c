@@ -84,50 +84,104 @@ struct task *pid_get_task(pid_t nr, enum pid_type type)
     return task;
 }
 
+static int signal_tasks(struct task **tasks, size_t count,
+                        const struct siginfo *info)
+{
+    int ret = -ESRCH;
+
+    for (size_t i = 0; i < count; ++i) {
+        struct task *task __free(task_put) = tasks[i];
+        int err = send_signal(task, info);
+
+        if (ret)
+            ret = err;
+    }
+    return ret;
+}
+
+static struct task *broadcast_task_locked(struct pid *pid)
+{
+    assert_spin_locked(&pid_lock);
+    if (pid->nr == PID_INIT || pid == current->pids[PIDTYPE_TGID])
+        return NULL;
+    return pid_task_locked(pid, PIDTYPE_TGID);
+}
+
 int broadcast_signal(const struct siginfo *info)
 {
+    struct task **tasks __free(kfree) = NULL;
     struct pid *pid;
     size_t bucket;
+    size_t count = 0, index = 0;
     int ret = -ESRCH;
 
     spin_lock(&pid_lock);
     hash_for_each (pid_table, bucket, pid, hash_node) {
-        struct task *task;
-        int err;
+        if (broadcast_task_locked(pid))
+            ++count;
+    }
+    if (!count)
+        goto out;
+    if (!info->si_signo) {
+        ret = 0;
+        goto out;
+    }
+    tasks = kmalloc(count * sizeof(*tasks));
+    if (!tasks) {
+        ret = -ENOMEM;
+        goto out;
+    }
+    hash_for_each (pid_table, bucket, pid, hash_node) {
+        struct task *task = broadcast_task_locked(pid);
 
-        if (pid->nr == PID_INIT || pid == current->pids[PIDTYPE_TGID])
-            continue;
-        task = pid_task_locked(pid, PIDTYPE_TGID);
         if (!task)
             continue;
-
-        err = send_signal(task, info);
-        if (ret)
-            ret = err;
+        task_get(task);
+        tasks[index++] = task;
     }
+    spin_unlock(&pid_lock);
+    return signal_tasks(tasks, count, info);
+out:
     spin_unlock(&pid_lock);
     return ret;
 }
 
 int send_group_signal(pid_t pgid, const struct siginfo *info)
 {
+    struct task **tasks __free(kfree) = NULL;
     struct pid *pgrp;
     struct task *task;
+    size_t count = 0, index = 0;
     int ret = -ESRCH;
 
     spin_lock(&pid_lock);
     pgrp = pgid ? find_pid_locked(pgid) : current->pids[PIDTYPE_PGID];
 
-    if (pgrp) {
-        hlist_for_each_entry (task, &pgrp->tasks[PIDTYPE_PGID],
-                              pid_links[PIDTYPE_PGID]) {
-            int err = send_signal(task, info);
-
-            if (ret)
-                ret = err;
-        }
+    if (!pgrp)
+        goto out;
+    hlist_for_each_entry (task, &pgrp->tasks[PIDTYPE_PGID],
+                          pid_links[PIDTYPE_PGID]) {
+        ++count;
     }
-
+    if (!count)
+        goto out;
+    if (!info->si_signo) {
+        ret = 0;
+        goto out;
+    }
+    tasks = kmalloc(count * sizeof(*tasks));
+    if (!tasks) {
+        ret = -ENOMEM;
+        goto out;
+    }
+    hlist_for_each_entry (task, &pgrp->tasks[PIDTYPE_PGID],
+                          pid_links[PIDTYPE_PGID]) {
+        task_get(task);
+        tasks[index++] = task;
+    }
+    spin_unlock(&pid_lock);
+    return signal_tasks(tasks, count, info);
+out:
     spin_unlock(&pid_lock);
     return ret;
 }
