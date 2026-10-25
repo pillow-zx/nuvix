@@ -7,22 +7,38 @@
 
 #define EF_RISCV_RVC              0x0001
 #define EF_RISCV_FLOAT_ABI        0x0006
+#define EF_RISCV_FLOAT_ABI_SOFT   0x0000
 #define EF_RISCV_FLOAT_ABI_DOUBLE 0x0004
 
 #define ELF_ARCH                  EM_RISCV
 #define ELF_CLASS                 ELFCLASS64
 #define ELF_DATA                  ELFDATA2LSB
 
+#ifdef CONFIG_FPU
+#define ELF_HWCAP_FPU ((1UL << ('F' - 'A')) | (1UL << ('D' - 'A')))
+#else
+#define ELF_HWCAP_FPU 0UL
+#endif
+
 #define ELF_HWCAP                                                              \
     ((1UL << ('I' - 'A')) | (1UL << ('M' - 'A')) | (1UL << ('A' - 'A')) |      \
-     (1UL << ('F' - 'A')) | (1UL << ('D' - 'A')) | (1UL << ('C' - 'A')))
+     (1UL << ('C' - 'A')) | ELF_HWCAP_FPU)
 
 static inline bool elf_check_arch(const struct elf64_ehdr *ehdr)
 {
+    unsigned int float_abi = ehdr->e_flags & EF_RISCV_FLOAT_ABI;
+
+#ifdef CONFIG_FPU
+    if (float_abi > EF_RISCV_FLOAT_ABI_DOUBLE)
+        return false;
+#else
+    if (float_abi != EF_RISCV_FLOAT_ABI_SOFT)
+        return false;
+#endif
+
     return ehdr->e_machine == ELF_ARCH &&
            ehdr->e_ident[EI_CLASS] == ELF_CLASS &&
            ehdr->e_ident[EI_DATA] == ELF_DATA &&
-           (ehdr->e_flags & EF_RISCV_FLOAT_ABI) == EF_RISCV_FLOAT_ABI_DOUBLE &&
            !(ehdr->e_flags & ~(EF_RISCV_RVC | EF_RISCV_FLOAT_ABI));
 }
 

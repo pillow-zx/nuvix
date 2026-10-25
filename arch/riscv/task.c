@@ -15,15 +15,16 @@ void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg)
 
 int arch_utask_init(struct task *task, vaddr_t entry, vaddr_t sp)
 {
-    IFNDEF(CONFIG_FPU, return -ENOEXEC;)
-
     struct trap_frame *frame =
         (void *)((vaddr_t)task->kstack + KSTACK_SIZE - TRAP_SIZE);
 
     memset(frame, 0, sizeof(*frame));
     frame->regs[2] = sp;
     frame->sepc = entry;
-    frame->sstatus = SSTATUS_SPIE | SSTATUS_UXL_64 | SSTATUS_FS_INITIAL;
+    frame->sstatus = SSTATUS_SPIE | SSTATUS_UXL_64;
+#ifdef CONFIG_FPU
+    frame->sstatus |= SSTATUS_FS_INITIAL;
+#endif
     frame->task = task;
     task->ctx.sp = (vaddr_t)frame;
     task->ctx.ra = (unsigned long)__utask_entry;
