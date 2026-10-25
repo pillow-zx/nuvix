@@ -6,10 +6,11 @@ void mutex_init(struct mutex *mutex)
     mutex->owner = NULL;
 }
 
-void mutex_lock(struct mutex *mutex)
+static int mutex_lock_state(struct mutex *mutex, enum task_state state)
 {
     struct wait_entry wait;
     unsigned long flags;
+    int ret = 0;
 
     might_sleep();
     wait_entry_init(&wait);
@@ -21,14 +22,29 @@ void mutex_lock(struct mutex *mutex)
                                         "recursive mutex %p\n", (void *)mutex));
         if (!mutex->owner) {
             mutex->owner = current;
-            spin_unlock_irqrestore(&mutex->wait.lock, flags);
-            preempt_enable();
-            return;
+            break;
         }
-        prepare_to_wait_locked(&mutex->wait, &wait, TASK_SLEEP_UNINTERRUPTIBLE);
+        if (state == TASK_SLEEP_INTERRUPTIBLE && signal_pending(current)) {
+            ret = -EINTR;
+            break;
+        }
+        prepare_to_wait_locked(&mutex->wait, &wait, state);
         spin_unlock_irqrestore(&mutex->wait.lock, flags);
         sched_park();
     }
+    spin_unlock_irqrestore(&mutex->wait.lock, flags);
+    preempt_enable();
+    return ret;
+}
+
+void mutex_lock(struct mutex *mutex)
+{
+    (void)mutex_lock_state(mutex, TASK_SLEEP_UNINTERRUPTIBLE);
+}
+
+int mutex_lock_interruptible(struct mutex *mutex)
+{
+    return mutex_lock_state(mutex, TASK_SLEEP_INTERRUPTIBLE);
 }
 
 bool mutex_trylock(struct mutex *mutex)

@@ -18,6 +18,7 @@ void mutex_init(struct mutex *mutex);
 
 /* Non-recursive, uninterruptible acquisition in ordinary sleepable context. */
 void mutex_lock(struct mutex *mutex);
+int mutex_lock_interruptible(struct mutex *mutex);
 /* Thread context only; false when already owned, including by current. */
 bool mutex_trylock(struct mutex *mutex);
 /* Owner-only, outside hard IRQ; keep the mutex alive until this returns. */
