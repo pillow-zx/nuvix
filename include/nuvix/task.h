@@ -58,6 +58,7 @@ struct task {
     struct task *parent;
     struct list_head children;
     struct list_head sibling;
+    int exit;
 
     spinlock_t signal_lock;
     struct sigpending pending;
@@ -73,7 +74,7 @@ struct task *task_alloc(bool user);
 
 void task_free(struct task *task);
 
-__noreturn void task_exit(void);
+__noreturn void task_exit(int status);
 
 void task_finish_exit(struct task *task);
 

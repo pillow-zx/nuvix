@@ -9,6 +9,7 @@
 #include <nuvix/printk.h>
 #include <nuvix/syscall.h>
 #include <nuvix/uaccess.h>
+#include <nuvix/signal.h>
 #include <asm/uaccess.h>
 #include <asm/trap.h>
 
@@ -37,7 +38,7 @@ IFDEF(CONFIG_FPU,
         pr_err("task %d: %s (%d) scause=%#lx sepc=%#lx stval=%#lx\n",          \
                task_pid_nr(current, PIDTYPE_TID), what, err, frame->scause,    \
                frame->sepc, frame->stval);                                     \
-        task_exit();                                                           \
+        task_exit(SIGSEGV);                                                    \
     } while (0)
 
 static bool handle_interrupt(struct trap_frame *frame)

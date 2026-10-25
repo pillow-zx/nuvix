@@ -103,10 +103,12 @@ void task_free(struct task *task)
     task_put(task);
 }
 
-__noreturn void task_exit(void)
+__noreturn void task_exit(int status)
 {
     struct task *task = current;
+
     might_sleep();
+    task->exit = status;
     if (task->parent) {
         Assert(task_pid_nr(task, PIDTYPE_TGID) != PID_INIT,
                "init cannot exit\n");
@@ -148,14 +150,12 @@ void task_put(struct task *task)
 
 long sys_exit(struct trap_frame *frame)
 {
-    (void)frame;
-    task_exit();
+    task_exit((syscallarg(frame, 0) & 0xff) << 8);
 }
 
 long sys_exit_group(struct trap_frame *frame)
 {
-    (void)frame;
-    task_exit();
+    task_exit((syscallarg(frame, 0) & 0xff) << 8);
 }
 
 long sys_umask(struct trap_frame *frame)

@@ -8,7 +8,7 @@
 __noreturn void ktask_exit(void)
 {
     Assert(!current->parent, "kernel thread exit requires a kernel task\n");
-    task_exit();
+    task_exit(0);
 }
 
 __noreturn void ktask_entry(struct task *prev, int (*fn)(void *), void *arg)
