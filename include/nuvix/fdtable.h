@@ -3,7 +3,6 @@
 
 #include <nuvix/assert.h>
 #include <nuvix/spinlock.h>
-#include <nuvix/vector.h>
 
 struct file;
 
