@@ -145,6 +145,27 @@ static void dequeue_signal_locked(struct task *task, int sig, siginfo_t *info)
     panic("pending signal %d has no queue entry\n", sig);
 }
 
+static void wait_for_signal(void)
+{
+    struct task *task = current;
+    struct rq *rq = this_rq();
+    unsigned long flags;
+
+    might_sleep();
+    for (;;) {
+        preempt_disable();
+        spin_lock_irqsave(&rq->lock, flags);
+        if (signal_pending(task)) {
+            spin_unlock_irqrestore(&rq->lock, flags);
+            preempt_enable();
+            return;
+        }
+        sched_set_sleep_locked(rq, TASK_SLEEP_INTERRUPTIBLE);
+        spin_unlock_irqrestore(&rq->lock, flags);
+        sched_park();
+    }
+}
+
 bool get_signal(struct ksignal *signal, const siginfo_t *fault)
 {
     struct task *task = current;
@@ -164,6 +185,10 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
 
             if (!pending) {
                 spin_unlock(&task->signal_lock);
+                if (task_test_flag(task, TF_SIGSUSPEND)) {
+                    wait_for_signal();
+                    continue;
+                }
                 return false;
             }
             sig = find_first_bit(&pending, SIG_MAX) + 1;
@@ -171,7 +196,9 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
         }
 
         signal->action = task->actions[sig - 1];
-        signal->oldmask = task->blocked;
+        signal->oldmask = task_test_flag(task, TF_SIGSUSPEND)
+                              ? task->sigmask
+                              : task->blocked;
         fatal = fault && ((task->blocked & sigmask(sig)) ||
                           signal->action.sa_handler == SIG_DFL ||
                           signal->action.sa_handler == SIG_IGN);
@@ -202,6 +229,7 @@ void signal_delivered(const struct ksignal *signal)
     struct task *task = current;
 
     spin_lock(&task->signal_lock);
+    task_clear_flag(task, TF_SIGSUSPEND);
     task->blocked |= signal->action.sa_mask;
     if (!(signal->action.sa_flags & SA_NODEFER))
         task->blocked |= sigmask(signal->info.si_signo);
@@ -292,6 +320,30 @@ long sys_tgkill(struct trap_frame *frame)
     info.si_uid = 0;
 
     return send_signal(task, &info);
+}
+
+long sys_rt_sigsuspend(struct trap_frame *frame)
+{
+    const sigset_t *mask = (const sigset_t *)syscallarg(frame, 0);
+    size_t sigsetsize = syscallarg(frame, 1);
+    struct task *task = current;
+    sigset_t set;
+
+    if (sigsetsize != SIGSET_SIZE)
+        return -EINVAL;
+
+    if (copy_from_user(&set, mask, sizeof(set)))
+        return -EFAULT;
+
+    spin_lock(&task->signal_lock);
+    task->sigmask = task->blocked;
+    task->blocked = set & ~SIG_UNBLOCKMASK;
+    task_set_flag(task, TF_SIGSUSPEND);
+    recalc_sigpending(task);
+    spin_unlock(&task->signal_lock);
+
+    wait_for_signal();
+    return -EINTR;
 }
 
 long sys_rt_sigaction(struct trap_frame *frame)

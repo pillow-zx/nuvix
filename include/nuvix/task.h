@@ -19,6 +19,7 @@ struct fdtable;
 #define TF_EXEC         (1U << 1)
 #define TF_SIGPENDING   (1U << 2)
 #define TF_STOPPENDING  (1U << 3)
+#define TF_SIGSUSPEND   (1U << 4)
 
 enum task_state {
     TASK_NEW,
@@ -65,6 +66,7 @@ struct task {
     spinlock_t signal_lock;
     struct sigpending pending;
     sigset_t blocked;
+    sigset_t sigmask;
     struct sigaction actions[SIG_MAX];
 };
 

@@ -51,7 +51,8 @@ void arch_do_signal(struct trap_frame *frame, const siginfo_t *fault)
 {
     struct ksignal signal;
 
-    if (!fault && !signal_pending(current))
+    if (!fault && !signal_pending(current) &&
+        !task_test_flag(current, TF_SIGSUSPEND))
         return;
     if (get_signal(&signal, fault))
         setup_signal_frame(frame, &signal);
