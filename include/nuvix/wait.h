@@ -2,6 +2,7 @@
 #define _NUVIX_WAIT_H
 
 #include <nuvix/sched.h>
+#include <nuvix/errno.h>
 
 struct wait_queue {
     spinlock_t lock;
@@ -30,7 +31,8 @@ static inline void wait_entry_init(struct wait_entry *entry)
  * Current's stack entry; queue.lock held with IRQs off. Prepare also requires
  * the waiter's own preempt-disable level. Finish may cancel before park.
  */
-void prepare_to_wait_locked(struct wait_queue *queue, struct wait_entry *entry);
+void prepare_to_wait_locked(struct wait_queue *queue, struct wait_entry *entry,
+                            enum task_state state);
 void finish_wait_locked(struct wait_queue *queue, struct wait_entry *entry);
 
 /* Publish the persistent condition before notifying; locked form needs IRQ off. */
@@ -44,11 +46,13 @@ void wake_up_all(struct wait_queue *queue);
  * is evaluated under queue.lock and must not sleep. The caller keeps the queue
  * and its condition object alive; producers protect the condition with this lock.
  */
-#define wait_event(queue, condition)                                           \
-    do {                                                                       \
+#define __wait_event(queue, condition, state)                                  \
+    ({                                                                         \
         struct wait_queue *__wq = (queue);                                     \
         struct wait_entry __wait;                                              \
+        enum task_state __state = (state);                                     \
         unsigned long __flags;                                                 \
+        int __ret = 0;                                                         \
                                                                                \
         might_sleep();                                                         \
         wait_entry_init(&__wait);                                              \
@@ -56,15 +60,28 @@ void wake_up_all(struct wait_queue *queue);
             preempt_disable();                                                 \
             spin_lock_irqsave(&__wq->lock, __flags);                           \
             finish_wait_locked(__wq, &__wait);                                 \
-            if (condition) {                                                   \
-                spin_unlock_irqrestore(&__wq->lock, __flags);                  \
-                preempt_enable();                                              \
+            if (condition)                                                     \
+                break;                                                         \
+            if (__state == TASK_SLEEP_INTERRUPTIBLE &&                         \
+                signal_pending(current)) {                                     \
+                __ret = -ERESTARTSYS;                                          \
                 break;                                                         \
             }                                                                  \
-            prepare_to_wait_locked(__wq, &__wait);                             \
+            prepare_to_wait_locked(__wq, &__wait, __state);                    \
             spin_unlock_irqrestore(&__wq->lock, __flags);                      \
             sched_park();                                                      \
         }                                                                      \
+        spin_unlock_irqrestore(&__wq->lock, __flags);                          \
+        preempt_enable();                                                      \
+        __ret;                                                                 \
+    })
+
+#define wait_event(queue, condition)                                           \
+    do {                                                                       \
+        (void)__wait_event(queue, condition, TASK_SLEEP_UNINTERRUPTIBLE);      \
     } while (0)
+
+#define wait_event_interruptible(queue, condition)                             \
+    __wait_event(queue, condition, TASK_SLEEP_INTERRUPTIBLE)
 
 #endif /* _NUVIX_WAIT_H */

@@ -6,7 +6,8 @@ void wait_queue_init(struct wait_queue *queue)
     INIT_LIST_HEAD(&queue->waiters);
 }
 
-void prepare_to_wait_locked(struct wait_queue *queue, struct wait_entry *entry)
+void prepare_to_wait_locked(struct wait_queue *queue, struct wait_entry *entry,
+                            enum task_state state)
 {
     struct rq *rq = this_rq();
     unsigned long flags;
@@ -15,7 +16,7 @@ void prepare_to_wait_locked(struct wait_queue *queue, struct wait_entry *entry)
     if (list_empty(&entry->node))
         list_add_tail(&entry->node, &queue->waiters);
     spin_lock_irqsave(&rq->lock, flags);
-    sched_set_sleep_locked(rq, TASK_SLEEP_UNINTERRUPTIBLE);
+    sched_set_sleep_locked(rq, state);
     spin_unlock_irqrestore(&rq->lock, flags);
 }
 

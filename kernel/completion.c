@@ -60,7 +60,8 @@ void wait_for_completion(struct completion *completion)
             preempt_enable();
             return;
         }
-        prepare_to_wait_locked(&completion->wait, &wait);
+        prepare_to_wait_locked(&completion->wait, &wait,
+                               TASK_SLEEP_UNINTERRUPTIBLE);
         spin_unlock_irqrestore(&completion->wait.lock, flags);
         sched_park();
     }
@@ -115,7 +116,8 @@ int wait_for_completion_until(struct completion *completion, uint64_t deadline)
                 break;
             armed = true;
         }
-        prepare_to_wait_locked(&completion->wait, &wait);
+        prepare_to_wait_locked(&completion->wait, &wait,
+                               TASK_SLEEP_UNINTERRUPTIBLE);
         spin_unlock_irqrestore(&completion->wait.lock, flags);
         sched_park();
     }

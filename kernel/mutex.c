@@ -25,7 +25,7 @@ void mutex_lock(struct mutex *mutex)
             preempt_enable();
             return;
         }
-        prepare_to_wait_locked(&mutex->wait, &wait);
+        prepare_to_wait_locked(&mutex->wait, &wait, TASK_SLEEP_UNINTERRUPTIBLE);
         spin_unlock_irqrestore(&mutex->wait.lock, flags);
         sched_park();
     }
