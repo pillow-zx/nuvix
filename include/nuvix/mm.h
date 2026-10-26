@@ -58,7 +58,11 @@ struct vm_struct {
  * failure. The mm owns the root's page-table ownership reference.
  */
 struct mm_struct *mm_alloc(void);
-/* Requires a held reference or equivalent lifetime protection. */
+
+int mm_clone(struct mm_struct *dst, struct mm_struct *src);
+
+void switch_mm(struct mm_struct *mm);
+
 void mm_get(struct mm_struct *mm);
 /*
  * Final put frees owned VMAs, user mappings and the root. Requires no

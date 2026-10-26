@@ -388,3 +388,48 @@ int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size)
     local_flush_tlb_all();
     return ret;
 }
+
+int pgtable_clone(struct mm_struct *dst, struct mm_struct *src)
+{
+    pt_entry_t *pgd = pgtable_ptr(src->pgd);
+
+    for (unsigned int i = 0; i < KERNEL_PGD_FIRST; ++i) {
+        pt_entry_t entry = pt_entry_read(&pgd[i]);
+        pt_entry_t *pmd;
+
+        if (!(entry & PTE_V))
+            continue;
+        pmd = pgtable_ptr(pt_entry_paddr(entry));
+        for (unsigned int j = 0; j < PT_ENTRIES; ++j) {
+            pt_entry_t *pte;
+
+            entry = pt_entry_read(&pmd[j]);
+            if (!(entry & PTE_V))
+                continue;
+            pte = pgtable_ptr(pt_entry_paddr(entry));
+            for (unsigned int k = 0; k < PT_ENTRIES; ++k) {
+                struct page *page __free(page) = NULL;
+                vaddr_t addr = ((vaddr_t)i << PGD_SHIFT) |
+                               ((vaddr_t)j << PMD_SHIFT) |
+                               ((vaddr_t)k << PAGE_SHIFT);
+                int ret;
+
+                entry = pt_entry_read(&pte[k]);
+                if (!pt_entry_present(entry))
+                    continue;
+                page = alloc_page();
+                if (!page)
+                    return -ENOMEM;
+                memcpy((void *)__va(page_to_phys(page)),
+                       pgtable_ptr(pt_entry_paddr(entry)), PAGE_SIZE);
+                ret = map_page(pgtable_ptr(dst->pgd), addr, page_to_phys(page),
+                               entry & ((1UL << PTE_PPN_SHIFT) - 1));
+                if (ret)
+                    return ret;
+                keep(page);
+            }
+        }
+    }
+    flush_icache_all();
+    return 0;
+}

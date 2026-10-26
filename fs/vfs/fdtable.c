@@ -104,3 +104,14 @@ int fd_close(struct fdtable *fdt, unsigned long fd)
         return -EBADF;
     return fput(file);
 }
+
+void fdtable_clone(struct fdtable *dst, struct fdtable *src)
+{
+    unsigned long flags;
+
+    spin_lock_irqsave(&src->lock, flags);
+    dst->bitmap = src->bitmap;
+    for (unsigned long fd = 0; fd < BITS_PER_LONG; ++fd)
+        dst->files[fd] = fget(src->files[fd]);
+    spin_unlock_irqrestore(&src->lock, flags);
+}

@@ -31,6 +31,7 @@ int alloc_pgd(paddr_t *paddr);
  * boot roots must not be passed here.
  */
 void pgtable_free(paddr_t paddr);
+int pgtable_clone(struct mm_struct *dst, struct mm_struct *src);
 
 /*
  * Local CPU, IRQ off. Loads mm's root, or the permanent kernel root for NULL,

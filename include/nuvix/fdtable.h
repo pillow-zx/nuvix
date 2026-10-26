@@ -19,6 +19,7 @@ struct fdtable {
 int fdtable_init(struct fdtable *fdt);
 
 void fdtable_destroy(struct fdtable *fdt);
+void fdtable_clone(struct fdtable *dst, struct fdtable *src);
 
 int fd_alloc(struct fdtable *fdt);
 

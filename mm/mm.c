@@ -1,6 +1,8 @@
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
 #include <nuvix/slab.h>
+#include <nuvix/vfs.h>
+#include <nuvix/errno.h>
 
 struct mm_struct *mm_alloc(void)
 {
@@ -39,4 +41,52 @@ void mm_put(struct mm_struct *mm)
     }
     pgtable_free(mm->pgd);
     kfree(mm);
+}
+
+int mm_clone(struct mm_struct *dst, struct mm_struct *src)
+{
+    struct rb_node *node;
+    int ret = 0;
+
+    mutex_lock(&src->mmap_lock);
+    dst->start_brk = src->start_brk;
+    dst->brk = src->brk;
+    rb_for_each (node, &src->vma_tree) {
+        struct vm_struct *old = rb_entry(node, struct vm_struct, vm_node);
+        struct vm_struct *vma __free(vma) = vma_alloc();
+
+        if (!vma) {
+            ret = -ENOMEM;
+            goto out;
+        }
+        *vma = *old;
+        vma->vm_mm = NULL;
+        RB_CLEAR_NODE(&vma->vm_node);
+        vma->vm_file = fget(old->vm_file);
+        ret = vma_insert(dst, vma);
+        if (ret)
+            goto out;
+        keep(vma);
+    }
+    ret = pgtable_clone(dst, src);
+out:
+    mutex_unlock(&src->mmap_lock);
+    return ret;
+}
+
+void switch_mm(struct mm_struct *mm)
+{
+    struct rq *rq = this_rq();
+    struct mm_struct *old __free(mm_put) = NULL;
+    struct mm_struct *active __free(mm_put) = NULL;
+    unsigned long flags;
+
+    spin_lock_irqsave(&rq->lock, flags);
+    old = current->mm;
+    active = rq->active_mm;
+    current->mm = mm;
+    mm_get(mm);
+    pgtable_switch(mm);
+    rq->active_mm = mm;
+    spin_unlock_irqrestore(&rq->lock, flags);
 }
