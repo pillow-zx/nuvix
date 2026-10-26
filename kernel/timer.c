@@ -123,7 +123,7 @@ void timer_cancel_sync(struct timer *timer)
             preempt_enable();
             return;
         }
-        prepare_to_wait_locked(&base->drain, &wait, TASK_SLEEP_UNINTERRUPTIBLE);
+        prepare_to_wait_locked(&base->drain, &wait, TASK_UNINTERRUPTIBLE);
         spin_unlock_irqrestore(&base->drain.lock, flags);
         sched_park();
     }

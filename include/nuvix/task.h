@@ -16,7 +16,7 @@ struct fdtable;
 #define TASK_CPU_NONE   ((unsigned int)-1)
 
 #define TF_NEED_RESCHED (1U << 0)
-#define TF_EXEC         (1U << 1)
+#define TF_FORKNOEXEC   (1U << 1)
 #define TF_SIGPENDING   (1U << 2)
 #define TF_STOPPENDING  (1U << 3)
 #define TF_SIGSUSPEND   (1U << 4)
@@ -24,8 +24,8 @@ struct fdtable;
 enum task_state {
     TASK_NEW,
     TASK_RUNNABLE,
-    TASK_SLEEP_INTERRUPTIBLE,
-    TASK_SLEEP_UNINTERRUPTIBLE,
+    TASK_INTERRUPTIBLE,
+    TASK_UNINTERRUPTIBLE,
     TASK_STOPPED,
     TASK_DEAD,
 };

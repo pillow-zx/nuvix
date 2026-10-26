@@ -62,8 +62,7 @@ void wake_up_all(struct wait_queue *queue);
             finish_wait_locked(__wq, &__wait);                                 \
             if (condition)                                                     \
                 break;                                                         \
-            if (__state == TASK_SLEEP_INTERRUPTIBLE &&                         \
-                signal_pending(current)) {                                     \
+            if (__state == TASK_INTERRUPTIBLE && signal_pending(current)) {    \
                 __ret = -ERESTARTSYS;                                          \
                 break;                                                         \
             }                                                                  \
@@ -78,10 +77,10 @@ void wake_up_all(struct wait_queue *queue);
 
 #define wait_event(queue, condition)                                           \
     do {                                                                       \
-        (void)__wait_event(queue, condition, TASK_SLEEP_UNINTERRUPTIBLE);      \
+        (void)__wait_event(queue, condition, TASK_UNINTERRUPTIBLE);            \
     } while (0)
 
 #define wait_event_interruptible(queue, condition)                             \
-    __wait_event(queue, condition, TASK_SLEEP_INTERRUPTIBLE)
+    __wait_event(queue, condition, TASK_INTERRUPTIBLE)
 
 #endif /* _NUVIX_WAIT_H */

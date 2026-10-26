@@ -59,7 +59,7 @@ static int wait_for_completion_state(struct completion *completion,
         finish_wait_locked(&completion->wait, &wait);
         if (take_completion_locked(completion))
             break;
-        if (state == TASK_SLEEP_INTERRUPTIBLE && signal_pending(current)) {
+        if (state == TASK_INTERRUPTIBLE && signal_pending(current)) {
             ret = -ERESTARTSYS;
             break;
         }
@@ -74,12 +74,12 @@ static int wait_for_completion_state(struct completion *completion,
 
 void wait_for_completion(struct completion *completion)
 {
-    (void)wait_for_completion_state(completion, TASK_SLEEP_UNINTERRUPTIBLE);
+    (void)wait_for_completion_state(completion, TASK_UNINTERRUPTIBLE);
 }
 
 int wait_for_completion_interruptible(struct completion *completion)
 {
-    return wait_for_completion_state(completion, TASK_SLEEP_INTERRUPTIBLE);
+    return wait_for_completion_state(completion, TASK_INTERRUPTIBLE);
 }
 
 struct completion_timeout {
@@ -132,7 +132,7 @@ int wait_for_completion_until(struct completion *completion, uint64_t deadline)
             armed = true;
         }
         prepare_to_wait_locked(&completion->wait, &wait,
-                               TASK_SLEEP_UNINTERRUPTIBLE);
+                               TASK_UNINTERRUPTIBLE);
         spin_unlock_irqrestore(&completion->wait.lock, flags);
         sched_park();
     }

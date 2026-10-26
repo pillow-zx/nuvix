@@ -24,7 +24,7 @@ static int mutex_lock_state(struct mutex *mutex, enum task_state state)
             mutex->owner = current;
             break;
         }
-        if (state == TASK_SLEEP_INTERRUPTIBLE && signal_pending(current)) {
+        if (state == TASK_INTERRUPTIBLE && signal_pending(current)) {
             ret = -EINTR;
             break;
         }
@@ -39,12 +39,12 @@ static int mutex_lock_state(struct mutex *mutex, enum task_state state)
 
 void mutex_lock(struct mutex *mutex)
 {
-    (void)mutex_lock_state(mutex, TASK_SLEEP_UNINTERRUPTIBLE);
+    (void)mutex_lock_state(mutex, TASK_UNINTERRUPTIBLE);
 }
 
 int mutex_lock_interruptible(struct mutex *mutex)
 {
-    return mutex_lock_state(mutex, TASK_SLEEP_INTERRUPTIBLE);
+    return mutex_lock_state(mutex, TASK_INTERRUPTIBLE);
 }
 
 bool mutex_trylock(struct mutex *mutex)
