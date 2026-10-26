@@ -1,4 +1,3 @@
-#include "nuvix/cleanup.h"
 #include <nuvix/execve.h>
 #include <nuvix/errno.h>
 #include <nuvix/slab.h>

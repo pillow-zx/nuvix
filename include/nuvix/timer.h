@@ -42,17 +42,6 @@ int timer_cancel(struct timer *timer);
  */
 void timer_cancel_sync(struct timer *timer);
 
-/*
- * Uninterruptible sleep in ordinary thread context, no caller locks or
- * preempt-disable levels. Requires clock, timers and the local CPU initialized.
- * Absolute deadlines use hardware counts; elapsed deadlines return 0 directly.
- * Returns 0 after expiry, with the private callback drained. Actual resumption
- * is subject to tick granularity and scheduling delay.
- */
-int timer_sleep_until(uint64_t deadline);
-/* Relative nanoseconds; zero returns 0 directly, overflow returns -EOVERFLOW. */
-int timer_sleep_ns(uint64_t ns);
-
 /* Local tick IRQ, with current bound and IRQs off. */
 void timer_tick(uint64_t now);
 
