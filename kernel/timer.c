@@ -1,8 +1,11 @@
+#include <nuvix/syscall.h>
 #include <nuvix/timer.h>
 #include <nuvix/wait.h>
 #include <nuvix/errno.h>
 #include <nuvix/completion.h>
 #include <nuvix/tick.h>
+#include <nuvix/uaccess.h>
+#include <asm/trap.h>
 
 struct timer_base {
     /* drain.lock protects the tree, cached first node and execution state. */
@@ -155,10 +158,9 @@ int timer_sleep_until(uint64_t deadline)
     ret = timer_start(&sleeper.timer, deadline);
     if (ret)
         return ret;
-    wait_for_completion(&sleeper.done);
-    /* Completion may precede the timer core's final access to the stack. */
+    ret = wait_for_completion_interruptible(&sleeper.done);
     timer_cancel_sync(&sleeper.timer);
-    return 0;
+    return ret == -ERESTARTSYS ? -EINTR : ret;
 }
 
 int timer_sleep_ns(uint64_t ns)
@@ -207,4 +209,86 @@ void timer_tick(uint64_t now)
             wake_up_all_locked(&base->drain);
         spin_unlock_irqrestore(&base->drain.lock, flags);
     }
+}
+
+long sys_nanosleep(struct trap_frame *frame)
+{
+    const struct timespec64 *rqtp =
+        (const struct timespec64 *)syscallarg(frame, 0);
+    struct timespec64 *rmtp = (struct timespec64 *)syscallarg(frame, 1);
+    struct timespec64 ts;
+    uint64_t ticks, deadline, now;
+    int ret;
+
+    if (copy_from_user(&ts, rqtp, sizeof(ts)))
+        return -EFAULT;
+    ret = time_ticks_from_timespec(&ts, &ticks);
+    if (ret == -EOVERFLOW)
+        ticks = UINT64_MAX;
+    else if (ret)
+        return ret;
+    if (check_add_overflow(time_read(), ticks, &deadline))
+        deadline = UINT64_MAX;
+
+    ret = timer_sleep_until(deadline);
+    if (ret != -EINTR || !rmtp)
+        return ret;
+    now = time_read();
+    if (now >= deadline)
+        return 0;
+    time_timespec_from_ticks(deadline - now, &ts);
+    if (copy_to_user(rmtp, &ts, sizeof(ts)))
+        return -EFAULT;
+    return -EINTR;
+}
+
+long sys_clock_gettime(struct trap_frame *frame)
+{
+    int clock_id = syscallarg(frame, 0);
+    struct timespec64 *result = (struct timespec64 *)syscallarg(frame, 1);
+    struct timespec64 ts;
+
+    if (clock_id != CLOCK_MONOTONIC)
+        return -EINVAL;
+    time_get_monotonic(&ts);
+    if (copy_to_user(result, &ts, sizeof(ts)))
+        return -EFAULT;
+    return 0;
+}
+
+long sys_clock_nanosleep(struct trap_frame *frame)
+{
+    int clock_id = syscallarg(frame, 0);
+    int flags = syscallarg(frame, 1);
+    const struct timespec64 *request =
+        (const struct timespec64 *)syscallarg(frame, 2);
+    struct timespec64 *remaining = (struct timespec64 *)syscallarg(frame, 3);
+    bool absolute = flags & TIMER_ABSTIME;
+    struct timespec64 ts;
+    uint64_t ticks, deadline, now;
+    int ret;
+
+    if (clock_id != CLOCK_MONOTONIC && (clock_id != CLOCK_REALTIME || absolute))
+        return -EINVAL;
+    if (copy_from_user(&ts, request, sizeof(ts)))
+        return -EFAULT;
+    ret = time_ticks_from_timespec(&ts, &ticks);
+    if (ret == -EOVERFLOW)
+        ticks = UINT64_MAX;
+    else if (ret)
+        return ret;
+    deadline = ticks;
+    if (!absolute && check_add_overflow(time_read(), ticks, &deadline))
+        deadline = UINT64_MAX;
+
+    ret = timer_sleep_until(deadline);
+    if (ret != -EINTR || absolute || !remaining)
+        return ret;
+    now = time_read();
+    if (now >= deadline)
+        return 0;
+    time_timespec_from_ticks(deadline - now, &ts);
+    if (copy_to_user(remaining, &ts, sizeof(ts)))
+        return -EFAULT;
+    return -EINTR;
 }

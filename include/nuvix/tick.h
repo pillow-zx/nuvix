@@ -4,8 +4,13 @@
 #include <nuvix/ctypes.h>
 #include <asm/time.h>
 
-#define MSEC_PER_SEC 1000UL
-#define NSEC_PER_SEC 1000000000UL
+#define MSEC_PER_SEC    1000UL
+#define NSEC_PER_SEC    1000000000UL
+
+#define CLOCK_REALTIME  0
+#define CLOCK_MONOTONIC 1
+
+#define TIMER_ABSTIME   1
 
 struct timespec64 {
     int64_t tv_sec;

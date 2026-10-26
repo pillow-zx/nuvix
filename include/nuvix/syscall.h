@@ -73,7 +73,8 @@
     X(getgid) X(getegid) X(gettid) X(dup) X(fchmodat) X(set_tid_address)       \
     X(exit) X(exit_group) X(brk) X(mmap) X(munmap) X(mprotect) X(kill)         \
     X(tkill) X(tgkill) X(rt_sigsuspend) X(rt_sigaction) X(rt_sigprocmask)      \
-    X(rt_sigpending) X(rt_sigreturn) X(clone) X(wait4) X(execve)
+    X(rt_sigpending) X(rt_sigreturn) X(clone) X(wait4) X(execve) X(nanosleep)  \
+    X(clock_gettime) X(clock_nanosleep)
 // clang-format on
 
 #ifndef __ASSEMBLER__
