@@ -98,10 +98,8 @@ int send_signal(struct task *task, const siginfo_t *info)
         return 0;
 
     queue = kmalloc(sizeof(*queue));
-    if (!queue)
-        return -ENOMEM;
-
-    queue->info = *info;
+    if (queue)
+        queue->info = *info;
 
     spin_lock(&task->signal_lock);
     if (SIG_STOPMASK & sigmask(sig))
@@ -113,9 +111,11 @@ int send_signal(struct task *task, const siginfo_t *info)
     if (sig_valid(task, sig) &&
         ((task->blocked & sigmask(sig)) ||
          !signal_ignored(&task->actions[sig - 1], sig))) {
-        list_add_tail(&queue->list, &task->pending.list);
+        if (queue) {
+            list_add_tail(&queue->list, &task->pending.list);
+            keep(queue);
+        }
         task->pending.signal |= sigmask(sig);
-        keep(queue);
     }
     recalc_sigpending(task);
     if (sig == SIGCONT || sig == SIGKILL)
@@ -133,16 +133,16 @@ static void dequeue_signal_locked(struct task *task, int sig, siginfo_t *info)
     struct sigqueue *queue;
 
     assert_spin_locked(&task->signal_lock);
+    task->pending.signal &= ~sigmask(sig);
     list_for_each_entry (queue, &task->pending.list, list) {
         if (queue->info.si_signo != sig)
             continue;
         *info = queue->info;
         list_del_init(&queue->list);
-        task->pending.signal &= ~sigmask(sig);
         kfree(queue);
         return;
     }
-    panic("pending signal %d has no queue entry\n", sig);
+    *info = (siginfo_t){.si_signo = sig, .si_code = SI_USER};
 }
 
 static void wait_for_signal(void)
@@ -196,9 +196,8 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
         }
 
         signal->action = task->actions[sig - 1];
-        signal->oldmask = task_test_flag(task, TF_SIGSUSPEND)
-                              ? task->sigmask
-                              : task->blocked;
+        signal->oldmask =
+            task_test_flag(task, TF_SIGSUSPEND) ? task->sigmask : task->blocked;
         fatal = fault && ((task->blocked & sigmask(sig)) ||
                           signal->action.sa_handler == SIG_DFL ||
                           signal->action.sa_handler == SIG_IGN);

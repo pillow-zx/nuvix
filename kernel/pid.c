@@ -254,6 +254,13 @@ void pid_unpublish(struct task *task)
     spin_unlock(&pid_lock);
 }
 
+void pid_reparent(struct task *task, struct task *parent)
+{
+    spin_lock(&pid_lock);
+    task->parent = parent;
+    spin_unlock(&pid_lock);
+}
+
 static void change_pid(struct task *task, enum pid_type type, struct pid *pid)
 {
     struct pid *old = task->pids[type];

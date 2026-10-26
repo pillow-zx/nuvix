@@ -40,6 +40,8 @@ void pid_publish(struct task *task);
 
 void pid_unpublish(struct task *task);
 
+void pid_reparent(struct task *task, struct task *parent);
+
 int pid_setsid(struct task *task);
 
 DECLARE_FREE(pid_put, struct pid *, if (_T) pid_put(_T))

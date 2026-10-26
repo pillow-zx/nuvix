@@ -110,6 +110,34 @@ void task_free(struct task *task)
     task_put(task);
 }
 
+static void notify_parent(struct task *task)
+{
+    siginfo_t info = {0};
+
+    assert_spin_locked(&child_wait.lock);
+    info.si_signo = SIGCHLD;
+    info.si_pid = task_pid_nr(task, PIDTYPE_TGID);
+    info.si_code = (task->exit & 0x7f) ? CLD_KILLED : CLD_EXITED;
+    info.si_status = (task->exit & 0x7f) ? task->exit & 0x7f : task->exit >> 8;
+    send_signal(task->parent, &info);
+    wake_up_all_locked(&child_wait);
+}
+
+static void reparent_children(struct task *task)
+{
+    struct task *child, *next;
+    unsigned long flags;
+
+    spin_lock_irqsave(&child_wait.lock, flags);
+    list_for_each_entry_safe (child, next, &task->children, sibling) {
+        pid_reparent(child, init);
+        list_move_tail(&child->sibling, &init->children);
+        if (!child->kstack && child->state == TASK_ZOMBIE)
+            notify_parent(child);
+    }
+    spin_unlock_irqrestore(&child_wait.lock, flags);
+}
+
 __noreturn void task_exit(int status)
 {
     struct task *task = current;
@@ -117,9 +145,9 @@ __noreturn void task_exit(int status)
     might_sleep();
     task->exit = status;
     if (task->parent) {
-        /* Assert(task_pid_nr(task, PIDTYPE_TGID) != PID_INIT, */
-        /*        "init cannot exit\n"); */
+        Assert(task != init, "init cannot exit\n");
         free_resource(task);
+        reparent_children(task);
     }
     preempt_disable();
     sched_exit();
@@ -127,23 +155,16 @@ __noreturn void task_exit(int status)
 
 void task_finish_exit(struct task *task)
 {
-    Assert(task->state == TASK_DEAD && !task->on_cpu && !task->on_rq &&
+    Assert(task->state == TASK_ZOMBIE && !task->on_cpu && !task->on_rq &&
                list_empty(&task->rq_node) && !task->mm && !task->fdtable,
            "task exit requires completed resource cleanup and switch\n");
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
     if (task->parent) {
-        siginfo_t info = {0};
         unsigned long flags;
 
-        info.si_signo = SIGCHLD;
-        info.si_pid = task_pid_nr(task, PIDTYPE_TGID);
-        info.si_code = (task->exit & 0x7f) ? CLD_KILLED : CLD_EXITED;
-        info.si_status =
-            (task->exit & 0x7f) ? task->exit & 0x7f : task->exit >> 8;
         spin_lock_irqsave(&child_wait.lock, flags);
         task->kstack = NULL;
-        send_signal(task->parent, &info);
-        wake_up_all_locked(&child_wait);
+        notify_parent(task);
         spin_unlock_irqrestore(&child_wait.lock, flags);
     } else {
         task->kstack = NULL;
@@ -155,7 +176,7 @@ void task_put(struct task *task)
 {
     if (!refcount_dec_and_test(&task->refcount))
         return;
-    Assert((task->state == TASK_NEW || task->state == TASK_DEAD) &&
+    Assert((task->state == TASK_NEW || task->state == TASK_ZOMBIE) &&
                !task->on_cpu && !task->on_rq && list_empty(&task->rq_node) &&
                !task->kstack && !task->mm && !task->fdtable,
            "cannot destroy a task before resource and scheduler teardown\n");
@@ -269,7 +290,7 @@ long sys_wait4(struct trap_frame *frame)
             if (pid != -1 && task_pid_nr(child, PIDTYPE_TGID) != pid)
                 continue;
             ret = 0;
-            if (!child->kstack && child->state == TASK_DEAD) {
+            if (!child->kstack && child->state == TASK_ZOMBIE) {
                 dead = child;
                 ret = task_pid_nr(child, PIDTYPE_TGID);
                 pid_unpublish(child);

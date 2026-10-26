@@ -244,11 +244,11 @@ struct mm_struct *sched_finish_switch_locked(struct rq *rq, struct task *prev)
 void sched_finish_switch(struct task *prev)
 {
     struct rq *rq = this_rq();
-    bool dead = prev->state == TASK_DEAD;
+    bool zombie = prev->state == TASK_ZOMBIE;
     struct mm_struct *mm __free(mm_put) = sched_finish_switch_locked(rq, prev);
 
     __spin_unlock(&rq->lock);
-    if (dead)
+    if (zombie)
         task_finish_exit(prev);
 }
 
@@ -263,7 +263,7 @@ __noreturn void sched_exit(void)
     Assert(prev != rq->idle, "idle cannot exit\n");
     Assert(!prev->mm && !prev->fdtable,
            "task resources must be detached before scheduler exit\n");
-    prev->state = TASK_DEAD;
+    prev->state = TASK_ZOMBIE;
     next = sched_prepare_switch_locked(rq, false);
     (void)switch_to(prev, next);
     panic("dead task resumed\n");

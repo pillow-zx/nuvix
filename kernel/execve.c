@@ -18,6 +18,8 @@
 
 #define ELF_MAGIC_NUMBER 0x9e3779b97f4a7c15ULL
 
+struct task *init;
+
 static const uint64_t initial_random[ELF_RANDOM_SIZE / sizeof(uint64_t)] = {
     ELF_MAGIC_NUMBER, ELF_MAGIC_NUMBER};
 
@@ -401,8 +403,8 @@ int init_execve(const char *path, const char *const argv[],
     if (ret)
         return ret;
 
-    sched_publish(task);
-    task_put(move(task));
+    init = move(task);
+    sched_publish(init);
     return 0;
 }
 
@@ -434,7 +436,6 @@ long sys_execve(struct trap_frame *frame)
     if (!strings || !pointers)
         return -ENOMEM;
 
-    /* Copy argv from the old user address space. */
     for (;;) {
         const char *str = NULL;
         size_t capacity = USTACK_SIZE - string_bytes;
@@ -456,7 +457,6 @@ long sys_execve(struct trap_frame *frame)
         string_bytes += length + 1;
     }
 
-    /* argv must never be empty; make it an array containing "". */
     if (nr_pointers == 1) {
         pointers[0] = "";
         pointers[1] = NULL;
@@ -464,7 +464,6 @@ long sys_execve(struct trap_frame *frame)
     }
     env_start = nr_pointers;
 
-    /* Copy envp from the old user address space. */
     for (;;) {
         const char *str = NULL;
         size_t capacity = USTACK_SIZE - string_bytes;

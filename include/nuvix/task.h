@@ -27,7 +27,7 @@ enum task_state {
     TASK_INTERRUPTIBLE,
     TASK_UNINTERRUPTIBLE,
     TASK_STOPPED,
-    TASK_DEAD,
+    TASK_ZOMBIE,
 };
 
 struct task {
@@ -70,6 +70,7 @@ struct task {
 };
 
 extern struct task boot_task;
+extern struct task *init;
 
 void task_boot_init(void *kstack);
 
