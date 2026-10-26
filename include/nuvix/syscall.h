@@ -92,7 +92,7 @@
     X(rt_sigpending) X(rt_sigreturn) X(clone) X(wait4) X(execve) X(nanosleep)  \
     X(clock_gettime) X(clock_nanosleep) X(uname) X(getresuid) X(getresgid)   \
     X(setuid) X(setgid) X(setreuid) X(setregid) X(setresuid) X(setresgid)     \
-    X(getgroups) X(setgroups)
+    X(getgroups) X(setgroups) X(getppid)
 // clang-format on
 
 #ifndef __ASSEMBLER__

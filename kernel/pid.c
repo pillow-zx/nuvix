@@ -381,6 +381,17 @@ long sys_getpid(struct trap_frame *frame)
     return task_pid_nr(current, PIDTYPE_TGID);
 }
 
+long sys_getppid(struct trap_frame *frame)
+{
+    pid_t nr;
+
+    (void)frame;
+    spin_lock(&pid_lock);
+    nr = current == init ? 0 : current->parent->pids[PIDTYPE_TGID]->nr;
+    spin_unlock(&pid_lock);
+    return nr;
+}
+
 long sys_gettid(struct trap_frame *frame)
 {
     (void)frame;
