@@ -43,10 +43,15 @@ struct task_context {
 };
 
 struct task;
+struct trap_frame;
+struct mm_struct;
 
 struct task *__switch_to(struct task *prev, struct task *next);
 
-int arch_utask_init(struct task *task, vaddr_t entry, vaddr_t sp);
+int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
+                         vaddr_t sp);
+void arch_task_clone(struct task *task, const struct trap_frame *frame,
+                    unsigned long sp);
 void utask_entry(struct task *prev);
 __noreturn void __utask_entry(void);
 

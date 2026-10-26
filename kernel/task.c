@@ -10,6 +10,9 @@
 #include <nuvix/sched.h>
 #include <nuvix/vfs.h>
 #include <nuvix/syscall.h>
+#include <nuvix/wait.h>
+#include <nuvix/uaccess.h>
+#include <nuvix/string.h>
 #include <asm/trap.h>
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
@@ -20,6 +23,10 @@ static_assert(offsetof(struct task, ctx.ra) == TASK_CTX_RA,
               "invalid task context offset");
 static_assert(offsetof(struct task, ctx.sum) == TASK_CTX_SUM,
               "invalid task SUM context offset");
+
+static DEFINE_WAIT_QUEUE(child_wait);
+
+#define WNOHANG 1
 
 struct task boot_task = {
     .refcount = REFCOUNT_INIT(1),
@@ -74,8 +81,10 @@ struct task *task_alloc(bool user)
     task->ctx.sp = (vaddr_t)task->kstack + KSTACK_SIZE;
     task->mm = move(mm);
     task->fdtable = move(files);
-    if (user)
+    if (user) {
         signal_task_init(task);
+        task_set_flag(task, TF_FORKNOEXEC);
+    }
     return move(task);
 }
 
@@ -108,9 +117,8 @@ __noreturn void task_exit(int status)
     might_sleep();
     task->exit = status;
     if (task->parent) {
-        Assert(task_pid_nr(task, PIDTYPE_TGID) != PID_INIT,
-               "init cannot exit\n");
-        pid_unpublish(task);
+        /* Assert(task_pid_nr(task, PIDTYPE_TGID) != PID_INIT, */
+        /*        "init cannot exit\n"); */
         free_resource(task);
     }
     preempt_disable();
@@ -123,7 +131,23 @@ void task_finish_exit(struct task *task)
                list_empty(&task->rq_node) && !task->mm && !task->fdtable,
            "task exit requires completed resource cleanup and switch\n");
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
-    task->kstack = NULL;
+    if (task->parent) {
+        siginfo_t info = {0};
+        unsigned long flags;
+
+        info.si_signo = SIGCHLD;
+        info.si_pid = task_pid_nr(task, PIDTYPE_TGID);
+        info.si_code = (task->exit & 0x7f) ? CLD_KILLED : CLD_EXITED;
+        info.si_status =
+            (task->exit & 0x7f) ? task->exit & 0x7f : task->exit >> 8;
+        spin_lock_irqsave(&child_wait.lock, flags);
+        task->kstack = NULL;
+        send_signal(task->parent, &info);
+        wake_up_all_locked(&child_wait);
+        spin_unlock_irqrestore(&child_wait.lock, flags);
+    } else {
+        task->kstack = NULL;
+    }
     task_put(task);
 }
 
@@ -210,5 +234,93 @@ long sys_dup(struct trap_frame *frame)
 long sys_set_tid_address(struct trap_frame *frame)
 {
     (void)frame;
-    return 0;
+    return task_pid_nr(current, PIDTYPE_TID);
+}
+
+long sys_clone(struct trap_frame *frame)
+{
+    unsigned long clone_flags = syscallarg(frame, 0);
+    unsigned long sp = syscallarg(frame, 1);
+    struct task *child __free(task) = NULL;
+    unsigned long flags;
+    pid_t pid;
+    int ret;
+
+    if (clone_flags != SIGCHLD)
+        return -EINVAL;
+    child = task_alloc(true);
+    if (!child)
+        return -ENOMEM;
+    ret = mm_clone(child->mm, current->mm);
+    if (ret)
+        return ret;
+    fdtable_clone(child->fdtable, current->fdtable);
+    spin_lock(&current->signal_lock);
+    child->blocked = current->blocked;
+    memcpy(child->actions, current->actions, sizeof(child->actions));
+    spin_unlock(&current->signal_lock);
+    ret = pid_prepare(child, current);
+    if (ret)
+        return ret;
+    arch_task_clone(child, frame, sp);
+    pid = task_pid_nr(child, PIDTYPE_TGID);
+    spin_lock_irqsave(&child_wait.lock, flags);
+    child->parent = current;
+    list_add_tail(&child->sibling, &current->children);
+    spin_unlock_irqrestore(&child_wait.lock, flags);
+    sched_publish(child);
+    keep(child);
+    return pid;
+}
+
+long sys_wait4(struct trap_frame *frame)
+{
+    pid_t pid = (pid_t)syscallarg(frame, 0);
+    int *status = (int *)syscallarg(frame, 1);
+    int options = (int)syscallarg(frame, 2);
+    void *rusage = (void *)syscallarg(frame, 3);
+    struct task *child;
+    struct task *dead __free(task_put) = NULL;
+    struct wait_entry wait;
+    unsigned long flags;
+    long ret;
+
+    if ((pid != -1 && pid <= 0) || (options & ~WNOHANG))
+        return -EINVAL;
+    if (rusage)
+        return -EOPNOTSUPP;
+    wait_entry_init(&wait);
+    for (;;) {
+        preempt_disable();
+        spin_lock_irqsave(&child_wait.lock, flags);
+        finish_wait_locked(&child_wait, &wait);
+        ret = -ECHILD;
+        list_for_each_entry (child, &current->children, sibling) {
+            if (pid != -1 && task_pid_nr(child, PIDTYPE_TGID) != pid)
+                continue;
+            ret = 0;
+            if (!child->kstack && child->state == TASK_DEAD) {
+                dead = child;
+                ret = task_pid_nr(child, PIDTYPE_TGID);
+                pid_unpublish(child);
+                list_del_init(&child->sibling);
+                child->parent = child;
+                break;
+            }
+        }
+        if (ret || (options & WNOHANG))
+            break;
+        if (signal_pending(current)) {
+            ret = -EINTR;
+            break;
+        }
+        prepare_to_wait_locked(&child_wait, &wait, TASK_INTERRUPTIBLE);
+        spin_unlock_irqrestore(&child_wait.lock, flags);
+        sched_park();
+    }
+    spin_unlock_irqrestore(&child_wait.lock, flags);
+    preempt_enable();
+    if (dead && status && copy_to_user(status, &dead->exit, sizeof(dead->exit)))
+        return -EFAULT;
+    return ret;
 }

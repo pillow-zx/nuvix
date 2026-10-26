@@ -55,6 +55,9 @@
 #define SI_KERNEL    0x80
 #define SI_TKILL     (-6)
 
+#define CLD_EXITED   1
+#define CLD_KILLED   2
+
 #define ILL_ILLOPC   1
 #define ILL_ILLTRP   4
 #define TRAP_BRKPT   1
@@ -95,6 +98,13 @@ typedef struct siginfo {
             uint32_t uid;
         } kill;
         struct {
+            pid_t pid;
+            uint32_t uid;
+            int status;
+            long utime;
+            long stime;
+        } child;
+        struct {
             void *addr;
         } fault;
         uint64_t padding[(SIGINFO_SIZE - 4 * sizeof(int)) / sizeof(uint64_t)];
@@ -104,6 +114,7 @@ typedef struct siginfo {
 #define si_pid  fields.kill.pid
 #define si_uid  fields.kill.uid
 #define si_addr fields.fault.addr
+#define si_status fields.child.status
 
 struct ksignal {
     siginfo_t info;
@@ -128,6 +139,7 @@ struct task;
 
 void signal_task_init(struct task *task);
 void signal_task_free(struct task *task);
+void signal_clone(void);
 
 bool get_signal(struct ksignal *signal, const siginfo_t *fault);
 void signal_delivered(const struct ksignal *signal);
