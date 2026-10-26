@@ -182,36 +182,6 @@ long sys_exit_group(struct trap_frame *frame)
     task_exit((syscallarg(frame, 0) & 0xff) << 8);
 }
 
-long sys_umask(struct trap_frame *frame)
-{
-    (void)frame;
-    return 0;
-}
-
-long sys_getegid(struct trap_frame *frame)
-{
-    (void)frame;
-    return 0;
-}
-
-long sys_geteuid(struct trap_frame *frame)
-{
-    (void)frame;
-    return 0;
-}
-
-long sys_getuid(struct trap_frame *frame)
-{
-    (void)frame;
-    return 0;
-}
-
-long sys_getgid(struct trap_frame *frame)
-{
-    (void)frame;
-    return 0;
-}
-
 long sys_dup(struct trap_frame *frame)
 {
     unsigned int oldfd = syscallarg(frame, 0);

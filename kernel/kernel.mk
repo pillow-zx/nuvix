@@ -14,6 +14,7 @@ obj-y += kernel/sleep.c
 obj-y += kernel/tick.c
 obj-y += kernel/execve.c
 obj-y += kernel/syscall.c
+obj-y += kernel/sys.c
 obj-y += kernel/console.c
 obj-y += kernel/preempt.c
 obj-y += kernel/signal.c

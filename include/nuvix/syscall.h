@@ -25,12 +25,14 @@
 #define __NR_writev          66
 #define __NR_pread64         67
 #define __NR_pwrite64        68
+#define __NR_ppoll           73
 #define __NR_readlinkat      78
 #define __NR_newfstatat      79
 #define __NR_fstat           80
 #define __NR_fsync           82
 #define __NR_exit            93
 #define __NR_exit_group      94
+#define __NR_waitid          95
 #define __NR_set_tid_address 96
 #define __NR_nanosleep       101
 #define __NR_clock_gettime   113
@@ -45,12 +47,24 @@
 #define __NR_rt_sigpending   136
 #define __NR_rt_sigreturn    139
 #define __NR_reboot          142
+#define __NR_setregid        143
+#define __NR_setgid          144
+#define __NR_setreuid        145
+#define __NR_setuid          146
+#define __NR_setresuid       147
+#define __NR_getresuid       148
+#define __NR_setresgid       149
+#define __NR_getresgid       150
 #define __NR_setpgid         154
 #define __NR_getpgid         155
 #define __NR_getsid          156
 #define __NR_setsid          157
+#define __NR_getgroups       158
+#define __NR_setgroups       159
+#define __NR_uname           160
 #define __NR_umask           166
 #define __NR_getpid          172
+#define __NR_getppid         173
 #define __NR_getuid          174
 #define __NR_geteuid         175
 #define __NR_getgid          176
@@ -58,13 +72,15 @@
 #define __NR_gettid          178
 #define __NR_brk             214
 #define __NR_munmap          215
+#define __NR_mremap          216
 #define __NR_clone           220
 #define __NR_execve          221
 #define __NR_mmap            222
 #define __NR_mprotect        226
 #define __NR_wait4           260
 #define __NR_renameat2       276
-#define __NR_syscalls        (__NR_renameat2 + 1)
+#define __NR_getrandom       278
+#define __NR_syscalls        (__NR_getrandom + 1)
 
 // clang-format off
 #define SYSCALL_LIST(X)                                                        \
@@ -74,7 +90,9 @@
     X(exit) X(exit_group) X(brk) X(mmap) X(munmap) X(mprotect) X(kill)         \
     X(tkill) X(tgkill) X(rt_sigsuspend) X(rt_sigaction) X(rt_sigprocmask)      \
     X(rt_sigpending) X(rt_sigreturn) X(clone) X(wait4) X(execve) X(nanosleep)  \
-    X(clock_gettime) X(clock_nanosleep)
+    X(clock_gettime) X(clock_nanosleep) X(uname) X(getresuid) X(getresgid)   \
+    X(setuid) X(setgid) X(setreuid) X(setregid) X(setresuid) X(setresgid)     \
+    X(getgroups) X(setgroups)
 // clang-format on
 
 #ifndef __ASSEMBLER__
