@@ -24,4 +24,13 @@ static inline bool access_ok(const void *addr, size_t size)
 size_t __must_check copy_from_user(void *dst, const void *src, size_t size);
 size_t __must_check copy_to_user(void *dst, const void *src, size_t size);
 
+/*
+ * Copy a NUL-terminated string from the current user task into a kernel
+ * buffer. At most count bytes are written, including the terminating NUL.
+ * Return the string length excluding the NUL on success, -EFAULT if user
+ * memory cannot be read, or count if no NUL was found within count bytes.
+ */
+ssize_t __must_check strncpy_from_user(char *dst, const char *src,
+                                       size_t count);
+
 #endif /* _NUVIX_UACCESS_H */

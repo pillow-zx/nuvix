@@ -160,7 +160,7 @@ static void wait_for_signal(void)
             preempt_enable();
             return;
         }
-        sched_set_sleep_locked(rq, TASK_SLEEP_INTERRUPTIBLE);
+        sched_set_sleep_locked(rq, TASK_INTERRUPTIBLE);
         spin_unlock_irqrestore(&rq->lock, flags);
         sched_park();
     }
@@ -451,4 +451,20 @@ long sys_rt_sigpending(struct trap_frame *frame)
         return -EFAULT;
 
     return 0;
+}
+
+void signal_clone(void)
+{
+    struct task *task = current;
+
+    spin_lock(&task->signal_lock);
+    for (unsigned int i = 0; i < SIG_MAX; ++i) {
+        struct sigaction *action = &task->actions[i];
+
+        if (action->sa_handler != SIG_IGN)
+            action->sa_handler = SIG_DFL;
+        action->sa_flags = 0;
+        action->sa_mask = 0;
+    }
+    spin_unlock(&task->signal_lock);
 }

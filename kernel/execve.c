@@ -1,3 +1,4 @@
+#include "nuvix/cleanup.h"
 #include <nuvix/execve.h>
 #include <nuvix/errno.h>
 #include <nuvix/slab.h>
@@ -11,6 +12,9 @@
 #include <nuvix/vfs.h>
 #include <nuvix/sched.h>
 #include <nuvix/console.h>
+#include <nuvix/uaccess.h>
+#include <nuvix/syscall.h>
+#include <asm/trap.h>
 #include <asm/elf.h>
 
 #define ELF_MAGIC_NUMBER 0x9e3779b97f4a7c15ULL
@@ -312,12 +316,12 @@ static int setup_stack(struct mm_struct *mm, const struct exec_image *image,
     return 0;
 }
 
-static int load_exec(struct task *task, struct file *file, const char *path,
-                     const char *const argv[], const char *const envp[])
+static int load_exec(struct mm_struct *mm, struct file *file, const char *path,
+                     const char *const argv[], const char *const envp[],
+                     vaddr_t *entry, vaddr_t *sp)
 {
     struct elf64_phdr *phdrs __free(kfree) = NULL;
     struct exec_image image = {0};
-    vaddr_t sp;
     int ret;
 
     ret = read_exact(file, &image.ehdr, sizeof(image.ehdr), 0);
@@ -348,27 +352,29 @@ static int load_exec(struct task *task, struct file *file, const char *path,
     if (ret)
         return ret;
 
-    mutex_lock(&task->mm->mmap_lock);
+    mutex_lock(&mm->mmap_lock);
 
-    ret = load_segments(task->mm, file, &image);
+    ret = load_segments(mm, file, &image);
     if (ret)
         goto out;
 
-    ret = setup_stack(task->mm, &image, path, argv, envp, &sp);
+    ret = setup_stack(mm, &image, path, argv, envp, sp);
     if (ret)
         goto out;
 
-    ret = arch_utask_init(task, image.ehdr.e_entry, sp);
+    *entry = image.ehdr.e_entry;
 
 out:
-    mutex_unlock(&task->mm->mmap_lock);
+    mutex_unlock(&mm->mmap_lock);
     return ret;
 }
 
-int execve(const char *path, const char *const argv[], const char *const envp[])
+int init_execve(const char *path, const char *const argv[],
+                const char *const envp[])
 {
     struct task *task __free(task) = NULL;
     struct file *file __free(fput) = NULL;
+    vaddr_t entry, sp;
     int ret;
 
     task = task_alloc(true);
@@ -383,16 +389,122 @@ int execve(const char *path, const char *const argv[], const char *const envp[])
     if (IS_ERR(file))
         return PTR_ERR(move(file));
 
-    ret = load_exec(task, file, path, argv, envp);
+    ret = load_exec(task->mm, file, path, argv, envp, &entry, &sp);
     if (ret)
         return ret;
 
+    ret = arch_utask_init(task, task->mm, entry, sp);
+    if (ret)
+        return ret;
+
+    task_clear_flag(task, TF_FORKNOEXEC);
     ret = console_init(task->fdtable);
     if (ret)
         return ret;
 
-    task_set_flag(task, TF_EXEC);
     sched_publish(task);
     task_put(move(task));
+    return 0;
+}
+
+long sys_execve(struct trap_frame *frame)
+{
+    const char *upath = (const char *)syscallarg(frame, 0);
+    const char *const *uargv = (const void *)syscallarg(frame, 1);
+    const char *const *uenvp = (const void *)syscallarg(frame, 2);
+    char *path __free(kfree) = kmalloc(PATH_MAX);
+    char *strings __free(kfree) = NULL;
+    const char **pointers __free(kfree) = NULL;
+    struct file *file __free(fput) = NULL;
+    struct mm_struct *mm __free(mm_put) = NULL;
+    size_t nr_pointers = 0;
+    size_t string_bytes = 0;
+    size_t env_start;
+    vaddr_t entry, sp;
+    long ret;
+
+    if (!path)
+        return -ENOMEM;
+    ret = strncpy_from_user(path, upath, PATH_MAX);
+    if (ret < 0)
+        return ret;
+    if (ret == PATH_MAX)
+        return -ENAMETOOLONG;
+    strings = kmalloc(USTACK_SIZE);
+    pointers = kmalloc(USTACK_SIZE);
+    if (!strings || !pointers)
+        return -ENOMEM;
+
+    /* Copy argv from the old user address space. */
+    for (;;) {
+        const char *str = NULL;
+        size_t capacity = USTACK_SIZE - string_bytes;
+        ssize_t length;
+
+        if (nr_pointers == USTACK_SIZE / sizeof(*pointers))
+            return -E2BIG;
+        if (uargv && copy_from_user(&str, uargv++, sizeof(str)))
+            return -EFAULT;
+        pointers[nr_pointers++] = NULL;
+        if (!str)
+            break;
+        length = strncpy_from_user(strings + string_bytes, str, capacity);
+        if (length < 0)
+            return length;
+        if ((size_t)length == capacity)
+            return -E2BIG;
+        pointers[nr_pointers - 1] = strings + string_bytes;
+        string_bytes += length + 1;
+    }
+
+    /* argv must never be empty; make it an array containing "". */
+    if (nr_pointers == 1) {
+        pointers[0] = "";
+        pointers[1] = NULL;
+        nr_pointers = 2;
+    }
+    env_start = nr_pointers;
+
+    /* Copy envp from the old user address space. */
+    for (;;) {
+        const char *str = NULL;
+        size_t capacity = USTACK_SIZE - string_bytes;
+        ssize_t length;
+
+        if (nr_pointers == USTACK_SIZE / sizeof(*pointers))
+            return -E2BIG;
+        if (uenvp && copy_from_user(&str, uenvp++, sizeof(str)))
+            return -EFAULT;
+        pointers[nr_pointers++] = NULL;
+        if (!str)
+            break;
+        length = strncpy_from_user(strings + string_bytes, str, capacity);
+        if (length < 0)
+            return length;
+        if ((size_t)length == capacity)
+            return -E2BIG;
+        pointers[nr_pointers - 1] = strings + string_bytes;
+        string_bytes += length + 1;
+    }
+    mm = mm_alloc();
+    if (!mm)
+        return -ENOMEM;
+
+    file = vfs_open(path, O_RDONLY);
+    if (IS_ERR(file))
+        return PTR_ERR(move(file));
+
+    ret =
+        load_exec(mm, file, path, pointers, pointers + env_start, &entry, &sp);
+    if (ret)
+        return ret;
+
+    ret = arch_utask_init(current, mm, entry, sp);
+    if (ret)
+        return ret;
+
+    signal_clone();
+    task_clear_flag(current, TF_FORKNOEXEC);
+    switch_mm(move(mm));
     return 0;
 }

@@ -56,7 +56,6 @@ struct task {
     /*
      * NULL for kernel tasks; user tasks self-parent until attached to a parent,
      * and init remains self-parented. Detaching restores self-parenting.
-     * Parent/child links will be protected by the process-tree lock.
      */
     struct task *parent;
     struct list_head children;

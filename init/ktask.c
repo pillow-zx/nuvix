@@ -32,7 +32,7 @@ static int kernel_init(void *args)
     if (ret)
         panic("FAT mount failed (%d)\n", ret);
 
-    ret = execve("sbin/init", argv, envp);
+    ret = init_execve("sbin/init", argv, envp);
     if (ret)
         panic("sbin/init load failed (%d)\n", ret);
     return 0;
