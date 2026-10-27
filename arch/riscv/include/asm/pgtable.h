@@ -28,7 +28,7 @@
 #define PTE_G            (1 << 5)
 #define PTE_A            (1 << 6)
 #define PTE_D            (1 << 7)
-#define PTE_NONE    (1 << 8)
+#define PTE_NONE         (1 << 8)
 
 #define PTE_TABLE        PTE_V
 #define PTE_LEAF         (PTE_R | PTE_W | PTE_X)
@@ -42,6 +42,7 @@
 #define SATP_SV39        0x8000000000000000
 
 #ifndef __ASSEMBLER__
+#include <nuvix/atomic.h>
 #include <nuvix/ctypes.h>
 #include <nuvix/mm.h>
 
@@ -75,7 +76,7 @@ static inline paddr_t pt_entry_paddr(pt_entry_t entry)
 
 static inline pt_entry_t pt_entry_read(const pt_entry_t *entry)
 {
-    return __atomic_load_n(entry, __ATOMIC_RELAXED);
+    return load_relaxed(entry);
 }
 
 static inline bool pt_entry_none(pt_entry_t entry)
@@ -95,7 +96,7 @@ static inline bool pt_entry_present(pt_entry_t entry)
 
 static inline void pt_entry_write(pt_entry_t *entry, pt_entry_t value)
 {
-    __atomic_store_n(entry, value, __ATOMIC_RELEASE);
+    store_release(entry, value);
 }
 #endif
 

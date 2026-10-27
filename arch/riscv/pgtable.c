@@ -221,7 +221,7 @@ struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr)
            "unmap requires a page-aligned user address\n");
     spin_lock_irqsave(&mm->pgtable_lock, flags);
     if (!walk_pte(pgtable_ptr(mm->pgd), addr, &pte))
-        entry = __atomic_exchange_n(pte, 0, __ATOMIC_ACQ_REL);
+        entry = xchg(pte, 0);
     spin_unlock_irqrestore(&mm->pgtable_lock, flags);
 
     if (!entry)
@@ -238,23 +238,27 @@ bool pgtable_protect_page(struct mm_struct *mm, vaddr_t addr,
     pt_entry_t entry;
     uint64_t prot = vma_to_pte(vm_flags);
     unsigned long flags;
-    bool changed = false;
 
+    Assert(mm->mmap_lock.owner == current,
+           "page protection requires the mmap lock\n");
     spin_lock_irqsave(&mm->pgtable_lock, flags);
     if (!walk_pte(pgtable_ptr(mm->pgd), addr, &pte)) {
         entry = pt_entry_read(pte);
         if (pt_entry_present(entry)) {
+            struct page *page = phys_to_page(pt_entry_paddr(entry));
             pt_entry_t value;
 
+            if (refcount_read(&page->refcount) != 1)
+                prot &= ~PTE_W;
             do {
                 value = (entry & ~(PTE_V | PTE_LEAF | PTE_NONE)) | prot;
-            } while (!__atomic_compare_exchange_n(
-                pte, &entry, value, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
-            changed = true;
+            } while (!try_cmpxchg(pte, &entry, value));
+            spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+            return true;
         }
     }
     spin_unlock_irqrestore(&mm->pgtable_lock, flags);
-    return changed;
+    return false;
 }
 
 int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr)
@@ -392,7 +396,10 @@ int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size)
 int pgtable_clone(struct mm_struct *dst, struct mm_struct *src)
 {
     pt_entry_t *pgd = pgtable_ptr(src->pgd);
+    int ret = 0;
 
+    Assert(src->mmap_lock.owner == current,
+           "page table clone requires the source mmap lock\n");
     for (unsigned int i = 0; i < KERNEL_PGD_FIRST; ++i) {
         pt_entry_t entry = pt_entry_read(&pgd[i]);
         pt_entry_t *pmd;
@@ -408,28 +415,33 @@ int pgtable_clone(struct mm_struct *dst, struct mm_struct *src)
                 continue;
             pte = pgtable_ptr(pt_entry_paddr(entry));
             for (unsigned int k = 0; k < PT_ENTRIES; ++k) {
-                struct page *page __free(page) = NULL;
                 vaddr_t addr = ((vaddr_t)i << PGD_SHIFT) |
                                ((vaddr_t)j << PMD_SHIFT) |
                                ((vaddr_t)k << PAGE_SHIFT);
-                int ret;
+                paddr_t paddr;
+                unsigned long flags;
+                pt_entry_t value;
 
+                spin_lock_irqsave(&src->pgtable_lock, flags);
                 entry = pt_entry_read(&pte[k]);
-                if (!pt_entry_present(entry))
+                if (!pt_entry_present(entry)) {
+                    spin_unlock_irqrestore(&src->pgtable_lock, flags);
                     continue;
-                page = alloc_page();
-                if (!page)
-                    return -ENOMEM;
-                memcpy((void *)__va(page_to_phys(page)),
-                       pgtable_ptr(pt_entry_paddr(entry)), PAGE_SIZE);
-                ret = map_page(pgtable_ptr(dst->pgd), addr, page_to_phys(page),
-                               entry & ((1UL << PTE_PPN_SHIFT) - 1));
+                }
+                do {
+                    value = entry & ~PTE_W;
+                } while (!try_cmpxchg(&pte[k], &entry, value));
+                spin_unlock_irqrestore(&src->pgtable_lock, flags);
+                paddr = pt_entry_paddr(value);
+                ret = map_page(pgtable_ptr(dst->pgd), addr, paddr,
+                               value & (BIT(PTE_PPN_SHIFT) - 1));
                 if (ret)
-                    return ret;
-                keep(page);
+                    goto out;
+                refcount_inc(&phys_to_page(paddr)->refcount);
             }
         }
     }
-    flush_icache_all();
-    return 0;
+out:
+    flush_tlb_all();
+    return ret;
 }

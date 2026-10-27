@@ -18,7 +18,7 @@ void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg)
 }
 
 int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
-                         vaddr_t sp)
+                    vaddr_t sp)
 {
     struct trap_frame *frame;
     struct page *page __free(page) = NULL;
@@ -33,8 +33,9 @@ int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
     memset(code, 0, PAGE_SIZE);
     memcpy(code, __sigret_start, __sigret_end - __sigret_start);
 
-    ret = pgtable_map_page(mm, USER_TRAMPOLINE, page,
-                           VM_READ | VM_WRITE | VM_EXEC);
+    mutex_lock(&mm->mmap_lock);
+    ret = pgtable_map_page(mm, USER_TRAMPOLINE, page, VM_READ | VM_EXEC);
+    mutex_unlock(&mm->mmap_lock);
     if (ret)
         return ret;
     keep(page);
@@ -61,7 +62,7 @@ void utask_entry(struct task *prev)
 }
 
 void arch_task_clone(struct task *task, const struct trap_frame *frame,
-                    unsigned long sp)
+                     unsigned long sp)
 {
     struct trap_frame *child =
         (void *)((vaddr_t)task->kstack + KSTACK_SIZE - TRAP_SIZE);
