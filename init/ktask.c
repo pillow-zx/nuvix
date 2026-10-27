@@ -4,6 +4,7 @@
 #include <nuvix/sched.h>
 #include <nuvix/assert.h>
 #include <nuvix/execve.h>
+#include <nuvix/tty.h>
 
 __noreturn void ktask_exit(void)
 {
@@ -27,6 +28,10 @@ static int kernel_init(void *args)
     const char *const argv[] = {"sbin/init", NULL};
     const char *const envp[] = {NULL};
     int ret;
+
+    ret = tty_init();
+    if (ret)
+        panic("TTY initialization failed (%d)\n", ret);
 
     ret = vfs_mount();
     if (ret)

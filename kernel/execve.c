@@ -10,7 +10,7 @@
 #include <nuvix/page.h>
 #include <nuvix/vfs.h>
 #include <nuvix/sched.h>
-#include <nuvix/console.h>
+#include <nuvix/tty.h>
 #include <nuvix/uaccess.h>
 #include <nuvix/syscall.h>
 #include <asm/trap.h>
@@ -399,7 +399,7 @@ int init_execve(const char *path, const char *const argv[],
         return ret;
 
     task_clear_flag(task, TF_FORKNOEXEC);
-    ret = console_init(task->fdtable);
+    ret = init_stdio(task->fdtable);
     if (ret)
         return ret;
 
