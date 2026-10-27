@@ -247,7 +247,6 @@ long sys_clone(struct trap_frame *frame)
     unsigned long clone_flags = syscallarg(frame, 0);
     unsigned long sp = syscallarg(frame, 1);
     struct task *child __free(task) = NULL;
-    struct task *vfork_child __free(task_put) = NULL;
     DEFINE_COMPLETION(done);
     unsigned long flags;
     pid_t pid;
@@ -279,23 +278,20 @@ long sys_clone(struct trap_frame *frame)
         return ret;
     arch_task_clone(child, frame, sp);
     pid = task_pid_nr(child, PIDTYPE_TGID);
-    if (clone_flags & CLONE_VFORK) {
+    if (clone_flags & CLONE_VFORK)
         child->vfork_done = &done;
-        task_get(child);
-        vfork_child = child;
-    }
     spin_lock_irqsave(&child_wait.lock, flags);
     child->parent = current;
     list_add_tail(&child->sibling, &current->children);
     spin_unlock_irqrestore(&child_wait.lock, flags);
     sched_publish(child);
-    keep(child);
-    if (vfork_child) {
+    if (clone_flags & CLONE_VFORK) {
         (void)wait_for_completion_killable(&done);
-        spin_lock(&vfork_child->signal_lock);
-        vfork_child->vfork_done = NULL;
-        spin_unlock(&vfork_child->signal_lock);
+        spin_lock(&child->signal_lock);
+        child->vfork_done = NULL;
+        spin_unlock(&child->signal_lock);
     }
+    keep(child);
     return pid;
 }
 
