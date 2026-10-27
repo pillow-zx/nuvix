@@ -12,6 +12,7 @@
 #include <asm/task.h>
 
 struct fdtable;
+struct completion;
 
 #define TASK_CPU_NONE   ((unsigned int)-1)
 
@@ -26,6 +27,7 @@ enum task_state {
     TASK_RUNNABLE,
     TASK_INTERRUPTIBLE,
     TASK_UNINTERRUPTIBLE,
+    TASK_KILLABLE,
     TASK_STOPPED,
     TASK_ZOMBIE,
 };
@@ -52,6 +54,7 @@ struct task {
 
     struct mm_struct *mm;
     struct fdtable *fdtable;
+    struct completion *vfork_done;
 
     /*
      * NULL for kernel tasks; user tasks self-parent until attached to a parent,
@@ -79,6 +82,8 @@ struct task *task_alloc(bool user);
 void task_free(struct task *task);
 
 __noreturn void task_exit(int status);
+
+void task_vfork_done(struct task *task);
 
 void task_finish_exit(struct task *task);
 
@@ -114,6 +119,14 @@ static __always_inline void task_set_need_resched(struct task *task, bool value)
 static __always_inline bool signal_pending(const struct task *task)
 {
     return task_test_flag(task, TF_SIGPENDING);
+}
+
+static inline bool signal_pending_state(enum task_state state,
+                                        const struct task *task)
+{
+    return (state == TASK_INTERRUPTIBLE && signal_pending(task)) ||
+           (state == TASK_KILLABLE &&
+            (READ_ONCE(task->pending.signal) & sigmask(SIGKILL)));
 }
 
 static inline unsigned int current_cpu_id(void)

@@ -79,6 +79,8 @@ bool sched_wake(struct task *task);
 
 bool sched_wake_interruptible(struct task *task);
 
+bool sched_wake_signal(struct task *task, int sig);
+
 bool sched_resume(struct task *task);
 
 void sched_stop(void);

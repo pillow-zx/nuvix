@@ -124,7 +124,7 @@ int send_signal(struct task *task, const siginfo_t *info)
     spin_unlock(&task->signal_lock);
 
     if (notify)
-        sched_wake_interruptible(task);
+        sched_wake_signal(task, sig);
     return 0;
 }
 
@@ -191,7 +191,9 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
                 }
                 return false;
             }
-            sig = find_first_bit(&pending, SIG_MAX) + 1;
+            sig = (pending & sigmask(SIGKILL))
+                      ? SIGKILL
+                      : find_first_bit(&pending, SIG_MAX) + 1;
             dequeue_signal_locked(task, sig, &signal->info);
         }
 

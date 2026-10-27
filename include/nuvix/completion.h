@@ -24,6 +24,7 @@ void complete_all(struct completion *completion);
 
 void wait_for_completion(struct completion *completion);
 int wait_for_completion_interruptible(struct completion *completion);
+int wait_for_completion_killable(struct completion *completion);
 
 /*
  * Uninterruptible wait with an absolute hardware-time deadline. Ordinary

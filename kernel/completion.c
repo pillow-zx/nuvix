@@ -59,7 +59,7 @@ static int wait_for_completion_state(struct completion *completion,
         finish_wait_locked(&completion->wait, &wait);
         if (take_completion_locked(completion))
             break;
-        if (state == TASK_INTERRUPTIBLE && signal_pending(current)) {
+        if (signal_pending_state(state, current)) {
             ret = -ERESTARTSYS;
             break;
         }
@@ -80,6 +80,11 @@ void wait_for_completion(struct completion *completion)
 int wait_for_completion_interruptible(struct completion *completion)
 {
     return wait_for_completion_state(completion, TASK_INTERRUPTIBLE);
+}
+
+int wait_for_completion_killable(struct completion *completion)
+{
+    return wait_for_completion_state(completion, TASK_KILLABLE);
 }
 
 struct completion_timeout {

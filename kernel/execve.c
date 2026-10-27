@@ -504,5 +504,6 @@ long sys_execve(struct trap_frame *frame)
     signal_clone();
     task_clear_flag(current, TF_FORKNOEXEC);
     switch_mm(move(mm));
+    task_vfork_done(current);
     return 0;
 }

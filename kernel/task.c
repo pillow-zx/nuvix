@@ -13,6 +13,7 @@
 #include <nuvix/wait.h>
 #include <nuvix/uaccess.h>
 #include <nuvix/string.h>
+#include <nuvix/completion.h>
 #include <asm/trap.h>
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
@@ -26,7 +27,9 @@ static_assert(offsetof(struct task, ctx.sum) == TASK_CTX_SUM,
 
 static DEFINE_WAIT_QUEUE(child_wait);
 
-#define WNOHANG 1
+#define WNOHANG     1
+#define CLONE_VM    0x00000100UL
+#define CLONE_VFORK 0x00004000UL
 
 struct task boot_task = {
     .refcount = REFCOUNT_INIT(1),
@@ -138,6 +141,16 @@ static void reparent_children(struct task *task)
     spin_unlock_irqrestore(&child_wait.lock, flags);
 }
 
+void task_vfork_done(struct task *task)
+{
+    spin_lock(&task->signal_lock);
+    struct completion *done = move(task->vfork_done);
+
+    if (done)
+        complete(done);
+    spin_unlock(&task->signal_lock);
+}
+
 __noreturn void task_exit(int status)
 {
     struct task *task = current;
@@ -147,6 +160,7 @@ __noreturn void task_exit(int status)
     if (task->parent) {
         Assert(task != init, "init cannot exit\n");
         free_resource(task);
+        task_vfork_done(task);
         reparent_children(task);
     }
     preempt_disable();
@@ -233,18 +247,28 @@ long sys_clone(struct trap_frame *frame)
     unsigned long clone_flags = syscallarg(frame, 0);
     unsigned long sp = syscallarg(frame, 1);
     struct task *child __free(task) = NULL;
+    struct task *vfork_child __free(task_put) = NULL;
+    DEFINE_COMPLETION(done);
     unsigned long flags;
     pid_t pid;
     int ret;
 
-    if (clone_flags != SIGCHLD)
+    if (clone_flags != SIGCHLD &&
+        clone_flags != (CLONE_VM | CLONE_VFORK | SIGCHLD))
         return -EINVAL;
     child = task_alloc(true);
     if (!child)
         return -ENOMEM;
-    ret = mm_clone(child->mm, current->mm);
-    if (ret)
-        return ret;
+    if (clone_flags & CLONE_VM) {
+        struct mm_struct *mm __free(mm_put) = move(child->mm);
+
+        mm_get(current->mm);
+        child->mm = current->mm;
+    } else {
+        ret = mm_clone(child->mm, current->mm);
+        if (ret)
+            return ret;
+    }
     fdtable_clone(child->fdtable, current->fdtable);
     spin_lock(&current->signal_lock);
     child->blocked = current->blocked;
@@ -255,12 +279,23 @@ long sys_clone(struct trap_frame *frame)
         return ret;
     arch_task_clone(child, frame, sp);
     pid = task_pid_nr(child, PIDTYPE_TGID);
+    if (clone_flags & CLONE_VFORK) {
+        child->vfork_done = &done;
+        task_get(child);
+        vfork_child = child;
+    }
     spin_lock_irqsave(&child_wait.lock, flags);
     child->parent = current;
     list_add_tail(&child->sibling, &current->children);
     spin_unlock_irqrestore(&child_wait.lock, flags);
     sched_publish(child);
     keep(child);
+    if (vfork_child) {
+        (void)wait_for_completion_killable(&done);
+        spin_lock(&vfork_child->signal_lock);
+        vfork_child->vfork_done = NULL;
+        spin_unlock(&vfork_child->signal_lock);
+    }
     return pid;
 }
 

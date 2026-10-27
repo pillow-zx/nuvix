@@ -142,13 +142,22 @@ static bool wake_task(struct task *task, unsigned long states)
 
 bool sched_wake(struct task *task)
 {
-    return wake_task(task, BIT(TASK_INTERRUPTIBLE) |
-                               BIT(TASK_UNINTERRUPTIBLE));
+    return wake_task(task, BIT(TASK_INTERRUPTIBLE) | BIT(TASK_UNINTERRUPTIBLE) |
+                               BIT(TASK_KILLABLE));
 }
 
 bool sched_wake_interruptible(struct task *task)
 {
     return wake_task(task, BIT(TASK_INTERRUPTIBLE));
+}
+
+bool sched_wake_signal(struct task *task, int sig)
+{
+    unsigned long states = BIT(TASK_INTERRUPTIBLE);
+
+    if (sig == SIGKILL)
+        states |= BIT(TASK_KILLABLE);
+    return wake_task(task, states);
 }
 
 bool sched_resume(struct task *task)
@@ -175,8 +184,9 @@ void sched_stop(void)
 void sched_set_sleep_locked(struct rq *rq, enum task_state state)
 {
     assert_spin_locked(&rq->lock);
-    Assert(rq->curr != rq->idle && (state == TASK_INTERRUPTIBLE ||
-                                    state == TASK_UNINTERRUPTIBLE),
+    Assert(rq->curr != rq->idle &&
+               (state == TASK_INTERRUPTIBLE || state == TASK_UNINTERRUPTIBLE ||
+                state == TASK_KILLABLE),
            "only an ordinary current task can register sleep\n");
     rq->curr->state = state;
 }
@@ -191,7 +201,7 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
     IFDEF(CONFIG_DEBUG_CONTEXT,
           Assert(local_irqs_disabled() && preempt_count() == 1,
                  "invalid scheduling context\n"));
-    if (prev->state == TASK_INTERRUPTIBLE && signal_pending(prev))
+    if (signal_pending_state(prev->state, prev))
         prev->state = TASK_RUNNABLE;
     if (prev->state != TASK_RUNNABLE) {
         atomic_dec(&rq->nr_runnable);
