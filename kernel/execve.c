@@ -34,18 +34,18 @@ struct exec_image {
 static int read_exact(struct file *file, void *buffer, size_t size,
                       uint64_t offset)
 {
-    loff_t pos = (loff_t)offset;
-    char *data = buffer;
+    struct kiocb iocb = {.file = file, .pos = (loff_t)offset};
+    struct iovec vec = {.iov_base = buffer, .iov_len = size};
+    struct kiov iov;
 
-    while (size) {
-        ssize_t ret = file->f_ops->read(file, data, size, &pos);
+    kiov_init(&iov, &vec, 1, size, false);
+    while (iov.count) {
+        ssize_t ret = vfs_read(&iocb, &iov);
 
         if (ret < 0)
             return (int)ret;
         if (!ret)
             return -ENOEXEC;
-        data += ret;
-        size -= ret;
     }
     return 0;
 }

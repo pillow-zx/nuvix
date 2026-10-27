@@ -15,69 +15,89 @@
 
 static DEFINE_MUTEX(fat_lock);
 
-static ssize_t fat_read(struct file *file, char *buff, size_t count,
-                        loff_t *pos)
+static ssize_t fat_read(struct kiocb *iocb, struct kiov *iov)
 {
-    FIL *fil = file->f_private;
-    UINT done = 0;
+    FIL *fil = iocb->file->f_private;
+    char *buffer __free(kfree) = NULL;
+    size_t done = 0;
     int ret = 0;
 
-    if (*pos < 0)
+    if (iocb->pos < 0)
         return -EINVAL;
-    if (!count)
-        return 0;
-    if (count > UINT32_MAX)
-        count = UINT32_MAX;
+    buffer = kmalloc(MIN(iov->count, (size_t)PAGE_SIZE));
+    if (!buffer)
+        return -ENOMEM;
 
-    mutex_lock(&fat_lock);
+    while (iov->count) {
+        size_t count = MIN(iov->count, (size_t)PAGE_SIZE);
+        UINT received = 0;
+        size_t copied;
 
-    if ((uint64_t)*pos > f_size(fil))
-        goto out;
+        mutex_lock(&fat_lock);
+        if ((uint64_t)iocb->pos > f_size(fil)) {
+            mutex_unlock(&fat_lock);
+            break;
+        }
+        ret = f_lseek(fil, (FSIZE_t)iocb->pos);
+        if (!ret)
+            ret = f_read(fil, buffer, (UINT)count, &received);
+        mutex_unlock(&fat_lock);
 
-    ret = f_lseek(fil, (FSIZE_t)*pos);
-    if (ret)
-        goto out;
-
-    ret = f_read(fil, buff, (UINT)count, &done);
-    *pos += done;
-
-out:
-    mutex_unlock(&fat_lock);
+        copied = copy_to_kiov(buffer, received, iov);
+        iocb->pos += copied;
+        done += copied;
+        if (copied != received)
+            ret = -EFAULT;
+        if (ret || received < count)
+            break;
+    }
     return done ? (ssize_t)done : ret;
 }
 
-static ssize_t fat_write(struct file *file, const char *buff, size_t count,
-                         loff_t *pos)
+static ssize_t fat_write(struct kiocb *iocb, struct kiov *iov)
 {
-    FIL *fil = file->f_private;
-    UINT done = 0;
-    int ret;
+    FIL *fil = iocb->file->f_private;
+    char *buffer __free(kfree) = NULL;
+    size_t done = 0;
+    int ret = 0;
 
-    if (*pos < 0)
+    if (iocb->pos < 0)
         return -EINVAL;
-    if (!count)
-        return 0;
-    if (*pos > UINT32_MAX)
+    if (iocb->pos > UINT32_MAX)
         return -EFBIG;
-    if (count > UINT32_MAX)
-        count = UINT32_MAX;
+    buffer = kmalloc(MIN(iov->count, (size_t)PAGE_SIZE));
+    if (!buffer)
+        return -ENOMEM;
 
-    mutex_lock(&fat_lock);
+    while (iov->count) {
+        struct kiov next = *iov;
+        size_t count = MIN(iov->count, (size_t)PAGE_SIZE);
+        size_t copied = copy_from_kiov(buffer, count, &next);
+        UINT written = 0;
 
-    if ((uint64_t)*pos > f_size(fil)) {
-        ret = -EOPNOTSUPP;
-        goto out;
+        if (!copied) {
+            ret = -EFAULT;
+            break;
+        }
+        mutex_lock(&fat_lock);
+        if ((uint64_t)iocb->pos > f_size(fil))
+            ret = -EOPNOTSUPP;
+        else
+            ret = f_lseek(fil, (FSIZE_t)iocb->pos);
+        if (!ret)
+            ret = f_write(fil, buffer, (UINT)copied, &written);
+        mutex_unlock(&fat_lock);
+
+        kiov_advance(iov, written);
+        iocb->pos += written;
+        done += written;
+        if (ret || written < copied)
+            break;
+        if (copied < count) {
+            ret = -EFAULT;
+            break;
+        }
     }
-
-    ret = f_lseek(fil, (FSIZE_t)*pos);
-    if (ret)
-        goto out;
-
-    ret = f_write(fil, buff, (UINT)count, &done);
-    *pos += done;
-
-out:
-    mutex_unlock(&fat_lock);
     return done ? (ssize_t)done : ret;
 }
 

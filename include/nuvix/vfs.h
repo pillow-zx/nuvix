@@ -5,6 +5,7 @@
 #include <nuvix/mutex.h>
 #include <nuvix/ctypes.h>
 #include <nuvix/cleanup.h>
+#include <nuvix/kiov.h>
 
 #define PATH_MAX         4096
 #define AT_FDCWD         (-100)
@@ -24,9 +25,14 @@ struct file_operations;
 
 typedef long long loff_t;
 
+struct kiocb {
+    struct file *file;
+    loff_t pos;
+};
+
 struct file_operations {
-    ssize_t (*read)(struct file *, char *, size_t, loff_t *);
-    ssize_t (*write)(struct file *, const char *, size_t, loff_t *);
+    ssize_t (*read)(struct kiocb *, struct kiov *);
+    ssize_t (*write)(struct kiocb *, struct kiov *);
     int (*fsync)(struct file *);
     int (*release)(struct file *);
 };
@@ -46,19 +52,14 @@ int fput(struct file *file);
 
 DECLARE_FREE(fput, struct file *, if (_T) fput(_T));
 
-struct iovec {
-    void *iov_base;
-    size_t iov_len;
-};
-
 #define UIO_MAXIOV 64
 
 int vfs_mount(void);
 
 struct file *vfs_open(const char *path, unsigned long flags);
 
-ssize_t vfs_read(struct file *, void *, size_t, loff_t);
+ssize_t vfs_read(struct kiocb *, struct kiov *);
 
-ssize_t vfs_write(struct file *, const void *, size_t, loff_t);
+ssize_t vfs_write(struct kiocb *, struct kiov *);
 
 #endif /* ifndef _NUVIX_VFS_H */

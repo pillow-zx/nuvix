@@ -4,21 +4,59 @@
 #include <nuvix/ns16550a.h>
 #include <nuvix/slab.h>
 #include <nuvix/errno.h>
+#include <nuvix/layout.h>
+#include <nuvix/math.h>
 
-static ssize_t console_read(struct file *file, char *buffer, size_t count,
-                            loff_t *pos)
+static ssize_t console_read(struct kiocb *iocb, struct kiov *iov)
 {
-    (void)file;
-    (void)pos;
-    return ns16550a_read(buffer, count);
+    char *buffer __free(kfree) = NULL;
+    size_t count = MIN(iov->count, (size_t)PAGE_SIZE);
+    size_t copied;
+    ssize_t ret;
+
+    (void)iocb;
+    buffer = kmalloc(count);
+    if (!buffer)
+        return -ENOMEM;
+    ret = ns16550a_read(buffer, count);
+    if (ret <= 0)
+        return ret;
+    copied = copy_to_kiov(buffer, (size_t)ret, iov);
+    return copied ? (ssize_t)copied : -EFAULT;
 }
 
-static ssize_t console_write(struct file *file, const char *buffer,
-                             size_t count, loff_t *pos)
+static ssize_t console_write(struct kiocb *iocb, struct kiov *iov)
 {
-    (void)file;
-    (void)pos;
-    return ns16550a_write(buffer, count);
+    char *buffer __free(kfree) = NULL;
+    size_t done = 0;
+    ssize_t ret = 0;
+
+    (void)iocb;
+    buffer = kmalloc(MIN(iov->count, (size_t)PAGE_SIZE));
+    if (!buffer)
+        return -ENOMEM;
+    while (iov->count) {
+        struct kiov next = *iov;
+        size_t count = MIN(iov->count, (size_t)PAGE_SIZE);
+        size_t copied = copy_from_kiov(buffer, count, &next);
+
+        if (!copied) {
+            ret = -EFAULT;
+            break;
+        }
+        ret = ns16550a_write(buffer, copied);
+        if (ret <= 0)
+            break;
+        kiov_advance(iov, (size_t)ret);
+        done += (size_t)ret;
+        if ((size_t)ret < copied)
+            break;
+        if (copied < count) {
+            ret = -EFAULT;
+            break;
+        }
+    }
+    return done ? (ssize_t)done : ret;
 }
 
 static const struct file_operations console_fops = {

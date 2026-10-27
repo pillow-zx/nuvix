@@ -53,18 +53,27 @@ int handle_page_fault(struct mm_struct *mm, vaddr_t addr, unsigned long access)
     if (vma->vm_file) {
         vaddr_t first = MAX(addr, vma->vm_fstart);
         vaddr_t last = MIN(addr + PAGE_SIZE, vma->vm_fend);
-        loff_t pos = vma->vm_offset + first - vma->vm_start;
-        char *data = (char *)__va(page_to_phys(page));
+        if (first < last) {
+            char *data = (char *)__va(page_to_phys(page));
+            struct kiocb iocb = {
+                .file = vma->vm_file,
+                .pos = vma->vm_offset + first - vma->vm_start,
+            };
+            struct iovec vec = {
+                .iov_base = data + first - addr,
+                .iov_len = last - first,
+            };
+            struct kiov iov;
 
-        while (first < last) {
-            ssize_t count = vma->vm_file->f_ops->read(
-                vma->vm_file, data + first - addr, last - first, &pos);
+            kiov_init(&iov, &vec, 1, vec.iov_len, false);
+            while (iov.count) {
+                ssize_t count = vfs_read(&iocb, &iov);
 
-            if (count <= 0) {
-                ret = count ? (int)count : -EIO;
-                goto out;
+                if (count <= 0) {
+                    ret = count ? (int)count : -EIO;
+                    goto out;
+                }
             }
-            first += count;
         }
     }
     ret = pgtable_map_page(mm, addr, page, vma->vm_flags);
