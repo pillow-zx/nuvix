@@ -32,7 +32,7 @@ static inline void wait_entry_init(struct wait_entry *entry)
  * the waiter's own preempt-disable level. Finish may cancel before park.
  */
 void prepare_to_wait_locked(struct wait_queue *queue, struct wait_entry *entry,
-                            enum task_state state);
+                            unsigned int state);
 void finish_wait_locked(struct wait_queue *queue, struct wait_entry *entry);
 
 /* Publish the persistent condition before notifying; locked form needs IRQ off. */
@@ -50,7 +50,7 @@ void wake_up_all(struct wait_queue *queue);
     ({                                                                         \
         struct wait_queue *__wq = (queue);                                     \
         struct wait_entry __wait;                                              \
-        enum task_state __state = (state);                                     \
+        unsigned int __state = (state);                                        \
         unsigned long __flags;                                                 \
         int __ret = 0;                                                         \
                                                                                \
@@ -62,7 +62,7 @@ void wake_up_all(struct wait_queue *queue);
             finish_wait_locked(__wq, &__wait);                                 \
             if (condition)                                                     \
                 break;                                                         \
-            if (__state == TASK_INTERRUPTIBLE && signal_pending(current)) {    \
+            if (signal_pending_state(__state, current)) {                      \
                 __ret = -ERESTARTSYS;                                          \
                 break;                                                         \
             }                                                                  \

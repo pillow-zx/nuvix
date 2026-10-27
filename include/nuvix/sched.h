@@ -86,7 +86,7 @@ bool sched_resume(struct task *task);
 void sched_stop(void);
 
 /* Local ordinary current, IRQ off and rq.lock held; no load change yet. */
-void sched_set_sleep_locked(struct rq *rq, enum task_state state);
+void sched_set_sleep_locked(struct rq *rq, unsigned int state);
 
 /*
  * Local switch operations: IRQ off, rq.lock held, and exactly one

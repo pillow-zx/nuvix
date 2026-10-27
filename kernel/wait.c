@@ -7,7 +7,7 @@ void wait_queue_init(struct wait_queue *queue)
 }
 
 void prepare_to_wait_locked(struct wait_queue *queue, struct wait_entry *entry,
-                            enum task_state state)
+                            unsigned int state)
 {
     struct rq *rq = this_rq();
     unsigned long flags;

@@ -45,7 +45,7 @@ void complete_all(struct completion *completion)
 }
 
 static int wait_for_completion_state(struct completion *completion,
-                                     enum task_state state)
+                                     unsigned int state)
 {
     struct wait_entry wait;
     unsigned long flags;

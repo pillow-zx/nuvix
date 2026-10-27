@@ -6,7 +6,7 @@ void mutex_init(struct mutex *mutex)
     mutex->owner = NULL;
 }
 
-static int mutex_lock_state(struct mutex *mutex, enum task_state state)
+static int mutex_lock_state(struct mutex *mutex, unsigned int state)
 {
     struct wait_entry wait;
     unsigned long flags;
@@ -24,7 +24,7 @@ static int mutex_lock_state(struct mutex *mutex, enum task_state state)
             mutex->owner = current;
             break;
         }
-        if (state == TASK_INTERRUPTIBLE && signal_pending(current)) {
+        if (signal_pending_state(state, current)) {
             ret = -EINTR;
             break;
         }

@@ -3,7 +3,6 @@
 #include <nuvix/tick.h>
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
-#include <nuvix/bitops.h>
 
 struct rq runqueues[CONFIG_NR_CPUS];
 
@@ -116,7 +115,7 @@ void sched_publish(struct task *task)
         cpu_send_resched(cpu_id);
 }
 
-static bool wake_task(struct task *task, unsigned long states)
+static bool wake_task(struct task *task, unsigned int states)
 {
     struct rq *rq = task_rq(task);
     unsigned long flags;
@@ -124,7 +123,7 @@ static bool wake_task(struct task *task, unsigned long states)
     bool notify_idle = false;
 
     spin_lock_irqsave(&rq->lock, flags);
-    if (states & BIT(task->state)) {
+    if (states & task->state) {
         task->state = TASK_RUNNABLE;
         if (!task->on_cpu) {
             enqueue_task(rq, task);
@@ -142,27 +141,26 @@ static bool wake_task(struct task *task, unsigned long states)
 
 bool sched_wake(struct task *task)
 {
-    return wake_task(task, BIT(TASK_INTERRUPTIBLE) | BIT(TASK_UNINTERRUPTIBLE) |
-                               BIT(TASK_KILLABLE));
+    return wake_task(task, TASK_NORMAL | TASK_KILLABLE);
 }
 
 bool sched_wake_interruptible(struct task *task)
 {
-    return wake_task(task, BIT(TASK_INTERRUPTIBLE));
+    return wake_task(task, TASK_INTERRUPTIBLE);
 }
 
 bool sched_wake_signal(struct task *task, int sig)
 {
-    unsigned long states = BIT(TASK_INTERRUPTIBLE);
+    unsigned int states = TASK_INTERRUPTIBLE;
 
     if (sig == SIGKILL)
-        states |= BIT(TASK_KILLABLE);
+        states |= TASK_KILLABLE;
     return wake_task(task, states);
 }
 
 bool sched_resume(struct task *task)
 {
-    return wake_task(task, BIT(TASK_STOPPED));
+    return wake_task(task, TASK_STOPPED);
 }
 
 void sched_stop(void)
@@ -181,7 +179,7 @@ void sched_stop(void)
     sched_park();
 }
 
-void sched_set_sleep_locked(struct rq *rq, enum task_state state)
+void sched_set_sleep_locked(struct rq *rq, unsigned int state)
 {
     assert_spin_locked(&rq->lock);
     Assert(rq->curr != rq->idle &&

@@ -14,30 +14,30 @@
 struct fdtable;
 struct completion;
 
-#define TASK_CPU_NONE   ((unsigned int)-1)
+#define TASK_CPU_NONE        ((unsigned int)-1)
 
-#define TF_NEED_RESCHED (1U << 0)
-#define TF_FORKNOEXEC   (1U << 1)
-#define TF_SIGPENDING   (1U << 2)
-#define TF_STOPPENDING  (1U << 3)
-#define TF_SIGSUSPEND   (1U << 4)
+#define TF_NEED_RESCHED      (1U << 0)
+#define TF_FORKNOEXEC        (1U << 1)
+#define TF_SIGPENDING        (1U << 2)
+#define TF_STOPPENDING       (1U << 3)
+#define TF_SIGSUSPEND        (1U << 4)
 
-enum task_state {
-    TASK_NEW,
-    TASK_RUNNABLE,
-    TASK_INTERRUPTIBLE,
-    TASK_UNINTERRUPTIBLE,
-    TASK_KILLABLE,
-    TASK_STOPPED,
-    TASK_ZOMBIE,
-};
+#define TASK_NEW             0U
+#define TASK_RUNNABLE        (1U << 0)
+#define TASK_INTERRUPTIBLE   (1U << 1)
+#define TASK_UNINTERRUPTIBLE (1U << 2)
+#define TASK_STOPPED         (1U << 3)
+#define TASK_ZOMBIE          (1U << 4)
+#define TASK_KILLABLE        (1U << 5)
+
+#define TASK_NORMAL          (TASK_INTERRUPTIBLE | TASK_UNINTERRUPTIBLE)
 
 struct task {
     refcount_t refcount;
 
     /* Owned by rq once published; CPU is assigned at first publication. */
     unsigned int cpu_id;
-    enum task_state state;
+    unsigned int state;
     bool on_rq;
     bool on_cpu;
 
@@ -121,11 +121,11 @@ static __always_inline bool signal_pending(const struct task *task)
     return task_test_flag(task, TF_SIGPENDING);
 }
 
-static inline bool signal_pending_state(enum task_state state,
+static inline bool signal_pending_state(unsigned int state,
                                         const struct task *task)
 {
-    return (state == TASK_INTERRUPTIBLE && signal_pending(task)) ||
-           (state == TASK_KILLABLE &&
+    return ((state & TASK_INTERRUPTIBLE) && signal_pending(task)) ||
+           ((state & TASK_KILLABLE) &&
             (READ_ONCE(task->pending.signal) & sigmask(SIGKILL)));
 }
 
