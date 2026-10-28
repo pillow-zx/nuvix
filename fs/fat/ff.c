@@ -1102,7 +1102,11 @@ int f_stat(const char *path, FILINFO *fno)
         res = follow_path(&dj, path);
         if (res == 0) {
             if (dj.fn[NSFLAG] & NS_NONAME) {
-                res = -EINVAL;
+                if (fno) {
+                    memset(fno, 0, sizeof(*fno));
+                    fno->fattrib = AM_DIR;
+                    fno->fname[0] = '/';
+                }
             } else {
                 if (fno)
                     get_fileinfo(&dj, fno);

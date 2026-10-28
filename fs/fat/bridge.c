@@ -133,9 +133,35 @@ static const struct file_operations fat_file_ops = {
     .release = fat_release,
 };
 
+static ssize_t fat_dir_read(struct kiocb *iocb, struct kiov *iov)
+{
+    (void)iocb;
+    (void)iov;
+    return -EISDIR;
+}
+
+static int fat_dir_release(struct file *file)
+{
+    DIR *dir = file->f_private;
+    int ret;
+
+    mutex_lock(&fat_lock);
+    ret = f_closedir(dir);
+    mutex_unlock(&fat_lock);
+    kfree(dir);
+    return ret;
+}
+
+static const struct file_operations fat_dir_ops = {
+    .read = fat_dir_read,
+    .release = fat_dir_release,
+};
+
 int fat_open(struct file *file, const char *path, unsigned long flags)
 {
     FIL *fil __free(kfree) = NULL;
+    DIR *dir __free(kfree) = NULL;
+    FILINFO info;
     BYTE mode;
     int ret;
 
@@ -156,20 +182,42 @@ int fat_open(struct file *file, const char *path, unsigned long flags)
         return -EINVAL;
     }
 
-    fil = kzalloc(sizeof(*fil));
-    if (!fil)
-        return -ENOMEM;
-
     mutex_lock(&fat_lock);
-    ret = f_open(fil, path, mode);
-    mutex_unlock(&fat_lock);
-
+    ret = f_stat(path, &info);
     if (ret)
-        return ret;
+        goto out;
 
-    file->f_ops = &fat_file_ops;
-    file->f_private = move(fil);
-    return 0;
+    if (info.fattrib & AM_DIR) {
+        if ((flags & O_ACCMODE) != O_RDONLY) {
+            ret = -EISDIR;
+            goto out;
+        }
+        dir = kzalloc(sizeof(*dir));
+        if (!dir) {
+            ret = -ENOMEM;
+            goto out;
+        }
+        ret = f_opendir(dir, path);
+        if (ret)
+            goto out;
+        file->f_ops = &fat_dir_ops;
+        file->f_private = move(dir);
+    } else {
+        fil = kzalloc(sizeof(*fil));
+        if (!fil) {
+            ret = -ENOMEM;
+            goto out;
+        }
+        ret = f_open(fil, path, mode);
+        if (ret)
+            goto out;
+        file->f_ops = &fat_file_ops;
+        file->f_private = move(fil);
+    }
+
+out:
+    mutex_unlock(&fat_lock);
+    return ret;
 }
 
 int fat_mount(void)
