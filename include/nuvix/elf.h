@@ -78,33 +78,17 @@ struct elf64_phdr {
 };
 
 struct elf_image {
-    /* Borrowed kernel buffer; keep it alive and unchanged while using this view. */
     const void *data;
     size_t size;
     struct elf64_ehdr ehdr;
 };
 
-/*
- * Parses the current architecture's ET_EXEC or ET_DYN image without PT_INTERP,
- * without allocation. ET_DYN may carry PT_DYNAMIC for user-space self-relocation;
- * dynamic entries, dependencies and relocations are not interpreted.
- * The buffer need not be aligned. Returns -EINVAL for NULL arguments and
- * -ENOEXEC for malformed or unsupported input; leaves *image unchanged on error.
- * Checks byte ranges, load ordering/overlap and an executable entry. The loader
- * must enforce user layout, page-level mapping rules and auxiliary segment
- * coverage. Section headers and optional metadata contents are not interpreted.
- */
 int elf_parse(const void *data, size_t size, struct elf_image *image);
 
 int elf_check_ehdr(const struct elf64_ehdr *ehdr, size_t file_limit);
 int elf_check_phdrs(const struct elf64_ehdr *ehdr, const void *phdrs,
                     size_t file_limit);
 
-/*
- * Requires an unmodified view returned by elf_parse(). Copies one program header
- * by table index, including load, dynamic, PHDR, TLS and RELRO information.
- * Returns -EINVAL for NULL arguments or an invalid index, leaving *phdr unchanged.
- */
 int elf_get_phdr(const struct elf_image *image, unsigned int index,
                  struct elf64_phdr *phdr);
 
