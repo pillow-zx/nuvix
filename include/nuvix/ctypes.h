@@ -39,4 +39,6 @@ typedef __PTRDIFF_TYPE__ ssize_t;
 typedef uintptr_t vaddr_t;
 typedef uint64_t paddr_t;
 
+typedef long long loff_t;
+
 #endif /* ifndef _NUVIX_CTYPES_H */
