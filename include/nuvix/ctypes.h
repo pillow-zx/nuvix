@@ -24,7 +24,17 @@ typedef __UINTPTR_TYPE__ uintptr_t;
 #define UINT32_MAX ((uint32_t)__UINT32_MAX__)
 #define UINT64_MAX ((uint64_t)__UINT64_MAX__)
 
-#define NULL       ((void *)0)
+typedef int8_t i8;
+typedef int16_t i16;
+typedef int32_t i32;
+typedef int64_t i64;
+
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
+#define NULL ((void *)0)
 
 typedef __SIZE_TYPE__ size_t;
 typedef __PTRDIFF_TYPE__ ssize_t;
@@ -32,9 +42,12 @@ typedef __PTRDIFF_TYPE__ ssize_t;
 #define SIZE_MAX  ((size_t)-1)
 #define SSIZE_MAX ((ssize_t)(SIZE_MAX >> 1))
 
-#define bool      _Bool
-#define true      1
-#define false     0
+typedef ssize_t isize;
+typedef size_t usize;
+
+#define bool  _Bool
+#define true  1
+#define false 0
 
 typedef uintptr_t vaddr_t;
 typedef uint64_t paddr_t;
