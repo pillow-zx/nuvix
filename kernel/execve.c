@@ -319,6 +319,10 @@ int init_execve(const char *path, const char *const argv[],
     if (ret)
         return ret;
 
+    ret = vfs_get_root(&task->cwd);
+    if (ret)
+        return ret;
+
     params.mm = task->mm;
     ret = load_exec(&params, &entry);
     if (ret)

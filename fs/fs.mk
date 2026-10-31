@@ -6,5 +6,7 @@ obj-y 										+= fs/vfs/path.c
 obj-y 										+= fs/vfs/dentry.c
 obj-y 									 	+= fs/vfs/inode.c
 
-obj-$(CONFIG_FAT_FS) 			+= fs/fat/bridge.c
-obj-$(CONFIG_FAT_FS) 			+= fs/fat/ff.c
+obj-$(CONFIG_EXT2_FS) 		+= fs/ext2/file.c
+obj-$(CONFIG_EXT2_FS) 		+= fs/ext2/inode.c
+obj-$(CONFIG_EXT2_FS) 		+= fs/ext2/super.c
+

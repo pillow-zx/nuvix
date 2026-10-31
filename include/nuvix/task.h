@@ -9,6 +9,7 @@
 #include <nuvix/pid.h>
 #include <nuvix/signal.h>
 #include <nuvix/spinlock.h>
+#include <nuvix/path.h>
 #include <asm/task.h>
 
 struct fdtable;
@@ -55,6 +56,7 @@ struct task {
     struct mm_struct *mm;
     struct fdtable *fdtable;
     struct completion *vfork_done;
+    struct path cwd;
 
     /*
      * NULL for kernel tasks; user tasks self-parent until attached to a parent,

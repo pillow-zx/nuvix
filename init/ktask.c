@@ -35,9 +35,9 @@ static int kernel_init(void *args)
 
     ret = vfs_mount();
     if (ret)
-        panic("FAT mount failed (%d)\n", ret);
+        panic("filesystem mount failed (%d)\n", ret);
 
-    ret = init_execve("sbin/init", argv, envp);
+    ret = init_execve("/sbin/init", argv, envp);
     if (ret)
         panic("sbin/init load failed (%d)\n", ret);
     return 0;

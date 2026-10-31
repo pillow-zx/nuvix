@@ -2,10 +2,10 @@
 #include <nuvix/errno.h>
 #include <nuvix/refcount.h>
 #include <nuvix/slab.h>
-#include <nuvix/fat.h>
 #include <nuvix/mutex.h>
 #include <nuvix/macro.h>
 #include <nuvix/math.h>
+#include <nuvix/string.h>
 #include <nuvix/syscall.h>
 #include <nuvix/fdtable.h>
 #include <nuvix/uaccess.h>
@@ -13,23 +13,68 @@
 
 struct file *vfs_open(const char *path, unsigned long flags)
 {
+    struct path resolved = {0};
     struct file *file __free(kfree) = NULL;
+    unsigned int access = flags & O_ACCMODE;
+    struct inode *inode;
     int ret;
 
+    if (!*path)
+        return ERR_PTR(-ENOENT);
+    if (flags & ~(O_ACCMODE | O_NONBLOCK | O_LARGEFILE | O_DIRECTORY |
+                  O_NOFOLLOW | O_CLOEXEC))
+        return ERR_PTR(-EOPNOTSUPP);
+    if (access == O_ACCMODE)
+        return ERR_PTR(-EINVAL);
+
+    ret = path_resolve(path, &resolved);
+    if (ret)
+        return ERR_PTR(ret);
+
+    inode = resolved.dentry->d_inode;
+    if (!inode) {
+        ret = -ENOENT;
+        goto fail;
+    }
+    if (!inode->i_fops) {
+        ret = -EOPNOTSUPP;
+        goto fail;
+    }
+    if ((flags & O_DIRECTORY) && !S_ISDIR(inode->i_mode)) {
+        ret = -ENOTDIR;
+        goto fail;
+    }
+    if (S_ISDIR(inode->i_mode) && access != O_RDONLY) {
+        ret = -EISDIR;
+        goto fail;
+    }
+
     file = kzalloc(sizeof(*file));
-    if (!file)
-        return ERR_PTR(-ENOMEM);
+    if (!file) {
+        ret = -ENOMEM;
+        goto fail;
+    }
 
     refcount_set(&file->f_count, 1);
     mutex_init(&file->f_pos_lock);
     file->f_flags = flags;
     file->f_pos = 0;
+    file->f_ops = inode->i_fops;
+    file->f_path = move(resolved);
 
-    ret = fat_open(file, path, flags);
-    if (ret)
-        return ERR_PTR(ret);
+    if (file->f_ops->open) {
+        ret = file->f_ops->open(file);
+        if (ret) {
+            path_put(&file->f_path);
+            return ERR_PTR(ret);
+        }
+    }
 
     return move(file);
+
+fail:
+    path_put(&resolved);
+    return ERR_PTR(ret);
 }
 
 ssize_t vfs_read(struct kiocb *iocb, struct kiov *iov)
@@ -63,6 +108,7 @@ int fput(struct file *file)
         return 0;
     if (file->f_ops && file->f_ops->release)
         ret = file->f_ops->release(file);
+    path_put(&file->f_path);
     kfree(file);
     return ret;
 }
@@ -74,18 +120,15 @@ long sys_openat(struct trap_frame *frame)
     unsigned long flags = syscallarg(frame, 2) & ~O_LARGEFILE;
     char *path __free(kfree) = NULL;
     struct file *file __free(fput) = NULL;
-    size_t len;
+    long len;
     int fd;
 
     path = kmalloc(PATH_MAX);
     if (!path)
         return -ENOMEM;
-    for (len = 0; len < PATH_MAX; ++len) {
-        if (copy_from_user(path + len, upath + len, 1))
-            return -EFAULT;
-        if (!path[len])
-            break;
-    }
+    len = strncpy_from_user(path, upath, PATH_MAX);
+    if (len < 0)
+        return len;
     if (len == PATH_MAX)
         return -ENAMETOOLONG;
     if (path[0] != '/' && dirfd != AT_FDCWD)
@@ -244,4 +287,3 @@ long sys_fchmodat(struct trap_frame *frame)
     (void)frame;
     return 0;
 }
-

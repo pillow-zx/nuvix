@@ -2,10 +2,6 @@ menu "File systems"
 
 config EXT2_FS
 	bool "ext2 filesystem support"
-	default n
-
-config FAT_FS
-	bool "fat32 filesystem support"
 	default y
 
 endmenu

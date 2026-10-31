@@ -13,6 +13,7 @@
 #include <nuvix/wait.h>
 #include <nuvix/uaccess.h>
 #include <nuvix/string.h>
+#include <nuvix/path.h>
 #include <nuvix/completion.h>
 #include <asm/trap.h>
 
@@ -98,9 +99,13 @@ void task_get(struct task *task)
 
 static void free_resource(struct task *task)
 {
-    struct mm_struct *mm __free(mm_put) = move(task->mm);
-    struct fdtable *fdt __free(kfree) = move(task->fdtable);
+    struct fdtable *fdt = move(task->fdtable);
+    struct mm_struct *mm = move(task->mm);
+
     fdtable_destroy(fdt);
+    path_put(&task->cwd);
+    kfree(fdt);
+    mm_put(mm);
 }
 
 void task_free(struct task *task)
@@ -269,6 +274,8 @@ long sys_clone(struct trap_frame *frame)
             return ret;
     }
     fdtable_clone(child->fdtable, current->fdtable);
+    child->cwd = current->cwd;
+    path_get(&child->cwd);
     spin_lock(&current->signal_lock);
     child->blocked = current->blocked;
     memcpy(child->actions, current->actions, sizeof(child->actions));
