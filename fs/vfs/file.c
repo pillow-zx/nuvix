@@ -60,6 +60,7 @@ struct file *vfs_open(const char *path, unsigned long flags)
     mutex_init(&file->f_pos_lock);
     file->f_flags = flags & ~O_CLOEXEC;
     file->f_pos = 0;
+    file->f_inode = inode;
     file->f_ops = inode->i_fops;
     file->f_path = move(resolved);
 
@@ -364,7 +365,7 @@ long sys_fstat(struct trap_frame *frame)
     if (!file)
         return -EBADF;
 
-    inode = file->f_path.dentry->d_inode;
+    inode = file->f_inode;
     if (!inode)
         return -ENOENT;
     return fill_stat(inode, ustat);

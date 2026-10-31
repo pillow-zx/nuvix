@@ -104,6 +104,7 @@ struct file {
     unsigned int f_flags;
     struct mutex f_pos_lock;
     int64_t f_pos;
+    struct inode *f_inode;
     struct path f_path;
     void *f_private;
 };

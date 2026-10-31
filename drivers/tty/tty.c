@@ -267,6 +267,21 @@ static const struct file_operations tty_fops = {
     .ioctl = tty_ioctl,
 };
 
+static struct inode *tty_inode;
+
+static int tty_inode_getattr(struct inode *inode, struct kstat *stat)
+{
+    stat->ino = inode->i_ino;
+    stat->mode = (inode->i_mode & S_IFMT) | 0777;
+    stat->nlink = 1;
+    stat->blksize = PAGE_SIZE;
+    return 0;
+}
+
+static const struct inode_operations tty_inode_ops = {
+    .getattr = tty_inode_getattr,
+};
+
 static struct file *tty_open(unsigned int flags)
 {
     struct file *file = kzalloc(sizeof(*file));
@@ -276,8 +291,9 @@ static struct file *tty_open(unsigned int flags)
     refcount_set(&file->f_count, 1);
     mutex_init(&file->f_pos_lock);
     file->f_flags = flags;
-    file->f_ops = &tty_fops;
-    file->f_private = &gtty;
+    file->f_inode = tty_inode;
+    file->f_ops = tty_inode->i_fops;
+    file->f_private = tty_inode->i_private;
     return file;
 }
 
@@ -309,6 +325,16 @@ int tty_init(void)
                  [VLNEXT] = 22},
     };
     gtty.winsize = (struct winsize){.ws_row = 24, .ws_col = 80};
+
+    tty_inode = i_alloc();
+    if (!tty_inode)
+        return -ENOMEM;
+    tty_inode->i_ino = 1;
+    tty_inode->i_mode = S_IFCHR | 0600;
+    tty_inode->i_ops = &tty_inode_ops;
+    tty_inode->i_fops = &tty_fops;
+    tty_inode->i_private = &gtty;
+
     arch_ktask_init(&task->ctx, tty_task, &gtty);
     sched_publish(task);
     return 0;
