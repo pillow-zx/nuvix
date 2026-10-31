@@ -8,6 +8,9 @@
 #include <nuvix/math.h>
 #include <nuvix/string.h>
 #include <nuvix/task.h>
+#include <nuvix/uaccess.h>
+
+#define TTY_WRITE_CHUNK (PAGE_SIZE / 2)
 
 struct tty {
     struct wait_queue rwait;
@@ -15,37 +18,72 @@ struct tty {
     unsigned int head;
     unsigned int tail;
     unsigned int canon;
+    struct termios termios;
+    struct winsize winsize;
     char buffer[PAGE_SIZE];
 };
 
 static struct tty gtty;
 
+static size_t tty_opost(unsigned int oflag, char c, char *out)
+{
+    size_t len = 0;
+
+    if ((oflag & OPOST) && (oflag & ONLCR) && c == '\n')
+        out[len++] = '\r';
+    out[len++] = c;
+    return len;
+}
+
 static void tty_receive(struct tty *tty, char c)
 {
     unsigned long flags;
     unsigned int used;
+    char echo[3];
+    size_t len = 0;
+    bool wake = false;
 
-    if (c == '\r')
-        c = '\n';
     spin_lock_irqsave(&tty->rwait.lock, flags);
-    used = tty->head - tty->tail;
-    if (used == PAGE_SIZE || (used == PAGE_SIZE - 1 && c != '\n')) {
-        spin_unlock_irqrestore(&tty->rwait.lock, flags);
-        return;
+
+    if ((tty->termios.c_iflag & ICRNL) && c == '\r')
+        c = '\n';
+
+    if ((tty->termios.c_lflag & ICANON) &&
+        c == (char)tty->termios.c_cc[VERASE]) {
+        if (tty->head != tty->canon) {
+            --tty->head;
+            if (tty->termios.c_lflag & ECHO) {
+                echo[0] = '\b';
+                echo[1] = ' ';
+                echo[2] = '\b';
+                len = 3;
+            }
+        }
+    } else {
+        used = tty->head - tty->tail;
+        if (used < PAGE_SIZE && (used < PAGE_SIZE - 1 || c == '\n')) {
+            tty->buffer[tty->head & (PAGE_SIZE - 1)] = c;
+            ++tty->head;
+            if (tty->termios.c_lflag & ECHO) {
+                if (c == '\n') {
+                    len = tty_opost(tty->termios.c_oflag, c, echo);
+                } else {
+                    echo[0] = c;
+                    len = 1;
+                }
+            }
+            if (!(tty->termios.c_lflag & ICANON) || c == '\n') {
+                tty->canon = tty->head;
+                wake = true;
+            }
+        }
     }
-    tty->buffer[tty->head & (PAGE_SIZE - 1)] = c;
-    ++tty->head;
+    if (wake)
+        wake_up_all_locked(&tty->rwait);
     spin_unlock_irqrestore(&tty->rwait.lock, flags);
 
-    if (c == '\n') {
-        (void)ns16550a_write("\r\n", 2);
-        spin_lock_irqsave(&tty->rwait.lock, flags);
-        tty->canon = tty->head;
-        wake_up_all_locked(&tty->rwait);
-        spin_unlock_irqrestore(&tty->rwait.lock, flags);
-    } else {
-        (void)ns16550a_write(&c, 1);
-    }
+    if (len)
+        (void)ns16550a_write(echo, len);
 }
 
 static int tty_task(void *arg)
@@ -91,6 +129,8 @@ static ssize_t tty_read(struct kiocb *iocb, struct kiov *iov)
         size_t copied;
 
         count = MIN(count, iov->count);
+        if (!count)
+            break;
         newline = memchr(buffer, '\n', count);
         if (newline)
             count = (size_t)(newline - buffer) + 1;
@@ -113,41 +153,118 @@ static ssize_t tty_read(struct kiocb *iocb, struct kiov *iov)
 
 static ssize_t tty_write(struct kiocb *iocb, struct kiov *iov)
 {
-    char *buffer __free(kfree) = NULL;
+    struct tty *tty = iocb->file->f_private;
+    char *in __free(kfree) = NULL;
+    char *out __free(kfree) = NULL;
+    unsigned long flags;
+    unsigned int oflag;
     size_t done = 0;
     ssize_t ret = 0;
 
-    (void)iocb;
-    buffer = kmalloc(MIN(iov->count, (size_t)PAGE_SIZE));
-    if (!buffer)
+    in = kmalloc(TTY_WRITE_CHUNK);
+    out = kmalloc(2 * TTY_WRITE_CHUNK);
+    if (!in || !out)
         return -ENOMEM;
+
+    spin_lock_irqsave(&tty->rwait.lock, flags);
+    oflag = tty->termios.c_oflag;
+    spin_unlock_irqrestore(&tty->rwait.lock, flags);
+
     while (iov->count) {
         struct kiov next = *iov;
-        size_t count = MIN(iov->count, (size_t)PAGE_SIZE);
-        size_t copied = copy_from_kiov(buffer, count, &next);
+        size_t count = MIN(iov->count, (size_t)TTY_WRITE_CHUNK);
+        size_t copied = copy_from_kiov(in, count, &next);
+        size_t consumed = 0;
+        size_t sent = 0;
+        size_t len = 0;
+        ssize_t written;
 
-        if (!copied) {
+        if (copied != count) {
             ret = -EFAULT;
             break;
         }
-        ret = ns16550a_write(buffer, copied);
-        if (ret <= 0)
+
+        for (size_t i = 0; i < copied; ++i)
+            len += tty_opost(oflag, in[i], out + len);
+
+        written = ns16550a_write(out, len);
+        if (written < 0) {
+            ret = written;
             break;
-        kiov_advance(iov, (size_t)ret);
-        done += (size_t)ret;
-        if ((size_t)ret < copied)
-            break;
-        if (copied < count) {
-            ret = -EFAULT;
+        }
+
+        for (size_t i = 0; i < copied; ++i) {
+            char expand[2];
+            size_t expanded = tty_opost(oflag, in[i], expand);
+
+            if (sent + expanded > (size_t)written)
+                break;
+            sent += expanded;
+            ++consumed;
+        }
+
+        kiov_advance(iov, consumed);
+        done += consumed;
+
+        if (consumed != copied) {
+            ret = -EINTR;
             break;
         }
     }
     return done ? (ssize_t)done : ret;
 }
 
+static long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+    struct tty *tty = file->f_private;
+    struct termios termios;
+    struct winsize winsize;
+    unsigned long flags;
+
+    switch (cmd) {
+    case TCGETS:
+        spin_lock_irqsave(&tty->rwait.lock, flags);
+        termios = tty->termios;
+        spin_unlock_irqrestore(&tty->rwait.lock, flags);
+        if (copy_to_user((void *)arg, &termios, sizeof(termios)))
+            return -EFAULT;
+        return 0;
+    case TCSETS:
+    case TCSETSW:
+    case TCSETSF:
+        if (copy_from_user(&termios, (void *)arg, sizeof(termios)))
+            return -EFAULT;
+        spin_lock_irqsave(&tty->rwait.lock, flags);
+        tty->termios = termios;
+        if (!(termios.c_lflag & ICANON)) {
+            tty->canon = tty->head;
+            wake_up_all_locked(&tty->rwait);
+        }
+        spin_unlock_irqrestore(&tty->rwait.lock, flags);
+        return 0;
+    case TIOCGWINSZ:
+        spin_lock_irqsave(&tty->rwait.lock, flags);
+        winsize = tty->winsize;
+        spin_unlock_irqrestore(&tty->rwait.lock, flags);
+        if (copy_to_user((void *)arg, &winsize, sizeof(winsize)))
+            return -EFAULT;
+        return 0;
+    case TIOCSWINSZ:
+        if (copy_from_user(&winsize, (void *)arg, sizeof(winsize)))
+            return -EFAULT;
+        spin_lock_irqsave(&tty->rwait.lock, flags);
+        tty->winsize = winsize;
+        spin_unlock_irqrestore(&tty->rwait.lock, flags);
+        return 0;
+    default:
+        return -ENOTTY;
+    }
+}
+
 static const struct file_operations tty_fops = {
     .read = tty_read,
     .write = tty_write,
+    .ioctl = tty_ioctl,
 };
 
 static struct file *tty_open(unsigned int flags)
@@ -172,6 +289,26 @@ int tty_init(void)
         return -ENOMEM;
     wait_queue_init(&gtty.rwait);
     mutex_init(&gtty.rlock);
+    gtty.termios = (struct termios){
+        .c_iflag = ICRNL | IXON,
+        .c_oflag = OPOST | ONLCR,
+        .c_cflag = CS8 | CREAD,
+        .c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN,
+        .c_cc = {[VINTR] = 3,
+                 [VQUIT] = 28,
+                 [VERASE] = 127,
+                 [VKILL] = 21,
+                 [VEOF] = 4,
+                 [VMIN] = 1,
+                 [VSTART] = 17,
+                 [VSTOP] = 19,
+                 [VSUSP] = 26,
+                 [VREPRINT] = 18,
+                 [VDISCARD] = 15,
+                 [VWERASE] = 23,
+                 [VLNEXT] = 22},
+    };
+    gtty.winsize = (struct winsize){.ws_row = 24, .ws_col = 80};
     arch_ktask_init(&task->ctx, tty_task, &gtty);
     sched_publish(task);
     return 0;
