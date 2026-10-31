@@ -151,6 +151,278 @@ long sys_close(struct trap_frame *frame)
     return fd_close(current->fdtable, fd);
 }
 
+long sys_chdir(struct trap_frame *frame)
+{
+    const char *upath = (const char *)syscallarg(frame, 0);
+    struct path resolved = {0};
+    char *path __free(kfree) = NULL;
+    struct inode *inode;
+    long len;
+    int ret;
+
+    path = kmalloc(PATH_MAX);
+    if (!path)
+        return -ENOMEM;
+    len = strncpy_from_user(path, upath, PATH_MAX);
+    if (len < 0)
+        return len;
+    if (len == PATH_MAX)
+        return -ENAMETOOLONG;
+
+    ret = path_resolve(path, &resolved);
+    if (ret)
+        return ret;
+
+    inode = resolved.dentry->d_inode;
+    if (!inode) {
+        ret = -ENOENT;
+        goto fail;
+    }
+    if (!S_ISDIR(inode->i_mode)) {
+        ret = -ENOTDIR;
+        goto fail;
+    }
+
+    path_put(&current->cwd);
+    current->cwd = move(resolved);
+    return 0;
+
+fail:
+    path_put(&resolved);
+    return ret;
+}
+
+long sys_getcwd(struct trap_frame *frame)
+{
+    char *ubuf = (char *)syscallarg(frame, 0);
+    size_t size = syscallarg(frame, 1);
+    struct dentry *dentry = current->cwd.dentry;
+    char *buffer __free(kfree) = NULL;
+    char *pos;
+    size_t len;
+
+    if (!size)
+        return -EINVAL;
+    if (!dentry)
+        return -ENOENT;
+
+    buffer = kmalloc(PATH_MAX);
+    if (!buffer)
+        return -ENOMEM;
+
+    pos = buffer + PATH_MAX;
+    *--pos = '\0';
+    for (; dentry->d_parent; dentry = dentry->d_parent) {
+        size_t n = dentry->d_nlen;
+
+        if ((size_t)(pos - buffer) < n + 1)
+            return -ENAMETOOLONG;
+        pos -= n;
+        memcpy(pos, dentry->d_name, n);
+        *--pos = '/';
+    }
+    if (current->cwd.dentry->d_parent == NULL)
+        *--pos = '/';
+
+    len = (size_t)(buffer + PATH_MAX - pos);
+    if (len > size)
+        return -ERANGE;
+    if (copy_to_user(ubuf, pos, len))
+        return -EFAULT;
+    return (long)len;
+}
+
+static int fill_stat(struct inode *inode, void *ustat)
+{
+    struct kstat ks = {0};
+    struct stat st;
+    int ret;
+
+    if (!inode->i_ops || !inode->i_ops->getattr)
+        return -EOPNOTSUPP;
+    ret = inode->i_ops->getattr(inode, &ks);
+    if (ret)
+        return ret;
+
+    st = (struct stat){
+        .st_dev = ks.dev,
+        .st_ino = ks.ino,
+        .st_mode = ks.mode,
+        .st_nlink = ks.nlink,
+        .st_uid = ks.uid,
+        .st_gid = ks.gid,
+        .st_rdev = ks.rdev,
+        .st_size = ks.size,
+        .st_blksize = ks.blksize,
+        .st_blocks = ks.blocks,
+        .st_atime = ks.atime.tv_sec,
+        .st_atime_nsec = ks.atime.tv_nsec,
+        .st_mtime = ks.mtime.tv_sec,
+        .st_mtime_nsec = ks.mtime.tv_nsec,
+        .st_ctime = ks.ctime.tv_sec,
+        .st_ctime_nsec = ks.ctime.tv_nsec,
+    };
+
+    if (copy_to_user(ustat, &st, sizeof(st)))
+        return -EFAULT;
+    return 0;
+}
+
+long sys_newfstatat(struct trap_frame *frame)
+{
+    int dirfd = (int)syscallarg(frame, 0);
+    const char *upath = (const char *)syscallarg(frame, 1);
+    void *ustat = (void *)syscallarg(frame, 2);
+    int flags = (int)syscallarg(frame, 3);
+    struct path resolved = {0};
+    char *path __free(kfree) = NULL;
+    struct inode *inode;
+    long len;
+    int ret;
+
+    if (flags & ~AT_SYMLINK_NOFOLLOW)
+        return -EOPNOTSUPP;
+
+    path = kmalloc(PATH_MAX);
+    if (!path)
+        return -ENOMEM;
+    len = strncpy_from_user(path, upath, PATH_MAX);
+    if (len < 0)
+        return len;
+    if (len == PATH_MAX)
+        return -ENAMETOOLONG;
+    if (path[0] != '/' && dirfd != AT_FDCWD)
+        return -EOPNOTSUPP;
+
+    ret = path_resolve(path, &resolved);
+    if (ret)
+        return ret;
+
+    inode = resolved.dentry->d_inode;
+    if (!inode) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    ret = fill_stat(inode, ustat);
+
+out:
+    path_put(&resolved);
+    return ret;
+}
+
+long sys_fstat(struct trap_frame *frame)
+{
+    unsigned int fd = syscallarg(frame, 0);
+    void *ustat = (void *)syscallarg(frame, 1);
+    struct file *file __free(fput) = fd_open(current->fdtable, fd);
+    struct inode *inode;
+
+    if (!file)
+        return -EBADF;
+
+    inode = file->f_path.dentry->d_inode;
+    if (!inode)
+        return -ENOENT;
+    return fill_stat(inode, ustat);
+}
+
+struct getdents_ctx {
+    struct dirctx ctx;
+    char *buf;
+    size_t count;
+    size_t done;
+    int error;
+};
+
+static bool filldir64(struct dirctx *ctx, const char *name, int namelen,
+                      loff_t offset, u64 ino, unsigned type)
+{
+    struct getdents_ctx *d = container_of(ctx, struct getdents_ctx, ctx);
+    char buffer[ALIGN_UP(offsetof(struct dirent64, d_name) + VFS_NAME_MAX + 1, 8)];
+    struct dirent64 *dirent = (struct dirent64 *)buffer;
+    size_t reclen;
+
+    if (namelen < 0 || namelen > VFS_NAME_MAX) {
+        d->error = -EIO;
+        return false;
+    }
+
+    reclen = ALIGN_UP(offsetof(struct dirent64, d_name) + namelen + 1, 8);
+    if (reclen > d->count - d->done) {
+        d->error = -EINVAL;
+        return false;
+    }
+
+    dirent->d_ino = ino;
+    dirent->d_off = offset;
+    dirent->d_reclen = (uint16_t)reclen;
+    dirent->d_type = (uint8_t)type;
+    memcpy(dirent->d_name, name, namelen);
+    memset(dirent->d_name + namelen, 0,
+           reclen - offsetof(struct dirent64, d_name) - namelen);
+
+    if (copy_to_user(d->buf + d->done, buffer, reclen)) {
+        d->error = -EFAULT;
+        return false;
+    }
+
+    d->done += reclen;
+    return true;
+}
+
+long sys_getdents64(struct trap_frame *frame)
+{
+    unsigned int fd = syscallarg(frame, 0);
+    char *ubuf = (char *)syscallarg(frame, 1);
+    size_t count = syscallarg(frame, 2);
+    struct file *file __free(fput) = fd_open(current->fdtable, fd);
+    struct getdents_ctx d = {0};
+    int ret;
+
+    if (!file)
+        return -EBADF;
+    if (!file->f_ops->readdir)
+        return -ENOTDIR;
+
+    ret = mutex_lock_interruptible(&file->f_pos_lock);
+    if (ret)
+        return ret;
+
+    d.ctx.actor = filldir64;
+    d.ctx.pos = file->f_pos;
+    d.buf = ubuf;
+    d.count = count;
+
+    ret = file->f_ops->readdir(file, &d.ctx);
+    file->f_pos = d.ctx.pos;
+    mutex_unlock(&file->f_pos_lock);
+
+    /*
+     * Copied entries win over any error: f_pos already moved past them, so
+     * reporting the error instead of the byte count would lose them.
+     */
+    if (d.done)
+        return (long)d.done;
+    if (ret)
+        return ret;
+    return d.error;
+}
+
+long sys_ioctl(struct trap_frame *frame)
+{
+    unsigned int fd = syscallarg(frame, 0);
+    unsigned int cmd = syscallarg(frame, 1);
+    unsigned long arg = syscallarg(frame, 2);
+    struct file *file __free(fput) = fd_open(current->fdtable, fd);
+
+    if (!file)
+        return -EBADF;
+    if (!file->f_ops->ioctl)
+        return -ENOTTY;
+    return file->f_ops->ioctl(file, cmd, arg);
+}
+
 static ssize_t file_read(struct file *file, struct kiov *iov)
 {
     struct kiocb iocb = {.file = file};
