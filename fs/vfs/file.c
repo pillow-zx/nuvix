@@ -8,6 +8,7 @@
 #include <nuvix/string.h>
 #include <nuvix/syscall.h>
 #include <nuvix/fdtable.h>
+#include <nuvix/bitmap.h>
 #include <nuvix/uaccess.h>
 #include <asm/trap.h>
 
@@ -57,7 +58,7 @@ struct file *vfs_open(const char *path, unsigned long flags)
 
     refcount_set(&file->f_count, 1);
     mutex_init(&file->f_pos_lock);
-    file->f_flags = flags;
+    file->f_flags = flags & ~O_CLOEXEC;
     file->f_pos = 0;
     file->f_ops = inode->i_fops;
     file->f_path = move(resolved);
@@ -118,6 +119,7 @@ long sys_openat(struct trap_frame *frame)
     int dirfd = (int)syscallarg(frame, 0);
     const char *upath = (const char *)syscallarg(frame, 1);
     unsigned long flags = syscallarg(frame, 2) & ~O_LARGEFILE;
+    bool cloexec = flags & O_CLOEXEC;
     char *path __free(kfree) = NULL;
     struct file *file __free(fput) = NULL;
     long len;
@@ -140,7 +142,7 @@ long sys_openat(struct trap_frame *frame)
     fd = fd_alloc(current->fdtable);
     if (fd < 0)
         return fd;
-    fd_install(current->fdtable, (unsigned long)fd, move(file));
+    fd_replace(current->fdtable, (unsigned long)fd, move(file), cloexec);
     return fd;
 }
 
@@ -149,6 +151,47 @@ long sys_close(struct trap_frame *frame)
     unsigned int fd = syscallarg(frame, 0);
 
     return fd_close(current->fdtable, fd);
+}
+
+long sys_fcntl(struct trap_frame *frame)
+{
+    unsigned int fd = syscallarg(frame, 0);
+    unsigned int cmd = syscallarg(frame, 1);
+    unsigned long arg = syscallarg(frame, 2);
+    struct fdtable *fdt = current->fdtable;
+    struct file *file __free(fput) = fd_open(fdt, fd);
+
+    if (!file)
+        return -EBADF;
+
+    switch (cmd) {
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC: {
+        int min = (int)arg;
+        int newfd;
+
+        if (min < 0 || (unsigned long)min >= BITS_PER_LONG)
+            return -EINVAL;
+        newfd = fd_alloc_from(fdt, (unsigned long)min);
+        if (newfd < 0)
+            return newfd;
+        fd_replace(fdt, (unsigned long)newfd, move(file),
+                   cmd == F_DUPFD_CLOEXEC);
+        return newfd;
+    }
+    case F_GETFD:
+        return fd_test_cloexec(fdt, fd) ? FD_CLOEXEC : 0;
+    case F_SETFD:
+        fd_set_cloexec(fdt, fd, arg & FD_CLOEXEC);
+        return 0;
+    case F_GETFL:
+        return file->f_flags;
+    case F_SETFL:
+        file->f_flags = (file->f_flags & ~O_NONBLOCK) | (arg & O_NONBLOCK);
+        return 0;
+    default:
+        return -EINVAL;
+    }
 }
 
 long sys_chdir(struct trap_frame *frame)

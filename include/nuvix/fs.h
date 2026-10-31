@@ -25,6 +25,13 @@
 #define SEEK_CUR         1
 #define SEEK_END         2
 
+#define F_DUPFD          0
+#define F_GETFD          1
+#define F_SETFD          2
+#define F_GETFL          3
+#define F_SETFL          4
+#define F_DUPFD_CLOEXEC  1030
+
 #define FILE_READ(file)  (((file)->f_flags & O_ACCMODE) != O_WRONLY)
 #define FILE_WRITE(file) (((file)->f_flags & O_ACCMODE) != O_RDONLY)
 #define FILE_RDWR(file)  (((file)->f_flags & O_ACCMODE) == O_RDWR)

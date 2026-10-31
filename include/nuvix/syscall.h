@@ -7,14 +7,14 @@
 #define SYSCALL_LIST(X)                                                        \
     X(openat) X(close) X(read) X(write) X(readv) X(writev) X(setpgid)          \
     X(getpgid) X(getsid) X(setsid) X(umask) X(getpid) X(getuid) X(geteuid)     \
-    X(getgid) X(getegid) X(gettid) X(dup) X(fchmodat) X(set_tid_address)       \
+    X(getgid) X(getegid) X(gettid) X(dup) X(dup3) X(fcntl) X(fchmodat)         \
     X(exit) X(exit_group) X(brk) X(mmap) X(munmap) X(mprotect) X(kill)         \
     X(tkill) X(tgkill) X(rt_sigsuspend) X(rt_sigaction) X(rt_sigprocmask)      \
     X(rt_sigpending) X(rt_sigreturn) X(clone) X(wait4) X(execve) X(nanosleep)  \
     X(clock_gettime) X(clock_nanosleep) X(uname) X(getresuid) X(getresgid)     \
     X(setuid) X(setgid) X(setreuid) X(setregid) X(setresuid) X(setresgid)      \
     X(getgroups) X(setgroups) X(getppid) X(chdir) X(getcwd) X(newfstatat)     \
-    X(fstat) X(getdents64) X(ioctl) X(lseek)
+    X(fstat) X(getdents64) X(ioctl) X(lseek) X(set_tid_address)
 // clang-format on
 
 #ifndef __ASSEMBLER__

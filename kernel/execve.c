@@ -9,6 +9,7 @@
 #include <nuvix/mm.h>
 #include <nuvix/page.h>
 #include <nuvix/vfs.h>
+#include <nuvix/fdtable.h>
 #include <nuvix/sched.h>
 #include <nuvix/tty.h>
 #include <nuvix/uaccess.h>
@@ -435,6 +436,7 @@ long sys_execve(struct trap_frame *frame)
 
     signal_clone();
     task_clear_flag(current, TF_FORKNOEXEC);
+    fdtable_close_on_exec(current->fdtable);
     switch_mm(move(mm));
     task_vfork_done(current);
     return 0;

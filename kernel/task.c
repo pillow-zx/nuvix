@@ -222,25 +222,6 @@ long sys_exit_group(struct trap_frame *frame)
     task_exit((syscallarg(frame, 0) & 0xff) << 8);
 }
 
-long sys_dup(struct trap_frame *frame)
-{
-    unsigned int oldfd = syscallarg(frame, 0);
-    struct fdtable *fdt = current->fdtable;
-    struct file *file __free(fput) = NULL;
-    int newfd;
-
-    file = fd_open(fdt, oldfd);
-    if (!file)
-        return -EBADF;
-
-    newfd = fd_alloc(fdt);
-    if (newfd < 0)
-        return newfd;
-
-    fd_install(fdt, (unsigned long)newfd, move(file));
-    return newfd;
-}
-
 long sys_set_tid_address(struct trap_frame *frame)
 {
     (void)frame;
