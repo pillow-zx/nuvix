@@ -88,8 +88,41 @@ static int ext2_file_release(struct file *file)
     return 0;
 }
 
+static loff_t ext2_llseek(struct file *file, loff_t offset, int whence)
+{
+    struct inode *inode = file->f_path.dentry->d_inode;
+    loff_t pos = 0;
+    int ret = 0;
+
+    mutex_lock(&file->f_pos_lock);
+    switch (whence) {
+    case SEEK_SET:
+        pos = offset;
+        break;
+    case SEEK_CUR:
+        if (check_add_overflow(file->f_pos, offset, &pos))
+            ret = -EOVERFLOW;
+        break;
+    case SEEK_END:
+        if (check_add_overflow(inode->i_size, offset, &pos))
+            ret = -EOVERFLOW;
+        break;
+    default:
+        ret = -EINVAL;
+        break;
+    }
+    if (!ret && pos < 0)
+        ret = -EINVAL;
+    if (!ret)
+        file->f_pos = pos;
+    mutex_unlock(&file->f_pos_lock);
+
+    return ret ? ret : pos;
+}
+
 const struct file_operations ext2_file_ops = {
     .open = ext2_file_open,
+    .llseek = ext2_llseek,
     .read = ext2_file_read,
     .write = ext2_file_write,
     .fsync = ext2_file_fsync,
@@ -181,6 +214,7 @@ static int ext2_readdir(struct file *file, struct dirctx *ctx)
 }
 
 const struct file_operations ext2_dir_ops = {
+    .llseek = ext2_llseek,
     .read = ext2_dir_read,
     .readdir = ext2_readdir,
 };

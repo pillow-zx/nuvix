@@ -21,6 +21,10 @@
 #define O_NOFOLLOW       00400000
 #define O_CLOEXEC        02000000
 
+#define SEEK_SET         0
+#define SEEK_CUR         1
+#define SEEK_END         2
+
 #define FILE_READ(file)  (((file)->f_flags & O_ACCMODE) != O_WRONLY)
 #define FILE_WRITE(file) (((file)->f_flags & O_ACCMODE) != O_RDONLY)
 #define FILE_RDWR(file)  (((file)->f_flags & O_ACCMODE) == O_RDWR)
@@ -78,6 +82,7 @@ static_assert(offsetof(struct dirent64, d_name) == 19,
 
 struct file_operations {
     int (*open)(struct file *);
+    loff_t (*llseek)(struct file *, loff_t, int);
     ssize_t (*read)(struct kiocb *, struct kiov *);
     ssize_t (*write)(struct kiocb *, struct kiov *);
     long (*ioctl)(struct file *, unsigned int, unsigned long);

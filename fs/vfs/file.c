@@ -327,6 +327,20 @@ long sys_fstat(struct trap_frame *frame)
     return fill_stat(inode, ustat);
 }
 
+long sys_lseek(struct trap_frame *frame)
+{
+    struct file *file __free(fput) =
+        fd_open(current->fdtable, syscallarg(frame, 0));
+    loff_t offset = (loff_t)syscallarg(frame, 1);
+    int whence = (int)syscallarg(frame, 2);
+
+    if (!file)
+        return -EBADF;
+    if (!file->f_ops->llseek)
+        return -ESPIPE;
+    return file->f_ops->llseek(file, offset, whence);
+}
+
 struct getdents_ctx {
     struct dirctx ctx;
     char *buf;

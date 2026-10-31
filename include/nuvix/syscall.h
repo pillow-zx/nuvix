@@ -14,7 +14,7 @@
     X(clock_gettime) X(clock_nanosleep) X(uname) X(getresuid) X(getresgid)     \
     X(setuid) X(setgid) X(setreuid) X(setregid) X(setresuid) X(setresgid)      \
     X(getgroups) X(setgroups) X(getppid) X(chdir) X(getcwd) X(newfstatat)     \
-    X(fstat) X(getdents64) X(ioctl)
+    X(fstat) X(getdents64) X(ioctl) X(lseek)
 // clang-format on
 
 #ifndef __ASSEMBLER__
