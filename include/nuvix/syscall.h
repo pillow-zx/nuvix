@@ -5,7 +5,7 @@
 
 // clang-format off
 #define SYSCALL_LIST(X)                                                        \
-    X(openat) X(close) X(read) X(write) X(readv) X(writev) X(setpgid)          \
+    X(openat) X(close) X(read) X(write) X(pipe2) X(readv) X(writev) X(setpgid) \
     X(getpgid) X(getsid) X(setsid) X(umask) X(getpid) X(getuid) X(geteuid)     \
     X(getgid) X(getegid) X(gettid) X(dup) X(dup3) X(fcntl) X(fchmodat)         \
     X(exit) X(exit_group) X(brk) X(mmap) X(munmap) X(mprotect) X(kill)         \
