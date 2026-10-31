@@ -64,6 +64,7 @@ struct dentry {
     struct dentry *d_parent;
     struct inode *d_inode;
     char *d_name;
+    unsigned int d_nlen;
 };
 
 struct file *fget(struct file *file);
@@ -71,5 +72,17 @@ struct file *fget(struct file *file);
 int fput(struct file *file);
 
 DECLARE_FREE(fput, struct file *, if (_T) fput(_T));
+
+struct inode *i_alloc(void);
+
+void ihold(struct inode *inode);
+
+void iput(struct inode *inode);
+
+struct dentry *d_alloc(struct dentry *parent, const char *name, size_t len);
+
+void dget(struct dentry *dentry);
+
+void dput(struct dentry *dentry);
 
 #endif /* ifndef _NUVIX_FS_H */
