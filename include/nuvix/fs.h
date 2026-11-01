@@ -8,6 +8,7 @@
 #include <nuvix/kiov.h>
 #include <nuvix/path.h>
 #include <nuvix/cleanup.h>
+#include <nuvix/hlist.h>
 
 #define VFS_NAME_MAX     255
 
@@ -133,9 +134,11 @@ struct inode {
     struct super_block *i_sb;
     uint64_t i_ino;
     loff_t i_size;
+    unsigned int i_nlink;
     unsigned int i_mode;
     const struct inode_operations *i_ops;
     const struct file_operations *i_fops;
+    struct hlist_node i_hash;
     void *i_private;
 };
 
@@ -158,6 +161,10 @@ struct inode *i_alloc(void);
 void ihold(struct inode *inode);
 
 void iput(struct inode *inode);
+
+struct inode *icache_find(struct super_block *sb, uint64_t ino);
+
+struct inode *icache_insert(struct inode *inode);
 
 struct dentry *d_alloc(struct dentry *parent, const char *name, size_t len);
 

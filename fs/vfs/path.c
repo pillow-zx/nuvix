@@ -68,10 +68,6 @@ int path_lookup(const struct path *base, const char *name, struct path *result)
         dput(dentry);
         return ret;
     }
-    if (!found || !found->d_inode) {
-        dput(dentry);
-        return -ENOENT;
-    }
 
     result->dentry = found;
     return 0;

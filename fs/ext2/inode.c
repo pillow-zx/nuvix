@@ -2,6 +2,7 @@
 #include <nuvix/fs.h>
 #include <nuvix/slab.h>
 #include <nuvix/string.h>
+#include <nuvix/macro.h>
 
 #include "ext2.h"
 
@@ -27,6 +28,53 @@ static int ext2_read_ptr(struct super_block *sb, uint32_t block, uint32_t index,
 
     ptr = (uint32_t *)buffer;
     *value = ptr[index];
+    return 0;
+}
+
+static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
+                               struct ext2_inode *raw)
+{
+    struct ext2_fs *fs = ext2_sb_info(sb);
+    struct ext2_group_desc desc;
+    char *block __free(kfree) = NULL;
+    uint32_t desc_block;
+    uint32_t desc_per_block;
+    uint32_t group;
+    uint32_t index;
+    uint32_t inode_block;
+    uint32_t inode_offset;
+    uint32_t offset_in_block;
+    int ret;
+
+    group = (ino - 1) / fs->inodes_per_group;
+    index = (ino - 1) % fs->inodes_per_group;
+    desc_per_block = fs->block_size / sizeof(struct ext2_group_desc);
+    desc_block = fs->first_data_block + 1 + group / desc_per_block;
+
+    block = kmalloc(fs->block_size);
+    if (!block)
+        return -ENOMEM;
+
+    ret = ext2_read_block(sb, desc_block, block);
+    if (ret)
+        return ret;
+    memcpy(&desc,
+           block + (group % desc_per_block) * sizeof(struct ext2_group_desc),
+           sizeof(desc));
+
+    inode_offset = index * fs->inode_size;
+    inode_block = desc.bg_inode_table + inode_offset / fs->block_size;
+    offset_in_block = inode_offset % fs->block_size;
+    if (offset_in_block + sizeof(*raw) > fs->block_size)
+        return -EINVAL;
+
+    ret = ext2_read_block(sb, inode_block, block);
+    if (ret)
+        return ret;
+
+    memcpy(raw, block + offset_in_block, sizeof(*raw));
+    if (!raw->i_mode)
+        return -ENOENT;
     return 0;
 }
 
@@ -138,7 +186,7 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
             return ERR_PTR(-EUCLEAN);
     }
 
-    return ERR_PTR(-ENOENT);
+    return dentry;
 
 found:
     inode = ext2_iget(sb, ino);
@@ -163,7 +211,7 @@ static int ext2_getattr(struct inode *inode, struct kstat *stat)
     stat->ino = inode->i_ino;
     stat->rdev = 0;
     stat->mode = (inode->i_mode & S_IFMT) | 0777;
-    stat->nlink = info->raw.i_links_count;
+    stat->nlink = inode->i_nlink;
     stat->uid = 0;
     stat->gid = 0;
     stat->size = inode->i_size;
@@ -183,48 +231,19 @@ static const struct inode_operations ext2_inode_ops = {
 
 struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
 {
-    struct ext2_fs *fs = ext2_sb_info(sb);
-    struct ext2_group_desc desc;
-    struct ext2_inode_info *info;
+    struct ext2_inode_info *info __free(kfree) = NULL;
+    struct ext2_inode raw;
     struct inode *inode;
-    char *block __free(kfree) = NULL;
-    uint32_t desc_block;
-    uint32_t desc_per_block;
-    uint32_t group;
-    uint32_t index;
-    uint32_t inode_block;
-    uint32_t inode_offset;
-    uint32_t offset_in_block;
     int ret;
 
-    if (!ino || ino > fs->inodes_count)
-        return ERR_PTR(-EINVAL);
-    if (!fs->inodes_per_group || !fs->inode_size)
+    if (!ino || ino > ext2_sb_info(sb)->inodes_count)
         return ERR_PTR(-EINVAL);
 
-    group = (ino - 1) / fs->inodes_per_group;
-    index = (ino - 1) % fs->inodes_per_group;
-    desc_per_block = fs->block_size / sizeof(struct ext2_group_desc);
-    desc_block = fs->first_data_block + 1 + group / desc_per_block;
+    inode = icache_find(sb, ino);
+    if (inode)
+        return inode;
 
-    block = kmalloc(fs->block_size);
-    if (!block)
-        return ERR_PTR(-ENOMEM);
-
-    ret = ext2_read_block(sb, desc_block, block);
-    if (ret)
-        return ERR_PTR(ret);
-    memcpy(&desc,
-           block + (group % desc_per_block) * sizeof(struct ext2_group_desc),
-           sizeof(desc));
-
-    inode_offset = index * fs->inode_size;
-    inode_block = desc.bg_inode_table + inode_offset / fs->block_size;
-    offset_in_block = inode_offset % fs->block_size;
-    if (offset_in_block + sizeof(struct ext2_inode) > fs->block_size)
-        return ERR_PTR(-EINVAL);
-
-    ret = ext2_read_block(sb, inode_block, block);
+    ret = ext2_read_raw_inode(sb, ino, &raw);
     if (ret)
         return ERR_PTR(ret);
 
@@ -232,27 +251,23 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
     if (!info)
         return ERR_PTR(-ENOMEM);
     info->ino = ino;
-    memcpy(&info->raw, block + offset_in_block, sizeof(info->raw));
-    if (!info->raw.i_mode) {
-        kfree(info);
-        return ERR_PTR(-ENOENT);
-    }
+    info->raw = raw;
 
     inode = i_alloc();
-    if (!inode) {
-        kfree(info);
+    if (!inode)
         return ERR_PTR(-ENOMEM);
-    }
 
     inode->i_sb = sb;
     inode->i_ino = ino;
-    inode->i_size = info->raw.i_size;
-    inode->i_mode = info->raw.i_mode;
+    inode->i_size = raw.i_size;
+    inode->i_mode = raw.i_mode;
+    inode->i_nlink = raw.i_links_count;
     inode->i_ops = &ext2_inode_ops;
     if (S_ISDIR(inode->i_mode))
         inode->i_fops = &ext2_dir_ops;
     else if (S_ISREG(inode->i_mode))
         inode->i_fops = &ext2_file_ops;
-    inode->i_private = info;
-    return inode;
+    inode->i_private = move(info);
+
+    return icache_insert(inode);
 }

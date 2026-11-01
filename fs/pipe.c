@@ -202,7 +202,7 @@ static int pipe_getattr(struct inode *inode, struct kstat *stat)
 {
     stat->ino = inode->i_ino;
     stat->mode = (inode->i_mode & S_IFMT) | 0777;
-    stat->nlink = 1;
+    stat->nlink = inode->i_nlink;
     stat->size = 0;
     stat->blksize = PIPE_BUF_SIZE;
     return 0;
@@ -238,6 +238,7 @@ static int pipe_alloc(struct file **rfile, struct file **wfile,
         return -ENOMEM;
     pipe->inode = i_alloc();
     pipe->buffer = kmalloc(PIPE_BUF_SIZE);
+    pipe->inode->i_nlink = 1;
     if (!pipe->inode || !pipe->buffer)
         goto nomem;
     mutex_init(&pipe->mutex);
