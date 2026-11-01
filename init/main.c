@@ -15,6 +15,7 @@
 #include <nuvix/task.h>
 #include <nuvix/irq.h>
 #include <nuvix/device.h>
+#include <nuvix/mapping.h>
 
 /* Called by the architecture's boot assembly. */
 void kernel_main(unsigned long hart, paddr_t dtb_pa) __noreturn;
@@ -70,6 +71,9 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
 
     ret = smp_init();
     BOOTINFO(ret, SMP);
+
+    ret = mapping_init();
+    BOOTINFO(ret, mapping);
 
     ret = ktask_init();
     BOOTINFO(ret, kthread);

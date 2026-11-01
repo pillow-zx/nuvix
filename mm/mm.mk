@@ -9,3 +9,4 @@ obj-y += mm/mmap.c
 obj-y += mm/tlb.c
 obj-y += mm/uaccess.c
 obj-y += mm/page_fault.c
+obj-y += mm/mapping.c
