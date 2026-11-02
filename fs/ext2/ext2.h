@@ -141,4 +141,8 @@ int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block);
 
 struct inode *ext2_iget(struct super_block *sb, uint32_t ino);
 
+struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry);
+
+loff_t ext2_llseek(struct file *file, loff_t offset, int whence);
+
 #endif /* ifndef _NUVIX_FS_EXT2_H */
