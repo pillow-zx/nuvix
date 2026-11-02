@@ -9,24 +9,20 @@
 static int ext2_read_ptr(struct super_block *sb, uint32_t block, uint32_t index,
                          uint32_t *value)
 {
-    char *buffer __free(kfree) = NULL;
-    uint32_t *ptr;
-    int ret;
+    struct ext2_fs *fs = ext2_sb_info(sb);
+    struct cache_page *cp __free(cache_page) = NULL;
+    const uint32_t *ptr;
 
     if (!block) {
         *value = 0;
         return 0;
     }
 
-    buffer = kmalloc(ext2_sb_info(sb)->block_size);
-    if (!buffer)
-        return -ENOMEM;
+    cp = mapping_get(&fs->block_mapping, block);
+    if (IS_ERR(cp))
+        return PTR_ERR(move(cp));
 
-    ret = ext2_read_block(sb, block, buffer);
-    if (ret)
-        return ret;
-
-    ptr = (uint32_t *)buffer;
+    ptr = mapping_data(cp);
     *value = ptr[index];
     return 0;
 }
@@ -36,7 +32,7 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
 {
     struct ext2_fs *fs = ext2_sb_info(sb);
     struct ext2_group_desc desc;
-    char *block __free(kfree) = NULL;
+    struct cache_page *cp __free(cache_page) = NULL;
     uint32_t desc_block;
     uint32_t desc_per_block;
     uint32_t group;
@@ -44,23 +40,20 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
     uint32_t inode_block;
     uint32_t inode_offset;
     uint32_t offset_in_block;
-    int ret;
 
     group = (ino - 1) / fs->inodes_per_group;
     index = (ino - 1) % fs->inodes_per_group;
     desc_per_block = fs->block_size / sizeof(struct ext2_group_desc);
     desc_block = fs->first_data_block + 1 + group / desc_per_block;
 
-    block = kmalloc(fs->block_size);
-    if (!block)
-        return -ENOMEM;
-
-    ret = ext2_read_block(sb, desc_block, block);
-    if (ret)
-        return ret;
+    cp = mapping_get(&fs->block_mapping, desc_block);
+    if (IS_ERR(cp))
+        return PTR_ERR(move(cp));
     memcpy(&desc,
-           block + (group % desc_per_block) * sizeof(struct ext2_group_desc),
+           (const char *)mapping_data(cp) +
+               (group % desc_per_block) * sizeof(struct ext2_group_desc),
            sizeof(desc));
+    mapping_put(move(cp));
 
     inode_offset = index * fs->inode_size;
     inode_block = desc.bg_inode_table + inode_offset / fs->block_size;
@@ -68,11 +61,11 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
     if (offset_in_block + sizeof(*raw) > fs->block_size)
         return -EINVAL;
 
-    ret = ext2_read_block(sb, inode_block, block);
-    if (ret)
-        return ret;
+    cp = mapping_get(&fs->block_mapping, inode_block);
+    if (IS_ERR(cp))
+        return PTR_ERR(move(cp));
 
-    memcpy(raw, block + offset_in_block, sizeof(*raw));
+    memcpy(raw, (const char *)mapping_data(cp) + offset_in_block, sizeof(*raw));
     if (!raw->i_mode)
         return -ENOENT;
     return 0;
@@ -124,7 +117,6 @@ int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block)
 
 static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 {
-    char *buffer __free(kfree) = NULL;
     struct super_block *sb = dir->i_sb;
     struct ext2_fs *fs = ext2_sb_info(sb);
     struct inode *inode;
@@ -138,12 +130,10 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
     if (dentry->d_nlen > VFS_NAME_MAX)
         return ERR_PTR(-ENAMETOOLONG);
 
-    buffer = kmalloc(block_size);
-    if (!buffer)
-        return ERR_PTR(-ENOMEM);
-
     for (offset = 0; (uint64_t)dir->i_size > offset; offset += block_size) {
-        struct ext2_dir_entry *de;
+        struct cache_page *cp __free(cache_page) = NULL;
+        const struct ext2_dir_entry *de;
+        const char *buffer;
         uint64_t remain = (uint64_t)dir->i_size - offset;
         uint32_t limit = remain > block_size ? block_size : (uint32_t)remain;
         uint32_t logical = (uint32_t)(offset / block_size);
@@ -156,16 +146,17 @@ static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
         if (!phys)
             continue;
 
-        ret = ext2_read_block(sb, phys, buffer);
-        if (ret)
-            return ERR_PTR(ret);
+        cp = mapping_get(&fs->block_mapping, phys);
+        if (IS_ERR(cp))
+            return ERR_PTR(PTR_ERR(move(cp)));
+        buffer = mapping_data(cp);
 
         while (pos < limit) {
             uint16_t rec_len;
 
             if (limit - pos < sizeof(*de))
                 return ERR_PTR(-EUCLEAN);
-            de = (struct ext2_dir_entry *)(buffer + pos);
+            de = (const struct ext2_dir_entry *)(buffer + pos);
             rec_len = de->rec_len;
             if (rec_len < sizeof(*de) || (rec_len & 3) || rec_len > limit - pos)
                 return ERR_PTR(-EUCLEAN);

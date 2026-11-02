@@ -148,16 +148,13 @@ static int ext2_readdir(struct file *file, struct dirctx *ctx)
     struct inode *inode = file->f_path.dentry->d_inode;
     struct super_block *sb = inode->i_sb;
     struct ext2_fs *fs = ext2_sb_info(sb);
-    char *buffer __free(kfree) = NULL;
 
     if (!S_ISDIR(inode->i_mode))
         return -ENOTDIR;
 
-    buffer = kmalloc(fs->block_size);
-    if (!buffer)
-        return -ENOMEM;
-
     while (ctx->pos < inode->i_size) {
+        struct cache_page *cp __free(cache_page) = NULL;
+        const char *buffer;
         uint32_t logical = (uint32_t)(ctx->pos / fs->block_size);
         uint32_t offset = (uint32_t)(ctx->pos % fs->block_size);
         uint64_t remain = (uint64_t)(inode->i_size - ctx->pos);
@@ -175,16 +172,20 @@ static int ext2_readdir(struct file *file, struct dirctx *ctx)
             continue;
         }
 
-        ret = ext2_read_block(sb, phys, buffer);
-        if (ret)
-            return ret;
+        cp = mapping_get(&fs->block_mapping, phys);
+        if (IS_ERR(cp))
+            return PTR_ERR(move(cp));
+        buffer = mapping_data(cp);
 
         while (offset < limit) {
-            struct ext2_dir_entry *de =
-                (struct ext2_dir_entry *)(buffer + offset);
-            uint16_t rec_len = de->rec_len;
+            const struct ext2_dir_entry *de;
+            uint16_t rec_len;
             loff_t next;
 
+            if (limit - offset < sizeof(*de))
+                return -EUCLEAN;
+            de = (const struct ext2_dir_entry *)(buffer + offset);
+            rec_len = de->rec_len;
             if (rec_len < sizeof(*de) || (rec_len & 3) ||
                 rec_len > limit - offset)
                 return -EUCLEAN;

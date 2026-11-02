@@ -4,6 +4,7 @@
 #include <nuvix/assert.h>
 #include <nuvix/compiler.h>
 #include <nuvix/fs.h>
+#include <nuvix/mapping.h>
 
 #define EXT2_SUPER_MAGIC               0xEF53
 #define EXT2_ROOT_INO                  2
@@ -107,6 +108,7 @@ struct ext2_inode_info {
 };
 
 struct ext2_fs {
+    struct mapping block_mapping;
     uint32_t block_size;
     uint32_t blocks_count;
     uint32_t inodes_count;

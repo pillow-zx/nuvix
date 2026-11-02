@@ -12,6 +12,23 @@
 
 static struct ext2_fs ext2_data;
 
+static int ext2_read_metadata_page(struct cache_page *cp)
+{
+    struct mapping *m = cp->mapping;
+    struct ext2_fs *fs = m->m_host;
+    uint64_t sector;
+
+    if (cp->index >= fs->blocks_count)
+        return -EIO;
+
+    sector = cp->index * PAGE_SIZE / BLK_SECTOR_SIZE;
+    return blk_read(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
+}
+
+static const struct mapping_ops ext2_metadata_ops = {
+    .read_page = ext2_read_metadata_page,
+};
+
 int ext2_read_block(struct super_block *sb, uint32_t block, void *buffer)
 {
     struct ext2_fs *fs = ext2_sb_info(sb);
@@ -64,7 +81,7 @@ int ext2_mount(struct super_block *sb)
     raw = (struct ext2_super_block *)__va(page_to_phys(page));
     if (raw->s_magic != EXT2_SUPER_MAGIC)
         return -EINVAL;
-    if (raw->s_log_block_size > 2)
+    if (raw->s_log_block_size != 2)
         return -EOPNOTSUPP;
 
     block_size = 1024U << raw->s_log_block_size;
@@ -86,6 +103,11 @@ int ext2_mount(struct super_block *sb)
     fs->inode_size = inode_size;
     fs->first_ino = raw->s_rev_level == 0 ? 11 : raw->s_first_ino;
     fs->features_incompat = raw->s_feature_incompat;
+    fs->block_mapping = (struct mapping){
+        .m_bdev = sb->s_bdev,
+        .m_ops = &ext2_metadata_ops,
+        .m_host = fs,
+    };
     sb->s_fs_info = fs;
 
     root_inode = ext2_iget(sb, EXT2_ROOT_INO);
@@ -111,6 +133,7 @@ int ext2_mount(struct super_block *sb)
     return 0;
 
 fail:
+    mapping_purge(&fs->block_mapping, 0, fs->blocks_count);
     sb->s_fs_info = NULL;
     return ret;
 }
