@@ -120,6 +120,7 @@ struct inode_operations {
     const char *(*readlink)(struct inode *, void (*fn)(void *), void *arg);
     struct dentry *(*mkdir)(struct inode *, struct dentry *);
     int (*rmdir)(struct inode *, struct dentry *);
+    /* Frees the complete allocation containing this inode. */
     void (*destroy)(struct inode *);
 };
 
@@ -134,6 +135,10 @@ struct inode {
     struct super_block *i_sb;
     uint64_t i_ino;
     loff_t i_size;
+    uint64_t i_blocks;
+    struct timespec64 i_atime;
+    struct timespec64 i_mtime;
+    struct timespec64 i_ctime;
     unsigned int i_nlink;
     unsigned int i_mode;
     const struct inode_operations *i_ops;

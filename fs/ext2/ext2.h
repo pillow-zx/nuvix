@@ -104,8 +104,8 @@ struct ext2_dir_entry {
 
 struct ext2_inode_info {
     struct mapping mapping;
-    uint32_t ino;
-    struct ext2_inode raw;
+    uint32_t data[EXT2_N_BLOCKS];
+    struct inode vfs_inode;
 };
 
 struct ext2_fs {
@@ -123,6 +123,11 @@ struct ext2_fs {
 
 extern const struct file_operations ext2_file_ops;
 extern const struct file_operations ext2_dir_ops;
+
+static __always_inline struct ext2_inode_info *ext2_i(struct inode *inode)
+{
+    return container_of(inode, struct ext2_inode_info, vfs_inode);
+}
 
 static __always_inline struct ext2_fs *ext2_sb_info(struct super_block *sb)
 {

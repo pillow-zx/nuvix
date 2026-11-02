@@ -77,7 +77,7 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
 int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block)
 {
     struct super_block *sb = inode->i_sb;
-    struct ext2_inode_info *info = inode->i_private;
+    struct ext2_inode_info *info = ext2_i(inode);
     uint32_t ptrs = ext2_sb_info(sb)->block_size / sizeof(uint32_t);
     uint64_t l = logical;
     uint32_t first;
@@ -85,18 +85,18 @@ int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block)
     int ret;
 
     if (l < EXT2_NDIR_BLOCKS) {
-        *block = info->raw.i_block[l];
+        *block = info->data[l];
         return 0;
     }
     l -= EXT2_NDIR_BLOCKS;
 
     if (l < ptrs)
-        return ext2_read_ptr(sb, info->raw.i_block[EXT2_IND_BLOCK], (uint32_t)l,
+        return ext2_read_ptr(sb, info->data[EXT2_IND_BLOCK], (uint32_t)l,
                              block);
 
     l -= ptrs;
     if (l < (uint64_t)ptrs * ptrs) {
-        ret = ext2_read_ptr(sb, info->raw.i_block[EXT2_DIND_BLOCK],
+        ret = ext2_read_ptr(sb, info->data[EXT2_DIND_BLOCK],
                             (uint32_t)(l / ptrs), &first);
         if (ret)
             return ret;
@@ -105,7 +105,7 @@ int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block)
 
     l -= (uint64_t)ptrs * ptrs;
     if (l < (uint64_t)ptrs * ptrs * ptrs) {
-        ret = ext2_read_ptr(sb, info->raw.i_block[EXT2_TIND_BLOCK],
+        ret = ext2_read_ptr(sb, info->data[EXT2_TIND_BLOCK],
                             (uint32_t)(l / ((uint64_t)ptrs * ptrs)), &first);
         if (ret)
             return ret;
@@ -155,17 +155,14 @@ static const struct mapping_ops ext2_file_mapping_ops = {
 
 static void ext2_destroy(struct inode *inode)
 {
-    struct ext2_inode_info *info = inode->i_private;
+    struct ext2_inode_info *info = ext2_i(inode);
 
     mapping_purge(&info->mapping, 0, UINT64_MAX);
     kfree(info);
-    inode->i_private = NULL;
 }
 
 static int ext2_getattr(struct inode *inode, struct kstat *stat)
 {
-    struct ext2_inode_info *info = inode->i_private;
-
     stat->dev = 0;
     stat->ino = inode->i_ino;
     stat->rdev = 0;
@@ -174,11 +171,11 @@ static int ext2_getattr(struct inode *inode, struct kstat *stat)
     stat->uid = 0;
     stat->gid = 0;
     stat->size = inode->i_size;
-    stat->blocks = info->raw.i_blocks;
+    stat->blocks = inode->i_blocks;
     stat->blksize = ext2_sb_info(inode->i_sb)->block_size;
-    stat->atime.tv_sec = info->raw.i_atime;
-    stat->mtime.tv_sec = info->raw.i_mtime;
-    stat->ctime.tv_sec = info->raw.i_ctime;
+    stat->atime = inode->i_atime;
+    stat->mtime = inode->i_mtime;
+    stat->ctime = inode->i_ctime;
     return 0;
 }
 
@@ -206,19 +203,20 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
     if (ret)
         return ERR_PTR(ret);
 
-    info = kmalloc(sizeof(*info));
+    info = kzalloc(sizeof(*info));
     if (!info)
         return ERR_PTR(-ENOMEM);
-    info->ino = ino;
-    info->raw = raw;
+    memcpy(info->data, raw.i_block, sizeof(info->data));
 
-    inode = i_alloc();
-    if (!inode)
-        return ERR_PTR(-ENOMEM);
-
+    inode = &info->vfs_inode;
+    refcount_set(&inode->i_count, 1);
     inode->i_sb = sb;
     inode->i_ino = ino;
     inode->i_size = raw.i_size;
+    inode->i_blocks = raw.i_blocks;
+    inode->i_atime.tv_sec = raw.i_atime;
+    inode->i_mtime.tv_sec = raw.i_mtime;
+    inode->i_ctime.tv_sec = raw.i_ctime;
     inode->i_mode = raw.i_mode;
     inode->i_nlink = raw.i_links_count;
     inode->i_ops = &ext2_inode_ops;
@@ -231,7 +229,7 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
         .m_ops = &ext2_file_mapping_ops,
         .m_host = inode,
     };
-    inode->i_private = move(info);
+    keep(info);
 
     return icache_insert(inode);
 }

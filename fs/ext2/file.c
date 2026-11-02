@@ -14,7 +14,7 @@ static int ext2_file_open(struct file *file)
 static ssize_t ext2_file_read(struct kiocb *iocb, struct kiov *iov)
 {
     struct inode *inode = iocb->file->f_path.dentry->d_inode;
-    struct ext2_inode_info *info = inode->i_private;
+    struct ext2_inode_info *info = ext2_i(inode);
     loff_t pos = iocb->pos;
     size_t count;
     size_t done = 0;

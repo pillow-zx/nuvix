@@ -34,7 +34,8 @@ void iput(struct inode *inode)
     spin_unlock(&icache_lock);
     if (inode->i_ops && inode->i_ops->destroy)
         inode->i_ops->destroy(inode);
-    kfree(inode);
+    else
+        kfree(inode);
 }
 
 static uint64_t inode_key(struct super_block *sb, uint64_t ino)
