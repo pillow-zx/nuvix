@@ -1,5 +1,8 @@
+#include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
+#include <nuvix/math.h>
+#include <nuvix/page.h>
 #include <nuvix/slab.h>
 #include <nuvix/string.h>
 #include <nuvix/macro.h>
@@ -115,6 +118,41 @@ int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block)
     return -EFBIG;
 }
 
+static int ext2_read_file_page(struct cache_page *cp)
+{
+    struct mapping *m = cp->mapping;
+    struct inode *inode = m->m_host;
+    struct ext2_fs *fs = ext2_sb_info(inode->i_sb);
+    uint64_t offset = cp->index * PAGE_SIZE;
+    size_t length = MIN((uint64_t)inode->i_size - offset, (uint64_t)PAGE_SIZE);
+    char *data = mapping_data(cp);
+    uint32_t block;
+    uint64_t sector;
+    int ret;
+
+    ret = ext2_bmap(inode, (uint32_t)cp->index, &block);
+    if (ret)
+        return ret;
+    if (!block) {
+        memset(data, 0, PAGE_SIZE);
+        return 0;
+    }
+    if (block >= fs->blocks_count)
+        return -EIO;
+
+    sector = (uint64_t)block * PAGE_SIZE / BLK_SECTOR_SIZE;
+    ret = blk_read(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
+    if (ret)
+        return ret;
+
+    memset(data + length, 0, PAGE_SIZE - length);
+    return 0;
+}
+
+static const struct mapping_ops ext2_file_mapping_ops = {
+    .read_page = ext2_read_file_page,
+};
+
 static struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 {
     struct super_block *sb = dir->i_sb;
@@ -190,7 +228,10 @@ found:
 
 static void ext2_destroy(struct inode *inode)
 {
-    kfree(inode->i_private);
+    struct ext2_inode_info *info = inode->i_private;
+
+    mapping_purge(&info->mapping, 0, UINT64_MAX);
+    kfree(info);
     inode->i_private = NULL;
 }
 
@@ -258,6 +299,11 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
         inode->i_fops = &ext2_dir_ops;
     else if (S_ISREG(inode->i_mode))
         inode->i_fops = &ext2_file_ops;
+    info->mapping = (struct mapping){
+        .m_bdev = sb->s_bdev,
+        .m_ops = &ext2_file_mapping_ops,
+        .m_host = inode,
+    };
     inode->i_private = move(info);
 
     return icache_insert(inode);

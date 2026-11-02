@@ -103,6 +103,7 @@ struct ext2_dir_entry {
 } __packed;
 
 struct ext2_inode_info {
+    struct mapping mapping;
     uint32_t ino;
     struct ext2_inode raw;
 };
@@ -135,8 +136,6 @@ static_assert(sizeof(struct ext2_group_desc) == 32,
 static_assert(sizeof(struct ext2_inode) == 128, "invalid ext2 inode layout");
 static_assert(sizeof(struct ext2_dir_entry) == 8,
               "invalid ext2 directory entry layout");
-
-int ext2_read_block(struct super_block *sb, uint32_t block, void *buffer);
 
 int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block);
 

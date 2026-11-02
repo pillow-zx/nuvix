@@ -1,8 +1,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/math.h>
-#include <nuvix/slab.h>
-#include <nuvix/string.h>
+#include <nuvix/page.h>
 
 #include "ext2.h"
 
@@ -15,9 +14,7 @@ static int ext2_file_open(struct file *file)
 static ssize_t ext2_file_read(struct kiocb *iocb, struct kiov *iov)
 {
     struct inode *inode = iocb->file->f_path.dentry->d_inode;
-    struct super_block *sb = inode->i_sb;
-    struct ext2_fs *fs = ext2_sb_info(sb);
-    char *buffer __free(kfree) = NULL;
+    struct ext2_inode_info *info = inode->i_private;
     loff_t pos = iocb->pos;
     size_t count;
     size_t done = 0;
@@ -32,30 +29,20 @@ static ssize_t ext2_file_read(struct kiocb *iocb, struct kiov *iov)
     if (!count)
         return 0;
 
-    buffer = kmalloc(fs->block_size);
-    if (!buffer)
-        return -ENOMEM;
-
     while (done < count) {
-        uint32_t logical = (uint32_t)(pos / fs->block_size);
-        size_t offset = (size_t)(pos % fs->block_size);
-        size_t chunk = MIN((size_t)fs->block_size - offset, count - done);
-        uint32_t phys;
+        struct cache_page *cp __free(cache_page) = NULL;
+        uint64_t index = (uint64_t)pos / PAGE_SIZE;
+        size_t offset = (size_t)(pos % PAGE_SIZE);
+        size_t chunk = MIN((size_t)PAGE_SIZE - offset, count - done);
         size_t copied;
 
-        ret = ext2_bmap(inode, logical, &phys);
-        if (ret)
+        cp = mapping_get(&info->mapping, index);
+        if (IS_ERR(cp)) {
+            ret = PTR_ERR(move(cp));
             break;
-
-        if (phys) {
-            ret = ext2_read_block(sb, phys, buffer);
-            if (ret)
-                break;
-            copied = copy_to_kiov(buffer + offset, chunk, iov);
-        } else {
-            memset(buffer, 0, chunk);
-            copied = copy_to_kiov(buffer, chunk, iov);
         }
+        copied =
+            copy_to_kiov((const char *)mapping_data(cp) + offset, chunk, iov);
 
         done += copied;
         pos += copied;

@@ -4,8 +4,6 @@
 #include <nuvix/layout.h>
 #include <nuvix/macro.h>
 #include <nuvix/page.h>
-#include <nuvix/slab.h>
-#include <nuvix/string.h>
 #include <nuvix/vfs.h>
 
 #include "ext2.h"
@@ -28,33 +26,6 @@ static int ext2_read_metadata_page(struct cache_page *cp)
 static const struct mapping_ops ext2_metadata_ops = {
     .read_page = ext2_read_metadata_page,
 };
-
-int ext2_read_block(struct super_block *sb, uint32_t block, void *buffer)
-{
-    struct ext2_fs *fs = ext2_sb_info(sb);
-    struct page *page __free(page) = NULL;
-    uint64_t sector;
-    int ret;
-
-    if (!sb->s_bdev)
-        return -ENODEV;
-    if (!fs->block_size || fs->block_size > PAGE_SIZE)
-        return -EOPNOTSUPP;
-    if (block >= fs->blocks_count)
-        return -EIO;
-
-    page = alloc_page();
-    if (!page)
-        return -ENOMEM;
-
-    sector = (uint64_t)block * fs->block_size / BLK_SECTOR_SIZE;
-    ret = blk_read(sb->s_bdev, sector, page, 0, fs->block_size);
-    if (ret)
-        return ret;
-
-    memcpy(buffer, (void *)__va(page_to_phys(page)), fs->block_size);
-    return 0;
-}
 
 int ext2_mount(struct super_block *sb)
 {
