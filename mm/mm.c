@@ -14,7 +14,8 @@ struct mm_struct *mm_alloc(void)
     int ret = alloc_pgd(&pgd);
     if (ret)
         return NULL;
-    refcount_set(&mm->refcount, 1);
+    refcount_set(&mm->urefs, 1);
+    refcount_set(&mm->refs, 1);
     mutex_init(&mm->mmap_lock);
     mm->vma_tree = RB_ROOT;
     spin_lock_init(&mm->pgtable_lock);
@@ -24,14 +25,15 @@ struct mm_struct *mm_alloc(void)
 
 void mm_get(struct mm_struct *mm)
 {
-    refcount_inc(&mm->refcount);
+    refcount_inc(&mm->urefs);
 }
 
 void mm_put(struct mm_struct *mm)
 {
     struct rb_node *node, *next;
 
-    if (!refcount_dec_and_test(&mm->refcount))
+    might_sleep();
+    if (!refcount_dec_and_test(&mm->urefs))
         return;
     rb_for_each_safe (node, next, &mm->vma_tree) {
         struct vm_struct *vma __free(vma) =
@@ -39,6 +41,19 @@ void mm_put(struct mm_struct *mm)
 
         vma_remove(vma);
     }
+    mm_drop(mm);
+}
+
+void mm_grab(struct mm_struct *mm)
+{
+    refcount_inc(&mm->refs);
+}
+
+void mm_drop(struct mm_struct *mm)
+{
+    if (!refcount_dec_and_test(&mm->refs))
+        return;
+    Assert(!refcount_read(&mm->urefs), "freeing an mm with active urefs\n");
     pgtable_free(mm->pgd);
     kfree(mm);
 }
@@ -78,14 +93,14 @@ void switch_mm(struct mm_struct *mm)
 {
     struct rq *rq = this_rq();
     struct mm_struct *old __free(mm_put) = NULL;
-    struct mm_struct *active __free(mm_put) = NULL;
+    struct mm_struct *active __free(mm_drop) = NULL;
     unsigned long flags;
 
     spin_lock_irqsave(&rq->lock, flags);
     old = current->mm;
     active = rq->active_mm;
     current->mm = mm;
-    mm_get(mm);
+    mm_grab(mm);
     pgtable_switch(mm);
     rq->active_mm = mm;
     spin_unlock_irqrestore(&rq->lock, flags);

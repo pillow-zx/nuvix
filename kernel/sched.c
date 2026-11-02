@@ -222,7 +222,7 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
     mm = next->mm;
     if (mm != rq->active_mm) {
         if (mm)
-            mm_get(mm);
+            mm_grab(mm);
         pgtable_switch(mm);
         rq->prev_mm = rq->active_mm;
         rq->active_mm = mm;
@@ -253,7 +253,7 @@ void sched_finish_switch(struct task *prev)
 {
     struct rq *rq = this_rq();
     bool zombie = prev->state == TASK_ZOMBIE;
-    struct mm_struct *mm __free(mm_put) = sched_finish_switch_locked(rq, prev);
+    struct mm_struct *mm __free(mm_drop) = sched_finish_switch_locked(rq, prev);
 
     __spin_unlock(&rq->lock);
     if (zombie)

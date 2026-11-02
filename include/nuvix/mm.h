@@ -23,7 +23,9 @@
 #define MAP_ANONYMOUS 0x20
 
 struct mm_struct {
-    refcount_t refcount;
+    refcount_t urefs;
+    /* One shared address-space reference, plus CPU root references. */
+    refcount_t refs;
 
     /* Protects VMA layout and ordinary fault submission. */
     struct mutex mmap_lock;
@@ -54,8 +56,8 @@ struct vm_struct {
 
 /*
  * After slub_init() and pgtable_use_buddy(). Returns an unpublished, empty mm
- * with an independent root and one caller reference, or NULL on allocation
- * failure. The mm owns the root's page-table ownership reference.
+ * with an independent root and one caller user reference, or NULL on allocation
+ * failure. The users collectively hold one mm lifetime reference.
  */
 struct mm_struct *mm_alloc(void);
 
@@ -65,13 +67,19 @@ void switch_mm(struct mm_struct *mm);
 
 void mm_get(struct mm_struct *mm);
 /*
- * Final put frees owned VMAs, user mappings and the root. Requires no
- * task/CPU/software users and completed TLB synchronization. Call outside
- * short locks. CPU root users must retain an mm reference until switching away.
+ * Sleepable context. The final user put releases owned VMAs and their file
+ * references, then drops the users' collective mm lifetime reference.
  */
 void mm_put(struct mm_struct *mm);
 
 DECLARE_FREE(mm_put, struct mm_struct *, if (_T) mm_put(_T));
+
+/* CPU root references keep the mm, user mappings and root alive independently. */
+void mm_grab(struct mm_struct *mm);
+/* Drop a lifetime reference; CPU holders first switch away and flush the TLB. */
+void mm_drop(struct mm_struct *mm);
+
+DECLARE_FREE(mm_drop, struct mm_struct *, if (_T) mm_drop(_T));
 
 struct vm_struct *vma_alloc(void);
 /* Requires a detached, caller-owned VMA. */
