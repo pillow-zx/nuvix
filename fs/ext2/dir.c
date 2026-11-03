@@ -7,10 +7,10 @@
 struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 {
     struct super_block *sb = dir->i_sb;
-    struct ext2_fs *fs = ext2_sb_info(sb);
+    struct ext2_sb_info *sbi = ext2_sb_info(sb);
     struct inode *inode;
     uint64_t offset;
-    uint32_t block_size = fs->block_size;
+    uint32_t block_size = sbi->block_size;
     uint32_t ino;
     int ret;
 
@@ -35,7 +35,7 @@ struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
         if (!phys)
             continue;
 
-        cp = mapping_get(&fs->block_mapping, phys);
+        cp = mapping_get(&sbi->mapping, phys);
         if (IS_ERR(cp))
             return ERR_PTR(PTR_ERR(move(cp)));
         buffer = mapping_data(cp);
@@ -52,7 +52,7 @@ struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
             if (de->name_len > rec_len - sizeof(*de))
                 return ERR_PTR(-EUCLEAN);
             if (de->inode) {
-                if (de->inode > fs->inodes_count)
+                if (de->inode > sbi->s_es->s_inodes_count)
                     return ERR_PTR(-EUCLEAN);
                 if (de->name_len == dentry->d_nlen &&
                     !memcmp(de->name, dentry->d_name, dentry->d_nlen)) {
@@ -95,7 +95,7 @@ static int ext2_dir_readdir(struct file *file, struct dirctx *ctx)
 {
     struct inode *inode = file->f_path.dentry->d_inode;
     struct super_block *sb = inode->i_sb;
-    struct ext2_fs *fs = ext2_sb_info(sb);
+    struct ext2_sb_info *sbi = ext2_sb_info(sb);
 
     if (!S_ISDIR(inode->i_mode))
         return -ENOTDIR;
@@ -103,11 +103,11 @@ static int ext2_dir_readdir(struct file *file, struct dirctx *ctx)
     while (ctx->pos < inode->i_size) {
         struct cache_page *cp __free(cache_page) = NULL;
         const char *buffer;
-        uint32_t logical = (uint32_t)(ctx->pos / fs->block_size);
-        uint32_t offset = (uint32_t)(ctx->pos % fs->block_size);
+        uint32_t logical = (uint32_t)(ctx->pos / sbi->block_size);
+        uint32_t offset = (uint32_t)(ctx->pos % sbi->block_size);
         uint64_t remain = (uint64_t)(inode->i_size - ctx->pos);
-        uint32_t limit = offset + remain > fs->block_size
-                             ? fs->block_size
+        uint32_t limit = offset + remain > sbi->block_size
+                             ? sbi->block_size
                              : (uint32_t)(offset + remain);
         uint32_t phys;
         int ret;
@@ -116,11 +116,11 @@ static int ext2_dir_readdir(struct file *file, struct dirctx *ctx)
         if (ret)
             return ret;
         if (!phys) {
-            ctx->pos = ((loff_t)logical + 1) * fs->block_size;
+            ctx->pos = ((loff_t)logical + 1) * sbi->block_size;
             continue;
         }
 
-        cp = mapping_get(&fs->block_mapping, phys);
+        cp = mapping_get(&sbi->mapping, phys);
         if (IS_ERR(cp))
             return PTR_ERR(move(cp));
         buffer = mapping_data(cp);
@@ -140,13 +140,14 @@ static int ext2_dir_readdir(struct file *file, struct dirctx *ctx)
             if (de->name_len > rec_len - sizeof(*de))
                 return -EUCLEAN;
 
-            next = (loff_t)logical * fs->block_size + offset + rec_len;
+            next = (loff_t)logical * sbi->block_size + offset + rec_len;
             if (de->inode) {
                 unsigned char type = DT_UNKNOWN;
 
-                if (de->inode > fs->inodes_count)
+                if (de->inode > sbi->s_es->s_inodes_count)
                     return -EUCLEAN;
-                if ((fs->features_incompat & EXT2_FEATURE_INCOMPAT_FILETYPE) &&
+                if ((sbi->s_es->s_feature_incompat &
+                     EXT2_FEATURE_INCOMPAT_FILETYPE) &&
                     de->file_type < EXT2_FT_MAX)
                     type = ext2_dtype[de->file_type];
                 if (!dir_emit(ctx, de->name, de->name_len, next, de->inode,

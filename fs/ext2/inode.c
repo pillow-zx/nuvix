@@ -8,11 +8,12 @@
 #include <nuvix/macro.h>
 
 #include "ext2.h"
+#include "nuvix/mapping.h"
 
 static int ext2_read_ptr(struct super_block *sb, uint32_t block, uint32_t index,
                          uint32_t *value)
 {
-    struct ext2_fs *fs = ext2_sb_info(sb);
+    struct ext2_sb_info *sbi = ext2_sb_info(sb);
     struct cache_page *cp __free(cache_page) = NULL;
     const uint32_t *ptr;
 
@@ -21,7 +22,7 @@ static int ext2_read_ptr(struct super_block *sb, uint32_t block, uint32_t index,
         return 0;
     }
 
-    cp = mapping_get(&fs->block_mapping, block);
+    cp = mapping_get(&sbi->mapping, block);
     if (IS_ERR(cp))
         return PTR_ERR(move(cp));
 
@@ -33,7 +34,7 @@ static int ext2_read_ptr(struct super_block *sb, uint32_t block, uint32_t index,
 static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
                                struct ext2_inode *raw)
 {
-    struct ext2_fs *fs = ext2_sb_info(sb);
+    struct ext2_sb_info *sbi = ext2_sb_info(sb);
     struct ext2_group_desc desc;
     struct cache_page *cp __free(cache_page) = NULL;
     uint32_t desc_block;
@@ -44,12 +45,12 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
     uint32_t inode_offset;
     uint32_t offset_in_block;
 
-    group = (ino - 1) / fs->inodes_per_group;
-    index = (ino - 1) % fs->inodes_per_group;
-    desc_per_block = fs->block_size / sizeof(struct ext2_group_desc);
-    desc_block = fs->first_data_block + 1 + group / desc_per_block;
+    group = (ino - 1) / sbi->s_es->s_inodes_per_group;
+    index = (ino - 1) % sbi->s_es->s_inodes_per_group;
+    desc_per_block = sbi->block_size / sizeof(struct ext2_group_desc);
+    desc_block = sbi->s_es->s_first_data_block + 1 + group / desc_per_block;
 
-    cp = mapping_get(&fs->block_mapping, desc_block);
+    cp = mapping_get(&sbi->mapping, desc_block);
     if (IS_ERR(cp))
         return PTR_ERR(move(cp));
     memcpy(&desc,
@@ -58,13 +59,13 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
            sizeof(desc));
     mapping_put(move(cp));
 
-    inode_offset = index * fs->inode_size;
-    inode_block = desc.bg_inode_table + inode_offset / fs->block_size;
-    offset_in_block = inode_offset % fs->block_size;
-    if (offset_in_block + sizeof(*raw) > fs->block_size)
+    inode_offset = index * sbi->inode_size;
+    inode_block = desc.bg_inode_table + inode_offset / sbi->block_size;
+    offset_in_block = inode_offset % sbi->block_size;
+    if (offset_in_block + sizeof(*raw) > sbi->block_size)
         return -EINVAL;
 
-    cp = mapping_get(&fs->block_mapping, inode_block);
+    cp = mapping_get(&sbi->mapping, inode_block);
     if (IS_ERR(cp))
         return PTR_ERR(move(cp));
 
@@ -122,7 +123,7 @@ static int ext2_read_file_page(struct cache_page *cp)
 {
     struct mapping *m = cp->mapping;
     struct inode *inode = m->m_host;
-    struct ext2_fs *fs = ext2_sb_info(inode->i_sb);
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
     uint64_t offset = cp->index * PAGE_SIZE;
     size_t length = MIN((uint64_t)inode->i_size - offset, (uint64_t)PAGE_SIZE);
     char *data = mapping_data(cp);
@@ -137,7 +138,7 @@ static int ext2_read_file_page(struct cache_page *cp)
         memset(data, 0, PAGE_SIZE);
         return 0;
     }
-    if (block >= fs->blocks_count)
+    if (block >= sbi->s_es->s_blocks_count)
         return -EIO;
 
     sector = (uint64_t)block * PAGE_SIZE / BLK_SECTOR_SIZE;
@@ -192,7 +193,7 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
     struct inode *inode;
     int ret;
 
-    if (!ino || ino > ext2_sb_info(sb)->inodes_count)
+    if (!ino || ino > ext2_sb_info(sb)->s_es->s_inodes_count)
         return ERR_PTR(-EINVAL);
 
     inode = icache_find(sb, ino);
@@ -224,11 +225,7 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
         inode->i_fops = &ext2_dir_ops;
     else if (S_ISREG(inode->i_mode))
         inode->i_fops = &ext2_file_ops;
-    info->mapping = (struct mapping){
-        .m_bdev = sb->s_bdev,
-        .m_ops = &ext2_file_mapping_ops,
-        .m_host = inode,
-    };
+    info->mapping = MAPPING_INIT(sb->s_bdev, ext2_file_mapping_ops, inode);
     keep(info);
 
     return icache_insert(inode);

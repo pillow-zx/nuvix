@@ -9,6 +9,7 @@
 #define EXT2_SUPER_MAGIC               0xEF53
 #define EXT2_ROOT_INO                  2
 #define EXT2_GOOD_OLD_INODE_SIZE       128
+#define EXT2_SUPER_OFFSET              1024
 
 #define EXT2_FEATURE_INCOMPAT_FILETYPE 0x0002
 
@@ -108,17 +109,12 @@ struct ext2_inode_info {
     struct inode vfs_inode;
 };
 
-struct ext2_fs {
-    struct mapping block_mapping;
+struct ext2_sb_info {
+    struct mapping mapping;
+    struct cache_page *s_sbh;
+    struct ext2_super_block *s_es;
     uint32_t block_size;
-    uint32_t blocks_count;
-    uint32_t inodes_count;
-    uint32_t first_data_block;
-    uint32_t blocks_per_group;
-    uint32_t inodes_per_group;
     uint32_t inode_size;
-    uint32_t first_ino;
-    uint32_t features_incompat;
 };
 
 extern const struct file_operations ext2_file_ops;
@@ -129,7 +125,7 @@ static __always_inline struct ext2_inode_info *ext2_i(struct inode *inode)
     return container_of(inode, struct ext2_inode_info, vfs_inode);
 }
 
-static __always_inline struct ext2_fs *ext2_sb_info(struct super_block *sb)
+static __always_inline struct ext2_sb_info *ext2_sb_info(struct super_block *sb)
 {
     return sb->s_fs_info;
 }

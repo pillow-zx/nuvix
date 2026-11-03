@@ -39,6 +39,12 @@ struct cache_page {
     unsigned int state;
 };
 
+#define MAPPING_INIT(bdev, ops, host)                                          \
+    (struct mapping)                                                           \
+    {                                                                          \
+        .m_bdev = bdev, .m_ops = &ops, .m_host = host                          \
+    }
+
 int mapping_init(void);
 
 void *mapping_data(const struct cache_page *cp);

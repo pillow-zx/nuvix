@@ -1,37 +1,34 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
-#include <nuvix/layout.h>
-#include <nuvix/macro.h>
 #include <nuvix/page.h>
 #include <nuvix/vfs.h>
 
 #include "ext2.h"
 
-static struct ext2_fs ext2_data;
+static struct ext2_sb_info ext2_data;
 
 static int ext2_read_metadata_page(struct cache_page *cp)
 {
     struct mapping *m = cp->mapping;
-    struct ext2_fs *fs = m->m_host;
+    struct ext2_sb_info *sbi = m->m_host;
     uint64_t sector;
 
-    if (cp->index >= fs->blocks_count)
+    if (cp->index && cp->index >= sbi->s_es->s_blocks_count)
         return -EIO;
 
     sector = cp->index * PAGE_SIZE / BLK_SECTOR_SIZE;
     return blk_read(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
 }
 
-static const struct mapping_ops ext2_metadata_ops = {
+static const struct mapping_ops ext2_metadata_mapping_ops = {
     .read_page = ext2_read_metadata_page,
 };
 
 int ext2_mount(struct super_block *sb)
 {
-    struct page *page __free(page) = NULL;
-    struct ext2_super_block *raw;
-    struct ext2_fs *fs = &ext2_data;
+    struct ext2_super_block *es;
+    struct ext2_sb_info *sbi = &ext2_data;
     struct inode *root_inode;
     struct dentry *root;
     uint32_t block_size;
@@ -41,45 +38,42 @@ int ext2_mount(struct super_block *sb)
     if (!sb->s_bdev)
         return -ENODEV;
 
-    page = alloc_page();
-    if (!page)
-        return -ENOMEM;
-
-    ret = blk_read(sb->s_bdev, 2, page, 0, BLK_SECTOR_SIZE);
-    if (ret)
+    sbi->mapping = MAPPING_INIT(sb->s_bdev, ext2_metadata_mapping_ops, sbi);
+    sbi->s_sbh = mapping_get(&sbi->mapping, 0);
+    if (IS_ERR(sbi->s_sbh)) {
+        ret = PTR_ERR(sbi->s_sbh);
+        sbi->s_sbh = NULL;
         return ret;
+    }
+    es = (struct ext2_super_block *)((char *)mapping_data(sbi->s_sbh) +
+                                     EXT2_SUPER_OFFSET);
+    sbi->s_es = es;
+    if (es->s_magic != EXT2_SUPER_MAGIC) {
+        ret = -EINVAL;
+        goto fail;
+    }
+    if (es->s_log_block_size != 2) {
+        ret = -EOPNOTSUPP;
+        goto fail;
+    }
 
-    raw = (struct ext2_super_block *)__va(page_to_phys(page));
-    if (raw->s_magic != EXT2_SUPER_MAGIC)
-        return -EINVAL;
-    if (raw->s_log_block_size != 2)
-        return -EOPNOTSUPP;
-
-    block_size = 1024U << raw->s_log_block_size;
+    block_size = 1024U << es->s_log_block_size;
     inode_size =
-        raw->s_rev_level == 0 ? EXT2_GOOD_OLD_INODE_SIZE : raw->s_inode_size;
+        es->s_rev_level == 0 ? EXT2_GOOD_OLD_INODE_SIZE : es->s_inode_size;
     if (inode_size < EXT2_GOOD_OLD_INODE_SIZE || inode_size > block_size ||
-        block_size % inode_size)
-        return -EINVAL;
-    if (!raw->s_blocks_count || !raw->s_inodes_count ||
-        !raw->s_blocks_per_group || !raw->s_inodes_per_group)
-        return -EINVAL;
+        block_size % inode_size) {
+        ret = -EINVAL;
+        goto fail;
+    }
+    if (!es->s_blocks_count || !es->s_inodes_count || !es->s_blocks_per_group ||
+        !es->s_inodes_per_group) {
+        ret = -EINVAL;
+        goto fail;
+    }
 
-    fs->block_size = block_size;
-    fs->blocks_count = raw->s_blocks_count;
-    fs->inodes_count = raw->s_inodes_count;
-    fs->first_data_block = raw->s_first_data_block;
-    fs->blocks_per_group = raw->s_blocks_per_group;
-    fs->inodes_per_group = raw->s_inodes_per_group;
-    fs->inode_size = inode_size;
-    fs->first_ino = raw->s_rev_level == 0 ? 11 : raw->s_first_ino;
-    fs->features_incompat = raw->s_feature_incompat;
-    fs->block_mapping = (struct mapping){
-        .m_bdev = sb->s_bdev,
-        .m_ops = &ext2_metadata_ops,
-        .m_host = fs,
-    };
-    sb->s_fs_info = fs;
+    sbi->block_size = block_size;
+    sbi->inode_size = inode_size;
+    sb->s_fs_info = sbi;
 
     root_inode = ext2_iget(sb, EXT2_ROOT_INO);
     if (IS_ERR(root_inode)) {
@@ -104,7 +98,10 @@ int ext2_mount(struct super_block *sb)
     return 0;
 
 fail:
-    mapping_purge(&fs->block_mapping, 0, fs->blocks_count);
+    mapping_purge(&sbi->mapping, 0, UINT64_MAX);
+    mapping_put(sbi->s_sbh);
+    sbi->s_sbh = NULL;
+    sbi->s_es = NULL;
     sb->s_fs_info = NULL;
     return ret;
 }
