@@ -21,8 +21,17 @@ static int ext2_read_metadata_page(struct cache_page *cp)
     return blk_read(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
 }
 
+static int ext2_write_metadata_page(struct cache_page *cp)
+{
+    struct mapping *m = cp->mapping;
+    uint64_t sector = cp->index * PAGE_SIZE / BLK_SECTOR_SIZE;
+
+    return blk_write(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
+}
+
 static const struct mapping_ops ext2_metadata_mapping_ops = {
     .read_page = ext2_read_metadata_page,
+    .write_page = ext2_write_metadata_page,
 };
 
 int ext2_mount(struct super_block *sb)
@@ -38,6 +47,7 @@ int ext2_mount(struct super_block *sb)
     if (!sb->s_bdev)
         return -ENODEV;
 
+    mutex_init(&sbi->mutex);
     sbi->mapping = MAPPING_INIT(sb->s_bdev, ext2_metadata_mapping_ops, sbi);
     sbi->s_sbh = mapping_get(&sbi->mapping, 0);
     if (IS_ERR(sbi->s_sbh)) {

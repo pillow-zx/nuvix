@@ -110,6 +110,7 @@ struct ext2_inode_info {
 };
 
 struct ext2_sb_info {
+    struct mutex mutex;
     struct mapping mapping;
     struct cache_page *s_sbh;
     struct ext2_super_block *s_es;
@@ -139,6 +140,16 @@ static_assert(sizeof(struct ext2_dir_entry) == 8,
               "invalid ext2 directory entry layout");
 
 int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block);
+
+int ext2_bmap_create(struct inode *inode, uint32_t logical, uint32_t *block);
+
+struct cache_page *ext2_get_inode_page(struct inode *inode, uint32_t *offset);
+
+void ext2_write_inode(struct inode *inode, struct cache_page *cp, uint32_t offset);
+
+int ext2_alloc_block(struct super_block *sb, uint32_t *block);
+
+int ext2_free_block(struct super_block *sb, uint32_t block);
 
 struct inode *ext2_iget(struct super_block *sb, uint32_t ino);
 
