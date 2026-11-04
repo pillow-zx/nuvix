@@ -4,11 +4,11 @@
 #include <nuvix/fs.h>
 #include <nuvix/cleanup.h>
 
-#define PATH_MAX   4096
-#define AT_FDCWD   (-100)
+#define PATH_MAX            4096
+#define AT_FDCWD            (-100)
 #define AT_SYMLINK_NOFOLLOW 0x100
 
-#define UIO_MAXIOV 64
+#define UIO_MAXIOV          64
 
 int vfs_mount(void);
 

@@ -1,3 +1,5 @@
+#include "nuvix/kiov.h"
+#include "nuvix/path.h"
 #include <nuvix/vfs.h>
 #include <nuvix/errno.h>
 #include <nuvix/refcount.h>
@@ -274,8 +276,19 @@ fail:
 
 long sys_fchdir(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    unsigned int fd = syscallarg(frame, 0);
+    struct file *file __free(fput) = fd_open(current->fdtable, fd);
+
+    if (!file)
+        return -EBADF;
+
+    if (!S_ISDIR(file->f_inode->i_mode))
+        return -ENOTDIR;
+
+    path_put(&current->cwd);
+    path_get(&file->f_path);
+    current->cwd = file->f_path;
+    return 0;
 }
 
 long sys_getcwd(struct trap_frame *frame)
@@ -421,8 +434,16 @@ long sys_ftruncate(struct trap_frame *frame)
 
 long sys_fsync(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    unsigned int fd = syscallarg(frame, 0);
+    struct file *file __free(fput) = fd_open(current->fdtable, fd);
+
+    if (!file)
+        return -EBADF;
+
+    if (!file->f_ops->fsync)
+        return -EINVAL;
+
+    return file->f_ops->fsync(file);
 }
 
 long sys_lseek(struct trap_frame *frame)
@@ -451,7 +472,8 @@ static bool filldir64(struct dirctx *ctx, const char *name, int namelen,
                       loff_t offset, u64 ino, unsigned type)
 {
     struct getdents_ctx *d = container_of(ctx, struct getdents_ctx, ctx);
-    char buffer[ALIGN_UP(offsetof(struct dirent64, d_name) + VFS_NAME_MAX + 1, 8)];
+    char buffer[ALIGN_UP(offsetof(struct dirent64, d_name) + VFS_NAME_MAX + 1,
+                         8)];
     struct dirent64 *dirent = (struct dirent64 *)buffer;
     size_t reclen;
 
@@ -594,8 +616,27 @@ long sys_read(struct trap_frame *frame)
 
 long sys_pread64(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    unsigned int fd = syscallarg(frame, 0);
+    void *buffer = (void *)syscallarg(frame, 1);
+    size_t len = MIN(syscallarg(frame, 2), (size_t)SSIZE_MAX);
+    loff_t offset = syscallarg(frame, 3);
+
+    struct file *file __free(fput) = fd_open(current->fdtable, fd);
+    struct kiocb iocb = {.file = file, .pos = offset};
+    struct iovec vec = {.iov_base = buffer, .iov_len = len};
+    struct kiov iov;
+
+    if (offset < 0)
+        return -EINVAL;
+    if (!file)
+        return -EBADF;
+    if (!file->f_ops->llseek)
+        return -ESPIPE;
+    if (!FILE_READ(file))
+        return -EBADF;
+
+    kiov_init(&iov, &vec, 1, len, true);
+    return vfs_read(&iocb, &iov);
 }
 
 long sys_write(struct trap_frame *frame)
@@ -615,8 +656,27 @@ long sys_write(struct trap_frame *frame)
 
 long sys_pwrite64(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    unsigned int fd = syscallarg(frame, 0);
+    void *buffer = (void *)syscallarg(frame, 1);
+    size_t len = MIN(syscallarg(frame, 2), (size_t)SSIZE_MAX);
+    loff_t offset = syscallarg(frame, 3);
+
+    struct file *file __free(fput) = fd_open(current->fdtable, fd);
+    struct kiocb iocb = {.file = file, .pos = offset};
+    struct iovec vec = {.iov_base = buffer, .iov_len = len};
+    struct kiov iov;
+
+    if (offset < 0)
+        return -EINVAL;
+    if (!file)
+        return -EBADF;
+    if (!file->f_ops->llseek)
+        return -ESPIPE;
+    if (!FILE_WRITE(file))
+        return -EBADF;
+
+    kiov_init(&iov, &vec, 1, len, true);
+    return vfs_write(&iocb, &iov);
 }
 
 static int import_iovec(const struct iovec *uvec, int nr, struct iovec **vec,
@@ -686,6 +746,29 @@ long sys_writev(struct trap_frame *frame)
 
 long sys_fchmodat(struct trap_frame *frame)
 {
-    (void)frame;
+    int dirfd = (int)syscallarg(frame, 0);
+    const char *upath = (const char *)syscallarg(frame, 1);
+    struct path resolved = {0};
+    char *path __free(kfree) = NULL;
+    long len;
+    int ret;
+
+    path = kmalloc(PATH_MAX);
+    if (!path)
+        return -ENOMEM;
+    len = strncpy_from_user(path, upath, PATH_MAX);
+    if (len < 0)
+        return len;
+    if (len == PATH_MAX)
+        return -ENAMETOOLONG;
+
+    if (path[0] != '/' && dirfd != AT_FDCWD)
+        return -EOPNOTSUPP;
+
+    ret = path_resolve(path, &resolved);
+    if (ret)
+        return ret;
+
+    path_put(&resolved);
     return 0;
 }
