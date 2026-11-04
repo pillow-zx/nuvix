@@ -200,11 +200,13 @@ static const struct file_operations pipe_fops = {
 
 static int pipe_getattr(struct inode *inode, struct kstat *stat)
 {
+    mutex_lock(&inode->mutex);
     stat->ino = inode->i_ino;
     stat->mode = (inode->i_mode & S_IFMT) | 0777;
     stat->nlink = inode->i_nlink;
     stat->size = 0;
     stat->blksize = PIPE_BUF_SIZE;
+    mutex_unlock(&inode->mutex);
     return 0;
 }
 

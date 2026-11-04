@@ -80,7 +80,7 @@ struct inode *icache_insert(struct inode *inode)
     spin_lock(&icache_lock);
     node = icache_find_locked(inode->i_sb, inode->i_ino);
     if (node) {
-        refcount_inc(&node->i_count);
+        ihold(node);
         spin_unlock(&icache_lock);
         iput(inode);
         return node;

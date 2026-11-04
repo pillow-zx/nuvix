@@ -1,5 +1,5 @@
-#include "nuvix/kiov.h"
-#include "nuvix/path.h"
+#include <nuvix/kiov.h>
+#include <nuvix/path.h>
 #include <nuvix/vfs.h>
 #include <nuvix/errno.h>
 #include <nuvix/refcount.h>

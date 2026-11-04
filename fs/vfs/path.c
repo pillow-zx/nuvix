@@ -8,7 +8,7 @@
 
 void path_get(const struct path *path)
 {
-    refcount_inc(&path->dentry->d_count);
+    dget(path->dentry);
 }
 
 void path_put(struct path *path)
@@ -24,7 +24,6 @@ int path_lookup(const struct path *base, const char *name, struct path *result)
     struct dentry *found;
     struct inode *dir;
     size_t len;
-    int ret;
 
     len = strnlen(name, (size_t)VFS_NAME_MAX + 1);
     if (!len)
@@ -58,17 +57,28 @@ int path_lookup(const struct path *base, const char *name, struct path *result)
     if (!dir->i_ops || !dir->i_ops->lookup)
         return -EOPNOTSUPP;
 
+    mutex_lock(&dir->mutex);
+    found = dcache_find(base->dentry, name, len);
+    if (found)
+        goto out;
+
     dentry = d_alloc(base->dentry, name, len);
-    if (IS_ERR(dentry))
-        return PTR_ERR(dentry);
+    if (IS_ERR(dentry)) {
+        found = dentry;
+        goto out;
+    }
 
     found = dir->i_ops->lookup(dir, dentry);
     if (IS_ERR(found)) {
-        ret = PTR_ERR(found);
         dput(dentry);
-        return ret;
+        goto out;
     }
+    found = dcache_insert(found);
 
+out:
+    mutex_unlock(&dir->mutex);
+    if (IS_ERR(found))
+        return PTR_ERR(found);
     result->dentry = found;
     return 0;
 }

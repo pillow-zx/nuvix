@@ -120,7 +120,6 @@ struct inode_operations {
     const char *(*readlink)(struct inode *, void (*fn)(void *), void *arg);
     struct dentry *(*mkdir)(struct inode *, struct dentry *);
     int (*rmdir)(struct inode *, struct dentry *);
-    /* Frees the complete allocation containing this inode. */
     void (*destroy)(struct inode *);
 };
 
@@ -154,6 +153,7 @@ struct dentry {
     struct inode *d_inode;
     char *d_name;
     unsigned int d_nlen;
+    struct hlist_node d_hash;
 };
 
 struct file *fget(struct file *file);
@@ -177,5 +177,12 @@ struct dentry *d_alloc(struct dentry *parent, const char *name, size_t len);
 void dget(struct dentry *dentry);
 
 void dput(struct dentry *dentry);
+
+struct dentry *dcache_find(struct dentry *parent, const char *name,
+                           unsigned int len);
+
+struct dentry *dcache_insert(struct dentry *dentry);
+
+void dcache_drop(struct dentry *dentry);
 
 #endif /* ifndef _NUVIX_FS_H */

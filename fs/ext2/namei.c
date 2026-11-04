@@ -2,13 +2,13 @@
 
 #include "ext2.h"
 
-static struct dentry *ext2_lookup_locked(struct inode *dir,
-                                         struct dentry *dentry)
+struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
 {
     struct inode *inode;
     uint32_t ino;
     int ret;
 
+    assert_mutex_locked(&dir->mutex);
     if (!S_ISDIR(dir->i_mode))
         return ERR_PTR(-ENOTDIR);
     if (dentry->d_nlen > VFS_NAME_MAX)
@@ -26,14 +26,4 @@ static struct dentry *ext2_lookup_locked(struct inode *dir,
 
     dentry->d_inode = inode;
     return dentry;
-}
-
-struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
-{
-    struct dentry *found;
-
-    mutex_lock(&dir->mutex);
-    found = ext2_lookup_locked(dir, dentry);
-    mutex_unlock(&dir->mutex);
-    return found;
 }
