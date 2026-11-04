@@ -27,9 +27,11 @@ void iput(struct inode *inode)
 {
     if (!inode)
         return;
-    if (!refcount_dec_and_test(&inode->i_count))
-        return;
     spin_lock(&icache_lock);
+    if (!refcount_dec_and_test(&inode->i_count)) {
+        spin_unlock(&icache_lock);
+        return;
+    }
     hash_del(&inode->i_hash);
     spin_unlock(&icache_lock);
     if (inode->i_ops && inode->i_ops->destroy)
