@@ -147,6 +147,42 @@ long sys_openat(struct trap_frame *frame)
     return fd;
 }
 
+long sys_mkdirat(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
+long sys_unlinkat(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
+long sys_symlinkat(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
+long sys_linkat(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
+long sys_renameat2(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
+long sys_readlinkat(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
 long sys_close(struct trap_frame *frame)
 {
     unsigned int fd = syscallarg(frame, 0);
@@ -234,6 +270,12 @@ long sys_chdir(struct trap_frame *frame)
 fail:
     path_put(&resolved);
     return ret;
+}
+
+long sys_fchdir(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
 }
 
 long sys_getcwd(struct trap_frame *frame)
@@ -371,6 +413,18 @@ long sys_fstat(struct trap_frame *frame)
     return fill_stat(inode, ustat);
 }
 
+long sys_ftruncate(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
+long sys_fsync(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
 long sys_lseek(struct trap_frame *frame)
 {
     struct file *file __free(fput) =
@@ -481,6 +535,12 @@ long sys_ioctl(struct trap_frame *frame)
     return file->f_ops->ioctl(file, cmd, arg);
 }
 
+long sys_ppoll(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
 static ssize_t file_read(struct file *file, struct kiov *iov)
 {
     struct kiocb iocb = {.file = file};
@@ -532,6 +592,12 @@ long sys_read(struct trap_frame *frame)
     return file_read(file, &iov);
 }
 
+long sys_pread64(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
 long sys_write(struct trap_frame *frame)
 {
     unsigned int fd = syscallarg(frame, 0);
@@ -545,6 +611,12 @@ long sys_write(struct trap_frame *frame)
         return -EBADF;
     kiov_init(&iov, &vec, 1, len, true);
     return file_write(file, &iov);
+}
+
+long sys_pwrite64(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
 }
 
 static int import_iovec(const struct iovec *uvec, int nr, struct iovec **vec,

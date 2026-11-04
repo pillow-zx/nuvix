@@ -334,3 +334,9 @@ long sys_wait4(struct trap_frame *frame)
         return -EFAULT;
     return ret;
 }
+
+long sys_waitid(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}

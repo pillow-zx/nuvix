@@ -119,6 +119,12 @@ out:
     return ret;
 }
 
+long sys_mremap(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
 long sys_munmap(struct trap_frame *frame)
 {
     vaddr_t start = syscallarg(frame, 0);

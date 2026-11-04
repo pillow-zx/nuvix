@@ -454,6 +454,12 @@ long sys_rt_sigpending(struct trap_frame *frame)
     return 0;
 }
 
+long sys_sigaltstack(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}
+
 void signal_clone(void)
 {
     struct task *task = current;

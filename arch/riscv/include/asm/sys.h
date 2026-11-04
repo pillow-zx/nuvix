@@ -3,4 +3,7 @@
 
 #define UTS_MACHINE "riscv64"
 
+int arch_reboot(void);
+int arch_poweroff(void);
+
 #endif

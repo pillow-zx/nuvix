@@ -20,6 +20,18 @@
 #define SBI_EXT_RFENCE_REMOTE_FENCE_I    0
 #define SBI_EXT_RFENCE_REMOTE_SFENCE_VMA 1
 
+#define SBI_EXT_SRST                     0x53525354
+#define SBI_EXT_SRST_RESET               0
+
+#define SBI_SRST_RESET_TYPE_SHUTDOWN      0
+#define SBI_SRST_RESET_TYPE_COLD_REBOOT   1
+#define SBI_SRST_RESET_TYPE_WARM_REBOOT   2
+#define SBI_SRST_RESET_REASON_NONE        0
+#define SBI_SRST_RESET_REASON_SYS_FAILURE 1
+
+#define SBI_ERR_NOT_SUPPORTED            -2
+#define SBI_ERR_INVALID_PARAM            -3
+
 struct sbiret {
     long error;
     long value;
@@ -86,6 +98,12 @@ static inline struct sbiret sbi_remote_fence_i(unsigned long hart_mask,
 {
     return sbi_call(SBI_EXT_RFENCE, SBI_EXT_RFENCE_REMOTE_FENCE_I, hart_mask,
                     hart_mask_base);
+}
+
+static inline struct sbiret sbi_system_reset(unsigned int type,
+                                             unsigned int reason)
+{
+    return sbi_call(SBI_EXT_SRST, SBI_EXT_SRST_RESET, type, reason);
 }
 
 static inline int sbi_putchar(int c)

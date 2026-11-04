@@ -13,8 +13,11 @@
     X(rt_sigpending) X(rt_sigreturn) X(clone) X(wait4) X(execve) X(nanosleep)  \
     X(clock_gettime) X(clock_nanosleep) X(uname) X(getresuid) X(getresgid)     \
     X(setuid) X(setgid) X(setreuid) X(setregid) X(setresuid) X(setresgid)      \
-    X(getgroups) X(setgroups) X(getppid) X(chdir) X(getcwd) X(newfstatat)     \
-    X(fstat) X(getdents64) X(ioctl) X(lseek) X(set_tid_address)
+    X(getgroups) X(setgroups) X(getppid) X(chdir) X(getcwd) X(newfstatat)      \
+    X(fstat) X(getdents64) X(ioctl) X(lseek) X(set_tid_address)                \
+    X(mkdirat) X(unlinkat) X(symlinkat) X(linkat) X(renameat2)                 \
+    X(ftruncate) X(fchdir) X(pread64) X(pwrite64) X(ppoll) X(readlinkat)       \
+    X(fsync) X(waitid) X(sigaltstack) X(reboot) X(mremap) X(getrandom)
 // clang-format on
 
 #ifndef __ASSEMBLER__

@@ -134,3 +134,31 @@ long sys_setgroups(struct trap_frame *frame)
     (void)frame;
     return 0;
 }
+
+long sys_reboot(struct trap_frame *frame)
+{
+    unsigned int magic1 = syscallarg(frame, 0);
+    unsigned int magic2 = syscallarg(frame, 1);
+    unsigned int cmd = syscallarg(frame, 2);
+
+    if (magic1 != LINUX_REBOOT_MAGIC1 ||
+        (magic2 != LINUX_REBOOT_MAGIC2 && magic2 != LINUX_REBOOT_MAGIC2A &&
+         magic2 != LINUX_REBOOT_MAGIC2B && magic2 != LINUX_REBOOT_MAGIC2C))
+        return -EINVAL;
+
+    switch (cmd) {
+    case LINUX_REBOOT_CMD_RESTART:
+        return arch_reboot();
+    case LINUX_REBOOT_CMD_HALT:
+    case LINUX_REBOOT_CMD_POWER_OFF:
+        return arch_poweroff();
+    default:
+        return -EINVAL;
+    }
+}
+
+long sys_getrandom(struct trap_frame *frame)
+{
+    (void)frame;
+    return -ENOTSUPP;
+}

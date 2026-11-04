@@ -20,5 +20,6 @@ obj-y += arch/riscv/irq.c
 obj-y += arch/riscv/pgtable.c
 obj-y += arch/riscv/cpu.c
 obj-y += arch/riscv/signal.c
+obj-y += arch/riscv/sys.c
 
 obj-$(CONFIG_PLATFORM_QEMU_VIRT) += arch/riscv/plic.c
