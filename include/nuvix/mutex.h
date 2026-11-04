@@ -21,6 +21,15 @@ void mutex_lock(struct mutex *mutex);
 int mutex_lock_interruptible(struct mutex *mutex);
 /* Thread context only; false when already owned, including by current. */
 bool mutex_trylock(struct mutex *mutex);
+
+static inline void assert_mutex_locked(const struct mutex *mutex)
+{
+    IFDEF(CONFIG_DEBUG_LOCK,
+          Assert(mutex->owner == current, "mutex %p not held by current\n",
+                 (void *)mutex));
+    (void)mutex;
+}
+
 /* Owner-only, outside hard IRQ; keep the mutex alive until this returns. */
 void mutex_unlock(struct mutex *mutex);
 

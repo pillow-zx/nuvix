@@ -6,6 +6,7 @@
 #include <nuvix/ctypes.h>
 #include <nuvix/hlist.h>
 #include <nuvix/list.h>
+#include <nuvix/mutex.h>
 #include <nuvix/refcount.h>
 
 #define MAPPING_CACHE_PAGES 256
@@ -16,6 +17,8 @@ struct mapping;
 struct page;
 
 struct mapping_ops {
+    void (*get)(struct mapping *m);
+    void (*put)(struct mapping *m);
     int (*read_page)(struct cache_page *cp);
     int (*write_page)(struct cache_page *cp);
 };
@@ -24,6 +27,8 @@ struct mapping {
     struct blkdev *m_bdev;
     const struct mapping_ops *m_ops;
     void *m_host;
+    struct mutex *mutex;
+    int m_error;
 };
 
 #define CACHE_PAGE_DIRTY     BIT(0)
@@ -36,6 +41,8 @@ struct cache_page {
     struct mapping *mapping;
     uint64_t index;
     refcount_t refs;
+    struct mutex mutex;
+    int error;
     unsigned int state;
 };
 

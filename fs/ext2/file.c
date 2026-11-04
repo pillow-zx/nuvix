@@ -1,7 +1,9 @@
+#include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/math.h>
 #include <nuvix/page.h>
+#include <nuvix/string.h>
 
 #include "ext2.h"
 
@@ -15,35 +17,54 @@ static ssize_t ext2_file_read(struct kiocb *iocb, struct kiov *iov)
 {
     struct inode *inode = iocb->file->f_path.dentry->d_inode;
     struct ext2_inode_info *info = ext2_i(inode);
+    struct page *page __free(page) = NULL;
     loff_t pos = iocb->pos;
     size_t count;
     size_t done = 0;
+    char *buffer;
     int ret = 0;
 
     if (pos < 0)
         return -EINVAL;
+    mutex_lock(&inode->mutex);
     if (pos >= inode->i_size)
-        return 0;
-
-    count = MIN(iov->count, (size_t)(inode->i_size - pos));
+        count = 0;
+    else
+        count = MIN(iov->count, (size_t)inode->i_size - pos);
+    mutex_unlock(&inode->mutex);
     if (!count)
         return 0;
 
+    page = alloc_page();
+    if (!page)
+        return -ENOMEM;
+    buffer = (char *)__va(page_to_phys(page));
     while (done < count) {
-        struct cache_page *cp __free(cache_page) = NULL;
+        struct cache_page *cp;
         uint64_t index = (uint64_t)pos / PAGE_SIZE;
         size_t offset = (size_t)(pos % PAGE_SIZE);
         size_t chunk = MIN((size_t)PAGE_SIZE - offset, count - done);
         size_t copied;
 
-        cp = mapping_get(&info->mapping, index);
-        if (IS_ERR(cp)) {
-            ret = PTR_ERR(move(cp));
+        mutex_lock(&inode->mutex);
+        if (pos >= inode->i_size) {
+            mutex_unlock(&inode->mutex);
             break;
         }
-        copied =
-            copy_to_kiov((const char *)mapping_data(cp) + offset, chunk, iov);
+        chunk = MIN(chunk, (size_t)(inode->i_size - pos));
+        cp = mapping_get(&info->mapping, index);
+        if (IS_ERR(cp)) {
+            ret = PTR_ERR(cp);
+            mutex_unlock(&inode->mutex);
+            break;
+        }
+        mutex_lock(&cp->mutex);
+        memcpy(buffer, (const char *)mapping_data(cp) + offset, chunk);
+        mutex_unlock(&cp->mutex);
+        mapping_put(cp);
+        mutex_unlock(&inode->mutex);
 
+        copied = copy_to_kiov(buffer, chunk, iov);
         done += copied;
         pos += copied;
         iocb->pos = pos;
@@ -82,6 +103,7 @@ loff_t ext2_llseek(struct file *file, loff_t offset, int whence)
     int ret = 0;
 
     mutex_lock(&file->f_pos_lock);
+    mutex_lock(&inode->mutex);
     switch (whence) {
     case SEEK_SET:
         pos = offset;
@@ -102,6 +124,7 @@ loff_t ext2_llseek(struct file *file, loff_t offset, int whence)
         ret = -EINVAL;
     if (!ret)
         file->f_pos = pos;
+    mutex_unlock(&inode->mutex);
     mutex_unlock(&file->f_pos_lock);
 
     return ret ? ret : pos;

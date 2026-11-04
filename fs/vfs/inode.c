@@ -15,6 +15,7 @@ struct inode *i_alloc(void)
     if (!inode)
         return NULL;
     refcount_set(&inode->i_count, 1);
+    mutex_init(&inode->mutex);
     return inode;
 }
 

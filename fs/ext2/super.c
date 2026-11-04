@@ -45,9 +45,11 @@ int ext2_mount(struct super_block *sb)
         sbi->s_sbh = NULL;
         return ret;
     }
+    mutex_lock(&sbi->s_sbh->mutex);
     es = (struct ext2_super_block *)((char *)mapping_data(sbi->s_sbh) +
                                      EXT2_SUPER_OFFSET);
     sbi->s_es = es;
+    mutex_unlock(&sbi->s_sbh->mutex);
     if (es->s_magic != EXT2_SUPER_MAGIC) {
         ret = -EINVAL;
         goto fail;

@@ -132,6 +132,7 @@ struct super_block {
 
 struct inode {
     refcount_t i_count;
+    struct mutex mutex;
     struct super_block *i_sb;
     uint64_t i_ino;
     loff_t i_size;

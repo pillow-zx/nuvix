@@ -8,7 +8,6 @@
 #include <nuvix/macro.h>
 
 #include "ext2.h"
-#include "nuvix/mapping.h"
 
 static int ext2_read_ptr(struct super_block *sb, uint32_t block, uint32_t index,
                          uint32_t *value)
@@ -26,8 +25,10 @@ static int ext2_read_ptr(struct super_block *sb, uint32_t block, uint32_t index,
     if (IS_ERR(cp))
         return PTR_ERR(move(cp));
 
+    mutex_lock(&cp->mutex);
     ptr = mapping_data(cp);
     *value = ptr[index];
+    mutex_unlock(&cp->mutex);
     return 0;
 }
 
@@ -53,10 +54,12 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
     cp = mapping_get(&sbi->mapping, desc_block);
     if (IS_ERR(cp))
         return PTR_ERR(move(cp));
+    mutex_lock(&cp->mutex);
     memcpy(&desc,
            (const char *)mapping_data(cp) +
                (group % desc_per_block) * sizeof(struct ext2_group_desc),
            sizeof(desc));
+    mutex_unlock(&cp->mutex);
     mapping_put(move(cp));
 
     inode_offset = index * sbi->inode_size;
@@ -69,7 +72,9 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
     if (IS_ERR(cp))
         return PTR_ERR(move(cp));
 
+    mutex_lock(&cp->mutex);
     memcpy(raw, (const char *)mapping_data(cp) + offset_in_block, sizeof(*raw));
+    mutex_unlock(&cp->mutex);
     if (!raw->i_mode)
         return -ENOENT;
     return 0;
@@ -85,6 +90,7 @@ int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block)
     uint32_t second;
     int ret;
 
+    assert_mutex_locked(&inode->mutex);
     if (l < EXT2_NDIR_BLOCKS) {
         *block = info->data[l];
         return 0;
@@ -150,7 +156,19 @@ static int ext2_read_file_page(struct cache_page *cp)
     return 0;
 }
 
+static void ext2_mapping_get(struct mapping *m)
+{
+    ihold(m->m_host);
+}
+
+static void ext2_mapping_put(struct mapping *m)
+{
+    iput(m->m_host);
+}
+
 static const struct mapping_ops ext2_file_mapping_ops = {
+    .get = ext2_mapping_get,
+    .put = ext2_mapping_put,
     .read_page = ext2_read_file_page,
 };
 
@@ -158,12 +176,15 @@ static void ext2_destroy(struct inode *inode)
 {
     struct ext2_inode_info *info = ext2_i(inode);
 
+    mutex_lock(&inode->mutex);
     mapping_purge(&info->mapping, 0, UINT64_MAX);
+    mutex_unlock(&inode->mutex);
     kfree(info);
 }
 
 static int ext2_getattr(struct inode *inode, struct kstat *stat)
 {
+    mutex_lock(&inode->mutex);
     stat->dev = 0;
     stat->ino = inode->i_ino;
     stat->rdev = 0;
@@ -177,6 +198,7 @@ static int ext2_getattr(struct inode *inode, struct kstat *stat)
     stat->atime = inode->i_atime;
     stat->mtime = inode->i_mtime;
     stat->ctime = inode->i_ctime;
+    mutex_unlock(&inode->mutex);
     return 0;
 }
 
@@ -211,6 +233,7 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
 
     inode = &info->vfs_inode;
     refcount_set(&inode->i_count, 1);
+    mutex_init(&inode->mutex);
     inode->i_sb = sb;
     inode->i_ino = ino;
     inode->i_size = raw.i_size;
@@ -226,6 +249,7 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
     else if (S_ISREG(inode->i_mode))
         inode->i_fops = &ext2_file_ops;
     info->mapping = MAPPING_INIT(sb->s_bdev, ext2_file_mapping_ops, inode);
+    info->mapping.mutex = &inode->mutex;
     keep(info);
 
     return icache_insert(inode);
