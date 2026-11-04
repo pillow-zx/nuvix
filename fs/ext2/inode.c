@@ -1,7 +1,11 @@
 #include <nuvix/blkdev.h>
+#include <nuvix/ctypes.h>
+#include <nuvix/cleanup.h>
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/math.h>
+#include <nuvix/mutex.h>
+#include <nuvix/mapping.h>
 #include <nuvix/page.h>
 #include <nuvix/slab.h>
 #include <nuvix/string.h>
@@ -195,14 +199,12 @@ static void ext2_put_branch(struct cache_page **pages, unsigned int nr)
 static int ext2_free_branch(struct super_block *sb, const uint32_t *blks,
                             unsigned int nr)
 {
-    struct ext2_sb_info *sbi = ext2_sb_info(sb);
     int ret = 0;
 
     while (nr) {
         uint32_t phys = blks[--nr];
         int err;
 
-        mapping_purge(&sbi->mapping, phys, (uint64_t)phys + 1);
         err = ext2_free_block(sb, phys);
         if (err && !ret)
             ret = err;
@@ -396,9 +398,170 @@ static int ext2_getattr(struct inode *inode, struct kstat *stat)
     return 0;
 }
 
+static int ext2_zero_tail(struct inode *inode, loff_t pos)
+{
+    struct cache_page *cp __free(cache_page) = NULL;
+    uint64_t index = (uint64_t)pos / PAGE_SIZE;
+    size_t off = (uint64_t)pos % PAGE_SIZE;
+    uint32_t blk;
+    int ret;
+
+    assert_mutex_locked(&inode->mutex);
+
+    if (!off)
+        return 0;
+
+    ret = ext2_bmap(inode, index, &blk);
+    if (ret)
+        return ret;
+    if (!blk)
+        return 0;
+
+    cp = mapping_get(&ext2_i(inode)->mapping, index);
+    if (IS_ERR(cp))
+        return PTR_ERR(move(cp));
+
+    mutex_lock(&cp->mutex);
+    memset((char *)mapping_data(cp) + off, 0, PAGE_SIZE - off);
+    mapping_dirty(cp);
+    mutex_unlock(&cp->mutex);
+
+    return 0;
+}
+
+/* span is the number of logical data blocks covered by this branch. */
+static int ext2_trim_branch(struct inode *inode, uint32_t *block,
+                            unsigned int depth, uint64_t first, uint64_t span,
+                            uint64_t keep)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
+    struct cache_page *cp __free(cache_page) = NULL;
+    uint32_t ptrs = sbi->block_size / sizeof(uint32_t);
+    int ret;
+
+    assert_mutex_locked(&inode->mutex);
+    if (!*block || first + span <= keep)
+        return 0;
+
+    if (depth) {
+        uint32_t *data;
+        bool empty = true;
+
+        cp = mapping_get(&sbi->mapping, *block);
+        if (IS_ERR(cp))
+            return PTR_ERR(move(cp));
+        mutex_lock(&cp->mutex);
+        data = mapping_data(cp);
+        for (uint32_t i = 0; i < ptrs; i++) {
+            uint32_t old = data[i];
+
+            ret =
+                ext2_trim_branch(inode, &data[i], depth - 1,
+                                 first + i * (span / ptrs), span / ptrs, keep);
+            if (data[i] != old)
+                mapping_dirty(cp);
+            if (ret) {
+                mutex_unlock(&cp->mutex);
+                return ret;
+            }
+            if (data[i])
+                empty = false;
+        }
+        mutex_unlock(&cp->mutex);
+        if (!empty)
+            return 0;
+    }
+
+    ret = ext2_free_block(inode->i_sb, *block);
+    if (ret)
+        return ret;
+    *block = 0;
+    inode->i_blocks -= sbi->block_size / BLK_SECTOR_SIZE;
+    return 0;
+}
+
+static int ext2_truncate_blocks(struct inode *inode, uint64_t keep)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
+    uint32_t *data = ext2_i(inode)->data;
+    uint64_t first = EXT2_NDIR_BLOCKS;
+    uint64_t span = 1;
+    uint32_t ptrs = sbi->block_size / sizeof(uint32_t);
+    int ret;
+
+    assert_mutex_locked(&inode->mutex);
+    for (unsigned int i = 0; i < EXT2_NDIR_BLOCKS; i++) {
+        ret = ext2_trim_branch(inode, &data[i], 0, i, 1, keep);
+        if (ret)
+            return ret;
+    }
+    for (unsigned int i = EXT2_IND_BLOCK; i < EXT2_N_BLOCKS; i++) {
+        span *= ptrs;
+        ret = ext2_trim_branch(inode, &data[i], i - EXT2_IND_BLOCK + 1, first,
+                               span, keep);
+        if (ret)
+            return ret;
+        first += span;
+    }
+    return 0;
+}
+
+static int ext2_setsize(struct inode *inode, loff_t nsize)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
+    struct cache_page *cp __free(cache_page) = NULL;
+    loff_t oldsize = inode->i_size;
+    loff_t tail = MIN(oldsize, nsize);
+    uint32_t off;
+    int ret;
+
+    assert_mutex_locked(&inode->mutex);
+    Assert(S_ISREG(inode->i_mode) && nsize >= 0,
+           "resize requires a regular file and a nonnegative size\n");
+    if ((uint64_t)nsize > UINT32_MAX)
+        return -EFBIG;
+
+    cp = ext2_get_inode_page(inode, &off);
+    if (IS_ERR(cp))
+        return PTR_ERR(move(cp));
+
+    ret = ext2_zero_tail(inode, tail);
+    if (ret)
+        return ret;
+
+    if (nsize < oldsize) {
+        uint64_t first = DIV_ROUND_UP((uint64_t)nsize, PAGE_SIZE);
+
+        mapping_purge(&ext2_i(inode)->mapping, first, UINT64_MAX);
+        ret = ext2_truncate_blocks(
+            inode, DIV_ROUND_UP((uint64_t)nsize, sbi->block_size));
+        if (ret) {
+            ext2_write_inode(inode, cp, off);
+            return ret;
+        }
+    }
+
+    inode->i_size = nsize;
+    ext2_write_inode(inode, cp, off);
+    return 0;
+}
+
+static int ext2_setattr(struct inode *inode, const struct iattr *attr)
+{
+    int ret = 0;
+
+    mutex_lock(&inode->mutex);
+    if (attr->ia_valid & ATTR_SIZE)
+        ret = ext2_setsize(inode, attr->ia_size);
+    mutex_unlock(&inode->mutex);
+
+    return ret;
+}
+
 static const struct inode_operations ext2_inode_ops = {
     .lookup = ext2_lookup,
     .getattr = ext2_getattr,
+    .setattr = ext2_setattr,
     .destroy = ext2_destroy,
 };
 

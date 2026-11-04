@@ -61,6 +61,13 @@ struct kiocb {
 #define DT_SOCK    12
 #define DT_WHT     14
 
+#define ATTR_SIZE  (1U << 3)
+
+struct iattr {
+    unsigned int ia_valid;
+    loff_t ia_size;
+};
+
 typedef bool (*filldir_t)(struct dirctx *, const char *, int, loff_t, u64,
                           unsigned);
 
@@ -112,6 +119,7 @@ struct file {
 
 struct inode_operations {
     struct dentry *(*lookup)(struct inode *, struct dentry *);
+    int (*setattr)(struct inode *, const struct iattr *);
     int (*getattr)(struct inode *, struct kstat *);
     int (*create)(struct inode *, struct dentry *);
     int (*link)(struct dentry *, struct inode *, struct dentry *);

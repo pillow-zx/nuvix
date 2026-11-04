@@ -428,8 +428,25 @@ long sys_fstat(struct trap_frame *frame)
 
 long sys_ftruncate(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    unsigned int fd = syscallarg(frame, 0);
+    loff_t len = syscallarg(frame, 1);
+    struct iattr attr = {.ia_valid = ATTR_SIZE, .ia_size = len};
+    struct file *file __free(fput) = fd_open(current->fdtable, fd);
+    struct inode *inode;
+
+    if (len < 0)
+        return -EINVAL;
+    if (!file)
+        return -EBADF;
+    inode = file->f_inode;
+
+    if (!S_ISREG(inode->i_mode) || !FILE_WRITE(file))
+        return -EINVAL;
+
+    if (!inode->i_ops->setattr)
+        return -ENOTSUPP;
+
+    return inode->i_ops->setattr(inode, &attr);
 }
 
 long sys_fsync(struct trap_frame *frame)

@@ -147,6 +147,7 @@ int ext2_free_block(struct super_block *sb, uint32_t blk)
         ret = PTR_ERR(move(bp));
         goto out;
     }
+    mapping_purge(&sbi->mapping, blk, (uint64_t)blk + 1);
     mutex_lock(&bp->mutex);
     Assert(test_bit(bit, mapping_data(bp)), "freeing an unused block\n");
     clear_bit(bit, mapping_data(bp));
