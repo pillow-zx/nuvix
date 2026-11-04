@@ -5,98 +5,83 @@
 
 #include "ext2.h"
 
-static struct dentry *ext2_lookup_locked(struct inode *dir,
-                                         struct dentry *dentry)
+static const struct ext2_dir_entry *ext2_get_dirent(struct ext2_sb_info *sbi,
+                                                    const char *buf,
+                                                    uint32_t off, uint32_t end)
 {
-    struct super_block *sb = dir->i_sb;
-    struct ext2_sb_info *sbi = ext2_sb_info(sb);
-    struct inode *inode;
-    uint64_t offset;
-    uint32_t block_size = sbi->block_size;
-    uint32_t ino;
-    int ret;
+    const struct ext2_dir_entry *de;
 
-    if (!S_ISDIR(dir->i_mode))
-        return ERR_PTR(-ENOTDIR);
-    if (dentry->d_nlen > VFS_NAME_MAX)
-        return ERR_PTR(-ENAMETOOLONG);
-
-    for (offset = 0; (uint64_t)dir->i_size > offset; offset += block_size) {
-        struct cache_page *cp __free(cache_page) = NULL;
-        const char *buffer;
-        uint64_t remain = (uint64_t)dir->i_size - offset;
-        uint32_t limit = remain > block_size ? block_size : (uint32_t)remain;
-        uint32_t logical = (uint32_t)(offset / block_size);
-        uint32_t pos = 0;
-        uint32_t phys;
-
-        ret = ext2_bmap(dir, logical, &phys);
-        if (ret)
-            return ERR_PTR(ret);
-        if (!phys)
-            continue;
-
-        cp = mapping_get(&sbi->mapping, phys);
-        if (IS_ERR(cp))
-            return ERR_PTR(PTR_ERR(move(cp)));
-        mutex_lock(&cp->mutex);
-        buffer = mapping_data(cp);
-        ret = 0;
-        while (pos < limit) {
-            const struct ext2_dir_entry *de;
-            uint16_t rec_len;
-
-            if (limit - pos < sizeof(*de)) {
-                ret = -EUCLEAN;
-                break;
-            }
-            de = (const struct ext2_dir_entry *)(buffer + pos);
-            rec_len = de->rec_len;
-            if (rec_len < sizeof(*de) || (rec_len & 3) ||
-                rec_len > limit - pos || de->name_len > rec_len - sizeof(*de)) {
-                ret = -EUCLEAN;
-                break;
-            }
-            if (de->inode) {
-                if (de->inode > sbi->s_es->s_inodes_count) {
-                    ret = -EUCLEAN;
-                    break;
-                }
-                if (de->name_len == dentry->d_nlen &&
-                    !memcmp(de->name, dentry->d_name, dentry->d_nlen)) {
-                    ino = de->inode;
-                    ret = 1;
-                    break;
-                }
-            }
-            pos += rec_len;
-        }
-        mutex_unlock(&cp->mutex);
-        if (ret < 0)
-            return ERR_PTR(ret);
-        if (ret)
-            goto found;
-    }
-
-    return dentry;
-
-found:
-    inode = ext2_iget(sb, ino);
-    if (IS_ERR(inode))
-        return ERR_PTR(PTR_ERR(inode));
-
-    dentry->d_inode = inode;
-    return dentry;
+    if (end - off < sizeof(*de))
+        return ERR_PTR(-EUCLEAN);
+    de = (const struct ext2_dir_entry *)(buf + off);
+    if (de->rec_len < sizeof(*de) || (de->rec_len & 3) ||
+        de->rec_len > end - off || de->name_len > de->rec_len - sizeof(*de))
+        return ERR_PTR(-EUCLEAN);
+    if (de->inode > sbi->s_es->s_inodes_count)
+        return ERR_PTR(-EUCLEAN);
+    return de;
 }
 
-struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
+/* Returns NULL for a hole and an unlocked page reference otherwise. */
+static struct cache_page *ext2_get_dir_page(struct inode *dir, uint32_t lbn)
 {
-    struct dentry *found;
+    uint32_t blk;
+    int ret;
 
-    mutex_lock(&dir->mutex);
-    found = ext2_lookup_locked(dir, dentry);
-    mutex_unlock(&dir->mutex);
-    return found;
+    ret = ext2_bmap(dir, lbn, &blk);
+    if (ret)
+        return ERR_PTR(ret);
+    if (!blk)
+        return NULL;
+    return mapping_get(&ext2_sb_info(dir->i_sb)->mapping, blk);
+}
+
+static int ext2_find_entry(struct ext2_sb_info *sbi, const char *buf,
+                           uint32_t end, const char *name, uint32_t len,
+                           uint32_t *ino)
+{
+    uint32_t off = 0;
+
+    while (off < end) {
+        const struct ext2_dir_entry *de;
+
+        de = ext2_get_dirent(sbi, buf, off, end);
+        if (IS_ERR(de))
+            return PTR_ERR(de);
+        if (de->inode && de->name_len == len && !memcmp(de->name, name, len)) {
+            *ino = de->inode;
+            return 0;
+        }
+        off += de->rec_len;
+    }
+    return -ENOENT;
+}
+
+int ext2_inode_by_name(struct inode *dir, const char *name, uint32_t len,
+                       uint32_t *ino)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(dir->i_sb);
+    uint64_t off;
+
+    assert_mutex_locked(&dir->mutex);
+    for (off = 0; off < (uint64_t)dir->i_size; off += sbi->block_size) {
+        struct cache_page *cp __free(cache_page) = NULL;
+        uint64_t left = (uint64_t)dir->i_size - off;
+        uint32_t end = left > sbi->block_size ? sbi->block_size : left;
+        int ret;
+
+        cp = ext2_get_dir_page(dir, off / sbi->block_size);
+        if (IS_ERR(cp))
+            return PTR_ERR(move(cp));
+        if (!cp)
+            continue;
+        mutex_lock(&cp->mutex);
+        ret = ext2_find_entry(sbi, mapping_data(cp), end, name, len, ino);
+        mutex_unlock(&cp->mutex);
+        if (ret != -ENOENT)
+            return ret;
+    }
+    return -ENOENT;
 }
 
 static ssize_t ext2_dir_read(struct kiocb *iocb, struct kiov *iov)
@@ -113,100 +98,95 @@ static const unsigned char ext2_dtype[EXT2_FT_MAX] = {
     [EXT2_FT_SOCK] = DT_SOCK,       [EXT2_FT_SYMLINK] = DT_LNK,
 };
 
+/* The caller holds the directory mutex; 0 means a hole, 1 means data. */
+static int ext2_read_dir_block(struct inode *inode, uint32_t lbn, char *buf,
+                               uint32_t end)
+{
+    struct cache_page *cp __free(cache_page) = NULL;
+
+    cp = ext2_get_dir_page(inode, lbn);
+    if (IS_ERR(cp))
+        return PTR_ERR(move(cp));
+    if (!cp)
+        return 0;
+    mutex_lock(&cp->mutex);
+    memcpy(buf, mapping_data(cp), end);
+    mutex_unlock(&cp->mutex);
+    return 1;
+}
+
+/* Returns 1 after consuming the block, 0 when dir_emit stops. */
+static int ext2_readdir_block(struct ext2_sb_info *sbi, const char *buf,
+                              uint32_t end, struct dirctx *ctx)
+{
+    uint32_t off = ctx->pos % sbi->block_size;
+
+    while (off < end) {
+        const struct ext2_dir_entry *de;
+        loff_t next;
+
+        de = ext2_get_dirent(sbi, buf, off, end);
+        if (IS_ERR(de))
+            return PTR_ERR(de);
+        next = ctx->pos + de->rec_len;
+        if (de->inode) {
+            unsigned char type = DT_UNKNOWN;
+
+            if ((sbi->s_es->s_feature_incompat &
+                 EXT2_FEATURE_INCOMPAT_FILETYPE) &&
+                de->file_type < EXT2_FT_MAX)
+                type = ext2_dtype[de->file_type];
+            if (!dir_emit(ctx, de->name, de->name_len, next, de->inode, type))
+                return 0;
+        }
+        ctx->pos = next;
+        off += de->rec_len;
+    }
+    return 1;
+}
+
 static int ext2_dir_readdir(struct file *file, struct dirctx *ctx)
 {
     struct inode *inode = file->f_path.dentry->d_inode;
-    struct super_block *sb = inode->i_sb;
-    struct ext2_sb_info *sbi = ext2_sb_info(sb);
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
     struct page *page __free(page) = NULL;
-    char *buffer;
-    int ret;
+    char *buf;
 
     if (!S_ISDIR(inode->i_mode))
         return -ENOTDIR;
     page = alloc_page();
     if (!page)
         return -ENOMEM;
-    buffer = (char *)__va(page_to_phys(page));
+    buf = (char *)__va(page_to_phys(page));
 
     for (;;) {
-        struct cache_page *cp;
-        uint32_t logical;
-        uint32_t offset;
-        uint64_t remain;
-        uint32_t limit;
-        uint32_t phys;
+        uint32_t lbn;
+        uint32_t off;
+        uint64_t left;
+        uint32_t end;
+        int ret;
 
         mutex_lock(&inode->mutex);
         if (ctx->pos >= inode->i_size) {
             mutex_unlock(&inode->mutex);
-            break;
+            return 0;
         }
-        logical = (uint32_t)(ctx->pos / sbi->block_size);
-        offset = (uint32_t)(ctx->pos % sbi->block_size);
-        remain = (uint64_t)(inode->i_size - ctx->pos);
-        limit = offset + remain > sbi->block_size ? sbi->block_size
-                                                  : (uint32_t)(offset + remain);
-        ret = ext2_bmap(inode, logical, &phys);
-        if (ret)
-            goto unlock;
-        if (!phys) {
-            ctx->pos = ((loff_t)logical + 1) * sbi->block_size;
-            mutex_unlock(&inode->mutex);
-            continue;
-        }
-
-        cp = mapping_get(&sbi->mapping, phys);
-        if (IS_ERR(cp)) {
-            ret = PTR_ERR(cp);
-            goto unlock;
-        }
-        mutex_lock(&cp->mutex);
-        memcpy(buffer, mapping_data(cp), limit);
-        mutex_unlock(&cp->mutex);
-        mapping_put(cp);
+        lbn = ctx->pos / sbi->block_size;
+        off = ctx->pos % sbi->block_size;
+        left = inode->i_size - ctx->pos;
+        end = off + left > sbi->block_size ? sbi->block_size : off + left;
+        ret = ext2_read_dir_block(inode, lbn, buf, end);
+        if (!ret)
+            ctx->pos = ((loff_t)lbn + 1) * sbi->block_size;
         mutex_unlock(&inode->mutex);
-
-        while (offset < limit) {
-            const struct ext2_dir_entry *de;
-            uint16_t rec_len;
-            loff_t next;
-
-            if (limit - offset < sizeof(*de))
-                return -EUCLEAN;
-            de = (const struct ext2_dir_entry *)(buffer + offset);
-            rec_len = de->rec_len;
-            if (rec_len < sizeof(*de) || (rec_len & 3) ||
-                rec_len > limit - offset)
-                return -EUCLEAN;
-            if (de->name_len > rec_len - sizeof(*de))
-                return -EUCLEAN;
-
-            next = (loff_t)logical * sbi->block_size + offset + rec_len;
-            if (de->inode) {
-                unsigned char type = DT_UNKNOWN;
-
-                if (de->inode > sbi->s_es->s_inodes_count)
-                    return -EUCLEAN;
-                if ((sbi->s_es->s_feature_incompat &
-                     EXT2_FEATURE_INCOMPAT_FILETYPE) &&
-                    de->file_type < EXT2_FT_MAX)
-                    type = ext2_dtype[de->file_type];
-                if (!dir_emit(ctx, de->name, de->name_len, next, de->inode,
-                              type))
-                    return 0;
-            }
-
-            ctx->pos = next;
-            offset += rec_len;
-        }
+        if (ret < 0)
+            return ret;
+        if (!ret)
+            continue;
+        ret = ext2_readdir_block(sbi, buf, end, ctx);
+        if (ret <= 0)
+            return ret;
     }
-
-    return 0;
-
-unlock:
-    mutex_unlock(&inode->mutex);
-    return ret;
 }
 
 const struct file_operations ext2_dir_ops = {

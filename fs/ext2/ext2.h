@@ -139,22 +139,28 @@ static_assert(sizeof(struct ext2_inode) == 128, "invalid ext2 inode layout");
 static_assert(sizeof(struct ext2_dir_entry) == 8,
               "invalid ext2 directory entry layout");
 
-int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block);
+int ext2_bmap(struct inode *inode, uint32_t lbn, uint32_t *blk);
 
-int ext2_bmap_create(struct inode *inode, uint32_t logical, uint32_t *block);
+int ext2_bmap_create(struct inode *inode, uint32_t lbn, uint32_t *blk);
 
-struct cache_page *ext2_get_inode_page(struct inode *inode, uint32_t *offset);
+struct cache_page *ext2_get_inode_page(struct inode *inode, uint32_t *off);
 
-void ext2_write_inode(struct inode *inode, struct cache_page *cp, uint32_t offset);
+void ext2_write_inode(struct inode *inode, struct cache_page *cp, uint32_t off);
 
-int ext2_alloc_block(struct super_block *sb, uint32_t *block);
+int ext2_alloc_block(struct super_block *sb, uint32_t *blk);
 
-int ext2_free_block(struct super_block *sb, uint32_t block);
+int ext2_free_block(struct super_block *sb, uint32_t blk);
+
+struct cache_page *ext2_get_group_desc(struct ext2_sb_info *sbi, uint32_t grp,
+                                       uint32_t *off);
 
 struct inode *ext2_iget(struct super_block *sb, uint32_t ino);
 
+int ext2_inode_by_name(struct inode *dir, const char *name, uint32_t len,
+                       uint32_t *ino);
+
 struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry);
 
-loff_t ext2_llseek(struct file *file, loff_t offset, int whence);
+loff_t ext2_llseek(struct file *file, loff_t off, int whence);
 
 #endif /* ifndef _NUVIX_FS_EXT2_H */

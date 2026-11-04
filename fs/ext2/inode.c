@@ -9,26 +9,47 @@
 
 #include "ext2.h"
 
-static int ext2_read_ptr(struct super_block *sb, uint32_t block, uint32_t index,
-                         uint32_t *value)
+static int ext2_read_ptr(struct super_block *sb, uint32_t blk, uint32_t idx,
+                         uint32_t *val)
 {
     struct ext2_sb_info *sbi = ext2_sb_info(sb);
     struct cache_page *cp __free(cache_page) = NULL;
     const uint32_t *ptr;
 
-    if (!block) {
-        *value = 0;
+    if (!blk) {
+        *val = 0;
         return 0;
     }
 
-    cp = mapping_get(&sbi->mapping, block);
+    cp = mapping_get(&sbi->mapping, blk);
     if (IS_ERR(cp))
         return PTR_ERR(move(cp));
 
     mutex_lock(&cp->mutex);
     ptr = mapping_data(cp);
-    *value = ptr[index];
+    *val = ptr[idx];
     mutex_unlock(&cp->mutex);
+    return 0;
+}
+
+static int ext2_inode_location(struct ext2_sb_info *sbi, uint32_t ino,
+                               uint32_t *blk, uint32_t *off)
+{
+    struct cache_page *cp __free(cache_page) = NULL;
+    struct ext2_group_desc *desc;
+    uint32_t grp = (ino - 1) / sbi->s_es->s_inodes_per_group;
+    uint32_t idx = (ino - 1) % sbi->s_es->s_inodes_per_group;
+    uint64_t pos = (uint64_t)idx * sbi->inode_size;
+    uint32_t doff;
+
+    cp = ext2_get_group_desc(sbi, grp, &doff);
+    if (IS_ERR(cp))
+        return PTR_ERR(move(cp));
+    mutex_lock(&cp->mutex);
+    desc = (struct ext2_group_desc *)((char *)mapping_data(cp) + doff);
+    *blk = desc->bg_inode_table + pos / sbi->block_size;
+    mutex_unlock(&cp->mutex);
+    *off = pos % sbi->block_size;
     return 0;
 }
 
@@ -36,84 +57,48 @@ static int ext2_read_raw_inode(struct super_block *sb, uint32_t ino,
                                struct ext2_inode *raw)
 {
     struct ext2_sb_info *sbi = ext2_sb_info(sb);
-    struct ext2_group_desc desc;
     struct cache_page *cp __free(cache_page) = NULL;
-    uint32_t desc_block;
-    uint32_t desc_per_block;
-    uint32_t group;
-    uint32_t index;
-    uint32_t inode_block;
-    uint32_t inode_offset;
-    uint32_t offset_in_block;
+    uint32_t blk;
+    uint32_t off;
+    int ret;
 
-    group = (ino - 1) / sbi->s_es->s_inodes_per_group;
-    index = (ino - 1) % sbi->s_es->s_inodes_per_group;
-    desc_per_block = sbi->block_size / sizeof(struct ext2_group_desc);
-    desc_block = sbi->s_es->s_first_data_block + 1 + group / desc_per_block;
-
-    cp = mapping_get(&sbi->mapping, desc_block);
-    if (IS_ERR(cp))
-        return PTR_ERR(move(cp));
-    mutex_lock(&cp->mutex);
-    memcpy(&desc,
-           (const char *)mapping_data(cp) +
-               (group % desc_per_block) * sizeof(struct ext2_group_desc),
-           sizeof(desc));
-    mutex_unlock(&cp->mutex);
-    mapping_put(move(cp));
-
-    inode_offset = index * sbi->inode_size;
-    inode_block = desc.bg_inode_table + inode_offset / sbi->block_size;
-    offset_in_block = inode_offset % sbi->block_size;
-    if (offset_in_block + sizeof(*raw) > sbi->block_size)
+    ret = ext2_inode_location(sbi, ino, &blk, &off);
+    if (ret)
+        return ret;
+    if (off + sizeof(*raw) > sbi->block_size)
         return -EINVAL;
-
-    cp = mapping_get(&sbi->mapping, inode_block);
+    cp = mapping_get(&sbi->mapping, blk);
     if (IS_ERR(cp))
         return PTR_ERR(move(cp));
 
     mutex_lock(&cp->mutex);
-    memcpy(raw, (const char *)mapping_data(cp) + offset_in_block, sizeof(*raw));
+    memcpy(raw, (const char *)mapping_data(cp) + off, sizeof(*raw));
     mutex_unlock(&cp->mutex);
     if (!raw->i_mode)
         return -ENOENT;
     return 0;
 }
 
-struct cache_page *ext2_get_inode_page(struct inode *inode, uint32_t *offset)
+struct cache_page *ext2_get_inode_page(struct inode *inode, uint32_t *off)
 {
     struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
-    struct cache_page *cp __free(cache_page) = NULL;
-    struct ext2_group_desc *desc;
-    uint32_t group = (inode->i_ino - 1) / sbi->s_es->s_inodes_per_group;
-    uint32_t index = (inode->i_ino - 1) % sbi->s_es->s_inodes_per_group;
-    uint32_t per_block = sbi->block_size / sizeof(struct ext2_group_desc);
-    uint64_t inode_offset = (uint64_t)index * sbi->inode_size;
-    uint32_t table;
+    uint32_t blk;
+    int ret;
 
     assert_mutex_locked(&inode->mutex);
-    cp = mapping_get(&sbi->mapping,
-                     sbi->s_es->s_first_data_block + 1 + group / per_block);
-    if (IS_ERR(cp))
-        return move(cp);
-    mutex_lock(&cp->mutex);
-    desc = (struct ext2_group_desc *)mapping_data(cp) + group % per_block;
-    table = desc->bg_inode_table;
-    mutex_unlock(&cp->mutex);
-    mapping_put(move(cp));
-
-    *offset = inode_offset % sbi->block_size;
-    return mapping_get(&sbi->mapping, table + inode_offset / sbi->block_size);
+    ret = ext2_inode_location(sbi, inode->i_ino, &blk, off);
+    if (ret)
+        return ERR_PTR(ret);
+    return mapping_get(&sbi->mapping, blk);
 }
 
-void ext2_write_inode(struct inode *inode, struct cache_page *cp,
-                      uint32_t offset)
+void ext2_write_inode(struct inode *inode, struct cache_page *cp, uint32_t off)
 {
     struct ext2_inode *raw;
 
     assert_mutex_locked(&inode->mutex);
     mutex_lock(&cp->mutex);
-    raw = (struct ext2_inode *)((char *)mapping_data(cp) + offset);
+    raw = (struct ext2_inode *)((char *)mapping_data(cp) + off);
     raw->i_size = inode->i_size;
     raw->i_blocks = inode->i_blocks;
     memcpy(raw->i_block, ext2_i(inode)->data, sizeof(raw->i_block));
@@ -121,173 +106,199 @@ void ext2_write_inode(struct inode *inode, struct cache_page *cp,
     mutex_unlock(&cp->mutex);
 }
 
-int ext2_bmap(struct inode *inode, uint32_t logical, uint32_t *block)
+static int ext2_block_to_path(struct ext2_sb_info *sbi, uint32_t lbn,
+                              uint32_t offs[4])
 {
-    struct super_block *sb = inode->i_sb;
-    struct ext2_inode_info *info = ext2_i(inode);
-    uint32_t ptrs = ext2_sb_info(sb)->block_size / sizeof(uint32_t);
-    uint64_t l = logical;
-    uint32_t first;
-    uint32_t second;
+    uint32_t ptrs = sbi->block_size / sizeof(uint32_t);
+    uint64_t n = lbn;
+
+    if (n < EXT2_NDIR_BLOCKS) {
+        offs[0] = n;
+        return 1;
+    }
+    n -= EXT2_NDIR_BLOCKS;
+    if (n < ptrs) {
+        offs[0] = EXT2_IND_BLOCK;
+        offs[1] = n;
+        return 2;
+    }
+    n -= ptrs;
+    if (n < (uint64_t)ptrs * ptrs) {
+        offs[0] = EXT2_DIND_BLOCK;
+        offs[1] = n / ptrs;
+        offs[2] = n % ptrs;
+        return 3;
+    }
+    n -= (uint64_t)ptrs * ptrs;
+    if (n >= (uint64_t)ptrs * ptrs * ptrs)
+        return -EFBIG;
+    offs[0] = EXT2_TIND_BLOCK;
+    offs[1] = n / ((uint64_t)ptrs * ptrs);
+    offs[2] = (n / ptrs) % ptrs;
+    offs[3] = n % ptrs;
+    return 4;
+}
+
+int ext2_bmap(struct inode *inode, uint32_t lbn, uint32_t *blk)
+{
+    uint32_t offs[4];
+    uint32_t phys;
+    int depth;
     int ret;
 
     assert_mutex_locked(&inode->mutex);
-    if (l < EXT2_NDIR_BLOCKS) {
-        *block = info->data[l];
-        return 0;
-    }
-    l -= EXT2_NDIR_BLOCKS;
-
-    if (l < ptrs)
-        return ext2_read_ptr(sb, info->data[EXT2_IND_BLOCK], (uint32_t)l,
-                             block);
-
-    l -= ptrs;
-    if (l < (uint64_t)ptrs * ptrs) {
-        ret = ext2_read_ptr(sb, info->data[EXT2_DIND_BLOCK],
-                            (uint32_t)(l / ptrs), &first);
+    depth = ext2_block_to_path(ext2_sb_info(inode->i_sb), lbn, offs);
+    if (depth < 0)
+        return depth;
+    phys = ext2_i(inode)->data[offs[0]];
+    for (int i = 1; i < depth; i++) {
+        ret = ext2_read_ptr(inode->i_sb, phys, offs[i], &phys);
         if (ret)
             return ret;
-        return ext2_read_ptr(sb, first, (uint32_t)(l % ptrs), block);
     }
-
-    l -= (uint64_t)ptrs * ptrs;
-    if (l < (uint64_t)ptrs * ptrs * ptrs) {
-        ret = ext2_read_ptr(sb, info->data[EXT2_TIND_BLOCK],
-                            (uint32_t)(l / ((uint64_t)ptrs * ptrs)), &first);
-        if (ret)
-            return ret;
-        ret = ext2_read_ptr(sb, first, (uint32_t)((l / ptrs) % ptrs), &second);
-        if (ret)
-            return ret;
-        return ext2_read_ptr(sb, second, (uint32_t)(l % ptrs), block);
-    }
-
-    return -EFBIG;
+    *blk = phys;
+    return 0;
 }
 
-int ext2_bmap_create(struct inode *inode, uint32_t logical, uint32_t *block)
+/* Returns the level of the data block or the first missing pointer. */
+static int ext2_get_branch(struct inode *inode, unsigned int depth,
+                           const uint32_t *offs, struct cache_page **chain,
+                           uint32_t *phys)
 {
-    struct super_block *sb = inode->i_sb;
-    struct ext2_sb_info *sbi = ext2_sb_info(sb);
-    struct ext2_inode_info *info = ext2_i(inode);
-    struct cache_page *chain[3] = {0};
-    struct cache_page *fresh[3] = {0};
-    uint32_t blocks[4];
-    uint32_t offsets[4];
-    uint32_t ptrs = sbi->block_size / sizeof(uint32_t);
-    uint64_t n = logical;
-    uint32_t physical;
-    unsigned int depth;
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
     unsigned int level = 0;
-    unsigned int allocated = 0;
-    unsigned int needed;
-    int ret = 0;
-    int cleanup_error = 0;
 
-    assert_mutex_locked(&inode->mutex);
-    if (n < EXT2_NDIR_BLOCKS) {
-        offsets[0] = n;
-        depth = 1;
-    } else {
-        n -= EXT2_NDIR_BLOCKS;
-        if (n < ptrs) {
-            offsets[0] = EXT2_IND_BLOCK;
-            offsets[1] = n;
-            depth = 2;
-        } else {
-            n -= ptrs;
-            if (n < (uint64_t)ptrs * ptrs) {
-                offsets[0] = EXT2_DIND_BLOCK;
-                offsets[1] = n / ptrs;
-                offsets[2] = n % ptrs;
-                depth = 3;
-            } else {
-                n -= (uint64_t)ptrs * ptrs;
-                if (n >= (uint64_t)ptrs * ptrs * ptrs)
-                    return -EFBIG;
-                offsets[0] = EXT2_TIND_BLOCK;
-                offsets[1] = n / ((uint64_t)ptrs * ptrs);
-                offsets[2] = (n / ptrs) % ptrs;
-                offsets[3] = n % ptrs;
-                depth = 4;
-            }
-        }
-    }
+    *phys = ext2_i(inode)->data[offs[0]];
+    while (*phys && level < depth - 1) {
+        struct cache_page *cp;
 
-    physical = info->data[offsets[0]];
-    while (physical && level < depth - 1) {
-        chain[level] = mapping_get(&sbi->mapping, physical);
-        if (IS_ERR(chain[level])) {
-            ret = PTR_ERR(chain[level]);
-            chain[level] = NULL;
-            goto out;
-        }
-        mutex_lock(&chain[level]->mutex);
-        physical = ((uint32_t *)mapping_data(chain[level]))[offsets[level + 1]];
-        mutex_unlock(&chain[level]->mutex);
+        cp = mapping_get(&sbi->mapping, *phys);
+        if (IS_ERR(cp))
+            return PTR_ERR(cp);
+        chain[level] = cp;
+        mutex_lock(&cp->mutex);
+        *phys = ((const uint32_t *)mapping_data(cp))[offs[level + 1]];
+        mutex_unlock(&cp->mutex);
         level++;
     }
-    if (physical) {
-        *block = physical;
-        goto out;
-    }
+    return level;
+}
 
-    needed = depth - level;
-    for (; allocated < needed; allocated++) {
-        ret = ext2_alloc_block(sb, &blocks[allocated]);
+static void ext2_put_branch(struct cache_page **pages, unsigned int nr)
+{
+    for (unsigned int i = 0; i < nr; i++) {
+        if (pages[i])
+            mapping_put(pages[i]);
+    }
+}
+
+static int ext2_free_branch(struct super_block *sb, const uint32_t *blks,
+                            unsigned int nr)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(sb);
+    int ret = 0;
+
+    while (nr) {
+        uint32_t phys = blks[--nr];
+        int err;
+
+        mapping_purge(&sbi->mapping, phys, (uint64_t)phys + 1);
+        err = ext2_free_block(sb, phys);
+        if (err && !ret)
+            ret = err;
+    }
+    return ret;
+}
+
+static int ext2_alloc_branch(struct super_block *sb, unsigned int need,
+                             const uint32_t *offs, uint32_t *blks,
+                             struct cache_page **fresh, unsigned int *nr)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(sb);
+    int ret;
+
+    for (; *nr < need; (*nr)++) {
+        ret = ext2_alloc_block(sb, &blks[*nr]);
         if (ret)
-            goto out;
-        mapping_purge(&sbi->mapping, blocks[allocated],
-                      (uint64_t)blocks[allocated] + 1);
+            return ret;
+        mapping_purge(&sbi->mapping, blks[*nr], (uint64_t)blks[*nr] + 1);
     }
-    for (unsigned int i = 0; i < needed - 1; i++) {
-        fresh[i] = mapping_get(&sbi->mapping, blocks[i]);
-        if (IS_ERR(fresh[i])) {
-            ret = PTR_ERR(fresh[i]);
-            fresh[i] = NULL;
-            goto out;
-        }
+    /* Acquire every indirect page before modifying the new branch. */
+    for (unsigned int i = 0; i < need - 1; i++) {
+        struct cache_page *cp = mapping_get(&sbi->mapping, blks[i]);
+
+        if (IS_ERR(cp))
+            return PTR_ERR(cp);
+        fresh[i] = cp;
     }
-    for (unsigned int i = 0; i < needed - 1; i++) {
+    for (unsigned int i = 0; i < need - 1; i++) {
         mutex_lock(&fresh[i]->mutex);
         memset(mapping_data(fresh[i]), 0, PAGE_SIZE);
-        ((uint32_t *)mapping_data(fresh[i]))[offsets[level + i + 1]] =
-            blocks[i + 1];
+        ((uint32_t *)mapping_data(fresh[i]))[offs[i]] = blks[i + 1];
         mapping_dirty(fresh[i]);
         mutex_unlock(&fresh[i]->mutex);
     }
-    if (!level) {
-        info->data[offsets[0]] = blocks[0];
-    } else {
-        struct cache_page *parent = chain[level - 1];
+    return 0;
+}
 
+static void ext2_splice_branch(struct inode *inode, struct cache_page *parent,
+                               uint32_t off, uint32_t blk, unsigned int need)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
+
+    if (!parent) {
+        ext2_i(inode)->data[off] = blk;
+    } else {
         mutex_lock(&parent->mutex);
-        ((uint32_t *)mapping_data(parent))[offsets[level]] = blocks[0];
+        ((uint32_t *)mapping_data(parent))[off] = blk;
         mapping_dirty(parent);
         mutex_unlock(&parent->mutex);
     }
-    inode->i_blocks += needed * (sbi->block_size / BLK_SECTOR_SIZE);
-    *block = blocks[needed - 1];
-out:
-    for (unsigned int i = 0; i < 3; i++) {
-        if (chain[i])
-            mapping_put(chain[i]);
-        if (fresh[i])
-            mapping_put(fresh[i]);
-    }
-    if (ret) {
-        while (allocated) {
-            uint32_t physical = blocks[--allocated];
-            int err;
+    inode->i_blocks += need * (sbi->block_size / BLK_SECTOR_SIZE);
+}
 
-            mapping_purge(&sbi->mapping, physical, (uint64_t)physical + 1);
-            err = ext2_free_block(sb, physical);
-            if (err && !cleanup_error)
-                cleanup_error = err;
-        }
+int ext2_bmap_create(struct inode *inode, uint32_t lbn, uint32_t *blk)
+{
+    struct cache_page *chain[3] = {0};
+    struct cache_page *fresh[3] = {0};
+    uint32_t blks[4];
+    uint32_t offs[4];
+    uint32_t phys;
+    unsigned int nr = 0;
+    unsigned int need;
+    int depth;
+    int level;
+    int ret;
+    int err = 0;
+
+    assert_mutex_locked(&inode->mutex);
+    depth = ext2_block_to_path(ext2_sb_info(inode->i_sb), lbn, offs);
+    if (depth < 0)
+        return depth;
+    level = ext2_get_branch(inode, depth, offs, chain, &phys);
+    if (level < 0) {
+        ret = level;
+        goto out;
     }
-    return cleanup_error ? cleanup_error : ret;
+    if (phys) {
+        *blk = phys;
+        ret = 0;
+        goto out;
+    }
+    need = depth - level;
+    ret = ext2_alloc_branch(inode->i_sb, need, offs + level + 1, blks, fresh,
+                            &nr);
+    if (ret)
+        goto out;
+    ext2_splice_branch(inode, level ? chain[level - 1] : NULL, offs[level],
+                       blks[0], need);
+    *blk = blks[need - 1];
+out:
+    ext2_put_branch(chain, 3);
+    ext2_put_branch(fresh, 3);
+    if (ret)
+        err = ext2_free_branch(inode->i_sb, blks, nr);
+    return err ? err : ret;
 }
 
 static int ext2_read_file_page(struct cache_page *cp)
@@ -295,29 +306,29 @@ static int ext2_read_file_page(struct cache_page *cp)
     struct mapping *m = cp->mapping;
     struct inode *inode = m->m_host;
     struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
-    uint64_t offset = cp->index * PAGE_SIZE;
-    size_t length = MIN((uint64_t)inode->i_size - offset, (uint64_t)PAGE_SIZE);
+    uint64_t off = cp->index * PAGE_SIZE;
+    size_t len = MIN((uint64_t)inode->i_size - off, (uint64_t)PAGE_SIZE);
     char *data = mapping_data(cp);
-    uint32_t block;
-    uint64_t sector;
+    uint32_t blk;
+    uint64_t sect;
     int ret;
 
-    ret = ext2_bmap(inode, (uint32_t)cp->index, &block);
+    ret = ext2_bmap(inode, (uint32_t)cp->index, &blk);
     if (ret)
         return ret;
-    if (!block) {
+    if (!blk) {
         memset(data, 0, PAGE_SIZE);
         return 0;
     }
-    if (block >= sbi->s_es->s_blocks_count)
+    if (blk >= sbi->s_es->s_blocks_count)
         return -EIO;
 
-    sector = (uint64_t)block * PAGE_SIZE / BLK_SECTOR_SIZE;
-    ret = blk_read(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
+    sect = (uint64_t)blk * PAGE_SIZE / BLK_SECTOR_SIZE;
+    ret = blk_read(m->m_bdev, sect, cp->page, 0, PAGE_SIZE);
     if (ret)
         return ret;
 
-    memset(data + length, 0, PAGE_SIZE - length);
+    memset(data + len, 0, PAGE_SIZE - len);
     return 0;
 }
 
@@ -325,17 +336,17 @@ static int ext2_write_file_page(struct cache_page *cp)
 {
     struct mapping *m = cp->mapping;
     struct inode *inode = m->m_host;
-    uint32_t block;
-    uint64_t sector;
+    uint32_t blk;
+    uint64_t sect;
     int ret;
 
-    ret = ext2_bmap(inode, (uint32_t)cp->index, &block);
+    ret = ext2_bmap(inode, (uint32_t)cp->index, &blk);
     if (ret)
         return ret;
-    Assert(block, "writeback requires an allocated file block\n");
+    Assert(blk, "writeback requires an allocated file block\n");
 
-    sector = (uint64_t)block * PAGE_SIZE / BLK_SECTOR_SIZE;
-    return blk_write(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
+    sect = (uint64_t)blk * PAGE_SIZE / BLK_SECTOR_SIZE;
+    return blk_write(m->m_bdev, sect, cp->page, 0, PAGE_SIZE);
 }
 
 static void ext2_mapping_get(struct mapping *m)

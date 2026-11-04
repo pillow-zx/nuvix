@@ -12,21 +12,21 @@ static int ext2_read_metadata_page(struct cache_page *cp)
 {
     struct mapping *m = cp->mapping;
     struct ext2_sb_info *sbi = m->m_host;
-    uint64_t sector;
+    uint64_t sect;
 
     if (cp->index && cp->index >= sbi->s_es->s_blocks_count)
         return -EIO;
 
-    sector = cp->index * PAGE_SIZE / BLK_SECTOR_SIZE;
-    return blk_read(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
+    sect = cp->index * PAGE_SIZE / BLK_SECTOR_SIZE;
+    return blk_read(m->m_bdev, sect, cp->page, 0, PAGE_SIZE);
 }
 
 static int ext2_write_metadata_page(struct cache_page *cp)
 {
     struct mapping *m = cp->mapping;
-    uint64_t sector = cp->index * PAGE_SIZE / BLK_SECTOR_SIZE;
+    uint64_t sect = cp->index * PAGE_SIZE / BLK_SECTOR_SIZE;
 
-    return blk_write(m->m_bdev, sector, cp->page, 0, PAGE_SIZE);
+    return blk_write(m->m_bdev, sect, cp->page, 0, PAGE_SIZE);
 }
 
 static const struct mapping_ops ext2_metadata_mapping_ops = {
@@ -34,14 +34,58 @@ static const struct mapping_ops ext2_metadata_mapping_ops = {
     .write_page = ext2_write_metadata_page,
 };
 
+static int ext2_check_super(struct ext2_sb_info *sbi)
+{
+    struct ext2_super_block *es = sbi->s_es;
+    uint32_t bsize;
+    uint32_t isize;
+
+    if (es->s_magic != EXT2_SUPER_MAGIC)
+        return -EINVAL;
+    if (es->s_log_block_size != 2)
+        return -EOPNOTSUPP;
+
+    bsize = 1024U << es->s_log_block_size;
+    isize = es->s_rev_level == 0 ? EXT2_GOOD_OLD_INODE_SIZE : es->s_inode_size;
+    if (isize < EXT2_GOOD_OLD_INODE_SIZE || isize > bsize || bsize % isize)
+        return -EINVAL;
+    if (!es->s_blocks_count || !es->s_inodes_count || !es->s_blocks_per_group ||
+        !es->s_inodes_per_group)
+        return -EINVAL;
+
+    sbi->block_size = bsize;
+    sbi->inode_size = isize;
+    return 0;
+}
+
+static struct dentry *ext2_get_root(struct super_block *sb)
+{
+    struct inode *inode;
+    struct dentry *root;
+
+    inode = ext2_iget(sb, EXT2_ROOT_INO);
+    if (IS_ERR(inode))
+        return ERR_PTR(PTR_ERR(inode));
+    if (!S_ISDIR(inode->i_mode)) {
+        iput(inode);
+        return ERR_PTR(-EINVAL);
+    }
+
+    root = d_alloc(NULL, "/", 1);
+    if (IS_ERR(root)) {
+        iput(inode);
+        return root;
+    }
+
+    root->d_inode = inode;
+    return root;
+}
+
 int ext2_mount(struct super_block *sb)
 {
     struct ext2_super_block *es;
     struct ext2_sb_info *sbi = &ext2_data;
-    struct inode *root_inode;
     struct dentry *root;
-    uint32_t block_size;
-    uint32_t inode_size;
     int ret;
 
     if (!sb->s_bdev)
@@ -60,52 +104,16 @@ int ext2_mount(struct super_block *sb)
                                      EXT2_SUPER_OFFSET);
     sbi->s_es = es;
     mutex_unlock(&sbi->s_sbh->mutex);
-    if (es->s_magic != EXT2_SUPER_MAGIC) {
-        ret = -EINVAL;
+    ret = ext2_check_super(sbi);
+    if (ret)
         goto fail;
-    }
-    if (es->s_log_block_size != 2) {
-        ret = -EOPNOTSUPP;
-        goto fail;
-    }
-
-    block_size = 1024U << es->s_log_block_size;
-    inode_size =
-        es->s_rev_level == 0 ? EXT2_GOOD_OLD_INODE_SIZE : es->s_inode_size;
-    if (inode_size < EXT2_GOOD_OLD_INODE_SIZE || inode_size > block_size ||
-        block_size % inode_size) {
-        ret = -EINVAL;
-        goto fail;
-    }
-    if (!es->s_blocks_count || !es->s_inodes_count || !es->s_blocks_per_group ||
-        !es->s_inodes_per_group) {
-        ret = -EINVAL;
-        goto fail;
-    }
-
-    sbi->block_size = block_size;
-    sbi->inode_size = inode_size;
     sb->s_fs_info = sbi;
 
-    root_inode = ext2_iget(sb, EXT2_ROOT_INO);
-    if (IS_ERR(root_inode)) {
-        ret = PTR_ERR(root_inode);
-        goto fail;
-    }
-    if (!S_ISDIR(root_inode->i_mode)) {
-        iput(root_inode);
-        ret = -EINVAL;
-        goto fail;
-    }
-
-    root = d_alloc(NULL, "/", 1);
+    root = ext2_get_root(sb);
     if (IS_ERR(root)) {
         ret = PTR_ERR(root);
-        iput(root_inode);
         goto fail;
     }
-
-    root->d_inode = root_inode;
     sb->s_root = root;
     return 0;
 
