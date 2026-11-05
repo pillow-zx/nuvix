@@ -45,9 +45,9 @@ struct inode *ext2_alloc_inode(struct inode *dir, unsigned int mode)
     inode->i_mode = (mode & S_IFMT) | 0777;
     inode->i_nlink = 1;
     if (S_ISDIR(mode))
-        inode->i_fops = &ext2_dir_ops;
+        inode->i_fops = &ext2_dir_operations;
     else if (S_ISREG(mode))
-        inode->i_fops = &ext2_file_ops;
+        inode->i_fops = &ext2_file_operations;
 
     mutex_lock(&inode->mutex);
     mutex_lock(&sbi->mutex);
@@ -68,7 +68,7 @@ struct inode *ext2_alloc_inode(struct inode *dir, unsigned int mode)
 
         if (start >= nr)
             continue;
-        dp = ext2_get_group_desc(sbi, grp, &off);
+        dp = ext2_get_grp_desc(sbi, grp, &off);
         if (IS_ERR(dp)) {
             ret = PTR_ERR(move(dp));
             goto out;
@@ -141,7 +141,7 @@ void ext2_free_inode(struct inode *inode)
     int ret = 0;
 
     mutex_lock(&sbi->mutex);
-    dp = ext2_get_group_desc(sbi, grp, &off);
+    dp = ext2_get_grp_desc(sbi, grp, &off);
     if (IS_ERR(dp)) {
         ret = PTR_ERR(move(dp));
         goto out;

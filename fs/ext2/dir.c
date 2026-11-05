@@ -470,7 +470,7 @@ static int ext2_dir_readdir(struct file *file, struct dirctx *ctx)
     }
 }
 
-const struct file_operations ext2_dir_ops = {
+const struct file_operations ext2_dir_operations = {
     .llseek = ext2_llseek,
     .read = ext2_dir_read,
     .readdir = ext2_dir_readdir,

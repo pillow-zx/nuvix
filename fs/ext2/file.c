@@ -7,6 +7,71 @@
 
 #include "ext2.h"
 
+static int ext2_read_file_page(struct cache_page *cp)
+{
+    struct mapping *m = cp->mapping;
+    struct inode *inode = m->m_host;
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
+    uint64_t off = cp->index * PAGE_SIZE;
+    size_t len = MIN((uint64_t)inode->i_size - off, (uint64_t)PAGE_SIZE);
+    char *data = mapping_data(cp);
+    uint32_t blk;
+    uint64_t sect;
+    int ret;
+
+    ret = ext2_bmap(inode, (uint32_t)cp->index, &blk);
+    if (ret)
+        return ret;
+    if (!blk) {
+        memset(data, 0, PAGE_SIZE);
+        return 0;
+    }
+    if (blk >= sbi->s_es->s_blocks_count)
+        return -EIO;
+
+    sect = (uint64_t)blk * PAGE_SIZE / BLK_SECTOR_SIZE;
+    ret = blk_read(m->m_bdev, sect, cp->page, 0, PAGE_SIZE);
+    if (ret)
+        return ret;
+
+    memset(data + len, 0, PAGE_SIZE - len);
+    return 0;
+}
+
+static int ext2_write_file_page(struct cache_page *cp)
+{
+    struct mapping *m = cp->mapping;
+    struct inode *inode = m->m_host;
+    uint32_t blk;
+    uint64_t sect;
+    int ret;
+
+    ret = ext2_bmap(inode, (uint32_t)cp->index, &blk);
+    if (ret)
+        return ret;
+    Assert(blk, "writeback requires an allocated file block\n");
+
+    sect = (uint64_t)blk * PAGE_SIZE / BLK_SECTOR_SIZE;
+    return blk_write(m->m_bdev, sect, cp->page, 0, PAGE_SIZE);
+}
+
+static void ext2_mapping_get(struct mapping *m)
+{
+    ihold(m->m_host);
+}
+
+static void ext2_mapping_put(struct mapping *m)
+{
+    iput(m->m_host);
+}
+
+const struct mapping_ops ext2_file_mapping_operations = {
+    .get = ext2_mapping_get,
+    .put = ext2_mapping_put,
+    .read_page = ext2_read_file_page,
+    .write_page = ext2_write_file_page,
+};
+
 static int ext2_file_open(struct file *file)
 {
     (void)file;
@@ -207,31 +272,6 @@ static ssize_t ext2_file_write(struct kiocb *iocb, struct kiov *iov)
     return done ? (ssize_t)done : ret;
 }
 
-static int ext2_file_fsync(struct file *file)
-{
-    struct inode *inode = file->f_path.dentry->d_inode;
-    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
-    int ret;
-
-    mutex_lock(&inode->mutex);
-    ret = mapping_flush(&ext2_i(inode)->mapping);
-    if (ret)
-        goto out;
-    ret = mapping_flush(&sbi->mapping);
-    if (ret)
-        goto out;
-    ret = blk_flush(inode->i_sb->s_bdev);
-out:
-    mutex_unlock(&inode->mutex);
-    return ret;
-}
-
-static int ext2_file_release(struct file *file)
-{
-    (void)file;
-    return 0;
-}
-
 loff_t ext2_llseek(struct file *file, loff_t off, int whence)
 {
     struct inode *inode = file->f_path.dentry->d_inode;
@@ -266,7 +306,32 @@ loff_t ext2_llseek(struct file *file, loff_t off, int whence)
     return ret ? ret : pos;
 }
 
-const struct file_operations ext2_file_ops = {
+static int ext2_file_fsync(struct file *file)
+{
+    struct inode *inode = file->f_path.dentry->d_inode;
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
+    int ret;
+
+    mutex_lock(&inode->mutex);
+    ret = mapping_flush(&ext2_i(inode)->mapping);
+    if (ret)
+        goto out;
+    ret = mapping_flush(&sbi->mapping);
+    if (ret)
+        goto out;
+    ret = blk_flush(inode->i_sb->s_bdev);
+out:
+    mutex_unlock(&inode->mutex);
+    return ret;
+}
+
+static int ext2_file_release(struct file *file)
+{
+    (void)file;
+    return 0;
+}
+
+const struct file_operations ext2_file_operations = {
     .open = ext2_file_open,
     .llseek = ext2_llseek,
     .read = ext2_file_read,

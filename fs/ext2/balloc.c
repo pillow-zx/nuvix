@@ -5,16 +5,6 @@
 
 #include "ext2.h"
 
-struct cache_page *ext2_get_group_desc(struct ext2_sb_info *sbi, uint32_t grp,
-                                       uint32_t *off)
-{
-    uint32_t nr = sbi->block_size / sizeof(struct ext2_group_desc);
-    uint32_t blk = sbi->s_es->s_first_data_block + 1 + grp / nr;
-
-    *off = (grp % nr) * sizeof(struct ext2_group_desc);
-    return mapping_get(&sbi->mapping, blk);
-}
-
 static int ext2_check_params(struct ext2_sb_info *sbi)
 {
     struct ext2_super_block *es = sbi->s_es;
@@ -93,7 +83,7 @@ int ext2_alloc_block(struct super_block *sb, uint32_t *blk)
         uint32_t bblk;
         bool avail;
 
-        dp = ext2_get_group_desc(sbi, grp, &off);
+        dp = ext2_get_grp_desc(sbi, grp, &off);
         if (IS_ERR(dp)) {
             ret = PTR_ERR(move(dp));
             goto out;
@@ -132,7 +122,7 @@ int ext2_free_block(struct super_block *sb, uint32_t blk)
            "freeing a block outside the filesystem\n");
     grp = (blk - es->s_first_data_block) / es->s_blocks_per_group;
     bit = (blk - es->s_first_data_block) % es->s_blocks_per_group;
-    dp = ext2_get_group_desc(sbi, grp, &off);
+    dp = ext2_get_grp_desc(sbi, grp, &off);
     if (IS_ERR(dp)) {
         ret = PTR_ERR(move(dp));
         goto out;

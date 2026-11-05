@@ -8,6 +8,16 @@
 
 static struct ext2_sb_info ext2_data;
 
+struct cache_page *ext2_get_grp_desc(struct ext2_sb_info *sbi, uint32_t grp,
+                                     uint32_t *off)
+{
+    uint32_t nr = sbi->block_size / sizeof(struct ext2_group_desc);
+    uint32_t blk = sbi->s_es->s_first_data_block + 1 + grp / nr;
+
+    *off = (grp % nr) * sizeof(struct ext2_group_desc);
+    return mapping_get(&sbi->mapping, blk);
+}
+
 static int ext2_read_metadata_page(struct cache_page *cp)
 {
     struct mapping *m = cp->mapping;

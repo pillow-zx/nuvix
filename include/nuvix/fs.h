@@ -132,19 +132,6 @@ struct inode_operations {
     int (*rename)(struct inode *, struct dentry *, struct inode *, struct dentry *, unsigned int);
 };
 
-struct super_operations {
-    struct inode *(*alloc_inode)(struct super_block *);
-    void (*evict_inode)(struct inode *);
-    void (*destroy_inode)(struct inode *);
-};
-
-struct super_block {
-    struct blkdev *s_bdev;
-    struct dentry *s_root;
-    const struct super_operations *s_ops;
-    void *s_fs_info;
-};
-
 #define I_NEW     (1U << 0)
 #define I_FREEING (1U << 1)
 
@@ -165,6 +152,19 @@ struct inode {
     const struct file_operations *i_fops;
     struct hlist_node i_hash;
     void *i_private;
+};
+
+struct super_operations {
+    struct inode *(*alloc_inode)(struct super_block *);
+    void (*evict_inode)(struct inode *);
+    void (*destroy_inode)(struct inode *);
+};
+
+struct super_block {
+    struct blkdev *s_bdev;
+    struct dentry *s_root;
+    const struct super_operations *s_ops;
+    void *s_fs_info;
 };
 
 struct dentry {
