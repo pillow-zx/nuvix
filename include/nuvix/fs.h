@@ -145,8 +145,12 @@ struct super_block {
     void *s_fs_info;
 };
 
+#define I_NEW     (1U << 0)
+#define I_FREEING (1U << 1)
+
 struct inode {
     refcount_t i_count;
+    unsigned int i_state;
     struct mutex mutex;
     struct super_block *i_sb;
     uint64_t i_ino;
@@ -187,6 +191,12 @@ void iput(struct inode *inode);
 struct inode *icache_find(struct super_block *sb, uint64_t ino);
 
 struct inode *icache_insert(struct inode *inode);
+
+int icache_inserts(struct inode *inode);
+
+void icache_ready(struct inode *inode);
+
+void icache_abort(struct inode *inode);
 
 struct dentry *d_alloc(struct dentry *parent, const char *name, size_t len);
 

@@ -598,22 +598,25 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
 
     if (!ino || ino > ext2_sb_info(sb)->s_es->s_inodes_count)
         return ERR_PTR(-EINVAL);
-
     inode = icache_find(sb, ino);
     if (inode)
         return inode;
-
-    ret = ext2_read_raw_inode(sb, ino, &raw);
-    if (ret)
-        return ERR_PTR(ret);
-
     inode = i_alloc(sb);
     if (!inode)
         return ERR_PTR(-ENOMEM);
+    inode->i_ino = ino;
+    inode = icache_insert(inode);
+    if (!(inode->i_state & I_NEW))
+        return inode;
+    ret = ext2_read_raw_inode(sb, ino, &raw);
+    if (ret) {
+        icache_abort(inode);
+        iput(inode);
+        return ERR_PTR(ret);
+    }
+
     info = ext2_i(inode);
     memcpy(info->data, raw.i_block, sizeof(info->data));
-
-    inode->i_ino = ino;
     inode->i_size = raw.i_size;
     inode->i_blocks = raw.i_blocks;
     inode->i_atime.tv_sec = raw.i_atime;
@@ -625,6 +628,6 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
         inode->i_fops = &ext2_dir_ops;
     else if (S_ISREG(inode->i_mode))
         inode->i_fops = &ext2_file_ops;
-
-    return icache_insert(inode);
+    icache_ready(inode);
+    return inode;
 }
