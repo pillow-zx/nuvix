@@ -368,14 +368,18 @@ static const struct mapping_ops ext2_file_mapping_ops = {
     .write_page = ext2_write_file_page,
 };
 
-static void ext2_destroy(struct inode *inode)
+static void ext2_evict_inode(struct inode *inode)
 {
     struct ext2_inode_info *info = ext2_i(inode);
 
     mutex_lock(&inode->mutex);
     mapping_purge(&info->mapping, 0, UINT64_MAX);
     mutex_unlock(&inode->mutex);
-    kfree(info);
+}
+
+static void ext2_destroy_inode(struct inode *inode)
+{
+    kfree(ext2_i(inode));
 }
 
 static int ext2_getattr(struct inode *inode, struct kstat *stat)
@@ -562,12 +566,32 @@ static const struct inode_operations ext2_inode_ops = {
     .lookup = ext2_lookup,
     .getattr = ext2_getattr,
     .setattr = ext2_setattr,
-    .destroy = ext2_destroy,
+};
+
+static struct inode *ext2_alloc_inode_info(struct super_block *sb)
+{
+    struct ext2_inode_info *info;
+    struct inode *inode;
+
+    info = kzalloc(sizeof(*info));
+    if (!info)
+        return NULL;
+    inode = &info->vfs_inode;
+    inode->i_ops = &ext2_inode_ops;
+    info->mapping = MAPPING_INIT(sb->s_bdev, ext2_file_mapping_ops, inode);
+    info->mapping.mutex = &inode->mutex;
+    return inode;
+}
+
+const struct super_operations ext2_super_operations = {
+    .alloc_inode = ext2_alloc_inode_info,
+    .evict_inode = ext2_evict_inode,
+    .destroy_inode = ext2_destroy_inode,
 };
 
 struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
 {
-    struct ext2_inode_info *info __free(kfree) = NULL;
+    struct ext2_inode_info *info;
     struct ext2_inode raw;
     struct inode *inode;
     int ret;
@@ -583,15 +607,12 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
     if (ret)
         return ERR_PTR(ret);
 
-    info = kzalloc(sizeof(*info));
-    if (!info)
+    inode = i_alloc(sb);
+    if (!inode)
         return ERR_PTR(-ENOMEM);
+    info = ext2_i(inode);
     memcpy(info->data, raw.i_block, sizeof(info->data));
 
-    inode = &info->vfs_inode;
-    refcount_set(&inode->i_count, 1);
-    mutex_init(&inode->mutex);
-    inode->i_sb = sb;
     inode->i_ino = ino;
     inode->i_size = raw.i_size;
     inode->i_blocks = raw.i_blocks;
@@ -600,14 +621,10 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
     inode->i_ctime.tv_sec = raw.i_ctime;
     inode->i_mode = raw.i_mode;
     inode->i_nlink = raw.i_links_count;
-    inode->i_ops = &ext2_inode_ops;
     if (S_ISDIR(inode->i_mode))
         inode->i_fops = &ext2_dir_ops;
     else if (S_ISREG(inode->i_mode))
         inode->i_fops = &ext2_file_ops;
-    info->mapping = MAPPING_INIT(sb->s_bdev, ext2_file_mapping_ops, inode);
-    info->mapping.mutex = &inode->mutex;
-    keep(info);
 
     return icache_insert(inode);
 }

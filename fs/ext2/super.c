@@ -108,6 +108,7 @@ int ext2_mount(struct super_block *sb)
     if (ret)
         goto fail;
     sb->s_fs_info = sbi;
+    sb->s_ops = &ext2_super_operations;
 
     root = ext2_get_root(sb);
     if (IS_ERR(root)) {
@@ -123,5 +124,6 @@ fail:
     sbi->s_sbh = NULL;
     sbi->s_es = NULL;
     sb->s_fs_info = NULL;
+    sb->s_ops = NULL;
     return ret;
 }

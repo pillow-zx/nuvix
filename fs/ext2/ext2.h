@@ -120,6 +120,7 @@ struct ext2_sb_info {
 
 extern const struct file_operations ext2_file_ops;
 extern const struct file_operations ext2_dir_ops;
+extern const struct super_operations ext2_super_operations;
 
 static __always_inline struct ext2_inode_info *ext2_i(struct inode *inode)
 {

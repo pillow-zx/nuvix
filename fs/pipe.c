@@ -238,7 +238,7 @@ static int pipe_alloc(struct file **rfile, struct file **wfile,
 
     if (!pipe)
         return -ENOMEM;
-    pipe->inode = i_alloc();
+    pipe->inode = i_alloc(NULL);
     pipe->buffer = kmalloc(PIPE_BUF_SIZE);
     pipe->inode->i_nlink = 1;
     if (!pipe->inode || !pipe->buffer)

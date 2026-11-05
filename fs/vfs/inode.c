@@ -8,14 +8,16 @@
 static DEFINE_SPINLOCK(icache_lock);
 static DEFINE_HASHTABLE(icache, 8);
 
-struct inode *i_alloc(void)
+struct inode *i_alloc(struct super_block *sb)
 {
-    struct inode *inode = kzalloc(sizeof(*inode));
+    struct inode *inode;
 
+    inode = sb ? sb->s_ops->alloc_inode(sb) : kzalloc(sizeof(*inode));
     if (!inode)
         return NULL;
     refcount_set(&inode->i_count, 1);
     mutex_init(&inode->mutex);
+    inode->i_sb = sb;
     return inode;
 }
 
@@ -26,6 +28,8 @@ void ihold(struct inode *inode)
 
 void iput(struct inode *inode)
 {
+    bool cached;
+
     if (!inode)
         return;
     spin_lock(&icache_lock);
@@ -33,10 +37,13 @@ void iput(struct inode *inode)
         spin_unlock(&icache_lock);
         return;
     }
+    cached = hash_hashed(&inode->i_hash);
     hash_del(&inode->i_hash);
     spin_unlock(&icache_lock);
-    if (inode->i_ops && inode->i_ops->destroy)
-        inode->i_ops->destroy(inode);
+    if (cached)
+        inode->i_sb->s_ops->evict_inode(inode);
+    if (inode->i_sb)
+        inode->i_sb->s_ops->destroy_inode(inode);
     else
         kfree(inode);
 }

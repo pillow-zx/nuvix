@@ -45,6 +45,7 @@ struct dirctx;
 struct super_block;
 struct file_operations;
 struct inode_operations;
+struct super_operations;
 
 struct kiocb {
     struct file *file;
@@ -129,12 +130,18 @@ struct inode_operations {
     struct dentry *(*mkdir)(struct inode *, struct dentry *);
     int (*rmdir)(struct inode *, struct dentry *);
     int (*rename)(struct inode *, struct dentry *, struct inode *, struct dentry *, unsigned int);
-    void (*destroy)(struct inode *);
+};
+
+struct super_operations {
+    struct inode *(*alloc_inode)(struct super_block *);
+    void (*evict_inode)(struct inode *);
+    void (*destroy_inode)(struct inode *);
 };
 
 struct super_block {
     struct blkdev *s_bdev;
     struct dentry *s_root;
+    const struct super_operations *s_ops;
     void *s_fs_info;
 };
 
@@ -171,7 +178,7 @@ int fput(struct file *file);
 
 DECLARE_FREE(fput, struct file *, if (_T) fput(_T));
 
-struct inode *i_alloc(void);
+struct inode *i_alloc(struct super_block *sb);
 
 void ihold(struct inode *inode);
 

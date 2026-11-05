@@ -326,7 +326,7 @@ int tty_init(void)
     };
     gtty.winsize = (struct winsize){.ws_row = 24, .ws_col = 80};
 
-    tty_inode = i_alloc();
+    tty_inode = i_alloc(NULL);
     if (!tty_inode)
         return -ENOMEM;
     tty_inode->i_ino = 1;
