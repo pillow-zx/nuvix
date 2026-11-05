@@ -14,7 +14,7 @@ struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
     if (dentry->d_nlen > VFS_NAME_MAX)
         return ERR_PTR(-ENAMETOOLONG);
 
-    ret = ext2_inode_by_name(dir, dentry->d_name, dentry->d_nlen, &ino);
+    ret = ext2_find_ino(dir, dentry, &ino);
     if (ret == -ENOENT)
         return dentry;
     if (ret)

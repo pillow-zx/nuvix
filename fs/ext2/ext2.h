@@ -95,7 +95,7 @@ struct ext2_inode {
     uint8_t i_osd2[12];
 } __packed;
 
-struct ext2_dir_entry {
+struct ext2_dirent {
     uint32_t inode;
     uint16_t rec_len;
     uint8_t name_len;
@@ -136,7 +136,7 @@ static_assert(sizeof(struct ext2_super_block) == 104,
 static_assert(sizeof(struct ext2_group_desc) == 32,
               "invalid ext2 group descriptor layout");
 static_assert(sizeof(struct ext2_inode) == 128, "invalid ext2 inode layout");
-static_assert(sizeof(struct ext2_dir_entry) == 8,
+static_assert(sizeof(struct ext2_dirent) == 8,
               "invalid ext2 directory entry layout");
 
 int ext2_bmap(struct inode *inode, uint32_t lbn, uint32_t *blk);
@@ -156,8 +156,22 @@ struct cache_page *ext2_get_group_desc(struct ext2_sb_info *sbi, uint32_t grp,
 
 struct inode *ext2_iget(struct super_block *sb, uint32_t ino);
 
-int ext2_inode_by_name(struct inode *dir, const char *name, uint32_t len,
-                       uint32_t *ino);
+int ext2_find_ino(struct inode *dir, const struct dentry *dentry, uint32_t *ino);
+
+struct cache_page *ext2_find_dirent(struct inode *dir, const char *name,
+                                    uint32_t len, uint32_t *off);
+
+int ext2_add_dirent(struct inode *dir, const char *name, uint32_t len,
+                    struct inode *inode);
+
+void ext2_set_dirent(struct inode *dir, struct cache_page *cp, uint32_t off,
+                     struct inode *inode);
+
+void ext2_delete_dirent(struct inode *dir, struct cache_page *cp, uint32_t off);
+
+int ext2_init_dir(struct inode *dir, struct inode *parent);
+
+int ext2_dir_is_empty(struct inode *dir);
 
 struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry);
 
