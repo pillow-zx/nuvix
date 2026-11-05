@@ -188,6 +188,8 @@ void ihold(struct inode *inode);
 
 void iput(struct inode *inode);
 
+DECLARE_FREE(iput, struct inode *, if (_T) iput(_T));
+
 struct inode *icache_find(struct super_block *sb, uint64_t ino);
 
 struct inode *icache_insert(struct inode *inode);

@@ -10,6 +10,7 @@
 #include <nuvix/slab.h>
 #include <nuvix/string.h>
 #include <nuvix/macro.h>
+#include <nuvix/printk.h>
 
 #include "ext2.h"
 
@@ -103,6 +104,8 @@ void ext2_write_inode(struct inode *inode, struct cache_page *cp, uint32_t off)
     assert_mutex_locked(&inode->mutex);
     mutex_lock(&cp->mutex);
     raw = (struct ext2_inode *)((char *)mapping_data(cp) + off);
+    raw->i_mode = inode->i_mode;
+    raw->i_links_count = inode->i_nlink;
     raw->i_size = inode->i_size;
     raw->i_blocks = inode->i_blocks;
     memcpy(raw->i_block, ext2_i(inode)->data, sizeof(raw->i_block));
@@ -368,12 +371,97 @@ static const struct mapping_ops ext2_file_mapping_ops = {
     .write_page = ext2_write_file_page,
 };
 
-static void ext2_evict_inode(struct inode *inode)
+static void ext2_free_inode_branch(struct inode *inode, uint32_t blk,
+                                   unsigned int depth)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
+    struct cache_page *cp __free(cache_page) = NULL;
+    int ret;
+
+    if (!blk)
+        return;
+    if (depth) {
+        uint32_t *data;
+
+        cp = mapping_get(&sbi->mapping, blk);
+        if (IS_ERR(cp)) {
+            ret = PTR_ERR(move(cp));
+            pr_err("ext2: inode %u indirect block %u read failed (%d)\n",
+                   (uint32_t)inode->i_ino, blk, ret);
+            return;
+        }
+        mutex_lock(&cp->mutex);
+        data = mapping_data(cp);
+        for (uint32_t i = 0; i < sbi->block_size / sizeof(*data); i++) {
+            uint32_t child = data[i];
+
+            if (!child)
+                continue;
+            data[i] = 0;
+            mapping_dirty(cp);
+            ext2_free_inode_branch(inode, child, depth - 1);
+        }
+        mutex_unlock(&cp->mutex);
+    }
+    ret = ext2_free_block(inode->i_sb, blk);
+    if (ret)
+        pr_err("ext2: inode %u block %u free failed (%d)\n",
+               (uint32_t)inode->i_ino, blk, ret);
+}
+
+static void ext2_free_blocks(struct inode *inode)
 {
     struct ext2_inode_info *info = ext2_i(inode);
 
+    for (unsigned int i = 0; i < EXT2_N_BLOCKS; i++) {
+        uint32_t blk = info->data[i];
+        unsigned int depth = i < EXT2_NDIR_BLOCKS ? 0 : i - EXT2_IND_BLOCK + 1;
+
+        info->data[i] = 0;
+        ext2_free_inode_branch(inode, blk, depth);
+    }
+}
+
+static void ext2_evict_inode(struct inode *inode)
+{
+    struct ext2_inode_info *info = ext2_i(inode);
+    struct cache_page *cp __free(cache_page) = NULL;
+    uint32_t off;
+    int ret;
+
     mutex_lock(&inode->mutex);
     mapping_purge(&info->mapping, 0, UINT64_MAX);
+    if (inode->i_nlink)
+        goto out;
+
+    cp = ext2_get_inode_page(inode, &off);
+    if (IS_ERR(cp)) {
+        ret = PTR_ERR(move(cp));
+        pr_err("ext2: inode %u record read failed during eviction (%d)\n",
+               (uint32_t)inode->i_ino, ret);
+    }
+
+    if (S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) ||
+        (S_ISLNK(inode->i_mode) && inode->i_blocks)) {
+        ext2_free_blocks(inode);
+    }
+    inode->i_size = 0;
+    inode->i_blocks = 0;
+    if (cp) {
+        struct ext2_inode *raw;
+
+        mutex_lock(&cp->mutex);
+        raw = (struct ext2_inode *)((char *)mapping_data(cp) + off);
+        raw->i_mode = 0;
+        raw->i_links_count = 0;
+        raw->i_size = 0;
+        raw->i_blocks = 0;
+        memset(raw->i_block, 0, sizeof(raw->i_block));
+        mapping_dirty(cp);
+        mutex_unlock(&cp->mutex);
+    }
+    ext2_free_inode(inode);
+out:
     mutex_unlock(&inode->mutex);
 }
 

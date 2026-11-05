@@ -9,6 +9,7 @@
 #define EXT2_SUPER_MAGIC               0xEF53
 #define EXT2_ROOT_INO                  2
 #define EXT2_GOOD_OLD_INODE_SIZE       128
+#define EXT2_GOOD_OLD_FIRST_INO        11
 #define EXT2_SUPER_OFFSET              1024
 
 #define EXT2_FEATURE_INCOMPAT_FILETYPE 0x0002
@@ -156,6 +157,10 @@ struct cache_page *ext2_get_group_desc(struct ext2_sb_info *sbi, uint32_t grp,
                                        uint32_t *off);
 
 struct inode *ext2_iget(struct super_block *sb, uint32_t ino);
+
+struct inode *ext2_alloc_inode(struct inode *dir, unsigned int mode);
+
+void ext2_free_inode(struct inode *inode);
 
 int ext2_find_ino(struct inode *dir, const struct dentry *dentry, uint32_t *ino);
 
