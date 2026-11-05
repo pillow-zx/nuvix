@@ -17,4 +17,7 @@ int path_lookup(const struct path *base, const char *name, struct path *result);
 
 int path_resolve(const char *path, struct path *result);
 
+int path_resolve_parent(const char *path, struct path *parent,
+                        const char **name, size_t *len);
+
 #endif /* ifndef _NUVIX_PATH_H */

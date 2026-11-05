@@ -18,12 +18,17 @@ void path_put(struct path *path)
     path->dentry = NULL;
 }
 
-int path_lookup(const struct path *base, const char *name, struct path *result)
+static int path_lookup_locked(const struct path *base, const char *name,
+                              struct path *result)
 {
     struct dentry *dentry;
     struct dentry *found;
-    struct inode *dir;
+    struct inode *dir = base->dentry->d_inode;
     size_t len;
+
+    Assert(dir && S_ISDIR(dir->i_mode),
+           "locked lookup requires a positive directory\n");
+    assert_mutex_locked(&dir->mutex);
 
     len = strnlen(name, (size_t)VFS_NAME_MAX + 1);
     if (!len)
@@ -32,12 +37,6 @@ int path_lookup(const struct path *base, const char *name, struct path *result)
         return -ENAMETOOLONG;
     if (strchr(name, '/'))
         return -EINVAL;
-
-    dir = base->dentry->d_inode;
-    if (!dir)
-        return -ENOENT;
-    if (!S_ISDIR(dir->i_mode))
-        return -ENOTDIR;
 
     if (len == 1 && name[0] == '.') {
         path_get(base);
@@ -57,7 +56,6 @@ int path_lookup(const struct path *base, const char *name, struct path *result)
     if (!dir->i_ops || !dir->i_ops->lookup)
         return -EOPNOTSUPP;
 
-    mutex_lock(&dir->mutex);
     found = dcache_find(base->dentry, name, len);
     if (found)
         goto out;
@@ -76,18 +74,36 @@ int path_lookup(const struct path *base, const char *name, struct path *result)
     found = dcache_insert(found);
 
 out:
-    mutex_unlock(&dir->mutex);
     if (IS_ERR(found))
         return PTR_ERR(found);
     result->dentry = found;
     return 0;
 }
 
-int path_resolve(const char *path, struct path *result)
+int path_lookup(const struct path *base, const char *name, struct path *result)
+{
+    struct inode *dir = base->dentry->d_inode;
+    int ret;
+
+    if (!dir)
+        return -ENOENT;
+    if (!S_ISDIR(dir->i_mode))
+        return -ENOTDIR;
+
+    mutex_lock(&dir->mutex);
+    ret = path_lookup_locked(base, name, result);
+    mutex_unlock(&dir->mutex);
+    return ret;
+}
+
+static int path_walk(const char *path, bool parent, struct path *result,
+                     const char **last, size_t *last_len)
 {
     struct path base = {0};
     struct path cur;
     const char *cursor = path;
+    const char *start;
+    size_t len = 0;
     int ret;
 
     if (!*path)
@@ -108,12 +124,11 @@ int path_resolve(const char *path, struct path *result)
     }
 
     cur = move(base);
+    start = cursor;
 
     while (*cursor) {
         char name[VFS_NAME_MAX + 1];
-        const char *start;
         struct path next;
-        size_t len;
 
         start = cursor;
         while (*cursor && *cursor != '/')
@@ -123,6 +138,8 @@ int path_resolve(const char *path, struct path *result)
             ret = -ENAMETOOLONG;
             goto out;
         }
+        if (parent && (!*cursor || !cursor[1]))
+            break;
         memcpy(name, start, len);
         name[len] = '\0';
 
@@ -154,16 +171,31 @@ int path_resolve(const char *path, struct path *result)
         ret = -ENOENT;
         goto out;
     }
-    if (path[strlen(path) - 1] == '/' &&
+    if ((parent || path[strlen(path) - 1] == '/') &&
         !S_ISDIR(cur.dentry->d_inode->i_mode)) {
         ret = -ENOTDIR;
         goto out;
     }
 
+    if (parent) {
+        *last = start;
+        *last_len = len;
+    }
     *result = move(cur);
     return 0;
 
 out:
     path_put(&cur);
     return ret;
+}
+
+int path_resolve(const char *path, struct path *result)
+{
+    return path_walk(path, false, result, NULL, NULL);
+}
+
+int path_resolve_parent(const char *path, struct path *parent,
+                        const char **name, size_t *len)
+{
+    return path_walk(path, true, parent, name, len);
 }
