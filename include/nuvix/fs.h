@@ -128,6 +128,7 @@ struct inode_operations {
     const char *(*readlink)(struct inode *, void (*fn)(void *), void *arg);
     struct dentry *(*mkdir)(struct inode *, struct dentry *);
     int (*rmdir)(struct inode *, struct dentry *);
+    int (*rename)(struct inode *, struct dentry *, struct inode *, struct dentry *, unsigned int);
     void (*destroy)(struct inode *);
 };
 
