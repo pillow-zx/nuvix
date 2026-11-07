@@ -26,6 +26,8 @@
 #define SEEK_CUR         1
 #define SEEK_END         2
 
+#define RENAME_NOREPLACE (1U << 0)
+
 #define F_DUPFD          0
 #define F_GETFD          1
 #define F_SETFD          2
@@ -126,7 +128,7 @@ struct inode_operations {
     int (*link)(struct dentry *, struct inode *, struct dentry *);
     int (*unlink)(struct inode *, struct dentry *);
     int (*symlink)(struct inode *, struct dentry *, const char *);
-    const char *(*readlink)(struct inode *, void (*fn)(void *), void *arg);
+    ssize_t (*readlink)(struct inode *, char *, size_t);
     struct dentry *(*mkdir)(struct inode *, struct dentry *);
     int (*rmdir)(struct inode *, struct dentry *);
     int (*rename)(struct inode *, struct dentry *, struct inode *, struct dentry *, unsigned int);

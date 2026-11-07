@@ -196,6 +196,13 @@ static const struct inode_operations ext2_inode_ops = {
     .lookup = ext2_lookup,
     .getattr = ext2_getattr,
     .setattr = ext2_setattr,
+    .mkdir = ext2_mkdir,
+    .unlink = ext2_unlink,
+    .rmdir = ext2_rmdir,
+    .symlink = ext2_symlink,
+    .readlink = ext2_readlink,
+    .link = ext2_link,
+    .rename = ext2_rename,
 };
 
 static struct inode *ext2_alloc_inode_info(struct super_block *sb)

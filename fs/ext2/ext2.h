@@ -14,6 +14,7 @@
 #define EXT2_ROOT_INO                  2
 #define EXT2_GOOD_OLD_INODE_SIZE       128
 #define EXT2_GOOD_OLD_FIRST_INO        11
+#define EXT2_LINK_MAX                  32000
 
 #define EXT2_NDIR_BLOCKS               12
 #define EXT2_IND_BLOCK                 12
@@ -149,6 +150,13 @@ extern const struct file_operations ext2_file_operations;
 extern const struct mapping_ops ext2_file_mapping_operations;
 
 struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry);
+struct dentry *ext2_mkdir(struct inode *dir, struct dentry *dentry);
+int ext2_unlink(struct inode *dir, struct dentry *dentry);
+int ext2_rmdir(struct inode *dir, struct dentry *dentry);
+int ext2_symlink(struct inode *dir, struct dentry *dentry, const char *target);
+ssize_t ext2_readlink(struct inode *inode, char *buf, size_t len);
+int ext2_link(struct dentry *old_dentry, struct inode *dir, struct dentry *dentry);
+int ext2_rename(struct inode *old_dir, struct dentry *old_dentry, struct inode *new_dir, struct dentry *new_dentry, unsigned int flags);
 loff_t ext2_llseek(struct file *file, loff_t off, int whence);
 
 struct inode *ext2_iget(struct super_block *sb, uint32_t ino);
