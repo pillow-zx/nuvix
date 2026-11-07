@@ -14,7 +14,7 @@
 #include <nuvix/uaccess.h>
 #include <asm/trap.h>
 
-struct file *vfs_open(const char *path, unsigned long flags)
+struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
 {
     struct path resolved = {0};
     struct file *file __free(kfree) = NULL;
@@ -30,7 +30,8 @@ struct file *vfs_open(const char *path, unsigned long flags)
     if (access == O_ACCMODE)
         return ERR_PTR(-EINVAL);
 
-    ret = path_resolve(path, &resolved);
+    ret = vfs_lookup(dirfd, path, flags & O_NOFOLLOW ? 0 : PATH_FOLLOW,
+                     &resolved);
     if (ret)
         return ERR_PTR(ret);
 
@@ -39,12 +40,16 @@ struct file *vfs_open(const char *path, unsigned long flags)
         ret = -ENOENT;
         goto fail;
     }
-    if (!inode->i_fops) {
-        ret = -EOPNOTSUPP;
-        goto fail;
-    }
     if ((flags & O_DIRECTORY) && !S_ISDIR(inode->i_mode)) {
         ret = -ENOTDIR;
+        goto fail;
+    }
+    if (S_ISLNK(inode->i_mode)) {
+        ret = -ELOOP;
+        goto fail;
+    }
+    if (!inode->i_fops) {
+        ret = -EOPNOTSUPP;
         goto fail;
     }
     if (S_ISDIR(inode->i_mode) && access != O_RDONLY) {
@@ -123,23 +128,13 @@ long sys_openat(struct trap_frame *frame)
     const char *upath = (const char *)syscallarg(frame, 1);
     unsigned long flags = syscallarg(frame, 2) & ~O_LARGEFILE;
     bool cloexec = flags & O_CLOEXEC;
-    char *path __free(kfree) = NULL;
+    char *path __free(kfree) = get_pathname(upath);
     struct file *file __free(fput) = NULL;
-    long len;
     int fd;
 
-    path = kmalloc(PATH_MAX);
-    if (!path)
-        return -ENOMEM;
-    len = strncpy_from_user(path, upath, PATH_MAX);
-    if (len < 0)
-        return len;
-    if (len == PATH_MAX)
-        return -ENAMETOOLONG;
-    if (path[0] != '/' && dirfd != AT_FDCWD)
-        return -EOPNOTSUPP;
-
-    file = vfs_open(path, flags);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    file = vfs_open(dirfd, path, flags);
     if (IS_ERR(file))
         return PTR_ERR(move(file));
     fd = fd_alloc(current->fdtable);
@@ -149,28 +144,251 @@ long sys_openat(struct trap_frame *frame)
     return fd;
 }
 
+char *get_pathname(const char *upath)
+{
+    char *path __free(kfree) = kmalloc(PATH_MAX);
+    ssize_t len;
+
+    if (!path)
+        return ERR_PTR(-ENOMEM);
+    len = strncpy_from_user(path, upath, PATH_MAX);
+    if (len < 0)
+        return ERR_PTR(len);
+    if (len == PATH_MAX)
+        return ERR_PTR(-ENAMETOOLONG);
+    return move(path);
+}
+
+static struct dentry *start_creating(int dirfd, const char *path,
+                                     bool directory, struct path *parent)
+{
+    struct path target = {0};
+    struct inode *dir;
+    const char *last;
+    char name[VFS_NAME_MAX + 1];
+    size_t len;
+    int ret;
+
+    ret = vfs_lookparent(dirfd, path, parent, &last, &len);
+    if (ret)
+        return ERR_PTR(ret);
+    if (!len || (len == 1 && last[0] == '.') ||
+        (len == 2 && last[0] == '.' && last[1] == '.')) {
+        ret = -EEXIST;
+        goto out;
+    }
+    memcpy(name, last, len);
+    name[len] = '\0';
+    dir = parent->dentry->d_inode;
+    mutex_lock(&dir->mutex);
+    ret = vfs_lookone(parent, name, &target);
+    if (ret)
+        goto unlock;
+    if (target.dentry->d_inode) {
+        ret = -EEXIST;
+        goto unlock;
+    }
+    if (!directory && last[len] == '/') {
+        ret = -ENOENT;
+        goto unlock;
+    }
+    return target.dentry;
+
+unlock:
+    mutex_unlock(&dir->mutex);
+    path_put(&target);
+out:
+    path_put(parent);
+    return ERR_PTR(ret);
+}
+
+static void end_creating(struct path *parent, struct dentry *dentry)
+{
+    mutex_unlock(&parent->dentry->d_inode->mutex);
+    dput(dentry);
+    path_put(parent);
+}
+
 long sys_mkdirat(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    int dirfd = (int)syscallarg(frame, 0);
+    const char *upath = (const char *)syscallarg(frame, 1);
+    char *path __free(kfree) = get_pathname(upath);
+    struct path parent = {0};
+    struct dentry *dentry;
+    struct dentry *created;
+    struct inode *dir;
+    int ret;
+
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    dentry = start_creating(dirfd, path, true, &parent);
+    if (IS_ERR(dentry))
+        return PTR_ERR(dentry);
+    dir = parent.dentry->d_inode;
+    if (!dir->i_ops->mkdir) {
+        ret = -EPERM;
+    } else {
+        created = dir->i_ops->mkdir(dir, dentry);
+        ret = IS_ERR(created) ? PTR_ERR(created) : 0;
+    }
+    end_creating(&parent, dentry);
+    return ret;
 }
 
 long sys_unlinkat(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    int dirfd = (int)syscallarg(frame, 0);
+    const char *upath = (const char *)syscallarg(frame, 1);
+    unsigned int flags = syscallarg(frame, 2);
+    bool directory = flags & AT_REMOVEDIR;
+    char *path __free(kfree) = NULL;
+    struct path parent = {0};
+    struct path target = {0};
+    struct inode *dir;
+    struct inode *inode;
+    const char *last;
+    char name[VFS_NAME_MAX + 1];
+    size_t len;
+    int ret;
+
+    if (flags & ~AT_REMOVEDIR)
+        return -EINVAL;
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    ret = vfs_lookparent(dirfd, path, &parent, &last, &len);
+    if (ret)
+        return ret;
+    if (!len) {
+        ret = directory ? -EBUSY : -EISDIR;
+        goto out;
+    }
+    if ((len == 1 && last[0] == '.') ||
+        (len == 2 && last[0] == '.' && last[1] == '.')) {
+        ret = directory ? (len == 1 ? -EINVAL : -ENOTEMPTY) : -EISDIR;
+        goto out;
+    }
+    memcpy(name, last, len);
+    name[len] = '\0';
+    dir = parent.dentry->d_inode;
+    mutex_lock(&dir->mutex);
+    ret = vfs_lookone(&parent, name, &target);
+    if (ret)
+        goto unlock;
+    inode = target.dentry->d_inode;
+    if (!inode) {
+        ret = -ENOENT;
+        goto unlock;
+    }
+    if (directory && !S_ISDIR(inode->i_mode)) {
+        ret = -ENOTDIR;
+        goto unlock;
+    }
+    if (!directory && (S_ISDIR(inode->i_mode) || last[len] == '/')) {
+        ret = S_ISDIR(inode->i_mode) ? -EISDIR : -ENOTDIR;
+        goto unlock;
+    }
+    mutex_lock(&inode->mutex);
+    if (directory)
+        ret =
+            dir->i_ops->rmdir ? dir->i_ops->rmdir(dir, target.dentry) : -EPERM;
+    else
+        ret = dir->i_ops->unlink ? dir->i_ops->unlink(dir, target.dentry)
+                                 : -EPERM;
+    if (!ret)
+        dcache_drop(target.dentry);
+    mutex_unlock(&inode->mutex);
+unlock:
+    mutex_unlock(&dir->mutex);
+out:
+    path_put(&target);
+    path_put(&parent);
+    return ret;
 }
 
 long sys_symlinkat(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    const char *utarget = (const char *)syscallarg(frame, 0);
+    int dirfd = (int)syscallarg(frame, 1);
+    const char *upath = (const char *)syscallarg(frame, 2);
+    char *target __free(kfree) = get_pathname(utarget);
+    char *path __free(kfree) = NULL;
+    struct path parent = {0};
+    struct dentry *dentry;
+    struct inode *dir;
+    int ret;
+
+    if (IS_ERR(target))
+        return PTR_ERR(move(target));
+    if (!*target)
+        return -ENOENT;
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    dentry = start_creating(dirfd, path, false, &parent);
+    if (IS_ERR(dentry))
+        return PTR_ERR(dentry);
+    dir = parent.dentry->d_inode;
+    ret =
+        dir->i_ops->symlink ? dir->i_ops->symlink(dir, dentry, target) : -EPERM;
+    end_creating(&parent, dentry);
+    return ret;
 }
 
 long sys_linkat(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    int oldfd = (int)syscallarg(frame, 0);
+    const char *uold = (const char *)syscallarg(frame, 1);
+    int newfd = (int)syscallarg(frame, 2);
+    const char *unew = (const char *)syscallarg(frame, 3);
+    unsigned int flags = syscallarg(frame, 4);
+    unsigned int lookup = 0;
+    char *old __free(kfree) = NULL;
+    char *new __free(kfree) = NULL;
+    struct path source = {0};
+    struct path parent = {0};
+    struct dentry *dentry;
+    struct inode *inode;
+    struct inode *dir;
+    int ret;
+
+    if (flags & ~(AT_SYMLINK_FOLLOW | AT_EMPTY_PATH))
+        return -EINVAL;
+    if (flags & AT_SYMLINK_FOLLOW)
+        lookup |= PATH_FOLLOW;
+    if (flags & AT_EMPTY_PATH)
+        lookup |= PATH_EMPTY;
+    old = get_pathname(uold);
+    if (IS_ERR(old))
+        return PTR_ERR(move(old));
+    new = get_pathname(unew);
+    if (IS_ERR(new))
+        return PTR_ERR(move(new));
+    ret = vfs_lookup(oldfd, old, lookup, &source);
+    if (ret)
+        return ret;
+    dentry = start_creating(newfd, new, false, &parent);
+    if (IS_ERR(dentry)) {
+        ret = PTR_ERR(dentry);
+        goto out;
+    }
+    inode = source.dentry->d_inode;
+    dir = parent.dentry->d_inode;
+    if (dir->i_sb != inode->i_sb) {
+        ret = -EXDEV;
+    } else if (S_ISDIR(inode->i_mode) || !dir->i_ops->link) {
+        ret = -EPERM;
+    } else {
+        mutex_lock(&inode->mutex);
+        ret = inode->i_nlink ? dir->i_ops->link(source.dentry, dir, dentry)
+                             : -ENOENT;
+        mutex_unlock(&inode->mutex);
+    }
+    end_creating(&parent, dentry);
+out:
+    path_put(&source);
+    return ret;
 }
 
 long sys_renameat2(struct trap_frame *frame)
@@ -181,8 +399,41 @@ long sys_renameat2(struct trap_frame *frame)
 
 long sys_readlinkat(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    int dirfd = (int)syscallarg(frame, 0);
+    const char *upath = (const char *)syscallarg(frame, 1);
+    char *ubuf = (char *)syscallarg(frame, 2);
+    int bufsiz = (int)syscallarg(frame, 3);
+    char *path __free(kfree) = NULL;
+    char *buf __free(kfree) = NULL;
+    struct path resolved = {0};
+    struct inode *inode;
+    ssize_t ret;
+
+    if (bufsiz <= 0)
+        return -EINVAL;
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    ret = vfs_lookup(dirfd, path, PATH_EMPTY, &resolved);
+    if (ret)
+        return ret;
+    inode = resolved.dentry->d_inode;
+    if (!S_ISLNK(inode->i_mode) || !inode->i_ops->readlink) {
+        ret = *path ? -EINVAL : -ENOENT;
+        goto out;
+    }
+    bufsiz = MIN(bufsiz, PATH_MAX);
+    buf = kmalloc(bufsiz);
+    if (!buf) {
+        ret = -ENOMEM;
+        goto out;
+    }
+    ret = inode->i_ops->readlink(inode, buf, bufsiz);
+    if (ret >= 0 && copy_to_user(ubuf, buf, ret))
+        ret = -EFAULT;
+out:
+    path_put(&resolved);
+    return ret;
 }
 
 long sys_close(struct trap_frame *frame)
@@ -239,19 +490,13 @@ long sys_chdir(struct trap_frame *frame)
     struct path resolved = {0};
     char *path __free(kfree) = NULL;
     struct inode *inode;
-    long len;
     int ret;
 
-    path = kmalloc(PATH_MAX);
-    if (!path)
-        return -ENOMEM;
-    len = strncpy_from_user(path, upath, PATH_MAX);
-    if (len < 0)
-        return len;
-    if (len == PATH_MAX)
-        return -ENAMETOOLONG;
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
 
-    ret = path_resolve(path, &resolved);
+    ret = vfs_look(path, &resolved);
     if (ret)
         return ret;
 
@@ -376,24 +621,16 @@ long sys_newfstatat(struct trap_frame *frame)
     struct path resolved = {0};
     char *path __free(kfree) = NULL;
     struct inode *inode;
-    long len;
     int ret;
 
     if (flags & ~AT_SYMLINK_NOFOLLOW)
         return -EOPNOTSUPP;
 
-    path = kmalloc(PATH_MAX);
-    if (!path)
-        return -ENOMEM;
-    len = strncpy_from_user(path, upath, PATH_MAX);
-    if (len < 0)
-        return len;
-    if (len == PATH_MAX)
-        return -ENAMETOOLONG;
-    if (path[0] != '/' && dirfd != AT_FDCWD)
-        return -EOPNOTSUPP;
-
-    ret = path_resolve(path, &resolved);
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    ret = vfs_lookup(dirfd, path, flags & AT_SYMLINK_NOFOLLOW ? 0 : PATH_FOLLOW,
+                     &resolved);
     if (ret)
         return ret;
 
@@ -767,22 +1004,13 @@ long sys_fchmodat(struct trap_frame *frame)
     const char *upath = (const char *)syscallarg(frame, 1);
     struct path resolved = {0};
     char *path __free(kfree) = NULL;
-    long len;
     int ret;
 
-    path = kmalloc(PATH_MAX);
-    if (!path)
-        return -ENOMEM;
-    len = strncpy_from_user(path, upath, PATH_MAX);
-    if (len < 0)
-        return len;
-    if (len == PATH_MAX)
-        return -ENAMETOOLONG;
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
 
-    if (path[0] != '/' && dirfd != AT_FDCWD)
-        return -EOPNOTSUPP;
-
-    ret = path_resolve(path, &resolved);
+    ret = vfs_lookup(dirfd, path, PATH_FOLLOW, &resolved);
     if (ret)
         return ret;
 

@@ -255,7 +255,7 @@ static int load_exec(struct exec_params *params, vaddr_t *entry)
     vaddr_t elf_entry;
     int ret;
 
-    file = vfs_open(params->path, O_RDONLY);
+    file = vfs_open(AT_FDCWD, params->path, O_RDONLY);
     if (IS_ERR(file))
         return PTR_ERR(move(file));
 
@@ -348,7 +348,7 @@ long sys_execve(struct trap_frame *frame)
     const char *upath = (const char *)syscallarg(frame, 0);
     const char *const *uargv = (const void *)syscallarg(frame, 1);
     const char *const *uenvp = (const void *)syscallarg(frame, 2);
-    char *path __free(kfree) = kmalloc(PATH_MAX);
+    char *path __free(kfree) = get_pathname(upath);
     char *strings __free(kfree) = NULL;
     const char **pointers __free(kfree) = NULL;
     struct mm_struct *mm __free(mm_put) = NULL;
@@ -359,13 +359,8 @@ long sys_execve(struct trap_frame *frame)
     vaddr_t entry;
     long ret;
 
-    if (!path)
-        return -ENOMEM;
-    ret = strncpy_from_user(path, upath, PATH_MAX);
-    if (ret < 0)
-        return ret;
-    if (ret == PATH_MAX)
-        return -ENAMETOOLONG;
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
     strings = kmalloc(USTACK_SIZE);
     pointers = kmalloc(USTACK_SIZE);
     if (!strings || !pointers)

@@ -2,6 +2,7 @@
 #define _NUVIX_STAT_H
 
 #include <nuvix/tick.h>
+#include <nuvix/assert.h>
 
 #define S_IFMT        00170000
 #define S_IFIFO       0010000

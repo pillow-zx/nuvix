@@ -1,10 +1,14 @@
 #include <nuvix/errno.h>
+#include <nuvix/fdtable.h>
 #include <nuvix/fs.h>
 #include <nuvix/macro.h>
 #include <nuvix/path.h>
+#include <nuvix/slab.h>
 #include <nuvix/string.h>
 #include <nuvix/task.h>
 #include <nuvix/vfs.h>
+
+#define MAX_SYMLINKS 40
 
 void path_get(const struct path *path)
 {
@@ -18,8 +22,7 @@ void path_put(struct path *path)
     path->dentry = NULL;
 }
 
-static int path_lookup_locked(const struct path *base, const char *name,
-                              struct path *result)
+int vfs_lookone(const struct path *base, const char *name, struct path *result)
 {
     struct dentry *dentry;
     struct dentry *found;
@@ -53,6 +56,8 @@ static int path_lookup_locked(const struct path *base, const char *name,
         return 0;
     }
 
+    if (!dir->i_nlink)
+        return -ENOENT;
     if (!dir->i_ops || !dir->i_ops->lookup)
         return -EOPNOTSUPP;
 
@@ -80,122 +85,177 @@ out:
     return 0;
 }
 
-int path_lookup(const struct path *base, const char *name, struct path *result)
+static int path_start(int dirfd, const char *name, struct path *result)
 {
-    struct inode *dir = base->dentry->d_inode;
-    int ret;
+    struct file *file __free(fput) = NULL;
 
-    if (!dir)
-        return -ENOENT;
-    if (!S_ISDIR(dir->i_mode))
-        return -ENOTDIR;
-
-    mutex_lock(&dir->mutex);
-    ret = path_lookup_locked(base, name, result);
-    mutex_unlock(&dir->mutex);
-    return ret;
-}
-
-static int path_walk(const char *path, bool parent, struct path *result,
-                     const char **last, size_t *last_len)
-{
-    struct path base = {0};
-    struct path cur;
-    const char *cursor = path;
-    const char *start;
-    size_t len = 0;
-    int ret;
-
-    if (!*path)
-        return -ENOENT;
-
-    if (*path == '/') {
-        if (path[1] == '/')
-            return -EINVAL;
-        ret = vfs_get_root(&base);
-        if (ret)
-            return ret;
-        ++cursor;
-    } else {
+    if (*name == '/')
+        return vfs_get_root(result);
+    if (dirfd == AT_FDCWD) {
         if (!current->cwd.dentry)
             return -ENOENT;
-        base = current->cwd;
-        path_get(&base);
+        *result = current->cwd;
+    } else {
+        file = fd_open(current->fdtable, dirfd);
+        if (!file)
+            return -EBADF;
+        if (!file->f_path.dentry)
+            return *name ? -ENOTDIR : -ENOENT;
+        *result = file->f_path;
     }
+    if (*name && !S_ISDIR(result->dentry->d_inode->i_mode)) {
+        result->dentry = NULL;
+        return -ENOTDIR;
+    }
+    path_get(result);
+    return 0;
+}
 
-    cur = move(base);
-    start = cursor;
+int vfs_lookup(int dirfd, const char *path, unsigned int flags,
+               struct path *result)
+{
+    struct path cur = {0};
+    struct path next = {0};
+    char *pending __free(kfree) = NULL;
+    char *link __free(kfree) = NULL;
+    const char *cursor;
+    unsigned int links = 0;
+    size_t len = strnlen(path, PATH_MAX);
+    int ret;
 
-    while (*cursor) {
+    if (!len && !(flags & PATH_EMPTY))
+        return -ENOENT;
+    if (len == PATH_MAX)
+        return -ENAMETOOLONG;
+    ret = path_start(dirfd, path, &cur);
+    if (ret)
+        return ret;
+    pending = kmalloc(PATH_MAX);
+    if (!pending) {
+        ret = -ENOMEM;
+        goto out;
+    }
+    memcpy(pending, path, len + 1);
+    cursor = pending;
+
+    for (;;) {
+        struct inode *dir = cur.dentry->d_inode;
         char name[VFS_NAME_MAX + 1];
-        struct path next;
+        const char *tail;
+        bool slash;
 
-        start = cursor;
-        while (*cursor && *cursor != '/')
-            ++cursor;
-        len = (size_t)(cursor - start);
-        if (len > (size_t)VFS_NAME_MAX) {
+        while (*cursor == '/')
+            cursor++;
+        if (!*cursor)
+            break;
+        tail = cursor;
+        while (*tail && *tail != '/')
+            tail++;
+        len = tail - cursor;
+        if (len > VFS_NAME_MAX) {
             ret = -ENAMETOOLONG;
             goto out;
         }
-        if (parent && (!*cursor || !cursor[1]))
-            break;
-        memcpy(name, start, len);
+        memcpy(name, cursor, len);
         name[len] = '\0';
-
-        ret = path_lookup(&cur, name, &next);
+        slash = *tail == '/';
+        mutex_lock(&dir->mutex);
+        ret = vfs_lookone(&cur, name, &next);
+        mutex_unlock(&dir->mutex);
         if (ret)
             goto out;
-        path_put(&cur);
-        cur = next;
-
-        if (!cur.dentry->d_inode) {
+        if (!next.dentry->d_inode) {
             ret = -ENOENT;
             goto out;
         }
-        if (S_ISLNK(cur.dentry->d_inode->i_mode)) {
-            ret = -EOPNOTSUPP;
+        if (S_ISLNK(next.dentry->d_inode->i_mode) &&
+            (slash || (flags & PATH_FOLLOW))) {
+            struct inode *inode = next.dentry->d_inode;
+            ssize_t nr;
+            size_t rest = strlen(tail);
+
+            if (++links > MAX_SYMLINKS) {
+                ret = -ELOOP;
+                goto out;
+            }
+            if (!inode->i_ops->readlink) {
+                ret = -EOPNOTSUPP;
+                goto out;
+            }
+            if (!link) {
+                link = kmalloc(PATH_MAX);
+                if (!link) {
+                    ret = -ENOMEM;
+                    goto out;
+                }
+            }
+            nr = inode->i_ops->readlink(inode, link, PATH_MAX - 1);
+            if (nr <= 0) {
+                ret = nr ? nr : -ENOENT;
+                goto out;
+            }
+            if ((size_t)nr + rest >= PATH_MAX) {
+                ret = -ENAMETOOLONG;
+                goto out;
+            }
+            memmove(pending + nr, tail, rest + 1);
+            memcpy(pending, link, nr);
+            path_put(&next);
+            if (*pending == '/') {
+                path_put(&cur);
+                ret = vfs_get_root(&cur);
+                if (ret)
+                    goto out;
+            }
+            cursor = pending;
+            continue;
+        }
+        path_put(&cur);
+        cur = move(next);
+        if (slash && !S_ISDIR(cur.dentry->d_inode->i_mode)) {
+            ret = -ENOTDIR;
             goto out;
         }
-
-        if (!*cursor)
-            break;
-        ++cursor;
-        if (*cursor == '/') {
-            ret = -EINVAL;
-            goto out;
-        }
-    }
-
-    if (!cur.dentry->d_inode) {
-        ret = -ENOENT;
-        goto out;
-    }
-    if ((parent || path[strlen(path) - 1] == '/') &&
-        !S_ISDIR(cur.dentry->d_inode->i_mode)) {
-        ret = -ENOTDIR;
-        goto out;
-    }
-
-    if (parent) {
-        *last = start;
-        *last_len = len;
+        cursor = tail;
     }
     *result = move(cur);
-    return 0;
-
+    ret = 0;
 out:
+    path_put(&next);
     path_put(&cur);
     return ret;
 }
 
-int path_resolve(const char *path, struct path *result)
+int vfs_lookparent(int dirfd, const char *path, struct path *parent,
+                   const char **name, size_t *len)
 {
-    return path_walk(path, false, result, NULL, NULL);
-}
+    char *prefix __free(kfree) = NULL;
+    const char *end;
+    const char *start;
+    size_t size = strnlen(path, PATH_MAX);
 
-int path_resolve_parent(const char *path, struct path *parent,
-                        const char **name, size_t *len)
-{
-    return path_walk(path, true, parent, name, len);
+    if (!size)
+        return -ENOENT;
+    if (size == PATH_MAX)
+        return -ENAMETOOLONG;
+    end = path + size;
+    while (end > path && end[-1] == '/')
+        end--;
+    start = end;
+    while (start > path && start[-1] != '/')
+        start--;
+    *name = start;
+    *len = end - start;
+    if (*len > VFS_NAME_MAX)
+        return -ENAMETOOLONG;
+    if (start == path)
+        return path_start(dirfd, path, parent);
+
+    size = start - path;
+    prefix = kmalloc(size + 1);
+    if (!prefix)
+        return -ENOMEM;
+    memcpy(prefix, path, size);
+    prefix[size] = '\0';
+    return vfs_lookup(dirfd, prefix, PATH_FOLLOW, parent);
 }

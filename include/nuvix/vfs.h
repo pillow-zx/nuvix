@@ -5,8 +5,10 @@
 #include <nuvix/cleanup.h>
 
 #define PATH_MAX            4096
-#define AT_FDCWD            (-100)
 #define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_REMOVEDIR        0x200
+#define AT_SYMLINK_FOLLOW   0x400
+#define AT_EMPTY_PATH       0x1000
 
 #define UIO_MAXIOV          64
 
@@ -14,7 +16,9 @@ int vfs_mount(void);
 
 int vfs_get_root(struct path *path);
 
-struct file *vfs_open(const char *path, unsigned long flags);
+char *get_pathname(const char *upath);
+
+struct file *vfs_open(int dirfd, const char *path, unsigned long flags);
 
 ssize_t vfs_read(struct kiocb *, struct kiov *);
 
