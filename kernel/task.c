@@ -29,6 +29,15 @@ static_assert(offsetof(struct task, ctx.sum) == TASK_CTX_SUM,
 static DEFINE_WAIT_QUEUE(child_wait);
 
 #define WNOHANG     1
+#define WSTOPPED    2
+#define WEXITED     4
+#define WCONTINUED  8
+#define WNOWAIT     0x01000000
+
+#define P_ALL       0
+#define P_PID       1
+#define P_PGID      2
+
 #define CLONE_VM    0x00000100UL
 #define CLONE_VFORK 0x00004000UL
 
@@ -283,22 +292,35 @@ long sys_clone(struct trap_frame *frame)
     return pid;
 }
 
-long sys_wait4(struct trap_frame *frame)
+struct wait_event {
+    pid_t pid;
+    int exit;
+};
+
+enum wait_mode {
+    WAIT_ALL,
+    WAIT_PID,
+    WAIT_PGID,
+};
+
+static bool wait_matches(enum wait_mode mode, pid_t id,
+                         const struct task *child)
 {
-    pid_t pid = (pid_t)syscallarg(frame, 0);
-    int *status = (int *)syscallarg(frame, 1);
-    int options = (int)syscallarg(frame, 2);
-    void *rusage = (void *)syscallarg(frame, 3);
-    struct task *child;
-    struct task *dead __free(task_put) = NULL;
+    if (mode == WAIT_PID)
+        return task_pid_nr(child, PIDTYPE_TGID) == id;
+    if (mode == WAIT_PGID)
+        return task_pid_nr(child, PIDTYPE_PGID) == id;
+    return true;
+}
+
+static long wait_child(enum wait_mode mode, pid_t id, int options,
+                       struct wait_event *event)
+{
+    struct task *child, *dead = NULL;
     struct wait_entry wait;
     unsigned long flags;
     long ret;
 
-    if ((pid != -1 && pid <= 0) || (options & ~WNOHANG))
-        return -EINVAL;
-    if (rusage)
-        return -EOPNOTSUPP;
     wait_entry_init(&wait);
     for (;;) {
         preempt_disable();
@@ -306,17 +328,21 @@ long sys_wait4(struct trap_frame *frame)
         finish_wait_locked(&child_wait, &wait);
         ret = -ECHILD;
         list_for_each_entry (child, &current->children, sibling) {
-            if (pid != -1 && task_pid_nr(child, PIDTYPE_TGID) != pid)
+            if (!wait_matches(mode, id, child))
                 continue;
             ret = 0;
-            if (!child->kstack && child->state == TASK_ZOMBIE) {
+            if (child->kstack || child->state != TASK_ZOMBIE)
+                continue;
+            event->pid = task_pid_nr(child, PIDTYPE_TGID);
+            event->exit = child->exit;
+            ret = event->pid;
+            if (!(options & WNOWAIT)) {
                 dead = child;
-                ret = task_pid_nr(child, PIDTYPE_TGID);
                 pid_unpublish(child);
                 list_del_init(&child->sibling);
                 child->parent = child;
-                break;
             }
+            break;
         }
         if (ret || (options & WNOHANG))
             break;
@@ -330,13 +356,81 @@ long sys_wait4(struct trap_frame *frame)
     }
     spin_unlock_irqrestore(&child_wait.lock, flags);
     preempt_enable();
-    if (dead && status && copy_to_user(status, &dead->exit, sizeof(dead->exit)))
+    if (dead)
+        task_put(dead);
+    return ret;
+}
+
+long sys_wait4(struct trap_frame *frame)
+{
+    pid_t pid = (pid_t)syscallarg(frame, 0);
+    int *status = (int *)syscallarg(frame, 1);
+    int options = (int)syscallarg(frame, 2);
+    void *rusage = (void *)syscallarg(frame, 3);
+    struct wait_event event = {0};
+    long ret;
+
+    if ((pid != -1 && pid <= 0) || (options & ~WNOHANG))
+        return -EINVAL;
+    if (rusage)
+        return -EOPNOTSUPP;
+
+    ret = wait_child(pid == -1 ? WAIT_ALL : WAIT_PID, pid, options, &event);
+    if (ret > 0 && status &&
+        copy_to_user(status, &event.exit, sizeof(event.exit)))
         return -EFAULT;
     return ret;
 }
 
 long sys_waitid(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    int which = (int)syscallarg(frame, 0);
+    pid_t id = (pid_t)syscallarg(frame, 1);
+    siginfo_t *infop = (siginfo_t *)syscallarg(frame, 2);
+    int options = (int)syscallarg(frame, 3);
+    void *rusage = (void *)syscallarg(frame, 4);
+    enum wait_mode mode;
+    struct wait_event event = {0};
+    siginfo_t info = {0};
+    long ret;
+
+    if (options & ~(WNOHANG | WSTOPPED | WEXITED | WCONTINUED | WNOWAIT))
+        return -EINVAL;
+    if (options & (WSTOPPED | WCONTINUED))
+        return -ENOTSUPP;
+    if (!(options & WEXITED))
+        return -EINVAL;
+    if (rusage)
+        return -EOPNOTSUPP;
+    switch (which) {
+    case P_PID:
+        mode = WAIT_PID;
+        break;
+    case P_PGID:
+        mode = WAIT_PGID;
+        break;
+    case P_ALL:
+        mode = WAIT_ALL;
+        break;
+    default:
+        return -EINVAL;
+    }
+    if (mode == WAIT_PID && id <= 0)
+        return -EINVAL;
+    if (mode == WAIT_PGID && id < 0)
+        return -EINVAL;
+    if (mode == WAIT_PGID && !id)
+        id = task_pid_nr(current, PIDTYPE_PGID);
+
+    ret = wait_child(mode, id, options, &event);
+    if (ret > 0) {
+        info.si_signo = SIGCHLD;
+        info.si_pid = event.pid;
+        info.si_code = (event.exit & 0x7f) ? CLD_KILLED : CLD_EXITED;
+        info.si_status =
+            (event.exit & 0x7f) ? event.exit & 0x7f : event.exit >> 8;
+    }
+    if (infop && copy_to_user(infop, &info, sizeof(info)))
+        return -EFAULT;
+    return ret > 0 ? 0 : ret;
 }
