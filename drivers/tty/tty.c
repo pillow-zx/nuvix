@@ -1,7 +1,8 @@
+#include "uart.h"
+
 #include <nuvix/tty.h>
 #include <nuvix/vfs.h>
 #include <nuvix/fdtable.h>
-#include <nuvix/ns16550a.h>
 #include <nuvix/slab.h>
 #include <nuvix/errno.h>
 #include <nuvix/layout.h>
@@ -11,6 +12,7 @@
 #include <nuvix/uaccess.h>
 
 #define TTY_WRITE_CHUNK (PAGE_SIZE / 2)
+#define TTY_RX_BATCH    64
 
 struct tty {
     struct wait_queue rwait;
@@ -18,7 +20,7 @@ struct tty {
     unsigned int head;
     unsigned int tail;
     unsigned int canon;
-    struct termios termios;
+    struct termios2 termios;
     struct winsize winsize;
     char buffer[PAGE_SIZE];
 };
@@ -35,49 +37,51 @@ static size_t tty_opost(unsigned int oflag, char c, char *out)
     return len;
 }
 
-static void tty_receive(struct tty *tty, char c)
+static void tty_receive(struct tty *tty, const char *data, size_t count)
 {
+    char echo[3 * TTY_RX_BATCH];
     unsigned long flags;
     unsigned int used;
-    char echo[3];
     size_t len = 0;
     bool wake = false;
 
+    Assert(count <= TTY_RX_BATCH, "TTY receive batch too large\n");
     spin_lock_irqsave(&tty->rwait.lock, flags);
 
-    if ((tty->termios.c_iflag & ICRNL) && c == '\r')
-        c = '\n';
+    for (size_t i = 0; i < count; ++i) {
+        char c = data[i];
 
-    if ((tty->termios.c_lflag & ICANON) &&
-        c == (char)tty->termios.c_cc[VERASE]) {
-        if (tty->head != tty->canon) {
-            --tty->head;
-            if (tty->termios.c_lflag & ECHO) {
-                echo[0] = '\b';
-                echo[1] = ' ';
-                echo[2] = '\b';
-                len = 3;
-            }
-        }
-    } else {
-        used = tty->head - tty->tail;
-        if (used < PAGE_SIZE && (used < PAGE_SIZE - 1 || c == '\n')) {
-            tty->buffer[tty->head & (PAGE_SIZE - 1)] = c;
-            ++tty->head;
-            if (tty->termios.c_lflag & ECHO) {
-                if (c == '\n') {
-                    len = tty_opost(tty->termios.c_oflag, c, echo);
-                } else {
-                    echo[0] = c;
-                    len = 1;
+        if ((tty->termios.c_iflag & ICRNL) && c == '\r')
+            c = '\n';
+
+        if ((tty->termios.c_lflag & ICANON) &&
+            c == (char)tty->termios.c_cc[VERASE]) {
+            if (tty->head != tty->canon) {
+                --tty->head;
+                if (tty->termios.c_lflag & ECHO) {
+                    echo[len++] = '\b';
+                    echo[len++] = ' ';
+                    echo[len++] = '\b';
                 }
             }
-            if (!(tty->termios.c_lflag & ICANON) || c == '\n') {
-                tty->canon = tty->head;
-                wake = true;
-            }
+            continue;
+        }
+
+        used = tty->head - tty->tail;
+        if (used >= PAGE_SIZE || (used >= PAGE_SIZE - 1 && c != '\n'))
+            continue;
+
+        tty->buffer[tty->head & (PAGE_SIZE - 1)] = c;
+        ++tty->head;
+        if (tty->termios.c_lflag & ECHO)
+            len += tty_opost(tty->termios.c_oflag, c, echo + len);
+
+        if (!(tty->termios.c_lflag & ICANON) || c == '\n') {
+            tty->canon = tty->head;
+            wake = true;
         }
     }
+
     if (wake)
         wake_up_all_locked(&tty->rwait);
     spin_unlock_irqrestore(&tty->rwait.lock, flags);
@@ -89,13 +93,13 @@ static void tty_receive(struct tty *tty, char c)
 static int tty_task(void *arg)
 {
     struct tty *tty = arg;
+    char buffer[TTY_RX_BATCH];
 
     for (;;) {
-        char c;
-        ssize_t ret = ns16550a_read(&c, 1);
+        ssize_t ret = ns16550a_read(buffer, sizeof(buffer));
 
-        Assert(ret == 1, "TTY receive failed (%ld)\n", ret);
-        tty_receive(tty, c);
+        Assert(ret > 0, "TTY receive failed (%ld)\n", ret);
+        tty_receive(tty, buffer, (size_t)ret);
     }
 }
 
@@ -214,15 +218,133 @@ static ssize_t tty_write(struct kiocb *iocb, struct kiov *iov)
     return done ? (ssize_t)done : ret;
 }
 
+struct tty_baud {
+    unsigned int code;
+    unsigned int baud;
+};
+
+static const struct tty_baud tty_bauds[] = {
+    {B50, 50},         {B75, 75},         {B110, 110},     {B134, 134},
+    {B150, 150},       {B200, 200},       {B300, 300},     {B600, 600},
+    {B1200, 1200},     {B1800, 1800},     {B2400, 2400},   {B4800, 4800},
+    {B9600, 9600},     {B19200, 19200},   {B38400, 38400}, {B57600, 57600},
+    {B115200, 115200}, {B230400, 230400},
+};
+
+#define TTY_BAUDS_COUNT (sizeof(tty_bauds) / sizeof(tty_bauds[0]))
+
+static const struct tty_baud *tty_baud_by_code(unsigned int code)
+{
+    for (size_t i = 0; i < TTY_BAUDS_COUNT; ++i)
+        if (tty_bauds[i].code == code)
+            return &tty_bauds[i];
+    return NULL;
+}
+
+static const struct tty_baud *tty_baud_by_rate(unsigned int baud)
+{
+    for (size_t i = 0; i < TTY_BAUDS_COUNT; ++i)
+        if (tty_bauds[i].baud == baud)
+            return &tty_bauds[i];
+    return NULL;
+}
+
+static void tty_termios_to_user(const struct termios2 *termios,
+                                struct termios *ktermios)
+{
+    *ktermios = (struct termios){
+        .c_iflag = termios->c_iflag,
+        .c_oflag = termios->c_oflag,
+        .c_cflag = termios->c_cflag,
+        .c_lflag = termios->c_lflag,
+        .c_line = termios->c_line,
+    };
+    memcpy(ktermios->c_cc, termios->c_cc, NCCS);
+}
+
+static int tty_termios_from_user(const struct termios *ktermios,
+                                 struct termios2 *termios)
+{
+    unsigned int code = ktermios->c_cflag & CBAUD;
+    const struct tty_baud *baud = tty_baud_by_code(code);
+
+    termios->c_iflag = ktermios->c_iflag;
+    termios->c_oflag = ktermios->c_oflag;
+    termios->c_cflag = ktermios->c_cflag;
+    termios->c_lflag = ktermios->c_lflag;
+    termios->c_line = ktermios->c_line;
+    memcpy(termios->c_cc, ktermios->c_cc, NCCS);
+    if (code == BOTHER)
+        return 0;
+    if (!baud)
+        return -EINVAL;
+    termios->c_ispeed = baud->baud;
+    termios->c_ospeed = baud->baud;
+    return 0;
+}
+
+static int tty_termios_normalize(struct termios2 *termios)
+{
+    const struct tty_baud *baud = tty_baud_by_rate(termios->c_ospeed);
+
+    if (!termios->c_ospeed)
+        return -EINVAL;
+    termios->c_ispeed = termios->c_ospeed;
+    termios->c_cflag =
+        (termios->c_cflag & ~CBAUD) | (baud ? baud->code : BOTHER);
+    return 0;
+}
+
+static int tty_set_termios(struct tty *tty, struct termios2 *termios,
+                           bool drain, bool discard)
+{
+    unsigned long flags;
+    int ret;
+
+    if (drain) {
+        ret = ns16550a_flush_output();
+        if (ret)
+            return ret;
+    }
+    ret = ns16550a_set_termios(termios);
+    if (ret)
+        return ret;
+    if (discard) {
+        ns16550a_flush_input();
+        mutex_lock(&tty->rlock);
+    }
+    spin_lock_irqsave(&tty->rwait.lock, flags);
+    tty->termios = *termios;
+    if (discard)
+        tty->head = tty->tail = tty->canon = 0;
+    if (!(termios->c_lflag & ICANON)) {
+        tty->canon = tty->head;
+        wake_up_all_locked(&tty->rwait);
+    }
+    spin_unlock_irqrestore(&tty->rwait.lock, flags);
+    if (discard)
+        mutex_unlock(&tty->rlock);
+    return 0;
+}
+
 static long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     struct tty *tty = file->f_private;
-    struct termios termios;
+    struct termios2 termios;
+    struct termios ktermios;
     struct winsize winsize;
     unsigned long flags;
+    int ret;
 
     switch (cmd) {
     case TCGETS:
+        spin_lock_irqsave(&tty->rwait.lock, flags);
+        tty_termios_to_user(&tty->termios, &ktermios);
+        spin_unlock_irqrestore(&tty->rwait.lock, flags);
+        if (copy_to_user((void *)arg, &ktermios, sizeof(ktermios)))
+            return -EFAULT;
+        return 0;
+    case TCGETS2:
         spin_lock_irqsave(&tty->rwait.lock, flags);
         termios = tty->termios;
         spin_unlock_irqrestore(&tty->rwait.lock, flags);
@@ -232,16 +354,24 @@ static long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     case TCSETS:
     case TCSETSW:
     case TCSETSF:
-        if (copy_from_user(&termios, (void *)arg, sizeof(termios)))
+        if (copy_from_user(&ktermios, (void *)arg, sizeof(ktermios)))
             return -EFAULT;
         spin_lock_irqsave(&tty->rwait.lock, flags);
-        tty->termios = termios;
-        if (!(termios.c_lflag & ICANON)) {
-            tty->canon = tty->head;
-            wake_up_all_locked(&tty->rwait);
-        }
+        termios = tty->termios;
         spin_unlock_irqrestore(&tty->rwait.lock, flags);
-        return 0;
+        ret = tty_termios_from_user(&ktermios, &termios);
+        if (ret)
+            return ret;
+        return tty_set_termios(tty, &termios, cmd != TCSETS, cmd == TCSETSF);
+    case TCSETS2:
+    case TCSETSW2:
+    case TCSETSF2:
+        if (copy_from_user(&termios, (void *)arg, sizeof(termios)))
+            return -EFAULT;
+        ret = tty_termios_normalize(&termios);
+        if (ret)
+            return ret;
+        return tty_set_termios(tty, &termios, cmd != TCSETS2, cmd == TCSETSF2);
     case TIOCGWINSZ:
         spin_lock_irqsave(&tty->rwait.lock, flags);
         winsize = tty->winsize;
@@ -279,6 +409,7 @@ static poll_t tty_poll(struct file *file, struct poll_table *table)
 static const struct file_operations tty_fops = {
     .read = tty_read,
     .write = tty_write,
+    .poll = tty_poll,
     .ioctl = tty_ioctl,
 };
 
@@ -314,16 +445,15 @@ static struct file *tty_open(unsigned int flags)
 
 int tty_init(void)
 {
-    struct task *task __free(task_put) = task_alloc(false);
+    struct task *task __free(task_put) = NULL;
+    int ret;
 
-    if (!task)
-        return -ENOMEM;
     wait_queue_init(&gtty.rwait);
     mutex_init(&gtty.rlock);
-    gtty.termios = (struct termios){
+    gtty.termios = (struct termios2){
         .c_iflag = ICRNL | IXON,
         .c_oflag = OPOST | ONLCR,
-        .c_cflag = CS8 | CREAD,
+        .c_cflag = B115200 | CS8 | CREAD,
         .c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN,
         .c_cc = {[VINTR] = 3,
                  [VQUIT] = 28,
@@ -338,8 +468,13 @@ int tty_init(void)
                  [VDISCARD] = 15,
                  [VWERASE] = 23,
                  [VLNEXT] = 22},
+        .c_ispeed = 115200,
+        .c_ospeed = 115200,
     };
     gtty.winsize = (struct winsize){.ws_row = 24, .ws_col = 80};
+    ret = ns16550a_set_termios(&gtty.termios);
+    if (ret)
+        return ret;
 
     tty_inode = i_alloc(NULL);
     if (!tty_inode)
@@ -350,6 +485,9 @@ int tty_init(void)
     tty_inode->i_fops = &tty_fops;
     tty_inode->i_private = &gtty;
 
+    task = task_alloc(false);
+    if (!task)
+        return -ENOMEM;
     arch_ktask_init(&task->ctx, tty_task, &gtty);
     sched_publish(task);
     return 0;

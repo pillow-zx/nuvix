@@ -48,6 +48,7 @@
 !drivers/Kconfig
 !drivers/tty/
 !drivers/tty/*.c
+!drivers/tty/*.h
 !drivers/block/
 !drivers/block/*.c
 !drivers/virtio/

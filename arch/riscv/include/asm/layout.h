@@ -21,7 +21,6 @@
 #define IOREMAP_VBASE   0xffffffe000000000
 
 #define UART_VBASE      IOREMAP_VBASE
-#define UART_CLOCK      3686400
 
 #define PLIC_VBASE      (IOREMAP_VBASE + PAGE_SIZE)
 

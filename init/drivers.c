@@ -1,6 +1,6 @@
 #include <nuvix/device.h>
 #include <nuvix/platform.h>
-#include <nuvix/ns16550a.h>
+#include <nuvix/tty.h>
 #include <nuvix/virtio.h>
 
 int device_init(const struct dtb *dtb)
