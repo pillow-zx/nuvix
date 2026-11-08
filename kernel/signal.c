@@ -184,6 +184,13 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
             sigset_t pending = task->pending.signal & ~task->blocked;
 
             if (!pending) {
+                if (task_test_flag(task, TF_RESIGMASK)) {
+                    task->blocked = task->sigmask;
+                    task_clear_flag(task, TF_RESIGMASK);
+                    recalc_sigpending(task);
+                    spin_unlock(&task->signal_lock);
+                    continue;
+                }
                 spin_unlock(&task->signal_lock);
                 if (task_test_flag(task, TF_SIGSUSPEND)) {
                     wait_for_signal();
@@ -198,8 +205,9 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
         }
 
         signal->action = task->actions[sig - 1];
-        signal->oldmask =
-            task_test_flag(task, TF_SIGSUSPEND) ? task->sigmask : task->blocked;
+        signal->oldmask = task_test_flag(task, TF_SIGSUSPEND | TF_RESIGMASK)
+                              ? task->sigmask
+                              : task->blocked;
         fatal = fault && ((task->blocked & sigmask(sig)) ||
                           signal->action.sa_handler == SIG_DFL ||
                           signal->action.sa_handler == SIG_IGN);
@@ -230,7 +238,7 @@ void signal_delivered(const struct ksignal *signal)
     struct task *task = current;
 
     spin_lock(&task->signal_lock);
-    task_clear_flag(task, TF_SIGSUSPEND);
+    task_clear_flag(task, TF_SIGSUSPEND | TF_RESIGMASK);
     task->blocked |= signal->action.sa_mask;
     if (!(signal->action.sa_flags & SA_NODEFER))
         task->blocked |= sigmask(signal->info.si_signo);

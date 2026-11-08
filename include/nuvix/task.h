@@ -22,6 +22,7 @@ struct completion;
 #define TF_SIGPENDING        (1U << 2)
 #define TF_STOPPENDING       (1U << 3)
 #define TF_SIGSUSPEND        (1U << 4)
+#define TF_RESIGMASK         (1U << 5)
 
 #define TASK_NEW             0U
 #define TASK_RUNNABLE        (1U << 0)
