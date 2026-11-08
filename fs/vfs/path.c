@@ -142,7 +142,9 @@ int vfs_lookup(int dirfd, const char *path, unsigned int flags,
         struct inode *dir = cur.dentry->d_inode;
         char name[VFS_NAME_MAX + 1];
         const char *tail;
+        const char *end;
         bool slash;
+        bool last;
 
         while (*cursor == '/')
             cursor++;
@@ -159,8 +161,24 @@ int vfs_lookup(int dirfd, const char *path, unsigned int flags,
         memcpy(name, cursor, len);
         name[len] = '\0';
         slash = *tail == '/';
+        end = tail;
+        while (*end == '/')
+            end++;
+        last = !*end;
+        if (last && slash && (flags & PATH_CREATE)) {
+            ret = -EISDIR;
+            goto out;
+        }
         mutex_lock(&dir->mutex);
         ret = vfs_lookone(&cur, name, &next);
+        if (!ret && last) {
+            if (next.dentry->d_inode && (flags & PATH_EXCL)) {
+                ret = -EEXIST;
+            } else if (!next.dentry->d_inode && (flags & PATH_CREATE)) {
+                ret = dir->i_ops->create ? dir->i_ops->create(dir, next.dentry)
+                                         : -EACCES;
+            }
+        }
         mutex_unlock(&dir->mutex);
         if (ret)
             goto out;

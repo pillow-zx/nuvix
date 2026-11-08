@@ -196,6 +196,7 @@ static const struct inode_operations ext2_inode_ops = {
     .lookup = ext2_lookup,
     .getattr = ext2_getattr,
     .setattr = ext2_setattr,
+    .create = ext2_create,
     .mkdir = ext2_mkdir,
     .unlink = ext2_unlink,
     .rmdir = ext2_rmdir,

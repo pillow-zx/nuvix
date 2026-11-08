@@ -19,19 +19,26 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
     struct path resolved = {0};
     struct file *file __free(kfree) = NULL;
     unsigned int access = flags & O_ACCMODE;
+    unsigned int lookup = flags & O_NOFOLLOW ? 0 : PATH_FOLLOW;
     struct inode *inode;
     int ret;
 
     if (!*path)
         return ERR_PTR(-ENOENT);
-    if (flags & ~(O_ACCMODE | O_NONBLOCK | O_LARGEFILE | O_DIRECTORY |
-                  O_NOFOLLOW | O_CLOEXEC))
+    if (flags & ~(O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_NONBLOCK |
+                  O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC))
         return ERR_PTR(-EOPNOTSUPP);
     if (access == O_ACCMODE)
         return ERR_PTR(-EINVAL);
+    if ((flags & (O_CREAT | O_DIRECTORY)) == (O_CREAT | O_DIRECTORY))
+        return ERR_PTR(-EINVAL);
+    if (flags & O_CREAT) {
+        lookup |= PATH_CREATE;
+        if (flags & O_EXCL)
+            lookup |= PATH_EXCL;
+    }
 
-    ret = vfs_lookup(dirfd, path, flags & O_NOFOLLOW ? 0 : PATH_FOLLOW,
-                     &resolved);
+    ret = vfs_lookup(dirfd, path, lookup, &resolved);
     if (ret)
         return ERR_PTR(ret);
 
@@ -52,8 +59,9 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
         ret = -EOPNOTSUPP;
         goto fail;
     }
-    if (S_ISDIR(inode->i_mode) && access != O_RDONLY) {
-        ret = -EISDIR;
+    if (S_ISDIR(inode->i_mode) &&
+        (access != O_RDONLY || (flags & (O_CREAT | O_TRUNC)))) {
+        ret = (flags & O_CREAT) && (flags & O_EXCL) ? -EEXIST : -EISDIR;
         goto fail;
     }
 
@@ -65,7 +73,7 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
 
     refcount_set(&file->f_count, 1);
     mutex_init(&file->f_pos_lock);
-    file->f_flags = flags & ~O_CLOEXEC;
+    file->f_flags = flags & ~(O_CREAT | O_EXCL | O_TRUNC | O_CLOEXEC);
     file->f_pos = 0;
     file->f_inode = inode;
     file->f_ops = inode->i_fops;
@@ -75,6 +83,16 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
         ret = file->f_ops->open(file);
         if (ret) {
             path_put(&file->f_path);
+            return ERR_PTR(ret);
+        }
+    }
+    if ((flags & O_TRUNC) && S_ISREG(inode->i_mode)) {
+        struct iattr attr = {.ia_valid = ATTR_SIZE, .ia_size = 0};
+
+        ret = inode->i_ops->setattr ? inode->i_ops->setattr(inode, &attr)
+                                    : -EOPNOTSUPP;
+        if (ret) {
+            fput(move(file));
             return ERR_PTR(ret);
         }
     }
@@ -134,12 +152,14 @@ long sys_openat(struct trap_frame *frame)
 
     if (IS_ERR(path))
         return PTR_ERR(move(path));
-    file = vfs_open(dirfd, path, flags);
-    if (IS_ERR(file))
-        return PTR_ERR(move(file));
     fd = fd_alloc(current->fdtable);
     if (fd < 0)
         return fd;
+    file = vfs_open(dirfd, path, flags);
+    if (IS_ERR(file)) {
+        fd_release(current->fdtable, fd);
+        return PTR_ERR(move(file));
+    }
     fd_replace(current->fdtable, (unsigned long)fd, move(file), cloexec);
     return fd;
 }

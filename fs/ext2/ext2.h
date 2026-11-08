@@ -150,6 +150,7 @@ extern const struct file_operations ext2_file_operations;
 extern const struct mapping_ops ext2_file_mapping_operations;
 
 struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry);
+int ext2_create(struct inode *dir, struct dentry *dentry);
 struct dentry *ext2_mkdir(struct inode *dir, struct dentry *dentry);
 int ext2_unlink(struct inode *dir, struct dentry *dentry);
 int ext2_rmdir(struct inode *dir, struct dentry *dentry);

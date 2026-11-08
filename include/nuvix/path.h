@@ -12,6 +12,8 @@ struct path {
 #define AT_FDCWD    (-100)
 #define PATH_FOLLOW (1U << 0)
 #define PATH_EMPTY  (1U << 1)
+#define PATH_CREATE (1U << 2)
+#define PATH_EXCL   (1U << 3)
 
 void path_get(const struct path *path);
 

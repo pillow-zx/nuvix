@@ -30,6 +30,26 @@ struct dentry *ext2_lookup(struct inode *dir, struct dentry *dentry)
     return dentry;
 }
 
+int ext2_create(struct inode *dir, struct dentry *dentry)
+{
+    struct inode *inode __free(iput) = NULL;
+    int ret;
+
+    assert_mutex_locked(&dir->mutex);
+    inode = ext2_alloc_inode(dir, S_IFREG);
+    if (IS_ERR(inode))
+        return PTR_ERR(move(inode));
+
+    mutex_lock(&inode->mutex);
+    ret = ext2_add_dirent(dir, dentry->d_name, dentry->d_nlen, inode);
+    if (ret)
+        inode->i_nlink = 0;
+    mutex_unlock(&inode->mutex);
+    if (!ret)
+        dentry->d_inode = move(inode);
+    return ret;
+}
+
 struct dentry *ext2_mkdir(struct inode *dir, struct dentry *dentry)
 {
     struct cache_page *dp __free(cache_page) = NULL;
