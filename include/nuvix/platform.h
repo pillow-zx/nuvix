@@ -19,6 +19,8 @@ struct resource {
 
 struct platform_device {
     struct device dev;
+    const void *blob;
+    int node;
     /* Validated NUL-separated strings borrowed from the permanent DTB. */
     const char *compat;
     size_t compat_len;
@@ -57,6 +59,8 @@ extern const struct bus platform_bus;
 const struct resource *platform_get_resource(const struct platform_device *dev,
                                              enum resource_type type,
                                              unsigned int index);
+int platform_get_u32(const struct platform_device *dev, const char *property,
+                     uint32_t *value);
 int platform_scan(const struct dtb *dtb);
 
 #endif /* _NUVIX_PLATFORM_H */

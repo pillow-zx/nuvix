@@ -49,6 +49,19 @@ const struct resource *platform_get_resource(const struct platform_device *dev,
     return NULL;
 }
 
+int platform_get_u32(const struct platform_device *dev, const char *property,
+                     uint32_t *value)
+{
+    const fdt32_t *cells;
+    int len;
+
+    cells = fdt_getprop(dev->blob, dev->node, property, &len);
+    if (!cells || len != sizeof(*cells))
+        return -EINVAL;
+    *value = fdt32_to_cpu(*cells);
+    return 0;
+}
+
 static int platform_mem_resource(const struct dtb_range *range, void *arg)
 {
     struct platform_device *dev = arg;
@@ -95,6 +108,8 @@ int platform_scan(const struct dtb *dtb)
             return -ENOMEM;
         dev->dev.name = fdt_get_name(blob, node, NULL);
         dev->dev.bus = &platform_bus;
+        dev->blob = blob;
+        dev->node = node;
         dev->compat = compat;
         dev->compat_len = len;
         ret = dtb_scan_reg(dtb, node, platform_mem_resource, dev);
