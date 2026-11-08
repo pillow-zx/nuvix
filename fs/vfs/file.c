@@ -391,10 +391,173 @@ out:
     return ret;
 }
 
+struct renamedata {
+    struct path parent;
+    struct path entry;
+    struct inode *dir;
+    struct inode *inode;
+    const char *name;
+    bool slash;
+};
+
+static bool is_ancestor(const struct dentry *ancestor,
+                        const struct dentry *dentry)
+{
+    for (; dentry; dentry = dentry->d_parent) {
+        if (dentry == ancestor)
+            return true;
+    }
+    return false;
+}
+
+static int resolve_lastname(int dirfd, char *path, struct renamedata *data)
+{
+    const char *last;
+    size_t len;
+    int ret;
+
+    ret = vfs_lookparent(dirfd, path, &data->parent, &last, &len);
+    if (ret)
+        return ret;
+    if (!len || (len == 1 && last[0] == '.') ||
+        (len == 2 && last[0] == '.' && last[1] == '.'))
+        return -EBUSY;
+    data->slash = last[len] == '/';
+    ((char *)last)[len] = '\0';
+    data->name = last;
+    return 0;
+}
+
 long sys_renameat2(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    int oldfd = (int)syscallarg(frame, 0);
+    const char *uold = (const char *)syscallarg(frame, 1);
+    int newfd = (int)syscallarg(frame, 2);
+    const char *unew = (const char *)syscallarg(frame, 3);
+    unsigned int flags = syscallarg(frame, 4);
+    char *oldpath __free(kfree) = NULL;
+    char *newpath __free(kfree) = NULL;
+    struct renamedata old = {0};
+    struct renamedata new = {0};
+    struct inode *dead = NULL;
+    int ret;
+
+    if (flags & ~RENAME_NOREPLACE)
+        return -EINVAL;
+    oldpath = get_pathname(uold);
+    if (IS_ERR(oldpath))
+        return PTR_ERR(move(oldpath));
+    newpath = get_pathname(unew);
+    if (IS_ERR(newpath))
+        return PTR_ERR(move(newpath));
+    ret = resolve_lastname(oldfd, oldpath, &old);
+    if (ret)
+        goto out;
+    ret = resolve_lastname(newfd, newpath, &new);
+    if (ret)
+        goto out;
+
+    old.dir = old.parent.dentry->d_inode;
+    new.dir = new.parent.dentry->d_inode;
+    if (old.dir->i_sb != new.dir->i_sb) {
+        ret = -EXDEV;
+        goto out;
+    }
+    if (!old.dir->i_ops->rename) {
+        ret = -EPERM;
+        goto out;
+    }
+
+    if (old.dir == new.dir) {
+        mutex_lock(&old.dir->mutex);
+    } else if ((uintptr_t)old.dir < (uintptr_t)new.dir) {
+        mutex_lock(&old.dir->mutex);
+        mutex_lock(&new.dir->mutex);
+    } else {
+        mutex_lock(&new.dir->mutex);
+        mutex_lock(&old.dir->mutex);
+    }
+    ret = vfs_lookone(&old.parent, old.name, &old.entry);
+    if (ret)
+        goto dirs;
+    ret = vfs_lookone(&new.parent, new.name, &new.entry);
+    if (ret)
+        goto dirs;
+
+    old.inode = old.entry.dentry->d_inode;
+    new.inode = new.entry.dentry->d_inode;
+    if (!old.inode) {
+        ret = -ENOENT;
+        goto dirs;
+    }
+    if (old.slash && !S_ISDIR(old.inode->i_mode)) {
+        ret = -ENOTDIR;
+        goto dirs;
+    }
+    if (S_ISDIR(old.inode->i_mode)) {
+        if (new.inode && !S_ISDIR(new.inode->i_mode)) {
+            ret = -ENOTDIR;
+            goto dirs;
+        }
+        if (!new.inode && new.slash) {
+            ret = -ENOENT;
+            goto dirs;
+        }
+    } else {
+        if (new.slash) {
+            ret = -ENOTDIR;
+            goto dirs;
+        }
+        if (new.inode && S_ISDIR(new.inode->i_mode)) {
+            ret = -EISDIR;
+            goto dirs;
+        }
+    }
+    if (!old.entry.dentry->d_parent) {
+        ret = -EBUSY;
+        goto dirs;
+    }
+
+    if (is_ancestor(old.entry.dentry, new.parent.dentry)) {
+        ret = -EINVAL;
+        goto dirs;
+    }
+    if (new.entry.dentry != old.entry.dentry &&
+        is_ancestor(new.entry.dentry, old.entry.dentry)) {
+        ret = -ENOTEMPTY;
+        goto dirs;
+    }
+
+    if (new.inode && (uintptr_t)new.inode < (uintptr_t)old.inode) {
+        mutex_lock(&new.inode->mutex);
+        mutex_lock(&old.inode->mutex);
+    } else {
+        mutex_lock(&old.inode->mutex);
+        if (new.inode && new.inode != old.inode)
+            mutex_lock(&new.inode->mutex);
+    }
+    ret = old.dir->i_ops->rename(old.dir, old.entry.dentry, new.dir,
+                                 new.entry.dentry, flags);
+    if (!ret && old.inode != new.inode) {
+        dcache_drop(old.entry.dentry);
+        ihold(old.inode);
+        new.entry.dentry->d_inode = old.inode;
+        dead = new.inode;
+    }
+    mutex_unlock(&old.inode->mutex);
+    if (new.inode && new.inode != old.inode)
+        mutex_unlock(&new.inode->mutex);
+dirs:
+    mutex_unlock(&old.dir->mutex);
+    if (new.dir != old.dir)
+        mutex_unlock(&new.dir->mutex);
+    iput(dead);
+out:
+    path_put(&old.parent);
+    path_put(&old.entry);
+    path_put(&new.parent);
+    path_put(&new.entry);
+    return ret;
 }
 
 long sys_readlinkat(struct trap_frame *frame)
