@@ -1175,6 +1175,29 @@ long sys_writev(struct trap_frame *frame)
     return file_write(file, &iov);
 }
 
+long sys_faccessat(struct trap_frame *frame)
+{
+    int dirfd = (int)syscallarg(frame, 0);
+    const char *upath = (const char *)syscallarg(frame, 1);
+    int mode = (int)syscallarg(frame, 2);
+    struct path resolved = {0};
+    char *path __free(kfree) = NULL;
+    int ret;
+
+    if (mode & ~S_IRWXO)
+        return -EINVAL;
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+
+    ret = vfs_lookup(dirfd, path, PATH_FOLLOW, &resolved);
+    if (ret)
+        return ret;
+
+    path_put(&resolved);
+    return 0;
+}
+
 long sys_fchmodat(struct trap_frame *frame)
 {
     int dirfd = (int)syscallarg(frame, 0);
@@ -1191,6 +1214,36 @@ long sys_fchmodat(struct trap_frame *frame)
     if (ret)
         return ret;
 
+    path_put(&resolved);
+    return 0;
+}
+
+long sys_utimensat(struct trap_frame *frame)
+{
+    int dirfd = (int)syscallarg(frame, 0);
+    const char *upath = (const char *)syscallarg(frame, 1);
+    int flags = (int)syscallarg(frame, 3);
+    struct path resolved = {0};
+    char *path __free(kfree) = NULL;
+    int ret;
+
+    if (flags & ~AT_SYMLINK_NOFOLLOW)
+        return -EINVAL;
+    if (!upath && dirfd != AT_FDCWD) {
+        struct file *file __free(fput) = NULL;
+
+        if (flags)
+            return -EINVAL;
+        file = fd_open(current->fdtable, dirfd);
+        return file ? 0 : -EBADF;
+    }
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    ret = vfs_lookup(dirfd, path, flags & AT_SYMLINK_NOFOLLOW ? 0 : PATH_FOLLOW,
+                     &resolved);
+    if (ret)
+        return ret;
     path_put(&resolved);
     return 0;
 }

@@ -11,6 +11,7 @@
 #define __NR_symlinkat       36
 #define __NR_linkat          37
 #define __NR_ftruncate       46
+#define __NR_faccessat       48
 #define __NR_chdir           49
 #define __NR_fchdir          50
 #define __NR_fchmodat        53
@@ -30,6 +31,7 @@
 #define __NR_newfstatat      79
 #define __NR_fstat           80
 #define __NR_fsync           82
+#define __NR_utimensat       88
 #define __NR_exit            93
 #define __NR_exit_group      94
 #define __NR_waitid          95

@@ -13,6 +13,8 @@
 #define S_IFLNK       0120000
 #define S_IFSOCK      0140000
 
+#define S_IRWXO       00007
+
 #define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
 #define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
 #define S_ISLNK(mode) (((mode) & S_IFMT) == S_IFLNK)

@@ -1,5 +1,6 @@
 obj-y 										+= fs/pipe.c
 obj-y 										+= fs/vfs/fdtable.c
+obj-y 										+= fs/vfs/poll.c
 obj-y 										+= fs/vfs/file.c
 obj-y 									  += fs/vfs/kiov.c
 obj-y 										+= fs/vfs/super.c
