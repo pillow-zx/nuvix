@@ -261,6 +261,21 @@ static long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     }
 }
 
+static poll_t tty_poll(struct file *file, struct poll_table *table)
+{
+    struct tty *tty = file->f_private;
+    unsigned long flags;
+    poll_t mask = 0;
+
+    spin_lock_irqsave(&tty->rwait.lock, flags);
+    if (FILE_READ(file))
+        tty->tail != tty->canon ? mask |= POLLIN : poll_add(&tty->rwait, table);
+    if (FILE_WRITE(file))
+        mask |= POLLOUT;
+    spin_unlock_irqrestore(&tty->rwait.lock, flags);
+    return mask;
+}
+
 static const struct file_operations tty_fops = {
     .read = tty_read,
     .write = tty_write,

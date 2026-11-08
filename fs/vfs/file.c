@@ -811,12 +811,6 @@ long sys_ioctl(struct trap_frame *frame)
     return file->f_ops->ioctl(file, cmd, arg);
 }
 
-long sys_ppoll(struct trap_frame *frame)
-{
-    (void)frame;
-    return -ENOTSUPP;
-}
-
 static ssize_t file_read(struct file *file, struct kiov *iov)
 {
     struct kiocb iocb = {.file = file};

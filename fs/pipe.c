@@ -192,9 +192,34 @@ static int pipe_release(struct file *file)
     return 0;
 }
 
+static poll_t pipe_poll(struct file *file, struct poll_table *table)
+{
+    struct pipe *pipe = file->f_private;
+    unsigned long flags;
+    poll_t mask = 0;
+
+    spin_lock_irqsave(&pipe->wq.lock, flags);
+    poll_add(&pipe->wq, table);
+    if (FILE_READ(file)) {
+        if (pipe->head != pipe->tail)
+            mask |= POLLIN;
+        if (!pipe->writers)
+            mask |= POLLIN | POLLHUP;
+    }
+    if (FILE_WRITE(file)) {
+        if (pipe->head - pipe->tail < PIPE_BUF_SIZE)
+            mask |= POLLOUT;
+        if (!pipe->readers)
+            mask |= POLLERR;
+    }
+    spin_unlock_irqrestore(&pipe->wq.lock, flags);
+    return mask;
+}
+
 static const struct file_operations pipe_fops = {
     .read = pipe_read,
     .write = pipe_write,
+    .poll = pipe_poll,
     .release = pipe_release,
 };
 

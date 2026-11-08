@@ -9,6 +9,7 @@
 #include <nuvix/path.h>
 #include <nuvix/cleanup.h>
 #include <nuvix/hlist.h>
+#include <nuvix/poll.h>
 
 #define VFS_NAME_MAX     255
 
@@ -16,6 +17,9 @@
 #define O_WRONLY         00000001
 #define O_RDWR           00000002
 #define O_ACCMODE        00000003
+#define O_CREAT          00000100
+#define O_EXCL           00000200
+#define O_TRUNC          00001000
 #define O_NONBLOCK       00004000
 #define O_LARGEFILE      00100000
 #define O_DIRECTORY      00200000
@@ -103,6 +107,7 @@ struct file_operations {
     loff_t (*llseek)(struct file *, loff_t, int);
     ssize_t (*read)(struct kiocb *, struct kiov *);
     ssize_t (*write)(struct kiocb *, struct kiov *);
+    poll_t (*poll)(struct file *, struct poll_table *);
     long (*ioctl)(struct file *, unsigned int, unsigned long);
     int (*readdir)(struct file *, struct dirctx *);
     int (*fsync)(struct file *);
