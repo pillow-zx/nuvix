@@ -4,6 +4,7 @@
 #include <nuvix/device.h>
 
 #define VIRTIO_ID_BLOCK           2
+#define VIRTIO_ID_RNG             4
 #define VIRTIO_STATUS_ACK         1
 #define VIRTIO_STATUS_DRIVER      2
 #define VIRTIO_STATUS_DRIVER_OK   4
@@ -78,6 +79,7 @@ extern const struct bus virtio_bus;
 
 int virtio_mmio_scan(const struct dtb *dtb);
 int virtio_blk_register(void);
+int virtio_rng_register(void);
 
 int virtio_dev_ready(struct virtio_dev *dev);
 

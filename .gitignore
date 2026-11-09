@@ -51,6 +51,8 @@
 !drivers/tty/*.h
 !drivers/block/
 !drivers/block/*.c
+!drivers/rng/
+!drivers/rng/*.c
 !drivers/virtio/
 !drivers/virtio/*.c
 

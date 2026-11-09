@@ -156,9 +156,3 @@ long sys_reboot(struct trap_frame *frame)
         return -EINVAL;
     }
 }
-
-long sys_getrandom(struct trap_frame *frame)
-{
-    (void)frame;
-    return -ENOTSUPP;
-}

@@ -21,5 +21,8 @@ int driver_init(void)
     ret = virtio_blk_register();
     if (ret)
         return ret;
+    ret = virtio_rng_register();
+    if (ret)
+        return ret;
     return devices_probe();
 }
