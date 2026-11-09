@@ -9,18 +9,22 @@
 #include <nuvix/rbtree.h>
 #include <nuvix/bitops.h>
 
-#define VM_READ       BIT(0)
-#define VM_WRITE      BIT(1)
-#define VM_EXEC       BIT(2)
+#define VM_READ          BIT(0)
+#define VM_WRITE         BIT(1)
+#define VM_EXEC          BIT(2)
 
-#define PROT_NONE     0x0
-#define PROT_READ     0x1
-#define PROT_WRITE    0x2
-#define PROT_EXEC     0x4
+#define PROT_NONE        0x0
+#define PROT_READ        0x1
+#define PROT_WRITE       0x2
+#define PROT_EXEC        0x4
 
-#define MAP_PRIVATE   0x02
-#define MAP_FIXED     0x10
-#define MAP_ANONYMOUS 0x20
+#define MAP_PRIVATE      0x02
+#define MAP_FIXED        0x10
+#define MAP_ANONYMOUS    0x20
+
+#define MREMAP_MAYMOVE   1
+#define MREMAP_FIXED     2
+#define MREMAP_DONTUNMAP 4
 
 struct mm_struct {
     refcount_t urefs;
@@ -109,6 +113,8 @@ void vma_remove(struct vm_struct *vma);
 struct vm_struct *map_range(struct mm_struct *mm, vaddr_t start, vaddr_t end,
                             unsigned long vm_flags);
 int unmap_range(struct mm_struct *mm, vaddr_t start, vaddr_t end);
+int move_range(struct mm_struct *mm, vaddr_t start, vaddr_t end, vaddr_t nstart,
+               vaddr_t nend);
 int protect_range(struct mm_struct *mm, vaddr_t start, vaddr_t end,
                   unsigned long vm_flags);
 

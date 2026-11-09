@@ -219,6 +219,46 @@ int unmap_range(struct mm_struct *mm, vaddr_t start, vaddr_t end)
     return 0;
 }
 
+int move_range(struct mm_struct *mm, vaddr_t start, vaddr_t end, vaddr_t nstart,
+               vaddr_t nend)
+{
+    struct vm_struct *vma = vma_find(mm, start);
+    struct vm_struct *left __free(vma) = NULL;
+    struct vm_struct *right __free(vma) = NULL;
+    size_t len = end - start;
+    int ret;
+
+    Assert(mm->mmap_lock.owner == current && vma && !vma->vm_file &&
+               start < end && end <= vma->vm_end &&
+               nend - nstart >= end - start,
+           "range move requires a locked anonymous VMA and sufficient space\n");
+    if (vma->vm_start < start) {
+        left = vma_alloc();
+        if (!left)
+            return -ENOMEM;
+    }
+    if (end < vma->vm_end) {
+        right = vma_alloc();
+        if (!right)
+            return -ENOMEM;
+    }
+    ret = pgtable_move(mm, start, nstart, len);
+    if (ret)
+        return ret;
+    if (left) {
+        vma_split(vma, start, move(left));
+        vma = vma_find(mm, start);
+    }
+    if (right)
+        vma_split(vma, end, move(right));
+    vma_remove(vma);
+    vma->vm_start = nstart;
+    vma->vm_end = nend;
+    ret = vma_insert(mm, vma);
+    Assert(!ret, "failed to insert moved VMA\n");
+    return 0;
+}
+
 int protect_range(struct mm_struct *mm, vaddr_t start, vaddr_t end,
                   unsigned long vm_flags)
 {

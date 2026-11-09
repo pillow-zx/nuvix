@@ -210,6 +210,56 @@ int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
     return ret;
 }
 
+int pgtable_move(struct mm_struct *mm, vaddr_t old, vaddr_t new, size_t len)
+{
+    pt_entry_t *pgd = pgtable_ptr(mm->pgd);
+    unsigned long flags;
+
+    might_sleep();
+    Assert(mm->mmap_lock.owner == current && len &&
+               !((old | new | len) & (PAGE_SIZE - 1)) &&
+               (old + len <= new || new + len <= old),
+           "page table move requires locked, aligned, disjoint ranges\n");
+    for (size_t offset = 0; offset < len; offset += PAGE_SIZE) {
+        pt_entry_t *src, *dst;
+        int ret;
+
+        spin_lock_irqsave(&mm->pgtable_lock, flags);
+        ret = walk_pte(pgd, old + offset, &src);
+        if (ret || !pt_entry_present(pt_entry_read(src))) {
+            spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+            continue;
+        }
+        ret = walk_pte_create(pgd, new + offset, &dst);
+        if (!ret)
+            Assert(pt_entry_none(pt_entry_read(dst)),
+                   "page table move requires an empty destination\n");
+        spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+        if (ret)
+            return ret;
+    }
+
+    flush_icache_all();
+    for (size_t offset = 0; offset < len; offset += PAGE_SIZE) {
+        pt_entry_t *src, *dst;
+        int ret;
+
+        spin_lock_irqsave(&mm->pgtable_lock, flags);
+        ret = walk_pte(pgd, old + offset, &src);
+        if (ret || !pt_entry_present(pt_entry_read(src))) {
+            spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+            continue;
+        }
+        ret = walk_pte(pgd, new + offset, &dst);
+        Assert(!ret && pt_entry_none(pt_entry_read(dst)),
+               "page table move requires a prepared destination\n");
+        pt_entry_write(dst, xchg(src, 0));
+        spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+    }
+    flush_tlb_all();
+    return 0;
+}
+
 struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr)
 {
     pt_entry_t *pte;

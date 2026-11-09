@@ -121,8 +121,68 @@ out:
 
 long sys_mremap(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    vaddr_t addr = syscallarg(frame, 0);
+    size_t olen = syscallarg(frame, 1);
+    size_t nlen = syscallarg(frame, 2);
+    unsigned long flags = syscallarg(frame, 3);
+    struct mm_struct *mm = current->mm;
+    struct vm_struct *vma;
+    vaddr_t oend, nend, naddr;
+    long ret;
+
+    if (flags & ~MREMAP_MAYMOVE)
+        return -EINVAL;
+    ret = range_end(addr, olen, &oend);
+    if (ret)
+        return ret;
+    if (!nlen)
+        return -EINVAL;
+    if (nlen > UVADDR_SIZE)
+        return -ENOMEM;
+    olen = oend - addr;
+    nlen = ALIGN_UP(nlen, (size_t)PAGE_SIZE);
+
+    mutex_lock(&mm->mmap_lock);
+    vma = vma_find(mm, addr);
+    if (!vma || oend > vma->vm_end) {
+        ret = -EFAULT;
+        goto out;
+    }
+    if (vma->vm_file) {
+        ret = -EOPNOTSUPP;
+        goto out;
+    }
+    if (nlen == olen) {
+        ret = addr;
+        goto out;
+    }
+    if (nlen < olen) {
+        ret = unmap_range(mm, addr + nlen, oend);
+        if (!ret)
+            ret = addr;
+        goto out;
+    }
+    ret = range_end(addr, nlen, &nend);
+    if (!ret && oend == vma->vm_end && !vma_find_intersection(mm, oend, nend)) {
+        vma_remove(vma);
+        vma->vm_end = nend;
+        ret = vma_insert(mm, vma);
+        Assert(!ret, "failed to insert expanded VMA\n");
+        ret = addr;
+        goto out;
+    }
+    ret = -ENOMEM;
+    if (!(flags & MREMAP_MAYMOVE))
+        goto out;
+    naddr = find_unmapped(mm, 0, nlen);
+    if (!naddr)
+        goto out;
+    ret = move_range(mm, addr, oend, naddr, naddr + nlen);
+    if (!ret)
+        ret = naddr;
+out:
+    mutex_unlock(&mm->mmap_lock);
+    return ret;
 }
 
 long sys_munmap(struct trap_frame *frame)

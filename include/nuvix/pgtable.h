@@ -32,6 +32,7 @@ int alloc_pgd(paddr_t *paddr);
  */
 void pgtable_free(paddr_t paddr);
 int pgtable_clone(struct mm_struct *dst, struct mm_struct *src);
+int pgtable_move(struct mm_struct *mm, vaddr_t old, vaddr_t new, size_t len);
 
 /*
  * Local CPU, IRQ off. Loads mm's root, or the permanent kernel root for NULL,
