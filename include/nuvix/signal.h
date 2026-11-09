@@ -45,6 +45,7 @@
 #define SIGINFO_SIZE 128
 
 #define SA_SIGINFO   0x00000004UL
+#define SA_ONSTACK   0x08000000UL
 #define SA_NODEFER   0x40000000UL
 #define SA_RESETHAND 0x80000000UL
 
@@ -68,6 +69,12 @@
 
 typedef unsigned long sigset_t;
 typedef void (*sighandler_t)(int);
+
+typedef struct sigaltstack {
+    void *ss_sp;
+    int ss_flags;
+    size_t ss_size;
+} stack_t;
 
 #define SIG_DFL         ((sighandler_t)0)
 #define SIG_IGN         ((sighandler_t)1)
@@ -140,6 +147,9 @@ struct task;
 void signal_task_init(struct task *task);
 void signal_task_free(struct task *task);
 void signal_clone(void);
+
+int signal_stack_flags(unsigned long sp);
+int signal_set_stack(const stack_t *stack, unsigned long sp);
 
 bool get_signal(struct ksignal *signal, const siginfo_t *fault);
 void signal_delivered(const struct ksignal *signal);

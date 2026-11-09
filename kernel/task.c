@@ -268,6 +268,7 @@ long sys_clone(struct trap_frame *frame)
     path_get(&child->cwd);
     spin_lock(&current->signal_lock);
     child->blocked = current->blocked;
+    child->sigstack = current->sigstack;
     memcpy(child->actions, current->actions, sizeof(child->actions));
     spin_unlock(&current->signal_lock);
     ret = pid_prepare(child, current);

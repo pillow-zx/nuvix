@@ -72,6 +72,7 @@ struct task {
     struct sigpending pending;
     sigset_t blocked;
     sigset_t sigmask;
+    stack_t sigstack;
     struct sigaction actions[SIG_MAX];
 };
 

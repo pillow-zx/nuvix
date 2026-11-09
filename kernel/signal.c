@@ -13,6 +13,7 @@
 #include <nuvix/syscall.h>
 #include <nuvix/sched.h>
 #include <nuvix/bitmap.h>
+#include <asm/signal.h>
 #include <asm/trap.h>
 
 // clang-format off
@@ -58,6 +59,7 @@ void signal_task_init(struct task *task)
     INIT_LIST_HEAD(&task->pending.list);
     task->pending.signal = 0;
     task->blocked = 0;
+    task->sigstack = (stack_t){.ss_flags = SS_DISABLE};
     for (unsigned int i = 0; i < SIG_MAX; ++i)
         task->actions[i] = (struct sigaction){.sa_handler = SIG_DFL};
 }
@@ -462,10 +464,57 @@ long sys_rt_sigpending(struct trap_frame *frame)
     return 0;
 }
 
+int signal_stack_flags(unsigned long sp)
+{
+    const stack_t *stack = &current->sigstack;
+    unsigned long base = (unsigned long)stack->ss_sp;
+
+    if (!stack->ss_size)
+        return SS_DISABLE;
+    return sp > base && sp - base <= stack->ss_size ? SS_ONSTACK : 0;
+}
+
+int signal_set_stack(const stack_t *stack, unsigned long sp)
+{
+    if (signal_stack_flags(sp) == SS_ONSTACK)
+        return -EPERM;
+    if (stack->ss_flags != 0 && stack->ss_flags != SS_DISABLE &&
+        stack->ss_flags != SS_ONSTACK)
+        return -EINVAL;
+    if (stack->ss_flags == SS_DISABLE) {
+        current->sigstack = (stack_t){.ss_flags = SS_DISABLE};
+        return 0;
+    }
+    if (stack->ss_size < MINSIGSTKSZ)
+        return -ENOMEM;
+    current->sigstack = (stack_t){
+        .ss_sp = stack->ss_sp,
+        .ss_size = stack->ss_size,
+    };
+    return 0;
+}
+
 long sys_sigaltstack(struct trap_frame *frame)
 {
-    (void)frame;
-    return -ENOTSUPP;
+    const stack_t *uss = (const stack_t *)syscallarg(frame, 0);
+    stack_t *uoss = (stack_t *)syscallarg(frame, 1);
+    unsigned long sp = frame->regs[2];
+    stack_t new, old = {0};
+    int ret;
+
+    if (uss && copy_from_user(&new, uss, sizeof(new)))
+        return -EFAULT;
+    old.ss_sp = current->sigstack.ss_sp;
+    old.ss_size = current->sigstack.ss_size;
+    old.ss_flags = signal_stack_flags(sp);
+    if (uss) {
+        ret = signal_set_stack(&new, sp);
+        if (ret)
+            return ret;
+    }
+    if (uoss && copy_to_user(uoss, &old, sizeof(old)))
+        return -EFAULT;
+    return 0;
 }
 
 void signal_clone(void)
@@ -473,6 +522,7 @@ void signal_clone(void)
     struct task *task = current;
 
     spin_lock(&task->signal_lock);
+    task->sigstack = (stack_t){.ss_flags = SS_DISABLE};
     for (unsigned int i = 0; i < SIG_MAX; ++i) {
         struct sigaction *action = &task->actions[i];
 

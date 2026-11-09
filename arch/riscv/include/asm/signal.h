@@ -4,6 +4,7 @@
 #include <nuvix/signal.h>
 
 #define SIGNAL_STACK_ALIGN 16
+#define MINSIGSTKSZ        2048
 #define END_MAGIC          0
 #define END_HDR_SIZE       0
 
@@ -20,12 +21,6 @@ struct sigcontext {
     unsigned long sc_regs[32];
     struct riscv_fp_state sc_fpregs;
 };
-
-typedef struct sigaltstack {
-    void *ss_sp;
-    int ss_flags;
-    size_t ss_size;
-} stack_t;
 
 struct ucontext {
     unsigned long uc_flags;

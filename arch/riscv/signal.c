@@ -14,11 +14,16 @@ static void setup_signal_frame(struct trap_frame *frame,
     struct rt_sigframe sf = {0};
     struct sigcontext *sc = &sf.uc.uc_mcontext;
     struct rt_sigframe *usf;
+    const stack_t *stack = &current->sigstack;
     unsigned long sp = frame->regs[2];
+    int stack_flags = signal_stack_flags(sp);
+    bool on_sigstack = stack_flags == SS_ONSTACK;
 
     sf.info = signal->info;
     sf.uc.uc_sigmask = signal->oldmask;
-    sf.uc.uc_stack.ss_flags = SS_DISABLE;
+    sf.uc.uc_stack.ss_sp = stack->ss_sp;
+    sf.uc.uc_stack.ss_size = stack->ss_size;
+    sf.uc.uc_stack.ss_flags = stack_flags;
     for (unsigned int i = 0; i < 32; ++i)
         sc->sc_regs[i] = frame->regs[i];
     sc->sc_regs[0] = frame->sepc;
@@ -31,9 +36,17 @@ static void setup_signal_frame(struct trap_frame *frame,
     sc->sc_fpregs.magic = END_MAGIC;
     sc->sc_fpregs.size = END_HDR_SIZE;
 
+    if ((signal->action.sa_flags & SA_ONSTACK) && !stack_flags) {
+        if (check_add_overflow((unsigned long)stack->ss_sp, stack->ss_size,
+                               &sp))
+            task_exit(SIGSEGV);
+        on_sigstack = true;
+    }
     if (sp < sizeof(sf))
         task_exit(SIGSEGV);
     sp = ALIGN_DOWN(sp - sizeof(sf), SIGNAL_STACK_ALIGN);
+    if (on_sigstack && sp < (unsigned long)stack->ss_sp)
+        task_exit(SIGSEGV);
     if (copy_to_user((void *)sp, &sf, sizeof(sf)))
         task_exit(SIGSEGV);
 
@@ -71,6 +84,8 @@ long sys_rt_sigreturn(struct trap_frame *frame)
     frame->sepc = sc->sc_regs[0];
     for (unsigned i = 1; i < 32; ++i)
         frame->regs[i] = sc->sc_regs[i];
+    /* Linux leaves the configuration unchanged on restore validation errors. */
+    (void)signal_set_stack(&sf.uc.uc_stack, frame->regs[2]);
 #ifdef CONFIG_FPU
     memcpy(frame->fregs, sc->sc_fpregs.f, sizeof(frame->fregs));
     frame->fcsr = sc->sc_fpregs.fcsr;
