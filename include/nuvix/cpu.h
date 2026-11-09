@@ -5,17 +5,21 @@
 #include <nuvix/atomic.h>
 #include <asm/cpu.h>
 
+#ifdef CONFIG_SMP
 enum cpu_state {
     CPU_PREPARED,
     CPU_STARTING,
     CPU_READY,
     CPU_FAILED,
 };
+#endif
 
 struct cpu {
     unsigned long hart_id;
+#ifdef CONFIG_SMP
     enum cpu_state state;
     atomic_t ipi_pending;
+#endif
     /* Owned by this CPU; normal IRQ handlers do not enable nested IRQs. */
     unsigned int irq_depth;
     uint64_t next_tick;
@@ -31,6 +35,11 @@ struct dtb;
 int cpu_init(const struct dtb *dtb, unsigned long boot_hart);
 
 /* After allocator and tick setup, IRQ off, on the boot task's initial depth. */
+int cpu_startup(void);
+/* Local CPU, IRQ off, with current bound to its idle task. */
+int cpu_local_init(void);
+
+#ifdef CONFIG_SMP
 int smp_init(void);
 __noreturn void smp_main(void);
 /* Publish failure while startup is pending; safe before current is available. */
@@ -50,6 +59,8 @@ static inline void cpu_state_set(struct cpu *cpu, enum cpu_state state)
 {
     __atomic_store_n(&cpu->state, state, __ATOMIC_RELEASE);
 }
+
+#endif /* CONFIG_SMP */
 
 static inline struct cpu *this_cpu(void)
 {

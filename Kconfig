@@ -1,12 +1,115 @@
 mainmenu "Nuvix Configuration"
 
 menu "General setup"
-
-comment "Nuvix uses a single .config in the repository root."
-
+source "kernel/Kconfig"
 endmenu
 
 source "arch/$(ARCH)/Kconfig"
-source "kernel/Kconfig"
-source "fs/Kconfig"
+
+menu "Build Options"
+
+choice
+	prompt "Optimization Level"
+	default CC_OPTIMIZE_O2
+
+config CC_OPTIMIZE_O0
+	bool "-O0"
+
+config CC_OPTIMIZE_O1
+	bool "-O1"
+
+config CC_OPTIMIZE_OG
+	bool "-Og"
+
+config CC_OPTIMIZE_O2
+	bool "-O2"
+
+config CC_OPTIMIZE_O3
+	bool "-O3"
+
+endchoice
+
+choice
+	prompt "Kernel Log level"
+	default LOG_LEVEL_INFO
+	help
+	  Minimum message severity emitted by printk_level and the pr_* macros.
+	  CONFIG_LOG_LEVEL sets the threshold at compile time: debug=1, info=2,
+	  notice=3, warning=4, error=5. Messages below this level are dropped
+	  without evaluating their arguments. Plain printk is unfiltered.
+
+config LOG_LEVEL_DEBUG
+	bool "debug"
+
+config LOG_LEVEL_INFO
+	bool "info"
+
+config LOG_LEVEL_NOTICE
+	bool "notice"
+
+config LOG_LEVEL_WARNING
+	bool "warning"
+
+config LOG_LEVEL_ERROR
+	bool "error"
+
+endchoice
+
+config LOG_LEVEL
+	int
+	default 1 if LOG_LEVEL_DEBUG
+	default 2 if LOG_LEVEL_INFO
+	default 3 if LOG_LEVEL_NOTICE
+	default 4 if LOG_LEVEL_WARNING
+	default 5 if LOG_LEVEL_ERROR
+
+config CC_OPT
+	string
+	default "-O0" if CC_OPTIMIZE_O0
+	default "-O1" if CC_OPTIMIZE_O1
+	default "-Og" if CC_OPTIMIZE_OG
+	default "-O2" if CC_OPTIMIZE_O2
+	default "-O3" if CC_OPTIMIZE_O3
+
+config DEBUG_INFO
+	bool "Enable debug information"
+	default y
+
+endmenu
+
+menu "Testing and Debugging"
+
+config DEBUG_LOCK
+	bool "Debug spinlock and mutex owner, double lock/unlock and lock-held checks"
+	default y
+
+config DEBUG_REFCOUNT
+	bool "Debug refcount underflow, resurrection and invalid counts"
+	default y
+	help
+	  Assert on underflow, incrementing a zero count, overflow, out-of-range
+	  initialization and dropping the final reference through refcount_dec.
+	  With debugging disabled, guards still reject invalid count updates,
+	  but do not diagnose or recover from ownership errors.
+
+config DEBUG_ALLOC
+	bool "Debug slub/page poison and double-free"
+	default y
+	help
+	  Poison free slab objects and check for modification before reuse.
+	  Assert on invalid slab object addresses, double frees and corrupt
+	  freelists. These checks add allocation and freeing overhead.
+
+config DEBUG_CONTEXT
+	bool "Debug irq, preempt state and might_sleep"
+	default y
+
+config DEBUG_TRACE
+	bool "Debug per-CPU trace ring"
+	default y
+
+endmenu
+
 source "mm/Kconfig"
+source "drivers/Kconfig"
+source "fs/Kconfig"

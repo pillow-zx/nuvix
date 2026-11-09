@@ -1,105 +1,16 @@
-menu "Build & Debugging"
+config SMP
+	bool "SMP subsystem support"
+	default n
 
-choice
-	prompt "Optimization level"
-	default CC_OPTIMIZE_O2
-
-config CC_OPTIMIZE_O0
-	bool "-O0"
-
-config CC_OPTIMIZE_O1
-	bool "-O1"
-
-config CC_OPTIMIZE_OG
-	bool "-Og"
-
-config CC_OPTIMIZE_O2
-	bool "-O2"
-
-config CC_OPTIMIZE_O3
-	bool "-O3"
-
-endchoice
-
-choice
-	prompt "Kernel log level"
-	default LOG_LEVEL_INFO
+config NR_CPUS
+	int "Maximum supported CPU count" if SMP
+	range 1 64
+	default 1 if !SMP
+	default 8
 	help
-	  Minimum message severity emitted by printk_level and the pr_* macros.
-	  CONFIG_LOG_LEVEL sets the threshold at compile time: debug=1, info=2,
-	  notice=3, warning=4, error=5. Messages below this level are dropped
-	  without evaluating their arguments. Plain printk is unfiltered.
-
-config LOG_LEVEL_DEBUG
-	bool "debug"
-
-config LOG_LEVEL_INFO
-	bool "info"
-
-config LOG_LEVEL_NOTICE
-	bool "notice"
-
-config LOG_LEVEL_WARNING
-	bool "warning"
-
-config LOG_LEVEL_ERROR
-	bool "error"
-
-endchoice
-
-
-config LOG_LEVEL
-	int
-	default 1 if LOG_LEVEL_DEBUG
-	default 2 if LOG_LEVEL_INFO
-	default 3 if LOG_LEVEL_NOTICE
-	default 4 if LOG_LEVEL_WARNING
-	default 5 if LOG_LEVEL_ERROR
-
-config CC_OPT
-	string
-	default "-O0" if CC_OPTIMIZE_O0
-	default "-O1" if CC_OPTIMIZE_O1
-	default "-Og" if CC_OPTIMIZE_OG
-	default "-O2" if CC_OPTIMIZE_O2
-	default "-O3" if CC_OPTIMIZE_O3
-
-config DEBUG_INFO
-	bool "Debug information"
-	default y
-
-config DEBUG_LOCK
-	bool "Debug spinlock and mutex owner, double lock/unlock and lock-held checks" if DEBUG_INFO
-	default y
-
-config DEBUG_REFCOUNT
-	bool "Debug refcount underflow, resurrection and invalid counts" if DEBUG_INFO
-	default y
-	help
-	  Assert on underflow, incrementing a zero count, overflow, out-of-range
-	  initialization and dropping the final reference through refcount_dec.
-	  With debugging disabled, guards still reject invalid count updates,
-	  but do not diagnose or recover from ownership errors.
-
-config DEBUG_ALLOC
-	bool "Debug slub/page poison and double-free" if DEBUG_INFO
-	default y
-	help
-	  Poison free slab objects and check for modification before reuse.
-	  Assert on invalid slab object addresses, double frees and corrupt
-	  freelists. These checks add allocation and freeing overhead.
-
-config DEBUG_CONTEXT
-	bool "Debug irq, preempt state and migh_sleep" if DEBUG_INFO
-	default y
-
-config DEBUG_TRACE
-	bool "Debug per-CPU trace ring" if DEBUG_INFO
-	default y
-
-endmenu
-
-menu "Scheduling & CPU startup"
+	  Capacity of static CPU arrays. The DTB supplies the actual topology.
+	  Enabled harts beyond this capacity are not started and are reported.
+	  UP uses only the boot hart. Hart IDs need not be contiguous.
 
 config SCHED_QUANTUM_MS
 	int "Round-robin time slice (ms)"
@@ -108,23 +19,10 @@ config SCHED_QUANTUM_MS
 
 config SMP_BOOT_TIMEOUT_MS
 	int "All-CPU startup timeout (ms)"
+	depends on SMP
 	range 1 60000
 	default 1000
-
-endmenu
-
-menu "Features"
-
-config FPU
-	bool "User fpu support"
-	default y
-
-config SMP
-	bool "SMP subsystem support"
-	default n
 
 config FUTEX
 	bool "Futex subsystem support"
 	default n
-
-endmenu

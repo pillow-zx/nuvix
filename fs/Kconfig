@@ -1,7 +1,7 @@
-menu "File systems"
+menu "File Systems"
 
 config EXT2_FS
-	bool "ext2 filesystem support"
+	bool "The Extended 2 (ext2) filesystem"
 	default y
 
 endmenu

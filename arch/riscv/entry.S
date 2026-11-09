@@ -84,7 +84,6 @@ __alltraps:
     csrr        t0, satp
     sd          t0, TRAP_SATP(sp)
 
-#ifdef CONFIG_FPU
     ld          t0, TRAP_SSTATUS(sp)
     li          t1, SSTATUS_FS
     and         t0, t0, t1
@@ -126,7 +125,6 @@ __alltraps:
     sd          t0, TRAP_FCSR(sp)
 
 .Lno_fpu_save:
-#endif
 
     lla         t0, __alltraps
     csrw        stvec, t0
@@ -145,7 +143,6 @@ __trapret:
     ld          t0, TRAP_SSTATUS(sp)
     csrw        sstatus, t0
 
-#ifdef CONFIG_FPU
     li          t1, SSTATUS_FS
     and         t1, t0, t1
     beqz        t1, .Lno_fpu_restore
@@ -186,7 +183,6 @@ __trapret:
     csrw        fcsr, t1
     csrw        sstatus, t0
 .Lno_fpu_restore:
-#endif
 
     sc.d        zero, zero, (sp)
     ld          ra, TRAP_REG(1)(sp)

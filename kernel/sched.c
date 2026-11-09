@@ -6,8 +6,10 @@
 
 struct rq runqueues[CONFIG_NR_CPUS];
 
+#ifdef CONFIG_SMP
 static DEFINE_SPINLOCK(placement_lock);
 static unsigned int next_cpu;
+#endif
 static uint64_t quantum_ticks;
 
 static void enqueue_task(struct rq *rq, struct task *task)
@@ -32,6 +34,7 @@ static struct task *pick_next_task(struct rq *rq)
     return task;
 }
 
+#ifdef CONFIG_SMP
 static unsigned int select_cpu(void)
 {
     unsigned int cpu_id = next_cpu;
@@ -54,11 +57,14 @@ static unsigned int select_cpu(void)
         next_cpu = 0;
     return selected;
 }
+#endif
 
 void sched_init(void)
 {
+#ifdef CONFIG_SMP
     spin_lock_init(&placement_lock);
     next_cpu = 0;
+#endif
     quantum_ticks = time_ticks_from_ms(CONFIG_SCHED_QUANTUM_MS);
     for (unsigned int cpu_id = 0; cpu_id < nr_cpus; ++cpu_id) {
         struct rq *rq = cpu_rq(cpu_id);
@@ -94,12 +100,20 @@ void sched_publish(struct task *task)
 {
     struct rq *rq;
     unsigned int cpu_id;
-    unsigned long placement_flags, rq_flags;
+    unsigned long flags, rq_flags;
+#ifdef CONFIG_SMP
     bool notify_idle;
+#endif
 
     Assert(task->state == TASK_NEW, "task already published\n");
-    spin_lock_irqsave(&placement_lock, placement_flags);
+#ifdef CONFIG_SMP
+    spin_lock_irqsave(&placement_lock, flags);
     cpu_id = select_cpu();
+#else
+    flags = local_irq_save();
+    preempt_disable();
+    cpu_id = 0;
+#endif
     rq = cpu_rq(cpu_id);
     task->cpu_id = cpu_id;
     pid_publish(task);
@@ -108,11 +122,18 @@ void sched_publish(struct task *task)
     task->state = TASK_RUNNABLE;
     enqueue_task(rq, task);
     atomic_inc(&rq->nr_runnable);
+#ifdef CONFIG_SMP
     notify_idle = rq->curr == rq->idle && cpu_id != current_cpu_id();
+#endif
     spin_unlock_irqrestore(&rq->lock, rq_flags);
-    spin_unlock_irqrestore(&placement_lock, placement_flags);
+#ifdef CONFIG_SMP
+    spin_unlock_irqrestore(&placement_lock, flags);
     if (notify_idle)
         cpu_send_resched(cpu_id);
+#else
+    local_irq_restore(flags);
+    preempt_enable();
+#endif
 }
 
 static bool wake_task(struct task *task, unsigned int states)
@@ -120,7 +141,9 @@ static bool wake_task(struct task *task, unsigned int states)
     struct rq *rq = task_rq(task);
     unsigned long flags;
     bool woke = false;
+#ifdef CONFIG_SMP
     bool notify_idle = false;
+#endif
 
     spin_lock_irqsave(&rq->lock, flags);
     if (states & task->state) {
@@ -128,14 +151,18 @@ static bool wake_task(struct task *task, unsigned int states)
         if (!task->on_cpu) {
             enqueue_task(rq, task);
             atomic_inc(&rq->nr_runnable);
+#ifdef CONFIG_SMP
             notify_idle =
                 rq->curr == rq->idle && task->cpu_id != current_cpu_id();
+#endif
         }
         woke = true;
     }
     spin_unlock_irqrestore(&rq->lock, flags);
+#ifdef CONFIG_SMP
     if (notify_idle)
         cpu_send_resched(task->cpu_id);
+#endif
     return woke;
 }
 
@@ -352,7 +379,9 @@ __noreturn void sched_task(void)
         bool work;
 
         local_irq_disable();
+#ifdef CONFIG_SMP
         (void)cpu_handle_ipi();
+#endif
         __spin_lock(&rq->lock);
         work = !list_empty(&rq->ready_list) || task_need_resched(rq->curr);
         __spin_unlock(&rq->lock);

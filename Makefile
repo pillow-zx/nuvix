@@ -29,7 +29,7 @@ export ARCH srctree
 
 KCONFIG         := Kconfig
 KCONFIG_SOURCES := Kconfig kernel/Kconfig arch/$(ARCH)/Kconfig \
-                   mm/Kconfig fs/Kconfig
+                   mm/Kconfig drivers/Kconfig fs/Kconfig
 
 DEFCONFIG       ?= nuvix_defconfig
 KCONFIG_CONFIG  := .config

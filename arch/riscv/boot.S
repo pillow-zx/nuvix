@@ -1,6 +1,8 @@
 #include <asm/pgtable.h>
 #include <asm/irq.h>
+#ifdef CONFIG_SMP
 #include <asm/smp.h>
+#endif
 
     .section .text.boot, "ax"
     .balign 4
@@ -65,6 +67,7 @@ _start:
     wfi
     j           .Lpark
 
+#ifdef CONFIG_SMP
     .balign 4
     .globl smp_entry
     .type smp_entry, @function
@@ -105,6 +108,7 @@ smp_entry:
     call        smp_main
     j           .Lpark
     .size smp_entry, . - smp_entry
+#endif
 
     .section .bss.boot, "aw", @nobits
     .balign PAGE_SIZE

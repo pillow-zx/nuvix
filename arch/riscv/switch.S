@@ -27,7 +27,6 @@ __switch_to:
     and         t0, t0, t1
     sd          t0, TASK_CTX_SUM(a0)
 
-#ifdef CONFIG_FPU
     csrr        t0, sstatus
     li          t1, SSTATUS_FS
     and         t0, t0, t1
@@ -115,7 +114,6 @@ __switch_to:
     csrc        sstatus, t1
     csrs        sstatus, t0
 .Lfpu_done:
-#endif
 
     ld          ra, TASK_CTX_RA(a1)
     ld          sp, TASK_CTX_SP(a1)

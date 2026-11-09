@@ -14,11 +14,7 @@
 #define ELF_CLASS                 ELFCLASS64
 #define ELF_DATA                  ELFDATA2LSB
 
-#ifdef CONFIG_FPU
 #define ELF_HWCAP_FPU ((1UL << ('F' - 'A')) | (1UL << ('D' - 'A')))
-#else
-#define ELF_HWCAP_FPU 0UL
-#endif
 
 #define ELF_HWCAP                                                              \
     ((1UL << ('I' - 'A')) | (1UL << ('M' - 'A')) | (1UL << ('A' - 'A')) |      \
@@ -28,13 +24,8 @@ static inline bool elf_check_arch(const struct elf64_ehdr *ehdr)
 {
     unsigned int float_abi = ehdr->e_flags & EF_RISCV_FLOAT_ABI;
 
-#ifdef CONFIG_FPU
     if (float_abi > EF_RISCV_FLOAT_ABI_DOUBLE)
         return false;
-#else
-    if (float_abi != EF_RISCV_FLOAT_ABI_SOFT)
-        return false;
-#endif
 
     return ehdr->e_machine == ELF_ARCH &&
            ehdr->e_ident[EI_CLASS] == ELF_CLASS &&

@@ -18,3 +18,5 @@ obj-y += kernel/sys.c
 obj-y += kernel/random.c
 obj-y += kernel/preempt.c
 obj-y += kernel/signal.c
+
+obj-$(CONFIG_SMP) += kernel/smp.c

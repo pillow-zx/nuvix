@@ -69,8 +69,8 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     ret = driver_init();
     BOOTINFO(ret, drivers);
 
-    ret = smp_init();
-    BOOTINFO(ret, SMP);
+    ret = cpu_startup();
+    BOOTINFO(ret, CPU startup);
 
     ret = mapping_init();
     BOOTINFO(ret, mapping);

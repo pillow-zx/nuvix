@@ -13,13 +13,9 @@
 #define TRAP_SATP     TRAP_REG(36)
 #define TRAP_TASK     TRAP_REG(37)
 
-#ifdef CONFIG_FPU
 #define TRAP_FREG(n) TRAP_REG(38 + (n))
 #define TRAP_FCSR    TRAP_REG(70)
 #define TRAP_SIZE    TRAP_REG(72)
-#else
-#define TRAP_SIZE TRAP_REG(38)
-#endif
 
 #ifndef __ASSEMBLER__
 
@@ -37,8 +33,8 @@ struct trap_frame {
     unsigned long satp;
     /* Borrowed task pointer used to restore kernel tp on user entry. */
     struct task *task;
-    IFDEF(CONFIG_FPU, unsigned long fregs[32]);
-    IFDEF(CONFIG_FPU, unsigned long fcsr);
+    unsigned long fregs[32];
+    unsigned long fcsr;
 } __aligned(16);
 
 #define syscallarg(frame, n) ((frame)->regs[10 + (n)])

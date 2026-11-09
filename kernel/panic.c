@@ -13,7 +13,9 @@ __noreturn void __panic(const char *fmt, ...)
 
     local_irq_disable();
     already_panicking = atomic_xchg(&panicking, 1);
+#ifdef CONFIG_SMP
     cpu_boot_fail();
+#endif
     if (already_panicking)
         halt();
 

@@ -27,12 +27,10 @@ static void setup_signal_frame(struct trap_frame *frame,
     for (unsigned int i = 0; i < 32; ++i)
         sc->sc_regs[i] = frame->regs[i];
     sc->sc_regs[0] = frame->sepc;
-#ifdef CONFIG_FPU
     if (frame->sstatus & SSTATUS_FS) {
         memcpy(sc->sc_fpregs.f, frame->fregs, sizeof(sc->sc_fpregs.f));
         sc->sc_fpregs.fcsr = frame->fcsr;
     }
-#endif
     sc->sc_fpregs.magic = END_MAGIC;
     sc->sc_fpregs.size = END_HDR_SIZE;
 
@@ -86,11 +84,9 @@ long sys_rt_sigreturn(struct trap_frame *frame)
         frame->regs[i] = sc->sc_regs[i];
     /* Linux leaves the configuration unchanged on restore validation errors. */
     (void)signal_set_stack(&sf.uc.uc_stack, frame->regs[2]);
-#ifdef CONFIG_FPU
     memcpy(frame->fregs, sc->sc_fpregs.f, sizeof(frame->fregs));
     frame->fcsr = sc->sc_fpregs.fcsr;
     frame->sstatus = (frame->sstatus & ~SSTATUS_FS) | SSTATUS_FS_CLEAN;
-#endif
     frame->scause = -1UL;
 
     spin_lock(&task->signal_lock);

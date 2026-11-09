@@ -45,9 +45,7 @@ int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
     frame->regs[2] = sp;
     frame->sepc = entry;
     frame->sstatus = SSTATUS_SPIE | SSTATUS_UXL_64;
-#ifdef CONFIG_FPU
     frame->sstatus |= SSTATUS_FS_INITIAL;
-#endif
     frame->task = task;
 
     task->ctx.sp = (vaddr_t)frame;

@@ -1,0 +1,16 @@
+menu "Device Drivers"
+
+config VIRTIO
+	bool
+
+config VIRTIO_BLK
+	bool "virtio-blk"
+	default y
+	select VIRTIO
+
+config VIRTIO_RNG
+	bool "virtio-rng"
+	default y
+	select VIRTIO
+
+endmenu

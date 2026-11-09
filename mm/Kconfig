@@ -1,4 +1,4 @@
-menu "Memory Management"
+menu "Memory Configuration"
 
 config MAX_ORDER
 	int "Number of buddy orders"

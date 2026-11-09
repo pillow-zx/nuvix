@@ -22,6 +22,7 @@ static __always_inline void arch_local_flush_icache_all(void)
     __asm__ volatile("fence.i" ::: "memory");
 }
 
+#ifdef CONFIG_SMP
 /* Publish page-table or code writes before requesting a remote fence. */
 static __always_inline long arch_remote_flush_tlb_all(unsigned int cpu_id)
 {
@@ -34,5 +35,7 @@ static __always_inline long arch_remote_flush_icache_all(unsigned int cpu_id)
     __asm__ volatile("fence rw, rw" ::: "memory");
     return sbi_remote_fence_i(1UL, cpus[cpu_id].hart_id).error;
 }
+
+#endif /* CONFIG_SMP */
 
 #endif /* _NUVIX_RISCV_TLB_H */

@@ -23,8 +23,10 @@
 static bool handle_interrupt(struct trap_frame *frame)
 {
     switch (frame->scause) {
+#ifdef CONFIG_SMP
     case IRQ_S_SOFT:
         return cpu_handle_ipi();
+#endif
     case IRQ_S_TIMER:
         tick_handle();
         return true;

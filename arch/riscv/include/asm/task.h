@@ -17,14 +17,10 @@
 #define TASK_CTX_S9  136
 #define TASK_CTX_S10 144
 #define TASK_CTX_S11 152
-#ifdef CONFIG_FPU
 #define TASK_CTX_FREG(n) (160 + (n) * __SIZEOF_LONG__)
 #define TASK_CTX_FCSR    416
 #define TASK_CTX_FS      424
 #define TASK_CTX_SUM     432
-#else
-#define TASK_CTX_SUM 160
-#endif
 
 #ifndef __ASSEMBLER__
 
@@ -36,9 +32,9 @@ struct task_context {
     unsigned long ra;
     unsigned long sp;
     unsigned long s[12];
-    IFDEF(CONFIG_FPU, unsigned long fregs[32]);
-    IFDEF(CONFIG_FPU, unsigned long fcsr);
-    IFDEF(CONFIG_FPU, unsigned long fs);
+    unsigned long fregs[32];
+    unsigned long fcsr;
+    unsigned long fs;
     unsigned long sum;
 };
 

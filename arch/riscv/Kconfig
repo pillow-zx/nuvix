@@ -1,21 +1,7 @@
-menu "Platform"
+menu "Soc Selection"
 
-config PLATFORM_QEMU_VIRT
-	bool "QEMU virt platform"
+config SOC_QEMU_VIRT
+	bool "QEMU Virt Machine"
 	default y
 
-comment "Enabled platforms are selected by the DTB root compatible."
-
-config NR_CPUS
-	int "Maximum supported CPU count" if SMP
-	range 1 64
-	default 1 if !SMP
-	default 8
-	help
-	  Capacity of static CPU arrays. The DTB supplies the actual topology.
-	  Enabled harts beyond this capacity are not started and are reported.
-	  UP uses only the boot hart. Hart IDs need not be contiguous.
-
 endmenu
-
-
