@@ -69,9 +69,16 @@ int handle_page_fault(struct mm_struct *mm, vaddr_t addr, unsigned long access)
             while (iov.count) {
                 ssize_t count = vfs_read(&iocb, &iov);
 
-                if (count <= 0) {
-                    ret = count ? (int)count : -EIO;
+                if (count < 0) {
+                    ret = (int)count;
                     goto out;
+                }
+                if (!count) {
+                    if (iov.count == vec.iov_len) {
+                        ret = -EIO;
+                        goto out;
+                    }
+                    break;
                 }
             }
         }

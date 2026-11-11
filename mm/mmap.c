@@ -4,6 +4,8 @@
 #include <nuvix/errno.h>
 #include <nuvix/syscall.h>
 #include <nuvix/task.h>
+#include <nuvix/vfs.h>
+#include <nuvix/fdtable.h>
 #include <asm/trap.h>
 
 static unsigned long vm_prot(unsigned long prot)
@@ -74,19 +76,31 @@ long sys_mmap(struct trap_frame *frame)
     unsigned long flags = syscallarg(frame, 3);
     unsigned long offset = syscallarg(frame, 5);
     struct mm_struct *mm = current->mm;
+    struct file *file __free(fput) = NULL;
     struct vm_struct *vma __free(vma) = NULL;
     vaddr_t end;
     long ret;
 
     if ((flags & ~(MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED)) ||
-        (flags & (MAP_PRIVATE | MAP_ANONYMOUS)) !=
-            (MAP_PRIVATE | MAP_ANONYMOUS) ||
+        !(flags & MAP_PRIVATE) ||
         (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) ||
         (offset & (PAGE_SIZE - 1)) || !len)
         return -EINVAL;
     if (len > UVADDR_SIZE)
         return -ENOMEM;
     len = ALIGN_UP(len, (size_t)PAGE_SIZE);
+
+    if (!(flags & MAP_ANONYMOUS)) {
+        file = fd_open(current->fdtable, syscallarg(frame, 4));
+        if (!file)
+            return -EBADF;
+        if (!FILE_READ(file))
+            return -EACCES;
+        if (!S_ISREG(file->f_inode->i_mode))
+            return -ENODEV;
+        if (offset > INT64_MAX || len > INT64_MAX - offset)
+            return -EOVERFLOW;
+    }
 
     vma = vma_alloc();
     if (!vma)
@@ -110,6 +124,12 @@ long sys_mmap(struct trap_frame *frame)
     vma->vm_start = addr;
     vma->vm_end = end;
     vma->vm_flags = vm_prot(prot);
+    if (file) {
+        vma->vm_file = move(file);
+        vma->vm_offset = offset;
+        vma->vm_fstart = addr;
+        vma->vm_fend = end;
+    }
     ret = vma_insert(mm, vma);
     Assert(!ret, "selected mmap range must be free\n");
     keep(vma);

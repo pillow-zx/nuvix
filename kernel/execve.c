@@ -37,6 +37,7 @@ struct exec_image {
     struct elf64_phdr *phdrs;
     vaddr_t offset;
     vaddr_t phdr_addr;
+    vaddr_t end;
 };
 
 static int read_exact(struct file *file, void *buffer, size_t size,
@@ -58,6 +59,33 @@ static int read_exact(struct file *file, void *buffer, size_t size,
     return 0;
 }
 
+static int read_image(struct file *file, struct exec_image *image)
+{
+    struct elf64_phdr *phdrs __free(kfree) = NULL;
+    int ret;
+
+    ret = read_exact(file, &image->ehdr, sizeof(image->ehdr), 0);
+    if (ret)
+        return ret;
+    ret = elf_check_ehdr(&image->ehdr, INT64_MAX);
+    if (ret)
+        return ret;
+
+    size_t phsize = (size_t)image->ehdr.e_phnum * sizeof(*phdrs);
+
+    phdrs = kmalloc(phsize);
+    if (!phdrs)
+        return -ENOMEM;
+    ret = read_exact(file, phdrs, phsize, image->ehdr.e_phoff);
+    if (ret)
+        return ret;
+    ret = elf_check_phdrs(&image->ehdr, phdrs, INT64_MAX);
+    if (ret)
+        return ret;
+    image->phdrs = move(phdrs);
+    return 0;
+}
+
 static int check_layout(struct exec_image *image)
 {
     size_t phsize = (size_t)image->ehdr.e_phnum * sizeof(*image->phdrs);
@@ -69,9 +97,9 @@ static int check_layout(struct exec_image *image)
 
         if (phdr->p_type != PT_LOAD || !phdr->p_memsz)
             continue;
-        if (phdr->p_vaddr < UVADDR_START - image->offset ||
-            phdr->p_vaddr + phdr->p_memsz >
+        if (phdr->p_vaddr + phdr->p_memsz >
                 USTACK_BOTTOM - PAGE_SIZE - image->offset ||
+            image->offset + phdr->p_vaddr < UVADDR_START ||
             ((phdr->p_vaddr ^ phdr->p_offset) & (PAGE_SIZE - 1)))
             return -ENOEXEC;
         start = ALIGN_DOWN(image->offset + phdr->p_vaddr, (vaddr_t)PAGE_SIZE);
@@ -86,7 +114,7 @@ static int check_layout(struct exec_image *image)
             image->phdr_addr = image->offset + phdr->p_vaddr +
                                (image->ehdr.e_phoff - phdr->p_offset);
     }
-
+    image->end = load_end;
     return 0;
 }
 
@@ -120,9 +148,66 @@ static int load_segments(struct mm_struct *mm, struct file *file,
             vma->vm_fstart = vaddr;
             vma->vm_fend = vaddr + phdr->p_filesz;
         }
-        mm->start_brk = MAX(mm->start_brk, end);
     }
-    mm->brk = mm->start_brk;
+    return 0;
+}
+
+static int load_interp(struct mm_struct *mm, struct file *executable,
+                       const struct elf64_phdr *phdr, vaddr_t *base,
+                       vaddr_t *entry)
+{
+    char *path __free(kfree) = kmalloc(phdr->p_filesz);
+    struct file *file __free(fput) = NULL;
+    struct elf64_phdr *phdrs __free(kfree) = NULL;
+    struct exec_image image = {0};
+    int ret;
+
+    if (!path)
+        return -ENOMEM;
+    ret = read_exact(executable, path, phdr->p_filesz, phdr->p_offset);
+    if (ret)
+        return ret;
+    file = vfs_open(AT_FDCWD, path, O_RDONLY);
+    if (IS_ERR(file))
+        return PTR_ERR(move(file));
+    ret = read_image(file, &image);
+    if (ret)
+        return ret;
+    phdrs = image.phdrs;
+
+    if (image.ehdr.e_type == ET_DYN) {
+        vaddr_t top = USTACK_BOTTOM - PAGE_SIZE;
+        size_t size = 0;
+
+        for (unsigned int i = 0; i < image.ehdr.e_phnum; ++i) {
+            const struct elf64_phdr *load = &image.phdrs[i];
+
+            if (load->p_type == PT_LOAD && load->p_memsz)
+                size = MAX(size, load->p_vaddr + load->p_memsz);
+        }
+        for (;;) {
+            struct vm_struct *vma;
+            vaddr_t start;
+
+            if (size > top - UVADDR_START)
+                return -ENOMEM;
+            start = ALIGN_DOWN(top - size, (vaddr_t)PAGE_SIZE);
+            vma = vma_find_intersection(mm, start, top);
+            if (!vma) {
+                image.offset = start;
+                break;
+            }
+            top = vma->vm_start;
+        }
+    }
+    ret = check_layout(&image);
+    if (ret)
+        return ret;
+    ret = load_segments(mm, file, &image);
+    if (ret)
+        return ret;
+    *base = image.offset;
+    *entry = image.offset + image.ehdr.e_entry;
     return 0;
 }
 
@@ -168,7 +253,7 @@ static int stack_push(struct exec_params *params, const void *src, size_t size)
 }
 
 static int setup_stack(struct exec_params *params,
-                       const struct exec_image *image, vaddr_t entry)
+                       const struct exec_image *image, vaddr_t interp_base)
 {
     struct vm_struct *vma =
         map_range(params->mm, USTACK_BOTTOM, USTACK_TOP, VM_READ | VM_WRITE);
@@ -205,8 +290,8 @@ static int setup_stack(struct exec_params *params,
         AT_PHENT,  sizeof(*image->phdrs),
         AT_PHNUM,  image->ehdr.e_phnum,
         AT_PAGESZ, PAGE_SIZE,
-        AT_BASE,   0,
-        AT_ENTRY,  entry,
+        AT_BASE,   interp_base,
+        AT_ENTRY,  image->offset + image->ehdr.e_entry,
         AT_UID,    0,
         AT_EUID,   0,
         AT_GID,    0,
@@ -252,34 +337,17 @@ static int load_exec(struct exec_params *params, vaddr_t *entry)
     struct file *file __free(fput) = NULL;
     struct elf64_phdr *phdrs __free(kfree) = NULL;
     struct exec_image image = {0};
-    vaddr_t elf_entry;
+    vaddr_t interp_base = 0;
     int ret;
 
     file = vfs_open(AT_FDCWD, params->path, O_RDONLY);
     if (IS_ERR(file))
         return PTR_ERR(move(file));
 
-    ret = read_exact(file, &image.ehdr, sizeof(image.ehdr), 0);
+    ret = read_image(file, &image);
     if (ret)
         return ret;
-
-    ret = elf_check_ehdr(&image.ehdr, INT64_MAX);
-    if (ret)
-        return ret;
-
-    size_t phsize = (size_t)image.ehdr.e_phnum * sizeof(*image.phdrs);
-    phdrs = kmalloc(phsize);
-    if (!phdrs)
-        return -ENOMEM;
-
-    ret = read_exact(file, phdrs, phsize, image.ehdr.e_phoff);
-    if (ret)
-        return ret;
-
-    ret = elf_check_phdrs(&image.ehdr, phdrs, INT64_MAX);
-    if (ret)
-        return ret;
-    image.phdrs = phdrs;
+    phdrs = image.phdrs;
     image.offset = image.ehdr.e_type == ET_DYN ? UVADDR_START : 0;
 
     ret = check_layout(&image);
@@ -292,12 +360,19 @@ static int load_exec(struct exec_params *params, vaddr_t *entry)
     if (ret)
         goto out;
 
-    elf_entry = image.offset + image.ehdr.e_entry;
-    ret = setup_stack(params, &image, elf_entry);
-    if (ret)
-        goto out;
+    params->mm->start_brk = params->mm->brk = image.end;
+    *entry = image.offset + image.ehdr.e_entry;
+    for (unsigned int i = 0; i < image.ehdr.e_phnum; ++i) {
+        const struct elf64_phdr *phdr = &image.phdrs[i];
 
-    *entry = elf_entry;
+        if (phdr->p_type != PT_INTERP)
+            continue;
+        ret = load_interp(params->mm, file, phdr, &interp_base, entry);
+        if (ret)
+            goto out;
+        break;
+    }
+    ret = setup_stack(params, &image, interp_base);
 
 out:
     mutex_unlock(&params->mm->mmap_lock);

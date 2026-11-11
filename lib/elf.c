@@ -76,7 +76,7 @@ int elf_check_phdrs(const struct elf64_ehdr *ehdr, const void *phdrs,
             !segment_valid(file_limit, &phdr))
             return -ENOEXEC;
 
-        if (phdr.p_type == PT_INTERP || phdr.p_type == PT_SHLIB) {
+        if (phdr.p_type == PT_SHLIB) {
             return -ENOEXEC;
         } else if (phdr.p_type == PT_LOAD) {
             if (have_load && phdr.p_vaddr < load_end)
