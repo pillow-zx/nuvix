@@ -193,7 +193,7 @@ out:
     return ret;
 }
 
-static int futex_wake(uint32_t *addr, unsigned int nr_wake)
+int futex_wake(uint32_t *addr, unsigned int nr_wake)
 {
     struct futex_key key = {.mm = current->mm, .addr = addr};
     struct futex_bucket *bucket = get_bucket(&key);

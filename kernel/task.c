@@ -166,6 +166,20 @@ void task_vfork_done(struct task *task)
     spin_unlock(&task->signal_lock);
 }
 
+void task_mm_release(void)
+{
+    uint32_t *addr;
+
+    IFDEF(CONFIG_FUTEX, futex_release());
+    addr = move(current->clear_child_tid);
+    if (addr && refcount_read(&current->mm->urefs) > 1) {
+        uint32_t zero = 0;
+        size_t nocopied = copy_to_user(addr, &zero, sizeof(zero));
+        (void)nocopied;
+        IFDEF(CONFIG_FUTEX, (void)futex_wake(addr, 1));
+    }
+}
+
 __noreturn void task_exit(int status)
 {
     struct task *task = current;
@@ -174,7 +188,7 @@ __noreturn void task_exit(int status)
     task->exit = status;
     if (task->parent) {
         Assert(task != init, "init cannot exit\n");
-        IFDEF(CONFIG_FUTEX, futex_release());
+        task_mm_release();
         free_resource(task);
         task_vfork_done(task);
         reparent_children(task);
@@ -235,7 +249,7 @@ long sys_exit_group(struct trap_frame *frame)
 
 long sys_set_tid_address(struct trap_frame *frame)
 {
-    (void)frame;
+    current->clear_child_tid = (uint32_t *)syscallarg(frame, 0);
     return task_pid_nr(current, PIDTYPE_TID);
 }
 

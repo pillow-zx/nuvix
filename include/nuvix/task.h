@@ -70,6 +70,7 @@ struct task {
     int exit;
 
     struct robust_list_head *robust;
+    uint32_t *clear_child_tid;
 
     spinlock_t signal_lock;
     struct sigpending pending;
@@ -89,6 +90,8 @@ struct task *task_alloc(bool user);
 void task_free(struct task *task);
 
 __noreturn void task_exit(int status);
+
+void task_mm_release(void);
 
 void task_vfork_done(struct task *task);
 

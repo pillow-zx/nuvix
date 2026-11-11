@@ -14,7 +14,6 @@
 #include <nuvix/tty.h>
 #include <nuvix/uaccess.h>
 #include <nuvix/syscall.h>
-#include <nuvix/futex.h>
 #include <asm/trap.h>
 #include <asm/elf.h>
 
@@ -433,7 +432,7 @@ long sys_execve(struct trap_frame *frame)
     signal_clone();
     task_clear_flag(current, TF_FORKNOEXEC);
     fdtable_close_on_exec(current->fdtable);
-    IFDEF(CONFIG_FUTEX, futex_release());
+    task_mm_release();
     switch_mm(move(mm));
     task_vfork_done(current);
     return 0;

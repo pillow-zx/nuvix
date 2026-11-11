@@ -56,4 +56,6 @@ void futex_init(void);
 
 void futex_release(void);
 
+int futex_wake(uint32_t *addr, unsigned int nr_wake);
+
 #endif /* ifndef _NUVIX_FUTEX_H */
