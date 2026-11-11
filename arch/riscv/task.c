@@ -60,7 +60,7 @@ void utask_entry(struct task *prev)
 }
 
 void arch_task_clone(struct task *task, const struct trap_frame *frame,
-                     unsigned long sp)
+                     unsigned long sp, unsigned long tls)
 {
     struct trap_frame *child =
         (void *)((vaddr_t)task->kstack + KSTACK_SIZE - TRAP_SIZE);
@@ -70,6 +70,8 @@ void arch_task_clone(struct task *task, const struct trap_frame *frame,
     child->regs[10] = 0;
     if (sp)
         child->regs[2] = sp;
+    if (tls)
+        child->regs[4] = tls;
     task->ctx.sp = (vaddr_t)child;
     task->ctx.ra = (unsigned long)__utask_entry;
 }

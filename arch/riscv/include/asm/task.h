@@ -46,8 +46,9 @@ struct task *__switch_to(struct task *prev, struct task *next);
 
 int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
                          vaddr_t sp);
+/* A zero tls preserves the inherited user tp. */
 void arch_task_clone(struct task *task, const struct trap_frame *frame,
-                    unsigned long sp);
+                     unsigned long sp, unsigned long tls);
 void utask_entry(struct task *prev);
 __noreturn void __utask_entry(void);
 

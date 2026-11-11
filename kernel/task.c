@@ -39,8 +39,11 @@ static DEFINE_WAIT_QUEUE(child_wait);
 #define P_PID       1
 #define P_PGID      2
 
-#define CLONE_VM    0x00000100UL
-#define CLONE_VFORK 0x00004000UL
+#define CLONE_VM             0x00000100UL
+#define CLONE_VFORK          0x00004000UL
+#define CLONE_SETTLS         0x00080000UL
+#define CLONE_PARENT_SETTID  0x00100000UL
+#define CLONE_CHILD_CLEARTID 0x00200000UL
 
 struct task boot_task = {
     .refcount = REFCOUNT_INIT(1),
@@ -257,15 +260,13 @@ long sys_clone(struct trap_frame *frame)
 {
     unsigned long uflags = syscallarg(frame, 0);
     unsigned long sp = syscallarg(frame, 1);
+    unsigned long tls = (uflags & CLONE_SETTLS) ? syscallarg(frame, 3) : 0;
     struct task *child __free(task) = NULL;
     DEFINE_COMPLETION(done);
     unsigned long flags;
     pid_t pid;
     int ret;
 
-    if (uflags != SIGCHLD && uflags != (CLONE_VM | SIGCHLD) &&
-        uflags != (CLONE_VM | CLONE_VFORK | SIGCHLD))
-        return -EINVAL;
     child = task_alloc(true);
     if (!child)
         return -ENOMEM;
@@ -291,8 +292,15 @@ long sys_clone(struct trap_frame *frame)
     ret = pid_prepare(child, current);
     if (ret)
         return ret;
-    arch_task_clone(child, frame, sp);
-    pid = task_pid_nr(child, PIDTYPE_TGID);
+    arch_task_clone(child, frame, sp, tls);
+    pid = task_pid_nr(child, PIDTYPE_TID);
+    if (uflags & CLONE_PARENT_SETTID) {
+        pid_t *parent_tid = (pid_t *)syscallarg(frame, 2);
+        size_t nocopied = copy_to_user(parent_tid, &pid, sizeof(pid));
+        (void)nocopied;
+    }
+    if (uflags & CLONE_CHILD_CLEARTID)
+        child->clear_child_tid = (uint32_t *)syscallarg(frame, 4);
     if (uflags & CLONE_VFORK)
         child->vfork_done = &done;
     spin_lock_irqsave(&child_wait.lock, flags);
