@@ -6,10 +6,10 @@
 #include <nuvix/irq.h>
 #include <nuvix/mm.h>
 #include <nuvix/syscall.h>
-#include <nuvix/uaccess.h>
 #include <nuvix/assert.h>
 #include <nuvix/task.h>
 #include <nuvix/signal.h>
+#include <nuvix/futex.h>
 #include <asm/signal.h>
 #include <asm/uaccess.h>
 #include <asm/trap.h>
@@ -53,34 +53,37 @@ static void do_interrupt(struct trap_frame *frame)
         sched_irq_exit();
 }
 
-static bool uaccess_fault(const struct trap_frame *frame, unsigned long access)
+static unsigned long uaccess_fixup(unsigned long pc)
 {
-    unsigned long pc;
-
-    switch (access) {
-    case VM_READ:
-        pc = (unsigned long)__uaccess_load;
-        break;
-    case VM_WRITE:
-        pc = (unsigned long)__uaccess_store;
-        break;
-    default:
-        return false;
-    }
-
-    return frame->sepc == pc && SUPERVISOR(frame) &&
-           access_ok((void *)frame->stval, 1) && current->mm;
+    if (pc == (unsigned long)__uaccess_load8 ||
+        pc == (unsigned long)__uaccess_load16 ||
+        pc == (unsigned long)__uaccess_load32 ||
+        pc == (unsigned long)__uaccess_load64 ||
+        pc == (unsigned long)__uaccess_store8 ||
+        pc == (unsigned long)__uaccess_store16 ||
+        pc == (unsigned long)__uaccess_store32 ||
+        pc == (unsigned long)__uaccess_store64)
+        return (unsigned long)__uaccess_fixup;
+#ifdef CONFIG_FUTEX
+    if (pc == (unsigned long)__futex_cmpxchg_load32 ||
+        pc == (unsigned long)__futex_cmpxchg_store32)
+        return (unsigned long)__futex_cmpxchg_fixup;
+#endif
+    return 0;
 }
 
 static int do_page_fault(struct trap_frame *frame, unsigned long access)
 {
+    unsigned long fixup = 0;
     int ret;
 
-    if (SUPERVISOR(frame) && !uaccess_fault(frame, access))
-        return -EFAULT;
+    if (SUPERVISOR(frame)) {
+        fixup = uaccess_fixup(frame->sepc);
+        if (!fixup)
+            return -EFAULT;
+    }
 
-    if (!SUPERVISOR(frame) ||
-        (SUPERVISOR(frame) && !preempt_count() && !this_cpu()->irq_depth)) {
+    if (!SUPERVISOR(frame) || !preempt_count()) {
         local_irq_enable();
         ret = handle_page_fault(current->mm, frame->stval, access);
         local_irq_disable();
@@ -88,7 +91,7 @@ static int do_page_fault(struct trap_frame *frame, unsigned long access)
             return ret;
     }
 
-    frame->sepc = (unsigned long)__uaccess_fixup;
+    frame->sepc = fixup;
     return 0;
 }
 

@@ -26,3 +26,11 @@ config SMP_BOOT_TIMEOUT_MS
 config FUTEX
 	bool "Futex subsystem support"
 	default n
+
+config NR_FUTEX_BUCKETS
+	int "Number of futex hash buckets"
+	depends on FUTEX
+	default 32
+	help
+	  Number of buckets in the futex wait-queue hash table.
+	  Must be a positive power of two.

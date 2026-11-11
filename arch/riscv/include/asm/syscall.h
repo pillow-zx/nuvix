@@ -36,6 +36,13 @@
 #define __NR_exit_group      94
 #define __NR_waitid          95
 #define __NR_set_tid_address 96
+
+#ifdef CONFIG_FUTEX
+#define __NR_futex           98
+#define __NR_set_robust_list 99
+#define __NR_get_robust_list 100
+#endif
+
 #define __NR_nanosleep       101
 #define __NR_clock_gettime   113
 #define __NR_clock_nanosleep 115

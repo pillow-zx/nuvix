@@ -15,6 +15,7 @@
 #include <nuvix/string.h>
 #include <nuvix/path.h>
 #include <nuvix/completion.h>
+#include <nuvix/futex.h>
 #include <asm/trap.h>
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
@@ -173,6 +174,7 @@ __noreturn void task_exit(int status)
     task->exit = status;
     if (task->parent) {
         Assert(task != init, "init cannot exit\n");
+        IFDEF(CONFIG_FUTEX, futex_release());
         free_resource(task);
         task_vfork_done(task);
         reparent_children(task);

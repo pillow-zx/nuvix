@@ -16,6 +16,7 @@
 #include <nuvix/irq.h>
 #include <nuvix/device.h>
 #include <nuvix/mapping.h>
+#include <nuvix/futex.h>
 
 /* Called by the architecture's boot assembly. */
 void kernel_main(unsigned long hart, paddr_t dtb_pa) __noreturn;
@@ -62,6 +63,8 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
 
     timers_init();
     pr_info("timer: initialization success\n");
+
+    IFDEF(CONFIG_FUTEX, futex_init());
 
     ret = device_init(&dtb);
     BOOTINFO(ret, devices);

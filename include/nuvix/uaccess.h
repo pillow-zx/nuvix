@@ -19,7 +19,9 @@ static inline bool access_ok(const void *addr, size_t size)
  * for size bytes. Return the number of bytes not copied, including size for an
  * invalid user range or a kernel task. Zero size succeeds without accessing
  * either pointer. copy_from_user zeroes the destination
- * when rejecting the copy. Neither operation guarantees a coherent snapshot.
+ * when rejecting the copy. Copies of exactly 1, 2, 4 or 8 bytes use one
+ * load/store pair when both pointers are naturally aligned to that size.
+ * Other copies do not guarantee a coherent snapshot.
  */
 size_t __must_check copy_from_user(void *dst, const void *src, size_t size);
 size_t __must_check copy_to_user(void *dst, const void *src, size_t size);

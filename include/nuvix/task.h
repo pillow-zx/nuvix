@@ -10,6 +10,7 @@
 #include <nuvix/signal.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/path.h>
+#include <nuvix/futex.h>
 #include <asm/task.h>
 
 struct fdtable;
@@ -67,6 +68,8 @@ struct task {
     struct list_head children;
     struct list_head sibling;
     int exit;
+
+    struct robust_list_head *robust;
 
     spinlock_t signal_lock;
     struct sigpending pending;

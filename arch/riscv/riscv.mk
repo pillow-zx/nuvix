@@ -23,4 +23,5 @@ obj-y += arch/riscv/signal.c
 obj-y += arch/riscv/sys.c
 
 obj-$(CONFIG_SMP) += arch/riscv/smp.c
+obj-$(CONFIG_FUTEX) += arch/riscv/futex.S
 obj-$(CONFIG_SOC_QEMU_VIRT) += arch/riscv/plic.c
