@@ -239,7 +239,7 @@ long sys_set_tid_address(struct trap_frame *frame)
 
 long sys_clone(struct trap_frame *frame)
 {
-    unsigned long clone_flags = syscallarg(frame, 0);
+    unsigned long uflags = syscallarg(frame, 0);
     unsigned long sp = syscallarg(frame, 1);
     struct task *child __free(task) = NULL;
     DEFINE_COMPLETION(done);
@@ -247,13 +247,13 @@ long sys_clone(struct trap_frame *frame)
     pid_t pid;
     int ret;
 
-    if (clone_flags != SIGCHLD &&
-        clone_flags != (CLONE_VM | CLONE_VFORK | SIGCHLD))
+    if (uflags != SIGCHLD && uflags != (CLONE_VM | SIGCHLD) &&
+        uflags != (CLONE_VM | CLONE_VFORK | SIGCHLD))
         return -EINVAL;
     child = task_alloc(true);
     if (!child)
         return -ENOMEM;
-    if (clone_flags & CLONE_VM) {
+    if (uflags & CLONE_VM) {
         struct mm_struct *mm __free(mm_put) = move(child->mm);
 
         mm_get(current->mm);
@@ -268,7 +268,8 @@ long sys_clone(struct trap_frame *frame)
     path_get(&child->cwd);
     spin_lock(&current->signal_lock);
     child->blocked = current->blocked;
-    child->sigstack = current->sigstack;
+    if (!(uflags & CLONE_VM) || (uflags & CLONE_VFORK))
+        child->sigstack = current->sigstack;
     memcpy(child->actions, current->actions, sizeof(child->actions));
     spin_unlock(&current->signal_lock);
     ret = pid_prepare(child, current);
@@ -276,14 +277,14 @@ long sys_clone(struct trap_frame *frame)
         return ret;
     arch_task_clone(child, frame, sp);
     pid = task_pid_nr(child, PIDTYPE_TGID);
-    if (clone_flags & CLONE_VFORK)
+    if (uflags & CLONE_VFORK)
         child->vfork_done = &done;
     spin_lock_irqsave(&child_wait.lock, flags);
     child->parent = current;
     list_add_tail(&child->sibling, &current->children);
     spin_unlock_irqrestore(&child_wait.lock, flags);
     sched_publish(child);
-    if (clone_flags & CLONE_VFORK) {
+    if (uflags & CLONE_VFORK) {
         (void)wait_for_completion_killable(&done);
         spin_lock(&child->signal_lock);
         child->vfork_done = NULL;
