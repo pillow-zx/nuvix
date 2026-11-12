@@ -1,6 +1,7 @@
 #define pr_fmt(fmt) "cpu: " fmt
 
 #include <nuvix/cpu.h>
+#include <nuvix/module.h>
 #include <nuvix/dtb.h>
 #include <nuvix/errno.h>
 #include <nuvix/printk.h>
@@ -83,3 +84,4 @@ int cpu_startup(void)
     return cpu_local_init();
 #endif
 }
+MODULE_INIT(cpu_startup, 90);

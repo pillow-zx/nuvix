@@ -22,7 +22,7 @@ struct timer {
 };
 
 /* Boot-only, after CPU and clock setup, before starting SMP. */
-void timers_init(void);
+int timers_init(void);
 /* Exclusive initialization; cpu_id must be a valid online CPU when used. */
 void timer_init(struct timer *timer, unsigned int cpu_id,
                 void (*callback)(struct timer *timer));

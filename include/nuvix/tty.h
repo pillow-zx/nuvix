@@ -112,6 +112,5 @@ static_assert(sizeof(struct winsize) == 8, "invalid winsize layout");
 
 int tty_init(void);
 int init_stdio(struct fdtable *fdt);
-int ns16550a_register(void);
 
 #endif

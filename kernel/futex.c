@@ -1,4 +1,5 @@
 #include <nuvix/futex.h>
+#include <nuvix/module.h>
 #include <nuvix/assert.h>
 #include <nuvix/ctypes.h>
 #include <nuvix/errno.h>
@@ -84,13 +85,15 @@ static struct futex_bucket *lock_waiter(struct futex_waiter *waiter,
     }
 }
 
-void futex_init(void)
+int futex_init(void)
 {
     for (int i = 0; i < CONFIG_NR_FUTEX_BUCKETS; ++i) {
         spin_lock_init(&buckets[i].lock);
         INIT_LIST_HEAD(&buckets[i].waiters);
     }
+    return 0;
 }
+MODULE_INIT(futex_init, 60);
 
 static void futex_timeout_wake(struct timer *timer)
 {

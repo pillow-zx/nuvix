@@ -35,6 +35,17 @@ SECTIONS
         *(.rodata .rodata.*)
         *(.srodata .srodata.*)
         . = ALIGN(PAGE_SIZE);
+    } : rodata
+
+    .init ALIGN(PAGE_SIZE):
+    AT(KERNEL_PBASE + (ADDR(.init) - KERNEL_VBASE))
+    {
+        __module_init_start = .;
+        KEEP(*(SORT_BY_NAME(.init.[0-9].*)))
+        KEEP(*(SORT_BY_NAME(.init.[0-9][0-9].*)))
+        KEEP(*(SORT_BY_NAME(.init.[0-9][0-9][0-9].*)))
+        __module_init_end = .;
+        . = ALIGN(PAGE_SIZE);
         __rodata_end = .;
     } : rodata
 

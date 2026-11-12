@@ -10,6 +10,7 @@
 #include <nuvix/platform.h>
 #include <nuvix/slab.h>
 #include <nuvix/tty.h>
+#include <nuvix/module.h>
 #include <nuvix/wait.h>
 #include <asm/io.h>
 
@@ -395,7 +396,4 @@ static struct platform_driver ns16550a_driver = {
     .ids = ns16550a_ids,
 };
 
-int ns16550a_register(void)
-{
-    return driver_register(&ns16550a_driver.drv);
-}
+MODULE_DRIVER_INIT(ns16550a, 80);

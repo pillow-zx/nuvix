@@ -1,4 +1,5 @@
 #include <nuvix/virtio.h>
+#include <nuvix/module.h>
 #include <nuvix/virtqueue.h>
 #include <nuvix/cleanup.h>
 #include <nuvix/dtb.h>
@@ -226,7 +227,7 @@ static const struct virtio_transport_ops mmio_ops = {
     .ack_irq = mmio_ack_irq,
 };
 
-int virtio_mmio_scan(void)
+int virtio_mmio_init(void)
 {
     const void *blob = dtb.blob;
     int node = -1, ret;
@@ -266,3 +267,5 @@ int virtio_mmio_scan(void)
     }
     return node == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;
 }
+
+MODULE_INIT(virtio_mmio_init, 71);

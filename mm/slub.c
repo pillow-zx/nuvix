@@ -2,6 +2,7 @@
 
 #include <nuvix/macro.h>
 #include <nuvix/slab.h>
+#include <nuvix/module.h>
 #include <nuvix/page.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/string.h>
@@ -201,7 +202,7 @@ void kfree(const void *ptr)
     }
 }
 
-void slub_init(void)
+int slub_init(void)
 {
     for (unsigned int i = 0; i < sizeof(caches) / sizeof(caches[0]); ++i) {
         struct kmem_cache *cache = &caches[i];
@@ -212,4 +213,6 @@ void slub_init(void)
         INIT_LIST_HEAD(&cache->partial);
         INIT_LIST_HEAD(&cache->full);
     }
+    return 0;
 }
+MODULE_INIT(slub_init, 20);

@@ -2,6 +2,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/hashtable.h>
 #include <nuvix/mapping.h>
+#include <nuvix/module.h>
 #include <nuvix/page.h>
 #include <nuvix/sched.h>
 #include <nuvix/slab.h>
@@ -386,3 +387,4 @@ int mapping_init(void)
     sched_publish(flusher);
     return 0;
 }
+MODULE_INIT(mapping_init, 100);

@@ -1,4 +1,5 @@
 #include <nuvix/tick.h>
+#include <nuvix/module.h>
 #include <nuvix/compiler.h>
 #include <nuvix/dtb.h>
 #include <nuvix/cpu.h>
@@ -23,6 +24,7 @@ int tick_init(void)
             (unsigned int)tick_period);
     return 0;
 }
+MODULE_INIT(tick_init, 40);
 
 uint64_t time_ticks_from_ms(unsigned int ms)
 {

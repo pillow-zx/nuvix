@@ -1,4 +1,5 @@
 #include <nuvix/task.h>
+#include <nuvix/module.h>
 #include <nuvix/errno.h>
 #include <nuvix/vfs.h>
 #include <nuvix/sched.h>
@@ -55,3 +56,5 @@ int ktask_init(void)
 
     return 0;
 }
+/* The task can run on another CPU as soon as it is published. */
+MODULE_INIT(ktask_init, 999);

@@ -1,4 +1,5 @@
 #include <nuvix/platform.h>
+#include <nuvix/module.h>
 #include <nuvix/dtb.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
@@ -76,7 +77,7 @@ static int platform_mem_resource(const struct dtb_range *range, void *arg)
     return 0;
 }
 
-int platform_scan(void)
+int platform_init(void)
 {
     const void *blob = dtb.blob;
     int node = -1, ret;
@@ -132,3 +133,5 @@ int platform_scan(void)
     }
     return node == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;
 }
+
+MODULE_INIT(platform_init, 70);

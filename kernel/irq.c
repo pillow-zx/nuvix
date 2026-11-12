@@ -1,4 +1,5 @@
 #include <nuvix/irq.h>
+#include <nuvix/module.h>
 #include <nuvix/assert.h>
 #include <nuvix/errno.h>
 #include <nuvix/slab.h>
@@ -28,6 +29,7 @@ int irq_init(void)
     nr_sources = nr_irqs;
     return 0;
 }
+MODULE_INIT(irq_init, 30);
 
 int irq_parse(int node, unsigned int *irq)
 {

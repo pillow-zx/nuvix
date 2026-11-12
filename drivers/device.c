@@ -1,4 +1,5 @@
 #include <nuvix/device.h>
+#include <nuvix/module.h>
 #include <nuvix/assert.h>
 #include <nuvix/errno.h>
 #include <nuvix/irq.h>
@@ -49,7 +50,7 @@ int driver_register(struct driver *drv)
     return 0;
 }
 
-int devices_probe(void)
+int devices_init(void)
 {
     struct device *dev;
 
@@ -88,3 +89,5 @@ int devices_probe(void)
     }
     return 0;
 }
+
+MODULE_INIT(devices_init, 85);

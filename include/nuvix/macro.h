@@ -33,6 +33,7 @@
 #define IFZERO(macro, ...) __MUXZERO(macro, __KEEP, __IGNORE)(__VA_ARGS__)
 
 #define TYPEOF(x)          __typeof__(x)
+#define ALIGNOF(x)         __alignof__(x)
 #define UNIQUE(prefix)     CONCAT(prefix_, __COUNTER__)
 
 #define READ_ONCE(x)       (*(volatile TYPEOF(x) *)&(x))

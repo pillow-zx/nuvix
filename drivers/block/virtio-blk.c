@@ -1,6 +1,7 @@
 #define pr_fmt(fmt) "virtio-blk: " fmt
 
 #include <nuvix/blkdev.h>
+#include <nuvix/module.h>
 #include <nuvix/virtio.h>
 #include <nuvix/virtqueue.h>
 #include <nuvix/assert.h>
@@ -300,7 +301,4 @@ static struct virtio_driver virtio_blk_driver = {
     .vq_cb = {virtio_blk_done},
 };
 
-int virtio_blk_register(void)
-{
-    return driver_register(&virtio_blk_driver.drv);
-}
+MODULE_DRIVER_INIT(virtio_blk, 81);

@@ -1,5 +1,6 @@
 #include <nuvix/syscall.h>
 #include <nuvix/timer.h>
+#include <nuvix/module.h>
 #include <nuvix/wait.h>
 #include <nuvix/errno.h>
 #include <nuvix/tick.h>
@@ -15,7 +16,7 @@ struct timers {
 
 static struct timers timers[CONFIG_NR_CPUS];
 
-void timers_init(void)
+int timers_init(void)
 {
     for (unsigned int cpu_id = 0; cpu_id < nr_cpus; ++cpu_id) {
         struct timers *base = &timers[cpu_id];
@@ -25,7 +26,9 @@ void timers_init(void)
         base->first = NULL;
         base->next_sequence = 0;
     }
+    return 0;
 }
+MODULE_INIT(timers_init, 50);
 
 void timer_init(struct timer *timer, unsigned int cpu_id,
                 void (*callback)(struct timer *timer))

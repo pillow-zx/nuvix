@@ -52,7 +52,7 @@ int __futex_cmpxchg_u32(uint32_t *obs, uint32_t *addr, uint32_t val, uint32_t de
 extern char __futex_cmpxchg_load32[], __futex_cmpxchg_store32[];
 extern char __futex_cmpxchg_fixup[];
 
-void futex_init(void);
+int futex_init(void);
 
 void futex_release(void);
 

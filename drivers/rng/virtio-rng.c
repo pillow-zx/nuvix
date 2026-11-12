@@ -1,6 +1,7 @@
 #define pr_fmt(fmt) "virtio-rng: " fmt
 
 #include <nuvix/random.h>
+#include <nuvix/module.h>
 #include <nuvix/virtio.h>
 #include <nuvix/virtqueue.h>
 #include <nuvix/assert.h>
@@ -60,7 +61,4 @@ static struct virtio_driver virtio_rng_driver = {
     .vq_size = {VIRTIO_RNG_QUEUE_SIZE},
 };
 
-int virtio_rng_register(void)
-{
-    return driver_register(&virtio_rng_driver.drv);
-}
+MODULE_DRIVER_INIT(virtio_rng, 82);

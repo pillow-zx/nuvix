@@ -76,9 +76,7 @@ to_virtio_driver(const struct driver *drv)
 
 extern const struct bus virtio_bus;
 
-int virtio_mmio_scan(void);
-int virtio_blk_register(void);
-int virtio_rng_register(void);
+int virtio_mmio_init(void);
 
 int virtio_dev_ready(struct virtio_dev *dev);
 

@@ -39,7 +39,8 @@ _start:
 
     lla         a0, boot_stack
     call        task_boot_init
-    call        kernel_main
+    call        module_init
+    call        sched_task
     .balign 4
 .Lpark:
     wfi

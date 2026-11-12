@@ -2,6 +2,7 @@
 
 #include <nuvix/page.h>
 #include <nuvix/memblock.h>
+#include <nuvix/module.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/printk.h>
 #include <nuvix/errno.h>
@@ -192,3 +193,4 @@ int buddy_init(void)
     buddy_dump();
     return 0;
 }
+MODULE_INIT(buddy_init, 10);
