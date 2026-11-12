@@ -3,16 +3,17 @@
 #include <nuvix/libfdt.h>
 #include <nuvix/string.h>
 
+struct dtb dtb;
+
 static inline int fdt_errno(int error)
 {
     return error == -FDT_ERR_NOTFOUND ? -ENOENT : -EINVAL;
 }
 
-static int get_string(const void *blob, int node, const char *property,
-                      const char **value)
+static int get_string(int node, const char *property, const char **value)
 {
     int len;
-    const char *string = fdt_getprop(blob, node, property, &len);
+    const char *string = fdt_getprop(dtb.blob, node, property, &len);
 
     if (!string)
         return fdt_errno(len);
@@ -22,26 +23,24 @@ static int get_string(const void *blob, int node, const char *property,
     return 0;
 }
 
-int dtb_get_string(const struct dtb *dtb, const char *path,
-                   const char *property, const char **value)
+int dtb_get_string(const char *path, const char *property, const char **value)
 {
-    int node = fdt_path_offset(dtb->blob, path);
+    int node = fdt_path_offset(dtb.blob, path);
 
     if (node < 0)
         return fdt_errno(node);
-    return get_string(dtb->blob, node, property, value);
+    return get_string(node, property, value);
 }
 
-int dtb_get_u32(const struct dtb *dtb, const char *path, const char *property,
-                uint32_t *value)
+int dtb_get_u32(const char *path, const char *property, uint32_t *value)
 {
-    int node = fdt_path_offset(dtb->blob, path);
+    int node = fdt_path_offset(dtb.blob, path);
     int len;
     const fdt32_t *cells;
 
     if (node < 0)
         return fdt_errno(node);
-    cells = fdt_getprop(dtb->blob, node, property, &len);
+    cells = fdt_getprop(dtb.blob, node, property, &len);
     if (!cells)
         return fdt_errno(len);
     if (len != sizeof(*cells))
@@ -50,21 +49,16 @@ int dtb_get_u32(const struct dtb *dtb, const char *path, const char *property,
     return 0;
 }
 
-static int node_available(const void *blob, int node)
+int dtb_node_available(int node)
 {
     const char *status;
-    int ret = get_string(blob, node, "status", &status);
+    int ret = get_string(node, "status", &status);
 
     if (ret == -ENOENT)
         return 1;
     if (ret)
         return ret;
     return !strcmp(status, "okay") || !strcmp(status, "ok");
-}
-
-int dtb_node_available(const struct dtb *dtb, int node)
-{
-    return node_available(dtb->blob, node);
 }
 
 static uint64_t read_cells(const fdt32_t *cells, int count)
@@ -88,9 +82,10 @@ static int visit_range(uint64_t base, uint64_t size, bool no_map,
     return visit(&range, arg);
 }
 
-static int scan_reg(const void *blob, int node, int parent, bool no_map,
-                    dtb_range_fn visit, void *arg)
+static int scan_reg(int node, int parent, bool no_map, dtb_range_fn visit,
+                    void *arg)
 {
+    const void *blob = dtb.blob;
     int address_cells = fdt_address_cells(blob, parent);
     int size_cells = fdt_size_cells(blob, parent);
     int len, stride;
@@ -119,9 +114,9 @@ static int scan_reg(const void *blob, int node, int parent, bool no_map,
     return 0;
 }
 
-int dtb_scan_reg(const struct dtb *dtb, int node, dtb_range_fn visit, void *arg)
+int dtb_scan_reg(int node, dtb_range_fn visit, void *arg)
 {
-    const void *blob = dtb->blob;
+    const void *blob = dtb.blob;
     int parent = fdt_parent_offset(blob, node);
     int len;
 
@@ -131,17 +126,17 @@ int dtb_scan_reg(const struct dtb *dtb, int node, dtb_range_fn visit, void *arg)
     for (int bus = parent; bus > 0; bus = fdt_parent_offset(blob, bus))
         if (!fdt_getprop(blob, bus, "ranges", &len) || len)
             return -EOPNOTSUPP;
-    return scan_reg(blob, node, parent, false, visit, arg);
+    return scan_reg(node, parent, false, visit, arg);
 }
 
-int dtb_scan_memory(const struct dtb *dtb, dtb_range_fn visit, void *arg)
+int dtb_scan_memory(dtb_range_fn visit, void *arg)
 {
-    const void *blob = dtb->blob;
+    const void *blob = dtb.blob;
     int node, count = 0;
 
     fdt_for_each_subnode (node, blob, 0) {
         const char *type;
-        int ret = get_string(blob, node, "device_type", &type);
+        int ret = get_string(node, "device_type", &type);
 
         if (ret == -ENOENT)
             continue;
@@ -149,12 +144,12 @@ int dtb_scan_memory(const struct dtb *dtb, dtb_range_fn visit, void *arg)
             return ret;
         if (strcmp(type, "memory"))
             continue;
-        ret = node_available(blob, node);
+        ret = dtb_node_available(node);
         if (ret < 0)
             return ret;
         if (!ret)
             continue;
-        ret = scan_reg(blob, node, 0, false, visit, arg);
+        ret = scan_reg(node, 0, false, visit, arg);
         if (ret)
             return ret;
         ++count;
@@ -164,9 +159,9 @@ int dtb_scan_memory(const struct dtb *dtb, dtb_range_fn visit, void *arg)
     return count ? 0 : -ENODEV;
 }
 
-int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg)
+int dtb_scan_reserved(dtb_range_fn visit, void *arg)
 {
-    const void *blob = dtb->blob;
+    const void *blob = dtb.blob;
     int count = fdt_num_mem_rsv(blob);
     int parent, node, len, ret;
 
@@ -185,7 +180,7 @@ int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg)
     parent = fdt_path_offset(blob, "/reserved-memory");
     if (parent < 0)
         return parent == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;
-    ret = node_available(blob, parent);
+    ret = dtb_node_available(parent);
     if (ret <= 0)
         return ret;
     if (!fdt_getprop(blob, parent, "ranges", &len) || len != 0)
@@ -197,7 +192,7 @@ int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg)
     fdt_for_each_subnode (node, blob, parent) {
         bool no_map;
 
-        ret = node_available(blob, node);
+        ret = dtb_node_available(node);
         if (ret < 0)
             return ret;
         if (!ret)
@@ -205,7 +200,7 @@ int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg)
         no_map = fdt_getprop(blob, node, "no-map", &len) != NULL;
         if ((no_map && len != 0) || (!no_map && len != -FDT_ERR_NOTFOUND))
             return -EINVAL;
-        ret = scan_reg(blob, node, parent, no_map, visit, arg);
+        ret = scan_reg(node, parent, no_map, visit, arg);
         if (ret == -ENOENT)
             return -EOPNOTSUPP;
         if (ret)
@@ -214,9 +209,9 @@ int dtb_scan_reserved(const struct dtb *dtb, dtb_range_fn visit, void *arg)
     return node == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;
 }
 
-int dtb_scan_cpus(const struct dtb *dtb, dtb_cpu_fn visit, void *arg)
+int dtb_scan_cpus(dtb_cpu_fn visit, void *arg)
 {
-    const void *blob = dtb->blob;
+    const void *blob = dtb.blob;
     int parent = fdt_path_offset(blob, "/cpus");
     int address_cells, size_cells, node;
 
@@ -232,7 +227,7 @@ int dtb_scan_cpus(const struct dtb *dtb, dtb_cpu_fn visit, void *arg)
     fdt_for_each_subnode (node, blob, parent) {
         const char *type;
         const fdt32_t *reg;
-        int len, ret = get_string(blob, node, "device_type", &type);
+        int len, ret = get_string(node, "device_type", &type);
 
         if (ret == -ENOENT)
             continue;
@@ -240,7 +235,7 @@ int dtb_scan_cpus(const struct dtb *dtb, dtb_cpu_fn visit, void *arg)
             return ret;
         if (strcmp(type, "cpu"))
             continue;
-        ret = node_available(blob, node);
+        ret = dtb_node_available(node);
         if (ret < 0)
             return ret;
         if (!ret)
@@ -262,11 +257,11 @@ int dtb_scan_cpus(const struct dtb *dtb, dtb_cpu_fn visit, void *arg)
     return node == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;
 }
 
-int dtb_init(struct dtb *dtb, const void *blob, paddr_t paddr)
+int dtb_init(const void *blob, paddr_t paddr)
 {
     uint32_t size;
 
-    *dtb = (struct dtb){0};
+    dtb = (struct dtb){0};
     if (!blob || (paddr & 7))
         return -EINVAL;
     if (fdt_check_header(blob))
@@ -277,8 +272,8 @@ int dtb_init(struct dtb *dtb, const void *blob, paddr_t paddr)
     if (fdt_check_full(blob, size))
         return -EINVAL;
 
-    dtb->blob = blob;
-    dtb->paddr = paddr;
-    dtb->size = size;
+    dtb.blob = blob;
+    dtb.paddr = paddr;
+    dtb.size = size;
     return 0;
 }

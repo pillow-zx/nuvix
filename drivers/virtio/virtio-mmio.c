@@ -78,7 +78,7 @@ static int mmio_reg(const struct dtb_range *range, void *arg)
     return 0;
 }
 
-static int mmio_map(const struct dtb *dtb, int node, struct virtio_mmio *mmio)
+static int mmio_map(int node, struct virtio_mmio *mmio)
 {
     struct dtb_range reg = {0};
     uint64_t paddr, size;
@@ -86,7 +86,7 @@ static int mmio_map(const struct dtb *dtb, int node, struct virtio_mmio *mmio)
     vaddr_t vaddr;
     int ret;
 
-    ret = dtb_scan_reg(dtb, node, mmio_reg, &reg);
+    ret = dtb_scan_reg(node, mmio_reg, &reg);
     if (ret)
         return ret;
     paddr = reg.base;
@@ -226,16 +226,16 @@ static const struct virtio_transport_ops mmio_ops = {
     .ack_irq = mmio_ack_irq,
 };
 
-int virtio_mmio_scan(const struct dtb *dtb)
+int virtio_mmio_scan(void)
 {
-    const void *blob = dtb->blob;
+    const void *blob = dtb.blob;
     int node = -1, ret;
 
     while ((node = fdt_node_offset_by_compatible(blob, node, "virtio,mmio")) >=
            0) {
         struct virtio_mmio *mmio __free(kfree) = NULL;
 
-        ret = dtb_node_available(dtb, node);
+        ret = dtb_node_available(node);
         if (ret < 0)
             return ret;
         if (!ret)
@@ -243,7 +243,7 @@ int virtio_mmio_scan(const struct dtb *dtb)
         mmio = kzalloc(sizeof(*mmio));
         if (!mmio)
             return -ENOMEM;
-        ret = mmio_map(dtb, node, mmio);
+        ret = mmio_map(node, mmio);
         if (ret)
             return ret;
         if (mmio_read(mmio, MMIO_MAGIC) != VIRTIO_MMIO_MAGIC ||
@@ -253,7 +253,7 @@ int virtio_mmio_scan(const struct dtb *dtb)
         if (!mmio->vdev.device_id)
             continue;
         mmio->vdev.vendor_id = mmio_read(mmio, MMIO_VENDOR_ID);
-        ret = irq_parse(dtb, node, &mmio->vdev.irq);
+        ret = irq_parse(node, &mmio->vdev.irq);
         if (ret)
             return ret;
         mmio->vdev.ops = &mmio_ops;

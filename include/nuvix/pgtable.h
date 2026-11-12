@@ -4,7 +4,6 @@
 #include <asm/pgtable.h>
 #include <nuvix/cleanup.h>
 
-struct dtb;
 struct page;
 
 /*
@@ -68,7 +67,7 @@ int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr);
  * Called once after page_init(), with valid DTB and boot-accessible RAM.
  * Failed builds leave allocations reserved.
  */
-int pgtable_init(struct dtb *dtb);
+int pgtable_init(void);
 
 /* Boot-only, once after buddy_init() succeeds, before starting SMP. */
 void pgtable_use_buddy(void);

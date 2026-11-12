@@ -5,8 +5,6 @@
 
 #define MEMBLOCK_MAX_RESERVED 32
 
-struct dtb;
-
 struct memblock_region {
     uint64_t base;
     uint64_t size;
@@ -21,7 +19,7 @@ struct memblock {
 
 extern struct memblock memblock;
 
-int memblock_init(const struct dtb *dtb);
+int memblock_init(void);
 int memblock_reserve(uint64_t base, uint64_t size, bool no_map);
 
 /*

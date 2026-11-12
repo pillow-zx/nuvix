@@ -29,10 +29,8 @@ struct cpu {
 extern struct cpu cpus[CONFIG_NR_CPUS];
 extern unsigned int nr_cpus;
 
-struct dtb;
-
 /* Boot-only, once after dtb_init(), before starting smp harts. */
-int cpu_init(const struct dtb *dtb, unsigned long boot_hart);
+int cpu_init(unsigned long boot_hart);
 
 /* After allocator and tick setup, IRQ off, on the boot task's initial depth. */
 int cpu_startup(void);

@@ -3,14 +3,14 @@
 #include <nuvix/tty.h>
 #include <nuvix/virtio.h>
 
-int device_init(const struct dtb *dtb)
+int device_init(void)
 {
-    int ret = platform_scan(dtb);
+    int ret = platform_scan();
 
     if (ret)
         return ret;
 #ifdef CONFIG_VIRTIO
-    return virtio_mmio_scan(dtb);
+    return virtio_mmio_scan();
 #else
     return 0;
 #endif

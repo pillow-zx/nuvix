@@ -11,18 +11,16 @@
 
 typedef void (*irq_handler_t)(void *data);
 
-struct dtb;
-
 /*
  * Boot-only, once after slub_init(), before SMP, with local IRQs off.
  * Initializes the controller and handler table, leaving all sources disabled.
  * IRQs are numbered from one through the architecture's validated range.
  * The handler table remains allocated for the kernel's lifetime.
  */
-int irq_init(const struct dtb *dtb);
+int irq_init(void);
 
 /* Boot-only after irq_init(); resolves one device node's interrupt source. */
-int irq_parse(const struct dtb *dtb, int node, unsigned int *irq);
+int irq_parse(int node, unsigned int *irq);
 
 /*
  * After irq_init(), before SMP, with local IRQs off; one handler per source.

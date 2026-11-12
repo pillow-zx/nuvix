@@ -386,7 +386,7 @@ static int map_ram(pt_entry_t *pgd)
     return 0;
 }
 
-int pgtable_init(struct dtb *dtb)
+int pgtable_init(void)
 {
     paddr_t image_end = __pa((vaddr_t)__end);
     paddr_t root, dtb_start, dtb_end;
@@ -394,8 +394,8 @@ int pgtable_init(struct dtb *dtb)
     const void *blob;
     int ret;
 
-    dtb_start = ALIGN_DOWN(dtb->paddr, (paddr_t)PAGE_SIZE);
-    dtb_end = ALIGN_UP(dtb->paddr + dtb->size, (paddr_t)PAGE_SIZE);
+    dtb_start = ALIGN_DOWN(dtb.paddr, (paddr_t)PAGE_SIZE);
+    dtb_end = ALIGN_UP(dtb.paddr + dtb.size, (paddr_t)PAGE_SIZE);
     if (range_no_map(KERNEL_PBASE, image_end - KERNEL_PBASE) ||
         range_no_map(dtb_start, dtb_end - dtb_start))
         return -EACCES;
@@ -408,13 +408,13 @@ int pgtable_init(struct dtb *dtb)
         return ret;
 
     pages = (struct page *)__va((uintptr_t)mem_map);
-    blob = (const void *)__va(dtb->paddr);
+    blob = (const void *)__va(dtb.paddr);
     refcount_inc(&phys_to_page(root)->refcount);
 
     csr_write(satp, SATP_SV39 | (root >> PAGE_SHIFT));
     local_flush_tlb_all();
     mem_map = pages;
-    dtb->blob = blob;
+    dtb.blob = blob;
     kernel_pgd = root;
     return 0;
 }

@@ -6,7 +6,6 @@
 
 struct device;
 struct driver;
-struct dtb;
 
 struct bus {
     const char *name;
@@ -54,7 +53,7 @@ int driver_register(struct driver *drv);
 int devices_probe(void);
 
 /* After allocator, IRQ and timer setup; enumerate devices before driver_init. */
-int device_init(const struct dtb *dtb);
+int device_init(void);
 int driver_init(void);
 
 #endif /* _NUVIX_DEVICE_H */

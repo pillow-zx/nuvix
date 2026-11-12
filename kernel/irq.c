@@ -12,13 +12,13 @@ struct irq_action {
 static struct irq_action *irq_actions;
 static unsigned int nr_sources;
 
-int irq_init(const struct dtb *dtb)
+int irq_init(void)
 {
     struct irq_action *actions __free(kfree) = NULL;
     unsigned int nr_irqs;
     int ret;
 
-    ret = arch_irq_init(dtb, &nr_irqs);
+    ret = arch_irq_init(&nr_irqs);
     if (ret)
         return ret;
     actions = kzalloc(((size_t)nr_irqs + 1) * sizeof(*actions));
@@ -29,10 +29,10 @@ int irq_init(const struct dtb *dtb)
     return 0;
 }
 
-int irq_parse(const struct dtb *dtb, int node, unsigned int *irq)
+int irq_parse(int node, unsigned int *irq)
 {
     unsigned int source;
-    int ret = arch_irq_parse(dtb, node, &source);
+    int ret = arch_irq_parse(node, &source);
 
     if (ret)
         return ret;

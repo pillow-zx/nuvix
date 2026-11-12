@@ -16,7 +16,6 @@
 #define VIRTIO_IRQ_CONFIG         2
 #define VIRTIO_MAX_VQS            4
 
-struct dtb;
 struct virtio_dev;
 struct virtio_driver;
 struct virtqueue;
@@ -77,7 +76,7 @@ to_virtio_driver(const struct driver *drv)
 
 extern const struct bus virtio_bus;
 
-int virtio_mmio_scan(const struct dtb *dtb);
+int virtio_mmio_scan(void);
 int virtio_blk_register(void);
 int virtio_rng_register(void);
 

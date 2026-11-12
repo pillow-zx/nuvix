@@ -23,7 +23,6 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa) __noreturn;
 
 void kernel_main(unsigned long hart, paddr_t dtb_pa)
 {
-    struct dtb dtb;
     int ret;
 
 #define BOOTINFO(ret, name)                                                    \
@@ -34,19 +33,19 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
         }                                                                      \
         pr_info("%s: initialization success\n", #name);                        \
     })
-    ret = dtb_init(&dtb, (const void *)dtb_pa, dtb_pa);
+    ret = dtb_init((const void *)dtb_pa, dtb_pa);
     BOOTINFO(ret, DTB);
 
-    ret = cpu_init(&dtb, hart);
+    ret = cpu_init(hart);
     BOOTINFO(ret, CPU);
 
-    ret = memblock_init(&dtb);
+    ret = memblock_init();
     BOOTINFO(ret, memblock);
 
     ret = page_init();
     BOOTINFO(ret, page);
 
-    ret = pgtable_init(&dtb);
+    ret = pgtable_init();
     BOOTINFO(ret, pgtable);
 
     ret = buddy_init();
@@ -55,10 +54,10 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     slub_init();
     pr_info("slub: initialization success\n");
 
-    ret = irq_init(&dtb);
+    ret = irq_init();
     BOOTINFO(ret, IRQ);
 
-    ret = tick_init(&dtb);
+    ret = tick_init();
     BOOTINFO(ret, clock);
 
     timers_init();
@@ -66,7 +65,7 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
 
     IFDEF(CONFIG_FUTEX, futex_init());
 
-    ret = device_init(&dtb);
+    ret = device_init();
     BOOTINFO(ret, devices);
 
     ret = driver_init();

@@ -40,14 +40,14 @@ static int register_cpu(unsigned long hart_id, void *arg)
     return 0;
 }
 
-int cpu_init(const struct dtb *dtb, unsigned long boot_hart)
+int cpu_init(unsigned long boot_hart)
 {
     bool found_boot_cpu = false;
     int ret;
 
     cpus[0].hart_id = boot_hart;
     nr_cpus = 1;
-    ret = dtb_scan_cpus(dtb, register_cpu, &found_boot_cpu);
+    ret = dtb_scan_cpus(register_cpu, &found_boot_cpu);
     if (ret)
         return ret;
     if (!found_boot_cpu) {

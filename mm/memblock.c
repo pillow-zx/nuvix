@@ -108,19 +108,19 @@ static int register_reserved(const struct dtb_range *range, void *arg)
     return memblock_reserve(range->base, range->size, range->no_map);
 }
 
-int memblock_init(const struct dtb *dtb)
+int memblock_init(void)
 {
     uint64_t ksize = (uintptr_t)__end - (uintptr_t)__start;
     int ret;
 
     memblock = (struct memblock){0};
-    ret = dtb_scan_memory(dtb, register_memory, NULL);
+    ret = dtb_scan_memory(register_memory, NULL);
     if (ret)
         return ret;
-    ret = dtb_scan_reserved(dtb, register_reserved, NULL);
+    ret = dtb_scan_reserved(register_reserved, NULL);
     if (ret)
         return ret;
-    ret = memblock_reserve(dtb->paddr, dtb->size, false);
+    ret = memblock_reserve(dtb.paddr, dtb.size, false);
     if (ret)
         return ret;
     return memblock_reserve(KERNEL_PBASE, ksize, false);

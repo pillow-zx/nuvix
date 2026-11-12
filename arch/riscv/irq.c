@@ -1,8 +1,8 @@
 #include <nuvix/irq.h>
 
-int arch_irq_init(const struct dtb *dtb, unsigned int *nr_irqs)
+int arch_irq_init(unsigned int *nr_irqs)
 {
-    int ret = plic_init(dtb);
+    int ret = plic_init();
 
     if (ret)
         return ret;
@@ -10,9 +10,9 @@ int arch_irq_init(const struct dtb *dtb, unsigned int *nr_irqs)
     return 0;
 }
 
-int arch_irq_parse(const struct dtb *dtb, int node, unsigned int *irq)
+int arch_irq_parse(int node, unsigned int *irq)
 {
-    return plic_irq_parse(dtb, node, irq);
+    return plic_irq_parse(node, irq);
 }
 
 int arch_irq_enable(unsigned int irq)

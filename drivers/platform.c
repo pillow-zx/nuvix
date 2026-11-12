@@ -76,9 +76,9 @@ static int platform_mem_resource(const struct dtb_range *range, void *arg)
     return 0;
 }
 
-int platform_scan(const struct dtb *dtb)
+int platform_scan(void)
 {
-    const void *blob = dtb->blob;
+    const void *blob = dtb.blob;
     int node = -1, ret;
 
     while ((node = fdt_node_offset_by_compatible(blob, node, "ns16550a")) >=
@@ -88,7 +88,7 @@ int platform_scan(const struct dtb *dtb)
         unsigned int irq;
         int len;
 
-        ret = dtb_node_available(dtb, node);
+        ret = dtb_node_available(node);
         if (ret < 0)
             return ret;
         if (!ret)
@@ -112,12 +112,12 @@ int platform_scan(const struct dtb *dtb)
         dev->node = node;
         dev->compat = compat;
         dev->compat_len = len;
-        ret = dtb_scan_reg(dtb, node, platform_mem_resource, dev);
+        ret = dtb_scan_reg(node, platform_mem_resource, dev);
         if (ret)
             return ret;
         if (dev->nres == PLATFORM_MAX_RESOURCES)
             return -E2BIG;
-        ret = irq_parse(dtb, node, &irq);
+        ret = irq_parse(node, &irq);
         if (ret)
             return ret;
         dev->res[dev->nres++] = (struct resource){

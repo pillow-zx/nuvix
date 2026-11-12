@@ -10,10 +10,9 @@
 static uint32_t timebase_frequency;
 static uint64_t tick_period;
 
-int tick_init(const struct dtb *dtb)
+int tick_init(void)
 {
-    int ret =
-        dtb_get_u32(dtb, "/cpus", "timebase-frequency", &timebase_frequency);
+    int ret = dtb_get_u32("/cpus", "timebase-frequency", &timebase_frequency);
 
     if (ret)
         return ret;

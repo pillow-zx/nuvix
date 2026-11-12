@@ -43,8 +43,9 @@ static uint64_t read_cells(const fdt32_t *cells, int count)
     return value;
 }
 
-static int plic_reg(const void *blob, int node, paddr_t *base, uint64_t *size)
+static int plic_reg(int node, paddr_t *base, uint64_t *size)
 {
+    const void *blob = dtb.blob;
     int parent = fdt_parent_offset(blob, node);
     int address_cells = fdt_address_cells(blob, parent);
     int size_cells = fdt_size_cells(blob, parent);
@@ -73,8 +74,9 @@ static int plic_reg(const void *blob, int node, paddr_t *base, uint64_t *size)
     return 0;
 }
 
-static int plic_contexts(const void *blob, int node, unsigned int *contexts)
+static int plic_contexts(int node, unsigned int *contexts)
 {
+    const void *blob = dtb.blob;
     const fdt32_t *extended;
     int len;
 
@@ -137,9 +139,9 @@ static int plic_map(paddr_t base, uint64_t size, uint64_t offset, size_t len)
     return pgtable_map_io(PLIC_VBASE + start, base + start, end - start);
 }
 
-int plic_init(const struct dtb *dtb)
+int plic_init(void)
 {
-    const void *blob = dtb->blob;
+    const void *blob = dtb.blob;
     const fdt32_t *ndev;
     const char *status;
     volatile uint32_t *priority;
@@ -162,10 +164,10 @@ int plic_init(const struct dtb *dtb)
     nr_irqs = fdt32_to_cpu(*ndev);
     if (!nr_irqs || nr_irqs >= PLIC_MAX_SOURCES)
         return -EOPNOTSUPP;
-    ret = plic_reg(blob, node, &base, &size);
+    ret = plic_reg(node, &base, &size);
     if (ret)
         return ret;
-    ret = plic_contexts(blob, node, contexts);
+    ret = plic_contexts(node, contexts);
     if (ret)
         return ret;
 
@@ -212,9 +214,9 @@ int plic_init(const struct dtb *dtb)
     return 0;
 }
 
-int plic_irq_parse(const struct dtb *dtb, int node, unsigned int *irq)
+int plic_irq_parse(int node, unsigned int *irq)
 {
-    const void *blob = dtb->blob;
+    const void *blob = dtb.blob;
     const fdt32_t *cells;
     int parent = node, controller, len;
 
