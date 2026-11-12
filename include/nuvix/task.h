@@ -83,8 +83,6 @@ struct task {
 extern struct task boot_task;
 extern struct task *init;
 
-void task_boot_init(void *kstack);
-
 struct task *task_alloc(bool user);
 
 void task_free(struct task *task);

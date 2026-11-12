@@ -37,8 +37,6 @@ _start:
     lla         t0, __alltraps
     csrw        stvec, t0
 
-    lla         a0, boot_stack
-    call        task_boot_init
     call        module_init
     call        sched_task
     .balign 4
@@ -93,6 +91,7 @@ smp_entry:
 
     .section .bss.boot, "aw", @nobits
     .balign 16
+    .globl boot_stack
 boot_stack:
     .skip BOOT_STACK_SIZE
 boot_stack_top:

@@ -45,6 +45,8 @@ static DEFINE_WAIT_QUEUE(child_wait);
 #define CLONE_PARENT_SETTID  0x00100000UL
 #define CLONE_CHILD_CLEARTID 0x00200000UL
 
+extern char boot_stack[];
+
 struct task boot_task = {
     .refcount = REFCOUNT_INIT(1),
     .cpu_id = 0,
@@ -55,12 +57,8 @@ struct task boot_task = {
     .sibling = LIST_INIT_HEAD(boot_task.sibling),
     .preempt_count = INIT_PREEMPT_COUNT,
     .flags = ATOMIC_INIT(0),
+    .kstack = boot_stack,
 };
-
-void task_boot_init(void *kstack)
-{
-    boot_task.kstack = kstack;
-}
 
 struct task *task_alloc(bool user)
 {
