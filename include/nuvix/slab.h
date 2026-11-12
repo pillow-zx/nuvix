@@ -4,9 +4,6 @@
 #include <nuvix/ctypes.h>
 #include <nuvix/cleanup.h>
 
-/* Boot-only, after buddy_init(); caches acquire pages on demand. */
-int slub_init(void);
-
 /* No reclaim or sleeping. Zero size and allocation failure return NULL. */
 void *kmalloc(size_t size) __malloc __alloc_size(1);
 void *kzalloc(size_t size) __malloc __alloc_size(1);

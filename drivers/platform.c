@@ -77,7 +77,7 @@ static int platform_mem_resource(const struct dtb_range *range, void *arg)
     return 0;
 }
 
-int platform_init(void)
+static int platform_init(void)
 {
     const void *blob = dtb.blob;
     int node = -1, ret;

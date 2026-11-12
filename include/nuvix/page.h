@@ -42,10 +42,6 @@ extern unsigned long min_pfn, max_pfn;
  */
 int page_init(void);
 
-/* Boot-only, once after pgtable_init() and the final memblock reservation. */
-int buddy_init(void);
-void buddy_dump(void);
-
 /*
  * Requires buddy_init(). Only the block head owns a reference;
  * interior pages must not be referenced.

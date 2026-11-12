@@ -99,10 +99,8 @@ void task_get(struct task *task);
 
 void task_put(struct task *task);
 
-/* ktask, do not delete */
-int ktask_init(void);
+/* Called by the architecture's kernel task entry assembly. */
 __noreturn void ktask_entry(struct task *prev, int (*fn)(void *), void *arg);
-__noreturn void ktask_exit(void);
 
 DECLARE_FREE(task_put, struct task *, if (_T) task_put(_T));
 DECLARE_FREE(task, struct task *, if (_T) task_free(_T));

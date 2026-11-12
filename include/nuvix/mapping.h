@@ -52,8 +52,6 @@ struct cache_page {
         .m_bdev = bdev, .m_ops = &ops, .m_host = host                          \
     }
 
-int mapping_init(void);
-
 void *mapping_data(const struct cache_page *cp);
 
 struct cache_page *mapping_get(struct mapping *m, uint64_t index);

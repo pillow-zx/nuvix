@@ -370,7 +370,7 @@ static int mapping_flusher(void *arg)
     return 0;
 }
 
-int mapping_init(void)
+static int mapping_init(void)
 {
     struct task *flusher __free(task_put) = NULL;
 

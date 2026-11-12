@@ -44,12 +44,4 @@ struct driver {
 int device_register(struct device *dev);
 int driver_register(struct driver *drv);
 
-/*
- * Once, after all registration, before SMP with local IRQs off.
- * Uses the first match and calls bus->probe; further registration is rejected.
- * Unmatched devices remain unbound. On failure, probe must have undone its side
- * effects; the core clears the binding and returns the error without retrying.
- */
-int devices_init(void);
-
 #endif /* _NUVIX_DEVICE_H */

@@ -50,7 +50,7 @@ int driver_register(struct driver *drv)
     return 0;
 }
 
-int devices_init(void)
+static int devices_init(void)
 {
     struct device *dev;
 

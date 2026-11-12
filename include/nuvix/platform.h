@@ -61,6 +61,5 @@ const struct resource *platform_get_resource(const struct platform_device *dev,
                                              unsigned int index);
 int platform_get_u32(const struct platform_device *dev, const char *property,
                      uint32_t *value);
-int platform_init(void);
 
 #endif /* _NUVIX_PLATFORM_H */

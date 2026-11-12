@@ -11,7 +11,8 @@
 static uint32_t timebase_frequency;
 static uint64_t tick_period;
 
-int tick_init(void)
+/* Boot-only clock setup, before CPU startup. */
+static int tick_init(void)
 {
     int ret = dtb_get_u32("/cpus", "timebase-frequency", &timebase_frequency);
 

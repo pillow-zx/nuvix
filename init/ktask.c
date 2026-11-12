@@ -7,7 +7,7 @@
 #include <nuvix/execve.h>
 #include <nuvix/tty.h>
 
-__noreturn void ktask_exit(void)
+static __noreturn void ktask_exit(void)
 {
     Assert(!current->parent, "kernel thread exit requires a kernel task\n");
     task_exit(0);
@@ -44,7 +44,7 @@ static int kernel_init(void *args)
     return 0;
 }
 
-int ktask_init(void)
+static int ktask_init(void)
 {
     struct task *kinit __free(task_put) = NULL;
 

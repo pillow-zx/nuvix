@@ -16,7 +16,8 @@ struct timers {
 
 static struct timers timers[CONFIG_NR_CPUS];
 
-int timers_init(void)
+/* Boot-only, after CPU and clock setup, before starting SMP. */
+static int timers_init(void)
 {
     for (unsigned int cpu_id = 0; cpu_id < nr_cpus; ++cpu_id) {
         struct timers *base = &timers[cpu_id];

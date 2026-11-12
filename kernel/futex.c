@@ -85,7 +85,7 @@ static struct futex_bucket *lock_waiter(struct futex_waiter *waiter,
     }
 }
 
-int futex_init(void)
+static int futex_init(void)
 {
     for (int i = 0; i < CONFIG_NR_FUTEX_BUCKETS; ++i) {
         spin_lock_init(&buckets[i].lock);

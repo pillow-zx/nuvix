@@ -77,7 +77,7 @@ static unsigned long snapshot(unsigned long *counts)
     return total;
 }
 
-void buddy_dump(void)
+static void buddy_dump(void)
 {
     unsigned long counts[CONFIG_MAX_ORDER];
     unsigned long total = snapshot(counts);
@@ -166,7 +166,7 @@ void free_pages(struct page *page, int order)
     spin_unlock_irqrestore(&buddy_lock, flags);
 }
 
-int buddy_init(void)
+static int buddy_init(void)
 {
     unsigned long start = min_pfn;
 

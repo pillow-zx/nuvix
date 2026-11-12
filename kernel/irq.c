@@ -13,7 +13,13 @@ struct irq_action {
 static struct irq_action *irq_actions;
 static unsigned int nr_sources;
 
-int irq_init(void)
+/*
+ * Boot-only, once after slub_init(), before SMP, with local IRQs off.
+ * Initializes the controller and handler table, leaving all sources disabled.
+ * IRQs are numbered from one through the architecture's validated range.
+ * The handler table remains allocated for the kernel's lifetime.
+ */
+static int irq_init(void)
 {
     struct irq_action *actions __free(kfree) = NULL;
     unsigned int nr_irqs;

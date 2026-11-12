@@ -32,8 +32,6 @@ extern unsigned int nr_cpus;
 /* Boot-only, once after dtb_init(), before starting smp harts. */
 int cpu_init(unsigned long boot_hart);
 
-/* After allocator and tick setup, IRQ off, on the boot task's initial depth. */
-int cpu_startup(void);
 /* Local CPU, IRQ off, with current bound to its idle task. */
 int cpu_local_init(void);
 

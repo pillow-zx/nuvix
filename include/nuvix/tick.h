@@ -17,8 +17,6 @@ struct timespec64 {
     int64_t tv_nsec;
 };
 
-/* Boot-only clock setup, before CPU startup. */
-int tick_init(void);
 /* After tick_init(); preserves downward rounding for existing callers. */
 uint64_t time_ticks_from_ms(unsigned int ms);
 

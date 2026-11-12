@@ -202,7 +202,8 @@ void kfree(const void *ptr)
     }
 }
 
-int slub_init(void)
+/* Boot-only, after buddy_init(); caches acquire pages on demand. */
+static int slub_init(void)
 {
     for (unsigned int i = 0; i < sizeof(caches) / sizeof(caches[0]); ++i) {
         struct kmem_cache *cache = &caches[i];

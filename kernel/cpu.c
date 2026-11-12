@@ -73,7 +73,8 @@ int cpu_local_init(void)
     return 0;
 }
 
-int cpu_startup(void)
+/* After allocator and tick setup, IRQ off, on the boot task's initial depth. */
+static int cpu_startup(void)
 {
     sched_init();
     sched_init_idle(0, &boot_task);
