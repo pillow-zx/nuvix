@@ -35,11 +35,10 @@ extern struct page *mem_map;
 extern unsigned long min_pfn, max_pfn;
 
 /*
- * Boot-only, after memblock_init(). RAM in memblock.memory must be
- * identity-mapped for metadata allocation. All descriptors start reserved, with
- * zero references, no order and NULL list links. Buddy must consult the final
- * memblock reservations before releasing any pages.
- * The array pointer must be rebound before removing the identity mapping.
+ * Boot-only, with MMU off, after memblock_init(). All descriptors start
+ * reserved, with zero references, no order and NULL list links. Buddy must
+ * consult the final memblock reservations before releasing any pages.
+ * Rebind the array pointer to its kernel virtual address before the MMU switch.
  */
 int page_init(void);
 

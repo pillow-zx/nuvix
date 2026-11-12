@@ -1,36 +1,36 @@
 #ifndef _NUVIX_RISCV_LAYOUT_H
 #define _NUVIX_RISCV_LAYOUT_H
 
-#define PAGE_SHIFT      12
-#define PAGE_SIZE       (1 << PAGE_SHIFT)
+#define PAGE_SHIFT        12
+#define PAGE_SIZE         (1 << PAGE_SHIFT)
 
-#define UVADDR_START    0x10000
-#define UVADDR_END      0x0000004000000000
-#define UVADDR_SIZE     (UVADDR_END - UVADDR_START)
+#define UVADDR_START      0x10000
+#define UVADDR_END        0x0000004000000000
+#define UVADDR_SIZE       (UVADDR_END - UVADDR_START)
 
-#define USER_TRAMPOLINE (UVADDR_END - PAGE_SIZE)
+#define USER_TRAMPOLINE   (UVADDR_END - PAGE_SIZE)
 
-#define USTACK_ALIGN    16
-#define USTACK_TOP      (USER_TRAMPOLINE - PAGE_SIZE)
-#define USTACK_SIZE     ((vaddr_t)CONFIG_USTACK_PAGES * PAGE_SIZE)
-#define USTACK_BOTTOM   (USTACK_TOP - USTACK_SIZE)
+#define USTACK_ALIGN      16
+#define USTACK_TOP        (USER_TRAMPOLINE - PAGE_SIZE)
+#define USTACK_SIZE       ((vaddr_t)CONFIG_USTACK_PAGES * PAGE_SIZE)
+#define USTACK_BOTTOM     (USTACK_TOP - USTACK_SIZE)
 
-#define KERNEL_PBASE    0x0000000080200000
-#define KERNEL_VBASE    0xffffffc000200000
+#define KERNEL_PBASE      0x0000000080200000
+#define KERNEL_VBASE      0xffffffc000200000
 
-#define IOREMAP_VBASE   0xffffffe000000000
+#define IOREMAP_VBASE     0xffffffe000000000
 
-#define UART_VBASE      IOREMAP_VBASE
+#define UART_VBASE        IOREMAP_VBASE
 
-#define PLIC_VBASE      (IOREMAP_VBASE + PAGE_SIZE)
+#define PLIC_VBASE        (IOREMAP_VBASE + PAGE_SIZE)
 
 /* A separate permanent boot mapping window, beyond the PLIC register range. */
 #define VIRTIO_MMIO_VBASE (IOREMAP_VBASE + 0x10000000)
 #define VIRTIO_MMIO_SIZE  0x100000
 
-#define KSTACK_ORDER    2
-#define KSTACK_SIZE     (PAGE_SIZE << KSTACK_ORDER)
+#define KSTACK_ORDER      2
+#define KSTACK_SIZE       (PAGE_SIZE << KSTACK_ORDER)
 
-#define BOOT_STACK_SIZE (4 * PAGE_SIZE)
+#define BOOT_STACK_SIZE   (4 * PAGE_SIZE)
 
 #endif /* _NUVIX_RISCV_LAYOUT_H */

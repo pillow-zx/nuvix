@@ -37,8 +37,6 @@
 #define PTE_KERNEL_RW    (PTE_V | PTE_R | PTE_A | PTE_W | PTE_D)
 #define PTE_KERNEL_RX    (PTE_V | PTE_R | PTE_A | PTE_X)
 
-#define PTE_BOOT_RWX     (PTE_KERNEL_RW | PTE_X)
-
 #define SATP_SV39        0x8000000000000000
 
 #ifndef __ASSEMBLER__
@@ -46,7 +44,9 @@
 #include <nuvix/ctypes.h>
 #include <nuvix/mm.h>
 
-typedef uint64_t pt_entry_t;
+typedef uint64_t pte_t;
+
+extern paddr_t kernel_pgd;
 
 static inline uint64_t vma_to_pte(unsigned long vma_flags)
 {
@@ -63,38 +63,38 @@ static inline uint64_t vma_to_pte(unsigned long vma_flags)
     return flags;
 }
 
-static inline pt_entry_t pt_entry_make(paddr_t paddr, uint64_t flags)
+static inline pte_t pte_make(paddr_t paddr, uint64_t flags)
 {
     return ((paddr >> PAGE_SHIFT) << PTE_PPN_SHIFT) | flags;
 }
 
-static inline paddr_t pt_entry_paddr(pt_entry_t entry)
+static inline paddr_t pte_paddr(pte_t entry)
 {
     return ((entry >> PTE_PPN_SHIFT) & ((1ULL << PTE_PPN_BITS) - 1))
            << PAGE_SHIFT;
 }
 
-static inline pt_entry_t pt_entry_read(const pt_entry_t *entry)
+static inline pte_t pte_read(const pte_t *entry)
 {
     return load_relaxed(entry);
 }
 
-static inline bool pt_entry_none(pt_entry_t entry)
+static inline bool pte_none(pte_t entry)
 {
     return entry == 0;
 }
 
-static inline bool pt_entry_valid(pt_entry_t entry)
+static inline bool pte_valid(pte_t entry)
 {
     return entry & PTE_V;
 }
 
-static inline bool pt_entry_present(pt_entry_t entry)
+static inline bool pte_present(pte_t entry)
 {
     return entry & (PTE_V | PTE_NONE);
 }
 
-static inline void pt_entry_write(pt_entry_t *entry, pt_entry_t value)
+static inline void pte_write(pte_t *entry, pte_t value)
 {
     store_release(entry, value);
 }

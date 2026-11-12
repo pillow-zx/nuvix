@@ -47,7 +47,7 @@ static __always_inline void arch_local_irq_restore(unsigned long flags)
         arch_local_irq_disable();
 }
 
-/* Boot-only after pgtable_use_buddy(), before SMP; leaves all sources disabled. */
+/* Boot-only after buddy_init(), before SMP; leaves all sources disabled. */
 int plic_init(void);
 
 /* Boot-only after init; supports one source from this PLIC per device node. */

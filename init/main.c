@@ -18,12 +18,8 @@
 #include <nuvix/mapping.h>
 #include <nuvix/futex.h>
 
-/* Called by the architecture's boot assembly. */
-void kernel_main(unsigned long hart, paddr_t dtb_pa) __noreturn;
-
-void kernel_main(unsigned long hart, paddr_t dtb_pa)
-{
-    int ret;
+paddr_t start_kernel(unsigned long hart, paddr_t dtb_pa);
+void kernel_main(void) __noreturn;
 
 #define BOOTINFO(ret, name)                                                    \
     ({                                                                         \
@@ -33,6 +29,12 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
         }                                                                      \
         pr_info("%s: initialization success\n", #name);                        \
     })
+
+paddr_t start_kernel(unsigned long hart, paddr_t dtb_pa)
+{
+    paddr_t root;
+    int ret;
+
     ret = dtb_init((const void *)dtb_pa, dtb_pa);
     BOOTINFO(ret, DTB);
 
@@ -45,8 +47,21 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     ret = page_init();
     BOOTINFO(ret, page);
 
-    ret = pgtable_init();
+    ret = pgtable_init(&root);
     BOOTINFO(ret, pgtable);
+
+    /* All MMU-off accesses are complete; prepare pointers for the MMU switch. */
+    mem_map = (struct page *)__va((uintptr_t)mem_map);
+    dtb.blob = (const void *)__va(dtb.paddr);
+    return root;
+
+halt:
+    panic("Kernel has been halted...\n");
+}
+
+void kernel_main(void)
+{
+    int ret;
 
     ret = buddy_init();
     BOOTINFO(ret, buddy);
@@ -80,10 +95,10 @@ void kernel_main(unsigned long hart, paddr_t dtb_pa)
     ret = ktask_init();
     BOOTINFO(ret, kthread);
 
-#undef BOOTINFO
-
     sched_task();
 
 halt:
     panic("Kernel has been halted...\n");
 }
+
+#undef BOOTINFO

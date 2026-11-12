@@ -59,7 +59,7 @@ struct vm_struct {
 };
 
 /*
- * After slub_init() and pgtable_use_buddy(). Returns an unpublished, empty mm
+ * After slub_init(). Returns an unpublished, empty mm
  * with an independent root and one caller user reference, or NULL on allocation
  * failure. The users collectively hold one mm lifetime reference.
  */

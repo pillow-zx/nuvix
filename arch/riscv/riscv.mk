@@ -4,6 +4,9 @@
 # relaxation rewriting auipc+addi pairs would break the address assumptions.
 ARCH_FLAGS := -march=rv64gc -mabi=lp64 -mno-relax -mcmodel=medany
 
+# MMU-off C must not use jump tables containing linked high code addresses.
+CFLAGS-y += -fno-jump-tables
+
 ARCH_LD_EMULATION := elf64lriscv
 ARCH_CC_TARGET    := riscv64-unknown-elf
 
@@ -17,6 +20,7 @@ obj-y += arch/riscv/sigret.S
 obj-y += arch/riscv/trap.c
 obj-y += arch/riscv/task.c
 obj-y += arch/riscv/irq.c
+obj-y += arch/riscv/init.c
 obj-y += arch/riscv/pgtable.c
 obj-y += arch/riscv/cpu.c
 obj-y += arch/riscv/signal.c

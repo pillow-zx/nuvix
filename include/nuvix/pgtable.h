@@ -7,17 +7,16 @@
 struct page;
 
 /*
- * After page_init(). Allocates one zeroed page with PG_PGTABLE and one ownership
- * reference. Returns 0 and a page-aligned physical address, or a negative errno
- * without changing *paddr. Early pages remain reserved; after the backend switch
- * pages come from buddy and are reclaimed with their owning user root.
+ * After buddy_init(). Allocates one zeroed buddy page with PG_PGTABLE and one
+ * ownership reference. Returns 0 and a page-aligned physical address, or a
+ * negative errno without changing *paddr.
  */
 int alloc_pgtable(paddr_t *paddr);
 
 /*
- * After pgtable_init() and pgtable_use_buddy(). Allocates an independent root
- * with an empty user half and shared kernel entries, holding one ownership
- * reference. Returns 0 or a negative errno without changing *paddr on failure.
+ * After buddy_init(). Allocates an independent root with an empty user half
+ * and shared kernel entries, holding one ownership reference. Returns 0 or a
+ * negative errno without changing *paddr on failure.
  */
 int alloc_pgd(paddr_t *paddr);
 
@@ -64,16 +63,14 @@ bool pgtable_protect_page(struct mm_struct *mm, vaddr_t addr,
 int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr);
 
 /*
- * Called once after page_init(), with valid DTB and boot-accessible RAM.
- * Failed builds leave allocations reserved.
+ * Called once with MMU off, after page_init(). Builds the permanent kernel
+ * root with high mappings only; returns its physical address in *paddr.
+ * Leaves the MMU off. Failed builds leave allocations reserved.
  */
-int pgtable_init(void);
-
-/* Boot-only, once after buddy_init() succeeds, before starting SMP. */
-void pgtable_use_buddy(void);
+int pgtable_init(paddr_t *paddr);
 
 /*
- * Boot-only after pgtable_use_buddy(), before SMP or user roots are created.
+ * Boot-only after buddy_init(), before SMP or user roots are created.
  * Maps page-aligned MMIO into the IOREMAP window of the permanent kernel root.
  * Caller owns the virtual range. Failure leaves partial mappings in place;
  * mappings and page tables remain permanent. Completes a local TLB flush.

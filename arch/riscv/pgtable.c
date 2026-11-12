@@ -1,78 +1,50 @@
 #include <nuvix/pgtable.h>
 #include <nuvix/layout.h>
 #include <nuvix/page.h>
-#include <nuvix/memblock.h>
-#include <nuvix/dtb.h>
 #include <nuvix/ctypes.h>
 #include <nuvix/irq.h>
 #include <nuvix/tlb.h>
 #include <nuvix/errno.h>
 #include <nuvix/assert.h>
-#include <nuvix/math.h>
 #include <nuvix/string.h>
 #include <asm/csr.h>
 
-extern char __text_start[], __text_end[], __rodata_end[], __end[];
-
-static paddr_t kernel_pgd;
-
-static inline pt_entry_t *pgtable_ptr(paddr_t paddr)
+static inline pte_t *pgtable_ptr(paddr_t paddr)
 {
-    return (pt_entry_t *)__va(paddr);
+    return (pte_t *)__va(paddr);
 }
 
-static int pgtable_alloc_early(paddr_t *paddr)
-{
-    int ret = early_alloc(PAGE_SIZE, PAGE_SIZE, paddr);
-
-    if (ret)
-        return ret;
-    refcount_set(&phys_to_page(*paddr)->refcount, 1);
-    return 0;
-}
-
-static int pgtable_alloc_buddy(paddr_t *paddr)
+int alloc_pgtable(paddr_t *paddr)
 {
     struct page *page = alloc_page();
 
     if (!page)
         return -ENOMEM;
     *paddr = page_to_phys(page);
-    return 0;
-}
-
-static int (*pgtable_alloc)(paddr_t *paddr) = pgtable_alloc_early;
-
-int alloc_pgtable(paddr_t *paddr)
-{
-    int ret = pgtable_alloc(paddr);
-
-    if (ret)
-        return ret;
     memset(pgtable_ptr(*paddr), 0, PAGE_SIZE);
-    phys_to_page(*paddr)->flags |= PG_PGTABLE;
+    page->flags |= PG_PGTABLE;
     return 0;
 }
 
-static int walk_pte(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
+static int walk_pte(pte_t *pgd, vaddr_t addr, pte_t **pte)
 {
-    pt_entry_t entry = pt_entry_read(&pgd[PGD_INDEX(addr)]);
-    pt_entry_t *pmd;
+    pte_t entry = pte_read(&pgd[PGD_INDEX(addr)]);
+    pte_t *pmd;
 
     if (!(entry & PTE_V))
         return -ENOENT;
-    pmd = pgtable_ptr(pt_entry_paddr(entry)) + PMD_INDEX(addr);
-    entry = pt_entry_read(pmd);
+    pmd = pgtable_ptr(pte_paddr(entry)) + PMD_INDEX(addr);
+    entry = pte_read(pmd);
     if (!(entry & PTE_V))
         return -ENOENT;
-    *pte = pgtable_ptr(pt_entry_paddr(entry)) + PTE_INDEX(addr);
+    *pte = pgtable_ptr(pte_paddr(entry)) + PTE_INDEX(addr);
     return 0;
 }
 
-static int walk_pte_create(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
+static int walk_pte_create(pte_t *pgd, vaddr_t addr, pte_t **pte)
 {
-    pt_entry_t entry = pt_entry_read(&pgd[PGD_INDEX(addr)]);
-    pt_entry_t *pmd;
+    pte_t entry = pte_read(&pgd[PGD_INDEX(addr)]);
+    pte_t *pmd;
     paddr_t paddr;
     int ret;
 
@@ -80,32 +52,32 @@ static int walk_pte_create(pt_entry_t *pgd, vaddr_t addr, pt_entry_t **pte)
         ret = alloc_pgtable(&paddr);
         if (ret)
             return ret;
-        entry = pt_entry_make(paddr, PTE_TABLE);
-        pt_entry_write(&pgd[PGD_INDEX(addr)], entry);
+        entry = pte_make(paddr, PTE_TABLE);
+        pte_write(&pgd[PGD_INDEX(addr)], entry);
     }
-    pmd = pgtable_ptr(pt_entry_paddr(entry)) + PMD_INDEX(addr);
-    entry = pt_entry_read(pmd);
+    pmd = pgtable_ptr(pte_paddr(entry)) + PMD_INDEX(addr);
+    entry = pte_read(pmd);
     if (!(entry & PTE_V)) {
         ret = alloc_pgtable(&paddr);
         if (ret)
             return ret;
-        entry = pt_entry_make(paddr, PTE_TABLE);
-        pt_entry_write(pmd, entry);
+        entry = pte_make(paddr, PTE_TABLE);
+        pte_write(pmd, entry);
     }
-    *pte = pgtable_ptr(pt_entry_paddr(entry)) + PTE_INDEX(addr);
+    *pte = pgtable_ptr(pte_paddr(entry)) + PTE_INDEX(addr);
     return 0;
 }
 
-static int map_page(pt_entry_t *pgd, vaddr_t addr, paddr_t paddr, uint64_t prot)
+static int map_page(pte_t *pgd, vaddr_t addr, paddr_t paddr, uint64_t prot)
 {
-    pt_entry_t *pte;
+    pte_t *pte;
     int ret = walk_pte_create(pgd, addr, &pte);
 
     if (ret)
         return ret;
-    if (!pt_entry_none(pt_entry_read(pte)))
+    if (!pte_none(pte_read(pte)))
         return -EEXIST;
-    pt_entry_write(pte, pt_entry_make(paddr, prot));
+    pte_write(pte, pte_make(paddr, prot));
     return 0;
 }
 
@@ -118,44 +90,44 @@ int alloc_pgd(paddr_t *paddr)
         return ret;
     memcpy(pgtable_ptr(root) + KERNEL_PGD_FIRST,
            pgtable_ptr(kernel_pgd) + KERNEL_PGD_FIRST,
-           (PT_ENTRIES - KERNEL_PGD_FIRST) * sizeof(pt_entry_t));
+           (PT_ENTRIES - KERNEL_PGD_FIRST) * sizeof(pte_t));
     *paddr = root;
     return 0;
 }
 
 void pgtable_free(paddr_t paddr)
 {
-    pt_entry_t *pgd = pgtable_ptr(paddr);
+    pte_t *pgd = pgtable_ptr(paddr);
     struct page *page;
 
     for (unsigned int i = 0; i < KERNEL_PGD_FIRST; ++i) {
-        pt_entry_t entry = pt_entry_read(&pgd[i]);
-        pt_entry_t *pmd;
+        pte_t entry = pte_read(&pgd[i]);
+        pte_t *pmd;
         paddr_t pmd_paddr;
 
         if (!(entry & PTE_V))
             continue;
-        pt_entry_write(&pgd[i], 0);
-        pmd_paddr = pt_entry_paddr(entry);
+        pte_write(&pgd[i], 0);
+        pmd_paddr = pte_paddr(entry);
         pmd = pgtable_ptr(pmd_paddr);
         for (unsigned int j = 0; j < PT_ENTRIES; ++j) {
-            pt_entry_t *pte;
-            paddr_t pte_paddr;
+            pte_t *pte;
+            paddr_t addr;
 
-            entry = pt_entry_read(&pmd[j]);
+            entry = pte_read(&pmd[j]);
             if (!(entry & PTE_V))
                 continue;
-            pt_entry_write(&pmd[j], 0);
-            pte_paddr = pt_entry_paddr(entry);
-            pte = pgtable_ptr(pte_paddr);
+            pte_write(&pmd[j], 0);
+            addr = pte_paddr(entry);
+            pte = pgtable_ptr(addr);
             for (unsigned int k = 0; k < PT_ENTRIES; ++k) {
-                entry = pt_entry_read(&pte[k]);
-                if (!pt_entry_present(entry))
+                entry = pte_read(&pte[k]);
+                if (!pte_present(entry))
                     continue;
-                pt_entry_write(&pte[k], 0);
-                free_page(phys_to_page(pt_entry_paddr(entry)));
+                pte_write(&pte[k], 0);
+                free_page(phys_to_page(pte_paddr(entry)));
             }
-            page = phys_to_page(pte_paddr);
+            page = phys_to_page(addr);
             Assert(
                 page->flags == (PG_ALLOCATED | PG_PGTABLE) &&
                     page->order == 0 && refcount_read(&page->refcount) == 1,
@@ -212,7 +184,7 @@ int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
 
 int pgtable_move(struct mm_struct *mm, vaddr_t old, vaddr_t new, size_t len)
 {
-    pt_entry_t *pgd = pgtable_ptr(mm->pgd);
+    pte_t *pgd = pgtable_ptr(mm->pgd);
     unsigned long flags;
 
     might_sleep();
@@ -221,18 +193,18 @@ int pgtable_move(struct mm_struct *mm, vaddr_t old, vaddr_t new, size_t len)
                (old + len <= new || new + len <= old),
            "page table move requires locked, aligned, disjoint ranges\n");
     for (size_t offset = 0; offset < len; offset += PAGE_SIZE) {
-        pt_entry_t *src, *dst;
+        pte_t *src, *dst;
         int ret;
 
         spin_lock_irqsave(&mm->pgtable_lock, flags);
         ret = walk_pte(pgd, old + offset, &src);
-        if (ret || !pt_entry_present(pt_entry_read(src))) {
+        if (ret || !pte_present(pte_read(src))) {
             spin_unlock_irqrestore(&mm->pgtable_lock, flags);
             continue;
         }
         ret = walk_pte_create(pgd, new + offset, &dst);
         if (!ret)
-            Assert(pt_entry_none(pt_entry_read(dst)),
+            Assert(pte_none(pte_read(dst)),
                    "page table move requires an empty destination\n");
         spin_unlock_irqrestore(&mm->pgtable_lock, flags);
         if (ret)
@@ -241,19 +213,19 @@ int pgtable_move(struct mm_struct *mm, vaddr_t old, vaddr_t new, size_t len)
 
     flush_icache_all();
     for (size_t offset = 0; offset < len; offset += PAGE_SIZE) {
-        pt_entry_t *src, *dst;
+        pte_t *src, *dst;
         int ret;
 
         spin_lock_irqsave(&mm->pgtable_lock, flags);
         ret = walk_pte(pgd, old + offset, &src);
-        if (ret || !pt_entry_present(pt_entry_read(src))) {
+        if (ret || !pte_present(pte_read(src))) {
             spin_unlock_irqrestore(&mm->pgtable_lock, flags);
             continue;
         }
         ret = walk_pte(pgd, new + offset, &dst);
-        Assert(!ret && pt_entry_none(pt_entry_read(dst)),
+        Assert(!ret && pte_none(pte_read(dst)),
                "page table move requires a prepared destination\n");
-        pt_entry_write(dst, xchg(src, 0));
+        pte_write(dst, xchg(src, 0));
         spin_unlock_irqrestore(&mm->pgtable_lock, flags);
     }
     flush_tlb_all();
@@ -262,8 +234,8 @@ int pgtable_move(struct mm_struct *mm, vaddr_t old, vaddr_t new, size_t len)
 
 struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr)
 {
-    pt_entry_t *pte;
-    pt_entry_t entry = 0;
+    pte_t *pte;
+    pte_t entry = 0;
     unsigned long flags;
 
     Assert(addr >= UVADDR_START && addr < UVADDR_END &&
@@ -276,16 +248,16 @@ struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr)
 
     if (!entry)
         return NULL;
-    Assert(pt_entry_present(entry) && (entry & PTE_U),
+    Assert(pte_present(entry) && (entry & PTE_U),
            "unmap requires an ordinary user leaf\n");
-    return phys_to_page(pt_entry_paddr(entry));
+    return phys_to_page(pte_paddr(entry));
 }
 
 bool pgtable_protect_page(struct mm_struct *mm, vaddr_t addr,
                           unsigned long vm_flags)
 {
-    pt_entry_t *pte;
-    pt_entry_t entry;
+    pte_t *pte;
+    pte_t entry;
     uint64_t prot = vma_to_pte(vm_flags);
     unsigned long flags;
 
@@ -293,10 +265,10 @@ bool pgtable_protect_page(struct mm_struct *mm, vaddr_t addr,
            "page protection requires the mmap lock\n");
     spin_lock_irqsave(&mm->pgtable_lock, flags);
     if (!walk_pte(pgtable_ptr(mm->pgd), addr, &pte)) {
-        entry = pt_entry_read(pte);
-        if (pt_entry_present(entry)) {
-            struct page *page = phys_to_page(pt_entry_paddr(entry));
-            pt_entry_t value;
+        entry = pte_read(pte);
+        if (pte_present(entry)) {
+            struct page *page = phys_to_page(pte_paddr(entry));
+            pte_t value;
 
             if (refcount_read(&page->refcount) != 1)
                 prot &= ~PTE_W;
@@ -313,8 +285,8 @@ bool pgtable_protect_page(struct mm_struct *mm, vaddr_t addr,
 
 int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr)
 {
-    pt_entry_t *pte;
-    pt_entry_t entry;
+    pte_t *pte;
+    pte_t entry;
     unsigned long flags;
     int ret;
 
@@ -323,105 +295,14 @@ int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr)
     spin_lock_irqsave(&mm->pgtable_lock, flags);
     ret = walk_pte(pgtable_ptr(mm->pgd), addr, &pte);
     if (!ret) {
-        entry = pt_entry_read(pte);
-        if (!pt_entry_valid(entry))
+        entry = pte_read(pte);
+        if (!pte_valid(entry))
             ret = -ENOENT;
         else
-            *paddr = pt_entry_paddr(entry) + (addr & (PAGE_SIZE - 1));
+            *paddr = pte_paddr(entry) + (addr & (PAGE_SIZE - 1));
     }
     spin_unlock_irqrestore(&mm->pgtable_lock, flags);
     return ret;
-}
-
-static bool range_no_map(paddr_t paddr, size_t size)
-{
-    for (unsigned int i = 0; i < memblock.nr_reserved; ++i) {
-        const struct memblock_region *region = &memblock.reserved[i];
-
-        if (region->no_map && region->base < paddr + size &&
-            paddr < region->base + region->size)
-            return true;
-    }
-    return false;
-}
-
-static int create_kpgd(paddr_t *root)
-{
-    pt_entry_t *pgd;
-    int ret = alloc_pgtable(root);
-
-    if (ret)
-        return ret;
-    pgd = pgtable_ptr(*root);
-    for (unsigned int i = KERNEL_PGD_FIRST; i < PT_ENTRIES; ++i) {
-        paddr_t paddr;
-
-        ret = alloc_pgtable(&paddr);
-        if (ret)
-            return ret;
-        pt_entry_write(&pgd[i], pt_entry_make(paddr, PTE_TABLE));
-    }
-    return 0;
-}
-
-static int map_ram(pt_entry_t *pgd)
-{
-    paddr_t text_start = __pa((vaddr_t)__text_start);
-    paddr_t text_end = __pa((vaddr_t)__text_end);
-    paddr_t ro_end = __pa((vaddr_t)__rodata_end);
-
-    for (unsigned long pfn = min_pfn; pfn < max_pfn; ++pfn) {
-        paddr_t paddr = (paddr_t)pfn << PAGE_SHIFT;
-        uint64_t prot = PTE_KERNEL_RW;
-        int ret;
-
-        if (range_no_map(paddr, PAGE_SIZE))
-            continue;
-        if (paddr >= text_start && paddr < ro_end)
-            prot = paddr < text_end ? PTE_KERNEL_RX : PTE_KERNEL_RO;
-        ret = map_page(pgd, __va(paddr), paddr, prot);
-        if (ret)
-            return ret;
-    }
-    return 0;
-}
-
-int pgtable_init(void)
-{
-    paddr_t image_end = __pa((vaddr_t)__end);
-    paddr_t root, dtb_start, dtb_end;
-    struct page *pages;
-    const void *blob;
-    int ret;
-
-    dtb_start = ALIGN_DOWN(dtb.paddr, (paddr_t)PAGE_SIZE);
-    dtb_end = ALIGN_UP(dtb.paddr + dtb.size, (paddr_t)PAGE_SIZE);
-    if (range_no_map(KERNEL_PBASE, image_end - KERNEL_PBASE) ||
-        range_no_map(dtb_start, dtb_end - dtb_start))
-        return -EACCES;
-
-    ret = create_kpgd(&root);
-    if (ret)
-        return ret;
-    ret = map_ram(pgtable_ptr(root));
-    if (ret)
-        return ret;
-
-    pages = (struct page *)__va((uintptr_t)mem_map);
-    blob = (const void *)__va(dtb.paddr);
-    refcount_inc(&phys_to_page(root)->refcount);
-
-    csr_write(satp, SATP_SV39 | (root >> PAGE_SHIFT));
-    local_flush_tlb_all();
-    mem_map = pages;
-    dtb.blob = blob;
-    kernel_pgd = root;
-    return 0;
-}
-
-void pgtable_use_buddy(void)
-{
-    pgtable_alloc = pgtable_alloc_buddy;
 }
 
 int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size)
@@ -445,36 +326,36 @@ int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size)
 
 int pgtable_clone(struct mm_struct *dst, struct mm_struct *src)
 {
-    pt_entry_t *pgd = pgtable_ptr(src->pgd);
+    pte_t *pgd = pgtable_ptr(src->pgd);
     int ret = 0;
 
     Assert(src->mmap_lock.owner == current,
            "page table clone requires the source mmap lock\n");
     for (unsigned int i = 0; i < KERNEL_PGD_FIRST; ++i) {
-        pt_entry_t entry = pt_entry_read(&pgd[i]);
-        pt_entry_t *pmd;
+        pte_t entry = pte_read(&pgd[i]);
+        pte_t *pmd;
 
         if (!(entry & PTE_V))
             continue;
-        pmd = pgtable_ptr(pt_entry_paddr(entry));
+        pmd = pgtable_ptr(pte_paddr(entry));
         for (unsigned int j = 0; j < PT_ENTRIES; ++j) {
-            pt_entry_t *pte;
+            pte_t *pte;
 
-            entry = pt_entry_read(&pmd[j]);
+            entry = pte_read(&pmd[j]);
             if (!(entry & PTE_V))
                 continue;
-            pte = pgtable_ptr(pt_entry_paddr(entry));
+            pte = pgtable_ptr(pte_paddr(entry));
             for (unsigned int k = 0; k < PT_ENTRIES; ++k) {
                 vaddr_t addr = ((vaddr_t)i << PGD_SHIFT) |
                                ((vaddr_t)j << PMD_SHIFT) |
                                ((vaddr_t)k << PAGE_SHIFT);
                 paddr_t paddr;
                 unsigned long flags;
-                pt_entry_t value;
+                pte_t value;
 
                 spin_lock_irqsave(&src->pgtable_lock, flags);
-                entry = pt_entry_read(&pte[k]);
-                if (!pt_entry_present(entry)) {
+                entry = pte_read(&pte[k]);
+                if (!pte_present(entry)) {
                     spin_unlock_irqrestore(&src->pgtable_lock, flags);
                     continue;
                 }
@@ -482,7 +363,7 @@ int pgtable_clone(struct mm_struct *dst, struct mm_struct *src)
                     value = entry & ~PTE_W;
                 } while (!try_cmpxchg(&pte[k], &entry, value));
                 spin_unlock_irqrestore(&src->pgtable_lock, flags);
-                paddr = pt_entry_paddr(value);
+                paddr = pte_paddr(value);
                 ret = map_page(pgtable_ptr(dst->pgd), addr, paddr,
                                value & (BIT(PTE_PPN_SHIFT) - 1));
                 if (ret)
