@@ -47,6 +47,6 @@ void trace_irq_leave(unsigned int irq);
 
 void trace_dump(void);
 
-#endif /* CONFIG_DEBUG_TRACE_CPURING */
+#endif /* CONFIG_TRACE_CPURING */
 
 #endif /* _NUVIX_TRACE_H */

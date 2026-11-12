@@ -102,5 +102,5 @@ void trace_dump(void)
     }
     local_irq_restore(flags);
 }
-#endif /* CONFIG_DEBUG_TRACE_CPURING */
+#endif /* CONFIG_TRACE_CPURING */
 

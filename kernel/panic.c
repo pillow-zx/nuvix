@@ -25,6 +25,6 @@ __noreturn void __panic(const char *fmt, ...)
     if (ret < 0)
         printk("<message formatting failed>");
     printk("\n");
-    IFDEF(CONFIG_DEBUG_TRACE_CPURING, trace_dump());
+    IFDEF(CONFIG_TRACE_CPURING, trace_dump());
     halt();
 }
