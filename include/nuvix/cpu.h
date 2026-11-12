@@ -3,6 +3,7 @@
 
 #include <nuvix/task.h>
 #include <nuvix/atomic.h>
+#include <nuvix/trace.h>
 #include <asm/cpu.h>
 
 #ifdef CONFIG_SMP
@@ -16,13 +17,12 @@ enum cpu_state {
 
 struct cpu {
     unsigned long hart_id;
-#ifdef CONFIG_SMP
-    enum cpu_state state;
-    atomic_t ipi_pending;
-#endif
+    IFDEF(CONFIG_SMP, enum cpu_state state);
+    IFDEF(CONFIG_SMP, atomic_t ipi_pending);
     /* Owned by this CPU; normal IRQ handlers do not enable nested IRQs. */
     unsigned int irq_depth;
     uint64_t next_tick;
+    IFDEF(CONFIG_TRACE_CPURING, struct trace_ring ring);
 } __aligned(SMP_CACHE_BYTES);
 
 /* Logical CPU IDs index [0, nr_cpus); hart IDs are fixed before SMP startup. */

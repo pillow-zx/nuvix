@@ -13,7 +13,8 @@ static int append(char *buf, int *len, char c)
 }
 
 /* Build digits backwards, then copy them in their printed order. */
-static int number(char *buf, int *len, uintptr_t value, unsigned int base)
+static int number(char *buf, int *len, unsigned long long value,
+                  unsigned int base)
 {
     const char digits[] = "0123456789abcdef";
     char tmp[3 * sizeof(value)];
@@ -43,7 +44,18 @@ int vsprintf(char *buf, const char *fmt, va_list args)
         if (*fmt != '%') {
             ret = append(buf, &len, *fmt++);
         } else {
+            bool alternate = false;
+            unsigned int length = 0;
+
             ++fmt;
+            if (*fmt == '#') {
+                alternate = true;
+                ++fmt;
+            }
+            while (length < 2 && *fmt == 'l') {
+                ++length;
+                ++fmt;
+            }
             switch (*fmt) {
             case '%':
                 ret = append(buf, &len, '%');
@@ -64,24 +76,45 @@ int vsprintf(char *buf, const char *fmt, va_list args)
                 break;
             }
             case 'd': {
-                int value = va_arg(args, int);
-                unsigned int magnitude = (unsigned int)value;
+                long long value;
+                unsigned long long magnitude;
 
+                if (length == 2)
+                    value = va_arg(args, long long);
+                else if (length == 1)
+                    value = va_arg(args, long);
+                else
+                    value = va_arg(args, int);
+                magnitude = (unsigned long long)value;
                 if (value < 0) {
                     ret = append(buf, &len, '-');
-                    /* Unsigned subtraction also handles INT_MIN. */
-                    magnitude = 0U - magnitude;
+                    /* Unsigned subtraction also handles the signed minimum. */
+                    magnitude = 0ULL - magnitude;
                 }
                 if (ret == 0)
                     ret = number(buf, &len, magnitude, 10);
                 break;
             }
             case 'u':
-                ret = number(buf, &len, va_arg(args, unsigned int), 10);
+            case 'x': {
+                unsigned long long value;
+                unsigned int base = *fmt == 'x' ? 16 : 10;
+
+                if (length == 2)
+                    value = va_arg(args, unsigned long long);
+                else if (length == 1)
+                    value = va_arg(args, unsigned long);
+                else
+                    value = va_arg(args, unsigned int);
+                if (alternate && base == 16 && value) {
+                    ret = append(buf, &len, '0');
+                    if (ret == 0)
+                        ret = append(buf, &len, 'x');
+                }
+                if (ret == 0)
+                    ret = number(buf, &len, value, base);
                 break;
-            case 'x':
-                ret = number(buf, &len, va_arg(args, unsigned int), 16);
-                break;
+            }
             case 'p':
                 ret = append(buf, &len, '0');
                 if (ret == 0)

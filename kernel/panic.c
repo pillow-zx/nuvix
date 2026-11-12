@@ -3,6 +3,7 @@
 #include <nuvix/printk.h>
 #include <nuvix/irq.h>
 #include <nuvix/cpu.h>
+#include <nuvix/trace.h>
 
 __noreturn void __panic(const char *fmt, ...)
 {
@@ -13,9 +14,7 @@ __noreturn void __panic(const char *fmt, ...)
 
     local_irq_disable();
     already_panicking = atomic_xchg(&panicking, 1);
-#ifdef CONFIG_SMP
-    cpu_boot_fail();
-#endif
+    IFDEF(CONFIG_SMP, cpu_boot_fail());
     if (already_panicking)
         halt();
 
@@ -26,5 +25,6 @@ __noreturn void __panic(const char *fmt, ...)
     if (ret < 0)
         printk("<message formatting failed>");
     printk("\n");
+    IFDEF(CONFIG_DEBUG_TRACE_CPURING, trace_dump());
     halt();
 }

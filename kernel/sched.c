@@ -3,6 +3,7 @@
 #include <nuvix/tick.h>
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
+#include <nuvix/trace.h>
 
 struct rq runqueues[CONFIG_NR_CPUS];
 
@@ -147,6 +148,7 @@ static bool wake_task(struct task *task, unsigned int states)
 
     spin_lock_irqsave(&rq->lock, flags);
     if (states & task->state) {
+        IFDEF(CONFIG_DEBUG_TRACE_CPURING, unsigned int old_state = task->state);
         task->state = TASK_RUNNABLE;
         if (!task->on_cpu) {
             enqueue_task(rq, task);
@@ -156,6 +158,7 @@ static bool wake_task(struct task *task, unsigned int states)
                 rq->curr == rq->idle && task->cpu_id != current_cpu_id();
 #endif
         }
+        IFDEF(CONFIG_DEBUG_TRACE_CPURING, trace_wake(task, old_state));
         woke = true;
     }
     spin_unlock_irqrestore(&rq->lock, flags);
@@ -257,6 +260,7 @@ struct task *sched_prepare_switch_locked(struct rq *rq, bool rotate)
     rq->curr = next;
     rq->quantum_deadline = time_read() + quantum_ticks;
     next->on_cpu = true;
+    IFDEF(CONFIG_DEBUG_TRACE_CPURING, trace_switch(next, prev->state));
     __spin_handoff(&rq->lock, next);
     return next;
 }

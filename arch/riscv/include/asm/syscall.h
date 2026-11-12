@@ -46,6 +46,11 @@
 #define __NR_nanosleep       101
 #define __NR_clock_gettime   113
 #define __NR_clock_nanosleep 115
+
+#ifdef CONFIG_TRACE_SYSRING
+#define __NR_syslog          116
+#endif
+
 #define __NR_kill            129
 #define __NR_tkill           130
 #define __NR_tgkill          131

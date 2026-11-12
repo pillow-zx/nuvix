@@ -104,9 +104,24 @@ config DEBUG_CONTEXT
 	bool "Debug irq, preempt state and might_sleep"
 	default y
 
-config DEBUG_TRACE
-	bool "Debug per-CPU trace ring"
+config TRACE
+	bool "Kernel tracing"
 	default y
+
+config TRACE_CPURING
+  depends on TRACE
+	bool "Per-CPU trace ring"
+	default y
+
+config TRACE_SYSRING
+	depends on TRACE
+	bool "kernel log ring"
+	default y
+
+config TRACE_SYSCALL
+ 	depends on TRACE
+	bool "System call tracing"
+	default n
 
 endmenu
 
