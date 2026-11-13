@@ -6,8 +6,9 @@
 #include <nuvix/page.h>
 #include <nuvix/sched.h>
 #include <nuvix/slab.h>
+#include <nuvix/sleep.h>
 #include <nuvix/task.h>
-#include <nuvix/wait.h>
+#include <nuvix/tick.h>
 
 #define MAPPING_HASH_BITS 8
 
@@ -16,7 +17,6 @@ struct mapping_cache {
     struct list_head dirty;
     struct list_head lru;
     struct mutex mutex;
-    struct wait_queue wait;
     unsigned int nr;
 };
 
@@ -64,9 +64,6 @@ static void cache_page_destroy(struct cache_page *cp)
 
 static void mapping_link(struct cache_page *cp)
 {
-    unsigned long flags;
-
-    spin_lock_irqsave(&cache.wait.lock, flags);
     list_del_init(&cp->list);
     if (hash_hashed(&cp->hash)) {
         if (cp->state)
@@ -74,7 +71,6 @@ static void mapping_link(struct cache_page *cp)
         else if (refcount_read(&cp->refs) == 1)
             list_add_tail(&cp->list, &cache.lru);
     }
-    spin_unlock_irqrestore(&cache.wait.lock, flags);
 }
 
 static bool mapping_make_room(void)
@@ -147,7 +143,6 @@ struct cache_page *mapping_get(struct mapping *m, uint64_t index)
         mutex_unlock(&cache.mutex);
         mutex_unlock(&cp->mutex);
         cache_page_destroy(cp);
-        wake_up_one(&cache.wait);
         return ERR_PTR(-ENOMEM);
     }
     refcount_inc(&cp->refs);
@@ -306,7 +301,6 @@ void mapping_purge(struct mapping *m, uint64_t start, uint64_t end)
     for (;;) {
         struct cache_page *cp;
         struct cache_page *victim = NULL;
-        unsigned long flags;
         unsigned int bucket;
         bool dirty = false;
 
@@ -330,9 +324,7 @@ void mapping_purge(struct mapping *m, uint64_t start, uint64_t end)
             dirty = victim->state & CACHE_PAGE_DIRTY;
             victim->state = 0;
             hash_del(&victim->hash);
-            spin_lock_irqsave(&cache.wait.lock, flags);
             list_del_init(&victim->list);
-            spin_unlock_irqrestore(&cache.wait.lock, flags);
             cache.nr--;
             refcount_dec(&victim->refs);
         }
@@ -352,7 +344,7 @@ static int mapping_flusher(void *arg)
     for (;;) {
         unsigned int nr;
 
-        wait_event(&cache.wait, !list_empty(&cache.dirty));
+        (void)sleep_ns(NSEC_PER_SEC);
         nr = mapping_collect(NULL, pages);
         for (unsigned int i = 0; i < nr; i++) {
             struct cache_page *cp = pages[i];
@@ -378,7 +370,6 @@ static int mapping_init(void)
     INIT_LIST_HEAD(&cache.dirty);
     INIT_LIST_HEAD(&cache.lru);
     mutex_init(&cache.mutex);
-    wait_queue_init(&cache.wait);
 
     flusher = task_alloc(false);
     if (!flusher)
