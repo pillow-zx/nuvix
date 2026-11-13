@@ -103,6 +103,8 @@ static_assert(sizeof(struct winsize) == 8, "invalid winsize layout");
 #define TCSETS     0x5402
 #define TCSETSW    0x5403
 #define TCSETSF    0x5404
+#define TIOCGPGRP  0x540f
+#define TIOCSPGRP  0x5410
 #define TCGETS2    0x802c542a
 #define TCSETS2    0x402c542b
 #define TCSETSW2   0x402c542c

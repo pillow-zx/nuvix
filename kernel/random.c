@@ -23,7 +23,7 @@ void random_seed(const uint8_t seed[CHACHA20_KEY_SIZE])
     chacha20_init(&random.state, seed);
 }
 
-void get_random_bytes(void *buf, size_t len)
+void getrandom(void *buf, size_t len)
 {
     uint8_t block[CHACHA20_BLOCK_SIZE];
     uint8_t *out = buf;
@@ -60,7 +60,7 @@ long sys_getrandom(struct trap_frame *frame)
         size_t count = MIN(len - done, sizeof(buffer));
         size_t uncopied;
 
-        get_random_bytes(buffer, count);
+        getrandom(buffer, count);
         uncopied = copy_to_user((void *)addr, buffer, count);
         done += count - uncopied;
         if (uncopied)

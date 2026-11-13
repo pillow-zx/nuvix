@@ -8,6 +8,7 @@
 #define GRND_INSECURE 0x0004
 
 void random_seed(const uint8_t seed[CHACHA20_KEY_SIZE]);
-void get_random_bytes(void *buf, size_t len);
+
+void getrandom(void *buf, size_t len);
 
 #endif

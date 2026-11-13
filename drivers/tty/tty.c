@@ -9,6 +9,8 @@
 #include <nuvix/math.h>
 #include <nuvix/string.h>
 #include <nuvix/task.h>
+#include <nuvix/pid.h>
+#include <nuvix/signal.h>
 #include <nuvix/uaccess.h>
 
 #define TTY_WRITE_CHUNK (PAGE_SIZE / 2)
@@ -22,6 +24,7 @@ struct tty {
     unsigned int canon;
     struct termios2 termios;
     struct winsize winsize;
+    struct pid *pgrp;
     char buffer[PAGE_SIZE];
 };
 
@@ -50,6 +53,22 @@ static void tty_receive(struct tty *tty, const char *data, size_t count)
 
     for (size_t i = 0; i < count; ++i) {
         char c = data[i];
+
+        if ((tty->termios.c_lflag & ISIG) && tty->termios.c_cc[VINTR] &&
+            (unsigned char)c == tty->termios.c_cc[VINTR]) {
+            struct pid *pgrp = tty->pgrp;
+            siginfo_t info = {.si_signo = SIGINT, .si_code = SI_KERNEL};
+
+            if (pgrp)
+                refcount_inc(&pgrp->refcount);
+            spin_unlock_irqrestore(&tty->rwait.lock, flags);
+            if (pgrp) {
+                (void)send_group_signal(pgrp->nr, &info);
+                pid_put(pgrp);
+            }
+            spin_lock_irqsave(&tty->rwait.lock, flags);
+            continue;
+        }
 
         if ((tty->termios.c_iflag & ICRNL) && c == '\r')
             c = '\n';
@@ -333,10 +352,38 @@ static long tty_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     struct termios2 termios;
     struct termios ktermios;
     struct winsize winsize;
+    struct pid *pgrp __free(pid_put) = NULL;
+    struct pid *old_pgrp __free(pid_put) = NULL;
     unsigned long flags;
+    pid_t pgid;
     int ret;
 
     switch (cmd) {
+    case TIOCGPGRP:
+        pgrp = pid_get_group(0);
+        spin_lock_irqsave(&tty->rwait.lock, flags);
+        if (!tty->pgrp)
+            tty->pgrp = move(pgrp);
+        pgid = tty->pgrp->nr;
+        spin_unlock_irqrestore(&tty->rwait.lock, flags);
+        if (copy_to_user((void *)arg, &pgid, sizeof(pgid)))
+            return -EFAULT;
+        return 0;
+    case TIOCSPGRP:
+        if (copy_from_user(&pgid, (void *)arg, sizeof(pgid)))
+            return -EFAULT;
+        if (pgid < 0)
+            return -EINVAL;
+        if (!pgid)
+            return -ESRCH;
+        pgrp = pid_get_group(pgid);
+        if (!pgrp)
+            return -ESRCH;
+        spin_lock_irqsave(&tty->rwait.lock, flags);
+        old_pgrp = tty->pgrp;
+        tty->pgrp = move(pgrp);
+        spin_unlock_irqrestore(&tty->rwait.lock, flags);
+        return 0;
     case TCGETS:
         spin_lock_irqsave(&tty->rwait.lock, flags);
         tty_termios_to_user(&tty->termios, &ktermios);

@@ -146,6 +146,20 @@ out:
     return ret;
 }
 
+struct pid *pid_get_group(pid_t pgid)
+{
+    struct pid *pgrp;
+
+    spin_lock(&pid_lock);
+    pgrp = pgid ? find_pid_locked(pgid) : current->pids[PIDTYPE_PGID];
+    if (pgrp && !hlist_empty(&pgrp->tasks[PIDTYPE_PGID]))
+        refcount_inc(&pgrp->refcount);
+    else
+        pgrp = NULL;
+    spin_unlock(&pid_lock);
+    return pgrp;
+}
+
 int send_group_signal(pid_t pgid, const struct siginfo *info)
 {
     struct task **tasks __free(kfree) = NULL;

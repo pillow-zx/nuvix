@@ -48,6 +48,8 @@ DECLARE_FREE(pid_put, struct pid *, if (_T) pid_put(_T))
 
 struct task *pid_get_task(pid_t nr, enum pid_type type);
 
+struct pid *pid_get_group(pid_t pgid);
+
 int broadcast_signal(const struct siginfo *info);
 
 int send_group_signal(pid_t pgid, const struct siginfo *info);

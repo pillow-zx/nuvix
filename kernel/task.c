@@ -29,15 +29,15 @@ static_assert(offsetof(struct task, ctx.sum) == TASK_CTX_SUM,
 
 static DEFINE_WAIT_QUEUE(child_wait);
 
-#define WNOHANG     1
-#define WSTOPPED    2
-#define WEXITED     4
-#define WCONTINUED  8
-#define WNOWAIT     0x01000000
+#define WNOHANG              1
+#define WSTOPPED             2
+#define WEXITED              4
+#define WCONTINUED           8
+#define WNOWAIT              0x01000000
 
-#define P_ALL       0
-#define P_PID       1
-#define P_PGID      2
+#define P_ALL                0
+#define P_PID                1
+#define P_PGID               2
 
 #define CLONE_VM             0x00000100UL
 #define CLONE_VFORK          0x00004000UL
@@ -394,7 +394,7 @@ long sys_wait4(struct trap_frame *frame)
     struct wait_event event = {0};
     long ret;
 
-    if ((pid != -1 && pid <= 0) || (options & ~WNOHANG))
+    if ((pid != -1 && pid <= 0) || (options & ~(WNOHANG | WSTOPPED)))
         return -EINVAL;
     if (rusage)
         return -EOPNOTSUPP;
