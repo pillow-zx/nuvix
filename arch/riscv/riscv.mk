@@ -10,8 +10,6 @@ CFLAGS-y += -fno-jump-tables
 ARCH_LD_EMULATION := elf64lriscv
 ARCH_CC_TARGET    := riscv64-unknown-elf
 
-
-
 obj-y += arch/riscv/boot.S
 obj-y += arch/riscv/entry.S
 obj-y += arch/riscv/switch.S

@@ -1,24 +1,48 @@
 # nuvix build entry point.
 
 srctree := $(CURDIR)
-ARCH    ?= riscv
 V       ?= 0
 
 .DEFAULT_GOAL := all
 
-# Goals that need no evaluated .config, and goals that additionally need no
-# target toolchain.  Everything else is checked against the two selectors.
-NO_CONFIG_GOALS    := distclean clean help tags gtags
-NO_TOOLCHAIN_GOALS := $(NO_CONFIG_GOALS) defconfig savedefconfig menuconfig
+# Architecture-independent workflows, configuration-free goals, and goals
+# that need no target toolchain.
+NO_ARCH_GOALS      := clean distclean help tags gtags
+NO_CONFIG_GOALS    := $(NO_ARCH_GOALS)
+NO_TOOLCHAIN_GOALS := $(NO_CONFIG_GOALS) defconfig savedefconfig menuconfig syncconfig
 
 GOALS          := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
+NEED_ARCH      := $(filter-out $(NO_ARCH_GOALS),$(GOALS))
 NEED_CONFIG    := $(filter-out $(NO_CONFIG_GOALS),$(GOALS))
 NEED_TOOLCHAIN := $(filter-out $(NO_TOOLCHAIN_GOALS),$(GOALS))
 
 PHONY :=
 
+# V=1 prints the full command lines; the default is one line per action.
+ifeq ($(V),1)
+Q             :=
+quiet_cc      :=
+quiet_as      :=
+quiet_ld      :=
+quiet_objdump :=
+else
+Q             := @
+quiet_cc      = @printf '  %-7s %s\n' CC $@
+quiet_as      = @printf '  %-7s %s\n' AS $@
+quiet_ld      = @printf '  %-7s %s\n' LD $@
+quiet_objdump = @printf '  %-7s %s\n' OBJDUMP $@
+endif
+
 # ARCH selects the configuration, the arch directory, and the clang triple.
 export ARCH srctree
+
+ifneq ($(NEED_ARCH),)
+ifeq ($(strip $(ARCH)),)
+$(error ARCH is required, e.g. make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu-)
+endif
+ifeq ($(wildcard arch/$(ARCH)/$(ARCH).mk),)
+$(error Unsupported ARCH '$(ARCH)')
+endif
 
 # Kconfig front end: configuration generation and the generated header.
 #
@@ -31,7 +55,7 @@ KCONFIG         := Kconfig
 KCONFIG_SOURCES := Kconfig kernel/Kconfig arch/$(ARCH)/Kconfig \
                    mm/Kconfig drivers/Kconfig fs/Kconfig
 
-DEFCONFIG       ?= nuvix_defconfig
+DEFCONFIG       ?= defconfig
 KCONFIG_CONFIG  := .config
 AUTO_CONF       := include/config/auto.conf
 AUTOCONF_H      := include/generated/autoconf.h
@@ -51,8 +75,8 @@ $(MCONF):
 # Only defined while .config is absent, so a later defconfig edit can never
 # silently overwrite a configuration the user has been tuning.
 ifeq ($(wildcard $(KCONFIG_CONFIG)),)
-$(KCONFIG_CONFIG): $(CONF) configs/$(DEFCONFIG)
-	$(Q)$(CONF) $(KCONFIG_SILENT) --defconfig=configs/$(DEFCONFIG) $(KCONFIG)
+$(KCONFIG_CONFIG): $(CONF) arch/$(ARCH)/configs/$(DEFCONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --defconfig=arch/$(ARCH)/configs/$(DEFCONFIG) $(KCONFIG)
 endif
 
 # A single conf run emits both files; the grouped target keeps it to one run.
@@ -68,12 +92,12 @@ PHONY += syncconfig defconfig savedefconfig menuconfig
 syncconfig: $(AUTO_CONF) ;
 
 defconfig: $(CONF)
-	$(Q)$(CONF) $(KCONFIG_SILENT) --defconfig=configs/$(DEFCONFIG) $(KCONFIG)
+	$(Q)$(CONF) $(KCONFIG_SILENT) --defconfig=arch/$(ARCH)/configs/$(DEFCONFIG) $(KCONFIG)
 	$(Q)$(CONF) $(KCONFIG_SILENT) --syncconfig $(KCONFIG)
 
 savedefconfig: $(CONF) $(KCONFIG_CONFIG)
 	$(Q)$(CONF) $(KCONFIG_SILENT) \
-		--savedefconfig=configs/$(DEFCONFIG) $(KCONFIG)
+		--savedefconfig=arch/$(ARCH)/configs/$(DEFCONFIG) $(KCONFIG)
 
 menuconfig: $(MCONF) $(CONF) $(KCONFIG_CONFIG)
 	$(Q)$(MCONF) $(KCONFIG)
@@ -93,7 +117,7 @@ $(error LLVM=1 and CROSS_COMPILE are mutually exclusive; drop CROSS_COMPILE)
 endif
 else
 ifeq ($(CROSS_COMPILE),)
-$(error CROSS_COMPILE is required, e.g. make CROSS_COMPILE=riscv64-linux-gnu-)
+$(error CROSS_COMPILE is required, e.g. make ARCH=$(ARCH) CROSS_COMPILE=riscv64-linux-gnu-)
 endif
 endif
 endif
@@ -182,27 +206,8 @@ include fs/fs.mk
 
 KERNEL := nuvix
 
-# obj-y is exactly what the enabled configuration selects, in declaration order,
-# which is the link order.  The obj-* sweep additionally picks up the entries a
-# disabled option contributed, so `make clean` still removes them after a
-# configuration flip.
-OBJS     = $(patsubst %.S,%.o,$(patsubst %.c,%.o,$(obj-y)))
-ALL_OBJS = $(sort $(patsubst %.S,%.o,$(patsubst %.c,%.o,$(foreach v,$(filter obj-%,$(.VARIABLES)),$($(v))))))
-
-# V=1 prints the full command lines; the default is one line per action.
-ifeq ($(V),1)
-Q             :=
-quiet_cc      :=
-quiet_as      :=
-quiet_ld      :=
-quiet_objdump :=
-else
-Q             := @
-quiet_cc      = @printf '  %-7s %s\n' CC $@
-quiet_as      = @printf '  %-7s %s\n' AS $@
-quiet_ld      = @printf '  %-7s %s\n' LD $@
-quiet_objdump = @printf '  %-7s %s\n' OBJDUMP $@
-endif
+# obj-y preserves the selected sources' declaration and link order.
+OBJS = $(patsubst %.S,%.o,$(patsubst %.c,%.o,$(obj-y)))
 
 PHONY += all
 
@@ -233,17 +238,19 @@ $(KERNEL).bin: $(KERNEL)
 
 -include $(OBJS:.o=.d)
 
+endif # NEED_ARCH
+
 PHONY += clean distclean
 
+clean:
+	$(Q)find arch init kernel mm lib drivers fs -type f \
+		\( -name '*.o' -o -name '*.d' \) -delete
+	$(Q)rm -f nuvix nuvix.asm nuvix.sym nuvix.bin arch/*/kernel.lds
 
 distclean: clean
-	$(Q)make -C $(srctree)/scripts/kconfig clean
-
-
-clean:
-	$(Q)rm -f $(ALL_OBJS) $(ALL_OBJS:.o=.d)
-	$(Q)rm -f $(KERNEL) $(KERNEL).asm $(KERNEL).sym $(KERNEL).bin $(LDSCRIPT)
-	$(Q)rm -f tags GTAGS GRTAGS GPATH ID
+	$(Q)$(MAKE) -C scripts/kconfig clean
+	$(Q)rm -f .config .config.old tags GTAGS GRTAGS GPATH ID
+	$(Q)rm -rf include/config include/generated
 
 # Developer workflows: source indexes and the help text.
 INDEX_PRUNE_DIRS = \( -path './.git' -o -path './scripts/kconfig/build' -o \
@@ -278,23 +285,25 @@ PHONY += help
 
 help:
 	@printf 'nuvix build usage:\n'
-	@printf '  make                         Build the kernel image in the source tree\n'
-	@printf '  make defconfig               Reset .config from configs/$(DEFCONFIG)\n'
-	@printf '  make DEFCONFIG=xxx defconfig Load configs/xxx as .config\n'
-	@printf '  make savedefconfig           Save the current .config to configs/$(DEFCONFIG)\n'
-	@printf '  make menuconfig              Configure build options\n'
-	@printf '  make syncconfig              Regenerate auto.conf and autoconf.h\n'
-	@printf '  make tags | make gtags       Generate a source index\n'
-	@printf '  make clean                   Remove in-tree build artifacts\n'
+	@printf '  make ARCH=<arch>             		Build the kernel\n'
+	@printf '  make ARCH=<arch> defconfig   		Reset .config from arch/<arch>/configs/defconfig\n'
+	@printf '  make ARCH=<arch> DEFCONFIG=xxx 	defconfig  Load arch/<arch>/configs/xxx as .config\n'
+	@printf '  make ARCH=<arch> savedefconfig  	Save .config to arch/<arch>/configs/<DEFCONFIG>\n'
+	@printf '  make ARCH=<arch> menuconfig  		Configure the kernel\n'
+	@printf '  make ARCH=<arch> syncconfig  		Regenerate auto.conf and autoconf.h\n'
+	@printf '  make tags | make gtags       		Generate a source index\n'
+	@printf '  make clean                   		Remove kernel build artifacts\n'
+	@printf '  make distclean               		Remove all build artifacts and generated configuration\n'
 	@printf '\n'
 	@printf 'Common variables:\n'
-	@printf '  ARCH=<arch>                  Target architecture (default: riscv)\n'
-	@printf '  CROSS_COMPILE=<prefix>       GNU toolchain prefix, e.g. riscv64-linux-gnu-\n'
-	@printf '  LLVM=1                       Build with clang/LLD instead of GNU\n'
-	@printf '  V=1                          Print full command lines\n'
+	@printf '  ARCH=<arch>                  		Target architecture (required for builds)\n'
+	@printf '  CROSS_COMPILE=<prefix>       		GNU toolchain prefix, e.g. riscv64-linux-gnu-\n'
+	@printf '  LLVM=1                       		Build with clang/LLD instead of GNU\n'
+	@printf '  V=1                          		Print full command lines\n'
 	@printf '\n'
 	@printf 'Examples:\n'
-	@printf '  make CROSS_COMPILE=riscv64-linux-gnu-\n'
-	@printf '  make LLVM=1 menuconfig\n'
+	@printf '  make ARCH=riscv menuconfig\n'
+	@printf '  make ARCH=riscv CROSS_COMPILE=riscv64-linux-musl-\n'
+	@printf '  make ARCH=riscv LLVM=1\n'
 
 .PHONY: $(PHONY)
