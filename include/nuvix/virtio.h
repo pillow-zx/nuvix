@@ -5,6 +5,7 @@
 
 #define VIRTIO_ID_BLOCK 2
 #define VIRTIO_ID_RNG   4
+#define VIRTIO_ID_GPU   16
 #define VIRTIO_ID_SOUND 25
 #define VIRTIO_MAX_VQS  4
 

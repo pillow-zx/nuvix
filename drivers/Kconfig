@@ -21,4 +21,9 @@ config VIRTIO_SND
 	help
 	  Play signed 16-bit little-endian PCM through /dev/audio.
 	
+config VIRTIO_GPU
+	depends on VIRTIO
+	bool "virtio-gpu"
+	default y
+
 endmenu
