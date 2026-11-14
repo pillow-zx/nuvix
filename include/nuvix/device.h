@@ -38,10 +38,9 @@ struct driver {
 
 /*
  * Boot-only, before SMP, with local IRQs off. Registration only records objects;
- * on success, objects and all referenced descriptions live for the kernel lifetime.
- * Duplicate objects return -EEXIST; registration after probing returns -EBUSY.
+ * objects and all referenced descriptions live for the kernel lifetime.
  */
-int device_register(struct device *dev);
-int driver_register(struct driver *drv);
+void device_register(struct device *dev);
+void driver_register(struct driver *drv);
 
 #endif /* _NUVIX_DEVICE_H */

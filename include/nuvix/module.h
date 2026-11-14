@@ -32,7 +32,8 @@ struct module_initcall {
 #define MODULE_DRIVER_INIT(name, order)                                        \
     static __always_inline int name##_init(void)                               \
     {                                                                          \
-        return driver_register(&name##_driver.drv);                            \
+        driver_register(&name##_driver.drv);                                   \
+        return 0;                                                              \
     }                                                                          \
     MODULE_INIT(name##_init, order)
 

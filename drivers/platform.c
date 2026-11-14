@@ -126,9 +126,7 @@ static int platform_init(void)
             .start = irq,
             .size = 1,
         };
-        ret = device_register(&dev->dev);
-        if (ret)
-            return ret;
+        device_register(&dev->dev);
         keep(dev);
     }
     return node == -FDT_ERR_NOTFOUND ? 0 : -EINVAL;

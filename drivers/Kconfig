@@ -1,16 +1,17 @@
 menu "Device Drivers"
 
 config VIRTIO
-	bool
+	bool "virtio-drivers"
+	default y
 
 config VIRTIO_BLK
+	depends on VIRTIO
 	bool "virtio-blk"
 	default y
-	select VIRTIO
 
 config VIRTIO_RNG
+	depends on VIRTIO
 	bool "virtio-rng"
 	default y
-	select VIRTIO
 
 endmenu

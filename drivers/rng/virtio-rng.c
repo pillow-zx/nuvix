@@ -14,12 +14,17 @@
 static int virtio_rng_probe(struct device *device)
 {
     struct virtio_dev *dev = to_virtio_device(device);
-    struct virtqueue *vq = dev->vqs[0];
-    dma_addr_t buffer_dma;
-    void *buffer = dma_alloc_coherent(0, &buffer_dma);
+    struct virtqueue *vq;
+    dma_t buffer_dma;
+    void *buffer;
     uint32_t received = 0;
     int ret;
 
+    ret = vq_create(dev, VIRTIO_RNG_QUEUE_SIZE, NULL);
+    if (ret)
+        return ret;
+    vq = dev->vqs[0];
+    buffer = dma_alloc_coherent(0, &buffer_dma);
     if (!buffer)
         return -ENOMEM;
     ret = virtio_dev_ready(dev);
@@ -57,8 +62,6 @@ static struct virtio_driver virtio_rng_driver = {
             .probe = virtio_rng_probe,
         },
     .device_id = VIRTIO_ID_RNG,
-    .nvqs = 1,
-    .vq_size = {VIRTIO_RNG_QUEUE_SIZE},
 };
 
 MODULE_DRIVER_INIT(virtio_rng, 82);

@@ -4,7 +4,7 @@
 #include <nuvix/string.h>
 #include <asm/dma.h>
 
-void *dma_alloc_coherent(int order, dma_addr_t *dma_addr)
+void *dma_alloc_coherent(int order, dma_t *dma_addr)
 {
     struct page *page = alloc_pages(order);
     paddr_t paddr;
@@ -27,7 +27,7 @@ void dma_free_coherent(void *cpu_addr, int order)
 }
 
 int dma_map_page(const struct page *page, size_t offset, size_t length,
-                 enum dma_direction direction, dma_addr_t *dma_addr)
+                 enum dma_direction direction, dma_t *dma_addr)
 {
     if (direction != DMA_TO_DEVICE && direction != DMA_FROM_DEVICE &&
         direction != DMA_BIDIRECTIONAL)
@@ -37,7 +37,7 @@ int dma_map_page(const struct page *page, size_t offset, size_t length,
     return 0;
 }
 
-void dma_unmap_page(dma_addr_t dma_addr, size_t length,
+void dma_unmap_page(dma_t dma_addr, size_t length,
                     enum dma_direction direction)
 {
     (void)dma_addr;

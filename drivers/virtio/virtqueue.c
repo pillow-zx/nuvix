@@ -1,62 +1,12 @@
 #include <nuvix/virtqueue.h>
-#include <nuvix/virtio.h>
 #include <nuvix/assert.h>
 #include <nuvix/errno.h>
 #include <nuvix/macro.h>
-#include <nuvix/math.h>
-#include <nuvix/page.h>
 #include <nuvix/slab.h>
 
-#define VRING_USED_ALIGN 4
-
-struct virtqueue *virtqueue_create(struct virtio_dev *dev, unsigned int index,
-                                   unsigned int num,
-                                   void (*callback)(struct virtqueue *))
+void vq_destroy(struct virtqueue *vq)
 {
-    struct virtqueue *vq __free(kfree) = NULL;
-    size_t avail_offset, used_offset, bytes;
-    dma_addr_t dma_addr;
-    int order = 0;
-
-    vq = kzalloc(sizeof(*vq) + num * sizeof(vq->cookies[0]));
-    if (!vq)
-        return ERR_PTR(-ENOMEM);
-    avail_offset = num * sizeof(struct vring_desc);
-    used_offset = ALIGN_UP(avail_offset + sizeof(struct vring_avail) +
-                               (num + 1) * sizeof(uint16_t),
-                           (size_t)VRING_USED_ALIGN);
-    bytes = used_offset + sizeof(struct vring_used) +
-            num * sizeof(struct vring_used_elem) + sizeof(uint16_t);
-    while (((size_t)PAGE_SIZE << order) < bytes)
-        ++order;
-    vq->ring_mem = dma_alloc_coherent(order, &dma_addr);
-    if (!vq->ring_mem)
-        return ERR_PTR(-ENOMEM);
-    vq->dev = dev;
-    vq->index = index;
-    vq->num = num;
-    vq->callback = callback;
-    spin_lock_init(&vq->lock);
-    vq->desc_dma = dma_addr;
-    vq->avail_dma = dma_addr + avail_offset;
-    vq->used_dma = dma_addr + used_offset;
-    vq->ring_order = order;
-    vq->desc = vq->ring_mem;
-    vq->avail = (void *)((char *)vq->ring_mem + avail_offset);
-    vq->used = (void *)((char *)vq->ring_mem + used_offset);
-    vq->num_free = num;
-    for (unsigned int i = 0; i < num; ++i)
-        vq->desc[i].next = i + 1;
-    return move(vq);
-}
-
-void virtqueue_destroy(struct virtqueue *vq)
-{
-    if (!vq)
-        return;
-    Assert(vq->num_free == vq->num,
-           "destroying virtqueue with outstanding buffers\n");
-    dma_free_coherent(vq->ring_mem, vq->ring_order);
+    dma_free_coherent(vq->desc, 0);
     kfree(vq);
 }
 
@@ -91,16 +41,6 @@ int vq_add(struct virtqueue *vq, const struct vq_sg *sg, unsigned int n_out,
     WRITE_ONCE(vq->avail->idx, ++vq->avail_idx);
     spin_unlock_irqrestore(&vq->lock, flags);
     return 0;
-}
-
-void vq_kick(struct virtqueue *vq)
-{
-    unsigned long flags;
-
-    spin_lock_irqsave(&vq->lock, flags);
-    dma_wmb();
-    vq->dev->ops->notify(vq->dev, vq);
-    spin_unlock_irqrestore(&vq->lock, flags);
 }
 
 void *vq_get_buf(struct virtqueue *vq, uint32_t *len)

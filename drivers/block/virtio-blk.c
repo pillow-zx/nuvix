@@ -36,7 +36,7 @@
 
 struct virtio_blk_header {
     uint32_t type;
-    uint32_t reserved;
+    uint8_t reserved[4];
     uint64_t sector;
 };
 
@@ -45,17 +45,11 @@ struct virtio_blk_wire {
     uint8_t status;
 };
 
-enum request_state {
-    REQUEST_FREE,
-    REQUEST_PREPARING,
-    REQUEST_SUBMITTED,
-};
-
 struct virtio_blk_request {
-    enum request_state state;
+    bool busy;
     struct completion completion;
     struct virtio_blk_wire *wire;
-    dma_addr_t wire_dma;
+    dma_t wire_dma;
     uint32_t expected_written;
     int result;
 };
@@ -63,27 +57,17 @@ struct virtio_blk_request {
 struct virtio_blk {
     struct blkdev bdev;
     struct virtqueue *vq;
-    struct virtio_blk_wire *wire;
-    /* Lock order: available.lock before vq->lock. */
     struct wait_queue available;
     struct virtio_blk_request requests[VIRTIO_BLK_SLOTS];
 };
-
-static_assert(sizeof(struct virtio_blk_header) == 16,
-              "virtio-blk header layout");
-static_assert(sizeof(struct virtio_blk_wire) * VIRTIO_BLK_SLOTS <= PAGE_SIZE,
-              "virtio-blk request storage fits in one DMA page");
-/* A reserved slot guarantees room for its eventual three-descriptor chain. */
-static_assert(VIRTIO_BLK_QUEUE_SIZE >= VIRTIO_BLK_SLOTS * 3,
-              "virtio-blk queue holds all request slots");
 
 static struct virtio_blk_request *reserve_request(struct virtio_blk *blk)
 {
     for (unsigned int i = 0; i < VIRTIO_BLK_SLOTS; ++i) {
         struct virtio_blk_request *req = &blk->requests[i];
 
-        if (req->state == REQUEST_FREE) {
-            req->state = REQUEST_PREPARING;
+        if (!req->busy) {
+            req->busy = true;
             return req;
         }
     }
@@ -96,7 +80,7 @@ static void release_request(struct virtio_blk *blk,
     unsigned long flags;
 
     spin_lock_irqsave(&blk->available.lock, flags);
-    req->state = REQUEST_FREE;
+    req->busy = false;
     spin_unlock_irqrestore(&blk->available.lock, flags);
     wake_up_one(&blk->available);
 }
@@ -109,7 +93,7 @@ static int submit_request(struct virtio_blk *blk, uint32_t type,
     struct vq_sg bufs[3];
     enum dma_direction direction =
         type == VIRTIO_BLK_T_IN ? DMA_FROM_DEVICE : DMA_TO_DEVICE;
-    dma_addr_t data_dma;
+    dma_t data_dma;
     unsigned int num_out = 1, num_in = 1, status_index = 1;
     unsigned long flags;
     uint64_t deadline;
@@ -141,7 +125,6 @@ static int submit_request(struct virtio_blk *blk, uint32_t type,
         goto unmap;
 
     spin_lock_irqsave(&blk->available.lock, flags);
-    req->state = REQUEST_SUBMITTED;
     ret = vq_add(blk->vq, bufs, num_out, num_in, req);
     Assert(!ret, "request slot lacked virtqueue capacity (%d)\n", ret);
     vq_kick(blk->vq);
@@ -199,8 +182,6 @@ static void virtio_blk_done(struct virtqueue *vq)
 
     spin_lock_irqsave(&blk->available.lock, flags);
     while ((req = vq_get_buf(vq, &written))) {
-        Assert(req->state == REQUEST_SUBMITTED,
-               "completion for a non-submitted request\n");
         if (written != req->expected_written) {
             req->result = -EIO;
         } else {
@@ -231,11 +212,12 @@ static int virtio_blk_probe(struct device *device)
 {
     struct virtio_dev *dev = to_virtio_device(device);
     struct virtio_blk *blk __free(kfree) = NULL;
-    dma_addr_t wire_dma;
+    struct virtio_blk_wire *wire;
+    dma_t wire_dma;
     uint32_t limit;
     int ret;
 
-    if (dev->device_features & VIRTIO_BLK_F_RO)
+    if (dev->features & VIRTIO_BLK_F_RO)
         return -EROFS;
     blk = kzalloc(sizeof(*blk));
     if (!blk)
@@ -259,14 +241,17 @@ static int virtio_blk_probe(struct device *device)
         if (!limit)
             return -EOPNOTSUPP;
     }
+    ret = vq_create(dev, VIRTIO_BLK_QUEUE_SIZE, virtio_blk_done);
+    if (ret)
+        return ret;
     wait_queue_init(&blk->available);
-    blk->wire = dma_alloc_coherent(0, &wire_dma);
-    if (!blk->wire)
+    wire = dma_alloc_coherent(0, &wire_dma);
+    if (!wire)
         return -ENOMEM;
     for (unsigned int i = 0; i < VIRTIO_BLK_SLOTS; ++i) {
         init_completion(&blk->requests[i].completion);
-        blk->requests[i].wire = &blk->wire[i];
-        blk->requests[i].wire_dma = wire_dma + i * sizeof(*blk->wire);
+        blk->requests[i].wire = &wire[i];
+        blk->requests[i].wire_dma = wire_dma + i * sizeof(*wire);
     }
     blk->vq = dev->vqs[0];
     blk->bdev.ops = &virtio_blk_ops;
@@ -274,7 +259,7 @@ static int virtio_blk_probe(struct device *device)
     ret = virtio_dev_ready(dev);
     if (ret) {
         device->drvdata = NULL;
-        dma_free_coherent(blk->wire, 0);
+        dma_free_coherent(wire, 0);
         return ret;
     }
     if (!root_bdev)
@@ -295,10 +280,7 @@ static struct virtio_driver virtio_blk_driver = {
         },
     .device_id = VIRTIO_ID_BLOCK,
     .required_features = VIRTIO_BLK_F_FLUSH,
-    .features = VIRTIO_BLK_F_SIZE_MAX | VIRTIO_BLK_F_SEG_MAX,
-    .nvqs = 1,
-    .vq_size = {VIRTIO_BLK_QUEUE_SIZE},
-    .vq_cb = {virtio_blk_done},
+    .features = VIRTIO_BLK_F_SIZE_MAX | VIRTIO_BLK_F_SEG_MAX | VIRTIO_BLK_F_RO,
 };
 
 MODULE_DRIVER_INIT(virtio_blk, 81);
