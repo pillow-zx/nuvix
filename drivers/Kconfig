@@ -14,4 +14,11 @@ config VIRTIO_RNG
 	bool "virtio-rng"
 	default y
 
+config VIRTIO_SND
+	depends on VIRTIO
+	bool "virtio-snd"
+	default y
+	help
+	  Play signed 16-bit little-endian PCM through /dev/audio.
+	
 endmenu
