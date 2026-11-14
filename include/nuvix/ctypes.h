@@ -54,5 +54,6 @@ typedef uint64_t paddr_t;
 
 typedef long long loff_t;
 typedef unsigned int poll_t;
+typedef uint32_t dev_t;
 
 #endif /* ifndef _NUVIX_CTYPES_H */

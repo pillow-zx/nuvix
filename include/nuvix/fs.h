@@ -155,6 +155,7 @@ struct inode {
     struct timespec64 i_ctime;
     unsigned int i_nlink;
     unsigned int i_mode;
+    dev_t i_rdev;
     const struct inode_operations *i_ops;
     const struct file_operations *i_fops;
     struct hlist_node i_hash;

@@ -106,6 +106,8 @@ fail:
 
 ssize_t vfs_read(struct kiocb *iocb, struct kiov *iov)
 {
+    if (!iocb->file->f_ops->read)
+        return -EINVAL;
     if (!iov->count)
         return 0;
     return iocb->file->f_ops->read(iocb, iov);
@@ -113,6 +115,8 @@ ssize_t vfs_read(struct kiocb *iocb, struct kiov *iov)
 
 ssize_t vfs_write(struct kiocb *iocb, struct kiov *iov)
 {
+    if (!iocb->file->f_ops->write)
+        return -EINVAL;
     if (!iov->count)
         return 0;
     return iocb->file->f_ops->write(iocb, iov);

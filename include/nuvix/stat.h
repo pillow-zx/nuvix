@@ -15,6 +15,7 @@
 
 #define S_IRWXO       00007
 
+#define S_ISCHR(mode) (((mode) & S_IFMT) == S_IFCHR)
 #define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
 #define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
 #define S_ISLNK(mode) (((mode) & S_IFMT) == S_IFLNK)

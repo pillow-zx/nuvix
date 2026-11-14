@@ -1,6 +1,7 @@
 obj-y += drivers/block/block.c
-obj-y += drivers/tty/ns16550a.c
-obj-y += drivers/tty/tty.c
+obj-y += drivers/char/chardev.c
+obj-y += drivers/char/ns16550a.c
+obj-y += drivers/char/tty.c
 
 obj-y += drivers/device.c
 obj-y += drivers/platform.c

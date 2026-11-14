@@ -1,6 +1,8 @@
 #include "uart.h"
 
 #include <nuvix/tty.h>
+#include <nuvix/chardev.h>
+#include <nuvix/module.h>
 #include <nuvix/vfs.h>
 #include <nuvix/fdtable.h>
 #include <nuvix/slab.h>
@@ -460,35 +462,19 @@ static const struct file_operations tty_fops = {
     .ioctl = tty_ioctl,
 };
 
-static struct inode *tty_inode;
+static struct chardev tty_devices[] = {
+    {.dev = MKDEV(5, 0), .fops = &tty_fops, .private = &gtty},
+    {.dev = MKDEV(5, 1), .fops = &tty_fops, .private = &gtty},
+};
 
-static int tty_inode_getattr(struct inode *inode, struct kstat *stat)
+static int tty_register(void)
 {
-    stat->ino = inode->i_ino;
-    stat->mode = (inode->i_mode & S_IFMT) | 0777;
-    stat->nlink = 1;
-    stat->blksize = PAGE_SIZE;
+    for (int i = 0; i < ARRLEN(tty_devices); ++i)
+        chardev_register(&tty_devices[i]);
     return 0;
 }
 
-static const struct inode_operations tty_inode_ops = {
-    .getattr = tty_inode_getattr,
-};
-
-static struct file *tty_open(unsigned int flags)
-{
-    struct file *file = kzalloc(sizeof(*file));
-
-    if (!file)
-        return NULL;
-    refcount_set(&file->f_count, 1);
-    mutex_init(&file->f_pos_lock);
-    file->f_flags = flags;
-    file->f_inode = tty_inode;
-    file->f_ops = tty_inode->i_fops;
-    file->f_private = tty_inode->i_private;
-    return file;
-}
+MODULE_INIT(tty_register, 86);
 
 int tty_init(void)
 {
@@ -523,15 +509,6 @@ int tty_init(void)
     if (ret)
         return ret;
 
-    tty_inode = i_alloc(NULL);
-    if (!tty_inode)
-        return -ENOMEM;
-    tty_inode->i_ino = 1;
-    tty_inode->i_mode = S_IFCHR | 0600;
-    tty_inode->i_ops = &tty_inode_ops;
-    tty_inode->i_fops = &tty_fops;
-    tty_inode->i_private = &gtty;
-
     task = task_alloc(false);
     if (!task)
         return -ENOMEM;
@@ -546,15 +523,15 @@ int init_stdio(struct fdtable *fdt)
     struct file *output __free(fput) = NULL;
     struct file *error __free(fput) = NULL;
 
-    input = tty_open(O_RDONLY);
-    if (!input)
-        return -ENOMEM;
-    output = tty_open(O_WRONLY);
-    if (!output)
-        return -ENOMEM;
-    error = tty_open(O_WRONLY);
-    if (!error)
-        return -ENOMEM;
+    input = vfs_open(AT_FDCWD, "/dev/console", O_RDONLY);
+    if (IS_ERR(input))
+        return PTR_ERR(move(input));
+    output = vfs_open(AT_FDCWD, "/dev/console", O_WRONLY);
+    if (IS_ERR(output))
+        return PTR_ERR(move(output));
+    error = vfs_open(AT_FDCWD, "/dev/console", O_WRONLY);
+    if (IS_ERR(error))
+        return PTR_ERR(move(error));
 
     fd_install(fdt, stdin, move(input));
     fd_install(fdt, stdout, move(output));

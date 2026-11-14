@@ -1,4 +1,5 @@
 #include <nuvix/ctypes.h>
+#include <nuvix/chardev.h>
 #include <nuvix/cleanup.h>
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
@@ -57,6 +58,8 @@ static int ext2_read_inode(struct super_block *sb, uint32_t ino,
     mutex_unlock(&cp->mutex);
     if (!raw->i_mode)
         return -ENOENT;
+    if (S_ISCHR(raw->i_mode) && raw->i_block[0])
+        return -EOPNOTSUPP;
     return 0;
 }
 
@@ -94,7 +97,7 @@ static int ext2_getattr(struct inode *inode, struct kstat *stat)
     mutex_lock(&inode->mutex);
     stat->dev = 0;
     stat->ino = inode->i_ino;
-    stat->rdev = 0;
+    stat->rdev = inode->i_rdev;
     stat->mode = (inode->i_mode & S_IFMT) | 0777;
     stat->nlink = inode->i_nlink;
     stat->uid = 0;
@@ -314,6 +317,8 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
         inode->i_fops = &ext2_dir_operations;
     else if (S_ISREG(inode->i_mode))
         inode->i_fops = &ext2_file_operations;
+    else if (S_ISCHR(inode->i_mode))
+        chardev_init(inode, raw.i_block[1]);
     icache_ready(inode);
     return inode;
 }

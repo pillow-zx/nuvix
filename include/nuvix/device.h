@@ -4,6 +4,13 @@
 #include <nuvix/compiler.h>
 #include <nuvix/list.h>
 
+/* Shared ext2-new/stat layout: minor[19:8] | major[11:0] | minor[7:0]. */
+#define MAJOR(dev) ((unsigned int)(((dev) >> 8) & 0xfff))
+#define MINOR(dev) ((unsigned int)(((dev) & 0xff) | (((dev) >> 12) & 0xfff00)))
+#define MKDEV(major, minor)                                                    \
+    (((dev_t)(major) << 8) | ((dev_t)(minor) & 0xff) |                         \
+     (((dev_t)(minor) & 0xfff00) << 12))
+
 struct device;
 struct driver;
 
