@@ -70,12 +70,14 @@ int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr);
 int pgtable_init(paddr_t *paddr);
 
 /*
- * Boot-only after buddy_init(), before SMP or user roots are created.
- * Maps page-aligned MMIO into the IOREMAP window of the permanent kernel root.
- * Caller owns the virtual range. Failure leaves partial mappings in place;
- * mappings and page tables remain permanent. Completes a local TLB flush.
+ * Maps page-aligned [paddr, paddr + size) at vaddr in mm's root, or in the
+ * permanent kernel root's IOREMAP window when mm is NULL. The kernel window is
+ * boot-only before SMP or user roots, leaves partial mappings in place and
+ * flushes locally. A user mm requires its mmap_lock, marks leaves PTE_IO,
+ * removes the leaves it created when an allocation fails, and flushes all CPUs.
  */
-int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size);
+int pgtable_map_io(struct mm_struct *mm, vaddr_t vaddr, paddr_t paddr,
+                   size_t size, unsigned long vm_flags);
 
 DECLARE_FREE(pgd, paddr_t, if (_T) pgtable_free(_T));
 

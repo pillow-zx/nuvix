@@ -98,7 +98,7 @@ static int mmio_map(int node, struct virtio_dev *dev)
         return -ENOSPC;
     vaddr = next_mmio;
     next_mmio += bytes;
-    ret = pgtable_map_io(vaddr, reg.base - offset, bytes);
+    ret = pgtable_map_io(NULL, vaddr, reg.base - offset, bytes, 0);
     if (ret)
         return ret;
     dev->base = (volatile void *)(vaddr + offset);

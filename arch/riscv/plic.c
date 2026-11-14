@@ -136,7 +136,8 @@ static int plic_map(paddr_t base, uint64_t size, uint64_t offset, size_t len)
 
     if (end > size)
         return -EINVAL;
-    return pgtable_map_io(PLIC_VBASE + start, base + start, end - start);
+    return pgtable_map_io(NULL, PLIC_VBASE + start, base + start, end - start,
+                          0);
 }
 
 int plic_init(void)

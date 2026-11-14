@@ -52,6 +52,7 @@ struct super_block;
 struct file_operations;
 struct inode_operations;
 struct super_operations;
+struct vm_struct;
 
 struct kiocb {
     struct file *file;
@@ -112,6 +113,7 @@ struct file_operations {
     int (*readdir)(struct file *, struct dirctx *);
     int (*fsync)(struct file *);
     int (*release)(struct file *);
+    int (*mmap)(struct file *, struct vm_struct *);
 };
 
 struct file {

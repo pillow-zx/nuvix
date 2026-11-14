@@ -29,6 +29,7 @@
 #define PTE_A            (1 << 6)
 #define PTE_D            (1 << 7)
 #define PTE_NONE         (1 << 8)
+#define PTE_IO           (1 << 9)
 
 #define PTE_TABLE        PTE_V
 #define PTE_LEAF         (PTE_R | PTE_W | PTE_X)

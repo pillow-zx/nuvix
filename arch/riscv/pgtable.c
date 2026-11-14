@@ -125,7 +125,8 @@ void pgtable_free(paddr_t paddr)
                 if (!pte_present(entry))
                     continue;
                 pte_write(&pte[k], 0);
-                free_page(phys_to_page(pte_paddr(entry)));
+                if (!(entry & PTE_IO))
+                    free_page(phys_to_page(pte_paddr(entry)));
             }
             page = phys_to_page(addr);
             Assert(
@@ -246,7 +247,7 @@ struct page *pgtable_unmap_page(struct mm_struct *mm, vaddr_t addr)
         entry = xchg(pte, 0);
     spin_unlock_irqrestore(&mm->pgtable_lock, flags);
 
-    if (!entry)
+    if (!entry || (entry & PTE_IO))
         return NULL;
     Assert(pte_present(entry) && (entry & PTE_U),
            "unmap requires an ordinary user leaf\n");
@@ -267,10 +268,10 @@ bool pgtable_protect_page(struct mm_struct *mm, vaddr_t addr,
     if (!walk_pte(pgtable_ptr(mm->pgd), addr, &pte)) {
         entry = pte_read(pte);
         if (pte_present(entry)) {
-            struct page *page = phys_to_page(pte_paddr(entry));
             pte_t value;
 
-            if (refcount_read(&page->refcount) != 1)
+            if (!(entry & PTE_IO) &&
+                refcount_read(&phys_to_page(pte_paddr(entry))->refcount) != 1)
                 prot &= ~PTE_W;
             do {
                 value = (entry & ~(PTE_V | PTE_LEAF | PTE_NONE)) | prot;
@@ -305,22 +306,50 @@ int pgtable_lookup(struct mm_struct *mm, vaddr_t addr, paddr_t *paddr)
     return ret;
 }
 
-int pgtable_map_io(vaddr_t vaddr, paddr_t paddr, size_t size)
+int pgtable_map_io(struct mm_struct *mm, vaddr_t vaddr, paddr_t paddr,
+                   size_t size, unsigned long vm_flags)
 {
+    unsigned long flags;
+    uint64_t prot;
+    pte_t *pgd;
+    size_t offset;
     int ret = 0;
 
-    if (!size || ((vaddr | paddr | size) & (PAGE_SIZE - 1)) ||
-        vaddr < IOREMAP_VBASE)
+    if (!size || ((vaddr | paddr | size) & (PAGE_SIZE - 1)))
         return -EINVAL;
     if (size > UINT64_MAX - vaddr || size > UINT64_MAX - paddr)
         return -EOVERFLOW;
-    for (size_t offset = 0; offset < size; offset += PAGE_SIZE) {
-        ret = map_page(pgtable_ptr(kernel_pgd), vaddr + offset, paddr + offset,
-                       PTE_KERNEL_RW);
+    if (!mm && vaddr < IOREMAP_VBASE)
+        return -EINVAL;
+    if (mm && (vaddr < UVADDR_START || vaddr + size > UVADDR_END))
+        return -EINVAL;
+
+    if (!mm) {
+        for (offset = 0; offset < size; offset += PAGE_SIZE) {
+            ret = map_page(pgtable_ptr(kernel_pgd), vaddr + offset,
+                           paddr + offset, PTE_KERNEL_RW);
+            if (ret)
+                break;
+        }
+        local_flush_tlb_all();
+        return ret;
+    }
+
+    pgd = pgtable_ptr(mm->pgd);
+    prot = vma_to_pte(vm_flags) | PTE_IO;
+    spin_lock_irqsave(&mm->pgtable_lock, flags);
+    for (offset = 0; offset < size; offset += PAGE_SIZE) {
+        ret = map_page(pgd, vaddr + offset, paddr + offset, prot);
         if (ret)
             break;
     }
-    local_flush_tlb_all();
+    spin_unlock_irqrestore(&mm->pgtable_lock, flags);
+    if (!ret) {
+        flush_tlb_all();
+        return 0;
+    }
+    for (size_t done = 0; done < offset; done += PAGE_SIZE)
+        pgtable_unmap_page(mm, vaddr + done);
     return ret;
 }
 
@@ -357,6 +386,15 @@ int pgtable_clone(struct mm_struct *dst, struct mm_struct *src)
                 entry = pte_read(&pte[k]);
                 if (!pte_present(entry)) {
                     spin_unlock_irqrestore(&src->pgtable_lock, flags);
+                    continue;
+                }
+                if (entry & PTE_IO) {
+                    spin_unlock_irqrestore(&src->pgtable_lock, flags);
+                    ret =
+                        map_page(pgtable_ptr(dst->pgd), addr, pte_paddr(entry),
+                                 entry & (BIT(PTE_PPN_SHIFT) - 1));
+                    if (ret)
+                        goto out;
                     continue;
                 }
                 do {

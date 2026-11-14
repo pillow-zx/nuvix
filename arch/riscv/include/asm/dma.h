@@ -10,4 +10,9 @@ static __always_inline uint64_t arch_phys_to_dma(paddr_t paddr)
     return paddr;
 }
 
+static __always_inline paddr_t arch_dma_to_phys(uint64_t dma_addr)
+{
+    return dma_addr;
+}
+
 #endif /* _NUVIX_RISCV_DMA_H */

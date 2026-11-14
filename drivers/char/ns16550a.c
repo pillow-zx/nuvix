@@ -282,7 +282,7 @@ static int ns16550a_probe(struct device *dev)
     Assert(
         !kfifo_init(&port->tx_fifo, port->tx_buffer, sizeof(port->tx_buffer)),
         "invalid NS16550A TX FIFO size\n");
-    ret = pgtable_map_io(UART_VBASE, mem->start - offset, PAGE_SIZE);
+    ret = pgtable_map_io(NULL, UART_VBASE, mem->start - offset, PAGE_SIZE, 0);
     if (ret)
         goto port;
     port->base = (volatile uint8_t *)(UART_VBASE + offset);
