@@ -191,7 +191,6 @@ LDFLAGS += --no-relax
 
 # Subsystems.  Declaration order is link order, and a subsystem may pull in the
 # .mk files of the directories under it.
-include init/init.mk
 include kernel/kernel.mk
 include mm/mm.mk
 include lib/lib.mk
@@ -243,7 +242,7 @@ endif # NEED_ARCH
 PHONY += clean distclean
 
 clean:
-	$(Q)find arch init kernel mm lib drivers fs -type f \
+	$(Q)find arch kernel mm lib drivers fs -type f \
 		\( -name '*.o' -o -name '*.d' \) -delete
 	$(Q)rm -f nuvix nuvix.asm nuvix.sym nuvix.bin arch/*/kernel.lds
 

@@ -1,3 +1,5 @@
+obj-y += kernel/main.c
+obj-y += kernel/ktask.c
 obj-y += kernel/printk.c
 obj-y += kernel/panic.c
 obj-y += kernel/module.c
