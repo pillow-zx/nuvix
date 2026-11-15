@@ -26,4 +26,9 @@ config VIRTIO_GPU
 	bool "virtio-gpu"
 	default y
 
+config VIRTIO_KEYBOARD
+	depends on VIRTIO
+	bool "virtio-keyboard"
+	default y
+
 endmenu

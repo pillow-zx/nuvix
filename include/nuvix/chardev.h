@@ -14,6 +14,12 @@ struct chardev {
     void *private;
 };
 
+#define CHARDEV_INIT(device, ops, priv)                                        \
+    (struct chardev)                                                           \
+    {                                                                          \
+        .dev = device, .fops = ops, .private = priv                            \
+    }
+
 void chardev_register(struct chardev *dev);
 
 void chardev_init(struct inode *inode, dev_t dev);

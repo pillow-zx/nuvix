@@ -8,8 +8,9 @@ obj-y += drivers/platform.c
 
 obj-$(CONFIG_VIRTIO) += drivers/virtio/virtqueue.c
 obj-$(CONFIG_VIRTIO) += drivers/virtio/virtio.c
-obj-$(CONFIG_VIRTIO_BLK) += drivers/block/virtio-blk.c
-obj-$(CONFIG_VIRTIO_RNG) += drivers/rng/virtio-rng.c
-obj-$(CONFIG_VIRTIO_SND) += drivers/sound/virtio-snd.c
-obj-$(CONFIG_VIRTIO_GPU) += drivers/gpu/virtio-gpu.c
+obj-$(CONFIG_VIRTIO_BLK) += drivers/block/virtblk.c
+obj-$(CONFIG_VIRTIO_RNG) += drivers/rng/virtrng.c
+obj-$(CONFIG_VIRTIO_SND) += drivers/sound/virtsnd.c
+obj-$(CONFIG_VIRTIO_GPU) += drivers/gpu/virtgpu.c
+obj-$(CONFIG_VIRTIO_KEYBOARD) += drivers/input/virtkey.c
 

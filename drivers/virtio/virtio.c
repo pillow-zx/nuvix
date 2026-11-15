@@ -151,17 +151,10 @@ static int virtio_negotiate(struct virtio_dev *dev)
 static void virtio_irq(void *data)
 {
     struct virtio_dev *dev = data;
-    const struct virtio_driver *drv = to_virtio_driver(dev->dev.drv);
     uint32_t events = mmio_read(dev, MMIO_INTERRUPT_STATUS) &
                       (VIRTIO_IRQ_QUEUE | VIRTIO_IRQ_CONFIG);
 
     mmio_write(dev, MMIO_INTERRUPT_ACK, events);
-    if (events & VIRTIO_IRQ_CONFIG) {
-        if (!drv->config_changed)
-            panic("%s: unsupported virtio configuration change\n",
-                  drv->drv.name);
-        drv->config_changed(dev);
-    }
     if (events & VIRTIO_IRQ_QUEUE)
         for (unsigned int i = 0; i < dev->nvqs; ++i)
             if (dev->vqs[i]->callback)
@@ -310,15 +303,6 @@ int virtio_config_read64(struct virtio_dev *dev, unsigned int offset,
     if (!ret)
         *value = result;
     return ret;
-}
-
-int virtio_config_write32(struct virtio_dev *dev, unsigned int offset,
-                          uint32_t value)
-{
-    if (offset > dev->config_size || sizeof(value) > dev->config_size - offset)
-        return -EINVAL;
-    mmio_write(dev, MMIO_CONFIG + offset, value);
-    return 0;
 }
 
 static int virtio_mmio_init(void)

@@ -6,6 +6,7 @@
 #define VIRTIO_ID_BLOCK 2
 #define VIRTIO_ID_RNG   4
 #define VIRTIO_ID_GPU   16
+#define VIRTIO_ID_INPUT 18
 #define VIRTIO_ID_SOUND 25
 #define VIRTIO_MAX_VQS  4
 
@@ -27,7 +28,6 @@ struct virtio_driver {
     uint32_t device_id;
     uint64_t required_features;
     uint64_t features;
-    void (*config_changed)(struct virtio_dev *dev);
 };
 
 static inline struct virtio_dev *to_virtio_device(struct device *dev)
@@ -51,12 +51,9 @@ extern const struct bus virtio_bus;
 
 int virtio_dev_ready(struct virtio_dev *dev);
 
-/* Configuration offsets are 32-bit aligned. */
 int virtio_config_read32(struct virtio_dev *dev, unsigned int offset,
                          uint32_t *value);
 int virtio_config_read64(struct virtio_dev *dev, unsigned int offset,
                          uint64_t *value);
-int virtio_config_write32(struct virtio_dev *dev, unsigned int offset,
-                          uint32_t value);
 
 #endif /* _NUVIX_VIRTIO_H */

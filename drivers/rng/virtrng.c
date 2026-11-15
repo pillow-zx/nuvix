@@ -1,4 +1,4 @@
-#define pr_fmt(fmt) "virtio-rng: " fmt
+#define pr_fmt(fmt) "virtrng: " fmt
 
 #include <nuvix/random.h>
 #include <nuvix/module.h>
@@ -11,7 +11,7 @@
 
 #define VIRTIO_RNG_QUEUE_SIZE 1
 
-static int virtio_rng_probe(struct device *device)
+static int virtrng_probe(struct device *device)
 {
     struct virtio_dev *dev = to_virtio_device(device);
     struct virtqueue *vq;
@@ -54,14 +54,14 @@ static int virtio_rng_probe(struct device *device)
     return 0;
 }
 
-static struct virtio_driver virtio_rng_driver = {
+static struct virtio_driver virtrng_driver = {
     .drv =
         {
             .name = "virtio-rng",
             .bus = &virtio_bus,
-            .probe = virtio_rng_probe,
+            .probe = virtrng_probe,
         },
     .device_id = VIRTIO_ID_RNG,
 };
 
-MODULE_DRIVER_INIT(virtio_rng, 82);
+MODULE_DRIVER_INIT(virtrng, 82);
