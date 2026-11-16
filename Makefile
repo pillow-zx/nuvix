@@ -302,7 +302,7 @@ help:
 	@printf '\n'
 	@printf 'Examples:\n'
 	@printf '  make ARCH=riscv menuconfig\n'
-	@printf '  make ARCH=riscv CROSS_COMPILE=riscv64-linux-musl-\n'
+	@printf '  make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu-\n'
 	@printf '  make ARCH=riscv LLVM=1\n'
 
 .PHONY: $(PHONY)
