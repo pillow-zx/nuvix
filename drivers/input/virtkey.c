@@ -138,6 +138,22 @@ static ssize_t virtkey_read(struct kiocb *iocb, struct kiov *iov)
     return copy_to_kiov(events, bytes, iov) == bytes ? (ssize_t)bytes : -EFAULT;
 }
 
+static poll_t virtkey_poll(struct file *file, struct poll_table *table)
+{
+    struct virtkey *key = file->f_private;
+    unsigned long flags;
+    poll_t mask = 0;
+
+    spin_lock_irqsave(&key->wait.lock, flags);
+    poll_add(&key->wait, table);
+    if (key->count)
+        mask |= POLLIN;
+    if (key->overflow)
+        mask |= POLLERR;
+    spin_unlock_irqrestore(&key->wait.lock, flags);
+    return mask;
+}
+
 static int virtkey_release(struct file *file)
 {
     struct virtkey *key = file->f_private;
@@ -154,6 +170,7 @@ static int virtkey_release(struct file *file)
 static const struct file_operations virtkey_fops = {
     .open = virtkey_open,
     .read = virtkey_read,
+    .poll = virtkey_poll,
     .release = virtkey_release,
 };
 
