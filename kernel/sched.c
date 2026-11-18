@@ -383,9 +383,7 @@ __noreturn void sched_task(void)
         bool work;
 
         local_irq_disable();
-#ifdef CONFIG_SMP
-        (void)cpu_handle_ipi();
-#endif
+        IFDEF(CONFIG_SMP, (void)cpu_handle_ipi());
         __spin_lock(&rq->lock);
         work = !list_empty(&rq->ready_list) || task_need_resched(rq->curr);
         __spin_unlock(&rq->lock);

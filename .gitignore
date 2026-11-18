@@ -37,6 +37,7 @@
 !LICENSES/*
 !mm/*.[chsSl]
 !scripts/*/
+!scripts/*.awk
 !scripts/*/*.[chsSl]
 !scripts/*/*/*.[chsSl]
 

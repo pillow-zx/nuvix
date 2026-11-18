@@ -59,6 +59,8 @@ DEFCONFIG       ?= defconfig
 KCONFIG_CONFIG  := .config
 AUTO_CONF       := include/config/auto.conf
 AUTOCONF_H      := include/generated/autoconf.h
+OFFSETS_H   		:= include/generated/offsets.h
+OFFSETS_S   		:= include/generated/offsets.s
 
 KCONFIG_DIR     := scripts/kconfig
 CONF            := $(KCONFIG_DIR)/build/conf
@@ -211,6 +213,17 @@ PHONY += all
 
 all: $(KERNEL) $(KERNEL).bin
 
+# The target C compiler emits layout constants into assembly text only.
+$(OFFSETS_S): arch/$(ARCH)/offsets.c $(AUTOCONF_H) Makefile arch/$(ARCH)/$(ARCH).mk
+	$(quiet_cc)
+	$(Q)$(CC) $(CFLAGS) -MP -MF $@.d -MT $@ -S -o $@ $<
+
+# Keep the header timestamp when unrelated layout changes leave offsets intact.
+$(OFFSETS_H): $(OFFSETS_S) scripts/gen-offsets.awk
+	$(Q)set -e; tmp=$@.tmp; trap 'rm -f "$$tmp"' EXIT; \
+		awk -f scripts/gen-offsets.awk $< > "$$tmp"; \
+		if ! cmp -s "$$tmp" $@; then mv "$$tmp" $@; fi
+
 $(LDSCRIPT): arch/$(ARCH)/kernel.ld.S $(AUTOCONF_H)
 	$(quiet_cc)
 	$(Q)$(CC) $(COMMON_FLAGS) -MD -MP -MF $@.d -MT $@ \
@@ -234,7 +247,7 @@ $(KERNEL).bin: $(KERNEL)
 	$(quiet_as)
 	$(Q)$(CC) $(ASFLAGS) -c -o $@ $<
 
--include $(OBJS:.o=.d) $(LDSCRIPT).d
+-include $(OBJS:.o=.d) $(LDSCRIPT).d $(OFFSETS_S).d
 
 endif # NEED_ARCH
 
@@ -243,7 +256,9 @@ PHONY += clean distclean
 clean:
 	$(Q)find arch kernel mm lib drivers fs -type f \
 		\( -name '*.o' -o -name '*.d' \) -delete
-	$(Q)rm -f nuvix nuvix.asm nuvix.sym nuvix.bin arch/*/kernel.lds
+	$(Q)rm -f nuvix nuvix.asm nuvix.sym nuvix.bin arch/*/kernel.lds \
+		include/generated/offsets.h include/generated/offsets.s \
+		include/generated/offsets.s.d
 
 distclean: clean
 	$(Q)$(MAKE) -C scripts/kconfig clean

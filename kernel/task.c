@@ -20,12 +20,6 @@
 
 static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
               "kernel task stack order must be smaller than MAX_ORDER");
-static_assert(offsetof(struct task, kstack) == TASK_KSTACK,
-              "invalid task stack offset");
-static_assert(offsetof(struct task, ctx.ra) == TASK_CTX_RA,
-              "invalid task context offset");
-static_assert(offsetof(struct task, ctx.sum) == TASK_CTX_SUM,
-              "invalid task SUM context offset");
 
 static DEFINE_WAIT_QUEUE(child_wait);
 

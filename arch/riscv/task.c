@@ -40,7 +40,7 @@ int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
         return ret;
     keep(page);
 
-    frame = (void *)((vaddr_t)task->kstack + KSTACK_SIZE - TRAP_SIZE);
+    frame = (void *)((vaddr_t)task->kstack + KSTACK_SIZE - sizeof(*frame));
     memset(frame, 0, sizeof(*frame));
     frame->regs[2] = sp;
     frame->sepc = entry;
@@ -63,7 +63,7 @@ void arch_task_clone(struct task *task, const struct trap_frame *frame,
                      unsigned long sp, unsigned long tls)
 {
     struct trap_frame *child =
-        (void *)((vaddr_t)task->kstack + KSTACK_SIZE - TRAP_SIZE);
+        (void *)((vaddr_t)task->kstack + KSTACK_SIZE - sizeof(*child));
 
     *child = *frame;
     child->task = task;

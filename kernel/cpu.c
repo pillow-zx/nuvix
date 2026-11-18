@@ -43,15 +43,15 @@ static int register_cpu(unsigned long hart_id, void *arg)
 
 int cpu_init(unsigned long boot_hart)
 {
-    bool found_boot_cpu = false;
+    bool found = false;
     int ret;
 
     cpus[0].hart_id = boot_hart;
     nr_cpus = 1;
-    ret = dtb_scan_cpus(register_cpu, &found_boot_cpu);
+    ret = dtb_scan_cpus(register_cpu, &found);
     if (ret)
         return ret;
-    if (!found_boot_cpu) {
+    if (!found) {
         pr_err("boot hart %p missing from available CPUs\n", (void *)boot_hart);
         return -ENODEV;
     }

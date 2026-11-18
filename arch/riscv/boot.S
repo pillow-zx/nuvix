@@ -1,7 +1,7 @@
 #include <asm/riscv/pgtable.h>
 #include <asm/riscv/irq.h>
 #ifdef CONFIG_SMP
-#include <asm/riscv/smp.h>
+#include <generated/offsets.h>
 #endif
 
     .section .text.boot, "ax"
@@ -75,9 +75,9 @@ smp_entry:
     csrw        stvec, t0
 
     fence       r, rw
-    ld          s0, CPU_BOOT_TASK(a1)
-    ld          s1, CPU_BOOT_STACK(a1)
-    ld          a0, CPU_BOOT_SATP(a1)
+    ld          s0, CPU_BOOT_DATA_TASK_OFFSET(a1)
+    ld          s1, CPU_BOOT_DATA_STACK_OFFSET(a1)
+    ld          a0, CPU_BOOT_DATA_SATP_OFFSET(a1)
     call        .Lenable_mmu
 
     mv          tp, s0
