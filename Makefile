@@ -154,7 +154,6 @@ remove_quote = $(patsubst "%",%,$(1))
 
 COMMON_FLAGS := $(ARCH_FLAGS)
 COMMON_FLAGS += $(TOOLCHAIN_COMMON_FLAGS)
-COMMON_FLAGS += -I arch/$(ARCH)/include
 COMMON_FLAGS += -I include
 COMMON_FLAGS += -include $(AUTOCONF_H)
 
@@ -212,10 +211,10 @@ PHONY += all
 
 all: $(KERNEL) $(KERNEL).bin
 
-$(LDSCRIPT): arch/$(ARCH)/kernel.ld.S arch/$(ARCH)/include/asm/layout.h \
-             arch/$(ARCH)/include/asm/pgtable.h $(AUTOCONF_H)
+$(LDSCRIPT): arch/$(ARCH)/kernel.ld.S $(AUTOCONF_H)
 	$(quiet_cc)
-	$(Q)$(CC) $(COMMON_FLAGS) -E -P -x assembler-with-cpp -o $@ $<
+	$(Q)$(CC) $(COMMON_FLAGS) -MD -MP -MF $@.d -MT $@ \
+		-E -P -x assembler-with-cpp -o $@ $<
 
 $(KERNEL): $(OBJS) $(LDSCRIPT)
 	$(quiet_ld)
@@ -235,7 +234,7 @@ $(KERNEL).bin: $(KERNEL)
 	$(quiet_as)
 	$(Q)$(CC) $(ASFLAGS) -c -o $@ $<
 
--include $(OBJS:.o=.d)
+-include $(OBJS:.o=.d) $(LDSCRIPT).d
 
 endif # NEED_ARCH
 

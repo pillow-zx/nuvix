@@ -1,5 +1,5 @@
-#include <asm/csr.h>
-#include <asm/trap.h>
+#include <asm/riscv/csr.h>
+#include <asm/riscv/trap.h>
 
     .section .text, "ax"
     .balign 4

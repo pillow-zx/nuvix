@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_DMA_H
-#define _NUVIX_RISCV_DMA_H
+#ifndef _ASM_RISCV_DMA_H
+#define _ASM_RISCV_DMA_H
 
 #include <nuvix/ctypes.h>
 #include <nuvix/compiler.h>
@@ -15,4 +15,4 @@ static __always_inline paddr_t arch_dma_to_phys(uint64_t dma_addr)
     return dma_addr;
 }
 
-#endif /* _NUVIX_RISCV_DMA_H */
+#endif /* _ASM_RISCV_DMA_H */

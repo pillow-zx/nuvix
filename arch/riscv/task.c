@@ -5,8 +5,8 @@
 #include <nuvix/string.h>
 #include <nuvix/pgtable.h>
 #include <nuvix/errno.h>
-#include <asm/trap.h>
-#include <asm/signal.h>
+#include <asm/riscv/trap.h>
+#include <asm/riscv/signal.h>
 
 extern const char __sigret_start[], __sigret_end[];
 

@@ -1,7 +1,7 @@
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
-#include <asm/pgtable.h>
+#include <asm/riscv/pgtable.h>
 
 PHDRS
 {

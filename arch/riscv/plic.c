@@ -10,8 +10,8 @@
 #include <nuvix/printk.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/string.h>
-#include <asm/csr.h>
-#include <asm/io.h>
+#include <asm/riscv/csr.h>
+#include <asm/riscv/io.h>
 
 #define PLIC_MAX_SOURCES     1024
 #define PLIC_MAX_CONTEXTS    15872

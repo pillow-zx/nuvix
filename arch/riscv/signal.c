@@ -5,8 +5,8 @@
 #include <nuvix/syscall.h>
 #include <nuvix/math.h>
 #include <nuvix/layout.h>
-#include <asm/signal.h>
-#include <asm/trap.h>
+#include <asm/riscv/signal.h>
+#include <asm/riscv/trap.h>
 
 static void setup_signal_frame(struct trap_frame *frame,
                                const struct ksignal *signal)

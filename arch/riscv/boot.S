@@ -1,7 +1,7 @@
-#include <asm/pgtable.h>
-#include <asm/irq.h>
+#include <asm/riscv/pgtable.h>
+#include <asm/riscv/irq.h>
 #ifdef CONFIG_SMP
-#include <asm/smp.h>
+#include <asm/riscv/smp.h>
 #endif
 
     .section .text.boot, "ax"

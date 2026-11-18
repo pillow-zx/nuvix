@@ -10,9 +10,9 @@
 #include <nuvix/task.h>
 #include <nuvix/signal.h>
 #include <nuvix/futex.h>
-#include <asm/signal.h>
-#include <asm/uaccess.h>
-#include <asm/trap.h>
+#include <asm/riscv/signal.h>
+#include <asm/riscv/uaccess.h>
+#include <asm/riscv/trap.h>
 
 #define SUPERVISOR(frame) (frame->sstatus & SSTATUS_SPP)
 

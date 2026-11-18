@@ -3,6 +3,7 @@
 # -mno-relax: early boot code runs with the PC below KERNEL_VBASE, so linker
 # relaxation rewriting auipc+addi pairs would break the address assumptions.
 ARCH_FLAGS := -march=rv64gc -mabi=lp64 -mno-relax -mcmodel=medany
+ARCH_FLAGS += -DNUVIX_ARCH_RISCV=1
 
 # MMU-off C must not use jump tables containing linked high code addresses.
 CFLAGS-y += -fno-jump-tables

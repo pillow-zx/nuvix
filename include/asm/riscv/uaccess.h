@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_UACCESS_H
-#define _NUVIX_RISCV_UACCESS_H
+#ifndef _ASM_RISCV_UACCESS_H
+#define _ASM_RISCV_UACCESS_H
 
 #include <nuvix/ctypes.h>
 
@@ -13,4 +13,4 @@ extern char __uaccess_store8[], __uaccess_store16[];
 extern char __uaccess_store32[], __uaccess_store64[];
 extern char __uaccess_fixup[];
 
-#endif /* _NUVIX_RISCV_UACCESS_H */
+#endif /* _ASM_RISCV_UACCESS_H */

@@ -1,7 +1,7 @@
-#ifndef _NUVIX_RISCV_IRQ_H
-#define _NUVIX_RISCV_IRQ_H
+#ifndef _ASM_RISCV_IRQ_H
+#define _ASM_RISCV_IRQ_H
 
-#include <asm/csr.h>
+#include <asm/riscv/csr.h>
 
 #ifndef __ASSEMBLER__
 
@@ -68,4 +68,4 @@ void plic_complete(unsigned int irq);
 
 #endif /* __ASSEMBLER__ */
 
-#endif /* _NUVIX_RISCV_IRQ_H */
+#endif /* _ASM_RISCV_IRQ_H */

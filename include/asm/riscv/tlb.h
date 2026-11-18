@@ -1,10 +1,10 @@
-#ifndef _NUVIX_RISCV_TLB_H
-#define _NUVIX_RISCV_TLB_H
+#ifndef _ASM_RISCV_TLB_H
+#define _ASM_RISCV_TLB_H
 
 #include <nuvix/compiler.h>
 #include <nuvix/ctypes.h>
 #include <nuvix/cpu.h>
-#include <asm/sbi.h>
+#include <asm/riscv/sbi.h>
 
 static __always_inline void arch_local_flush_tlb_all(void)
 {
@@ -38,4 +38,4 @@ static __always_inline long arch_remote_flush_icache_all(unsigned int cpu_id)
 
 #endif /* CONFIG_SMP */
 
-#endif /* _NUVIX_RISCV_TLB_H */
+#endif /* _ASM_RISCV_TLB_H */

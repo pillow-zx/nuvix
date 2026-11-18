@@ -1,9 +1,9 @@
-#ifndef _NUVIX_RISCV_CPU_H
-#define _NUVIX_RISCV_CPU_H
+#ifndef _ASM_RISCV_CPU_H
+#define _ASM_RISCV_CPU_H
 
 #include <nuvix/compiler.h>
-#include <asm/irq.h>
-#include <asm/barrier.h>
+#include <asm/riscv/irq.h>
+#include <asm/riscv/barrier.h>
 
 #define SMP_CACHE_BYTES 64
 
@@ -41,4 +41,4 @@ static __always_inline __noreturn void arch_halt(void)
         wfi();
 }
 
-#endif /* _NUVIX_RISCV_CPU_H */
+#endif /* _ASM_RISCV_CPU_H */

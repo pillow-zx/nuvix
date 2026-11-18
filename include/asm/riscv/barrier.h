@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_BARRIER_H
-#define _NUVIX_RISCV_BARRIER_H
+#ifndef _ASM_RISCV_BARRIER_H
+#define _ASM_RISCV_BARRIER_H
 
 #define io_mb()                                                                \
     do {                                                                       \
@@ -10,4 +10,4 @@
 #define arch_dma_wmb() io_mb()
 #define arch_dma_rmb() io_mb()
 
-#endif /* _NUVIX_RISCV_BARRIER_H */
+#endif /* _ASM_RISCV_BARRIER_H */

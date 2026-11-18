@@ -1,6 +1,6 @@
 #include <nuvix/errno.h>
-#include <asm/sbi.h>
-#include <asm/sys.h>
+#include <asm/riscv/sbi.h>
+#include <asm/riscv/sys.h>
 
 static int arch_reset(unsigned int type)
 {

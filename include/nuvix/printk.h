@@ -4,7 +4,9 @@
 #include <nuvix/compiler.h>
 #include <nuvix/stdarg.h>
 #include <nuvix/macro.h>
-#include <asm/sbi.h>
+
+/* Temporary direct dependency until console I/O has an arch interface. */
+#include <asm/riscv/sbi.h>
 
 static inline int putchar(int c)
 {

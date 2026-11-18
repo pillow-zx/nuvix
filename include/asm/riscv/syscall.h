@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_SYSCALL_H
-#define _NUVIX_RISCV_SYSCALL_H
+#ifndef _ASM_RISCV_SYSCALL_H
+#define _ASM_RISCV_SYSCALL_H
 
 #define __NR_getcwd          17
 #define __NR_dup             23
@@ -96,4 +96,4 @@
 #define __NR_getrandom       278
 #define __NR_syscalls        (__NR_getrandom + 1)
 
-#endif /* ifndef _NUVIX_ASM_SYSCALL_H */
+#endif /* ifndef _ASM_RISCV_SYSCALL_H */

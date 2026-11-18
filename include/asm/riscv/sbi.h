@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_SBI_H
-#define _NUVIX_RISCV_SBI_H
+#ifndef _ASM_RISCV_SBI_H
+#define _ASM_RISCV_SBI_H
 
 #include <nuvix/compiler.h>
 
@@ -117,4 +117,4 @@ static inline int sbi_getchar(void)
     return (int)sbi_call(SBI_EXT_0_1_CONSOLE_GETCHAR, 0).error;
 }
 
-#endif /* _NUVIX_RISCV_SBI_H */
+#endif /* _ASM_RISCV_SBI_H */

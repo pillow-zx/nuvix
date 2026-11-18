@@ -1,4 +1,4 @@
-#include <asm/csr.h>
+#include <asm/riscv/csr.h>
 
     .section .text, "ax"
     .balign 4

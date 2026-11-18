@@ -1,8 +1,8 @@
 #include <nuvix/cpu.h>
 #include <nuvix/task.h>
 #include <nuvix/layout.h>
-#include <asm/smp.h>
-#include <asm/sbi.h>
+#include <asm/riscv/smp.h>
+#include <asm/riscv/sbi.h>
 
 extern char smp_entry[];
 

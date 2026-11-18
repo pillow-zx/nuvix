@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_TASK_H
-#define _NUVIX_RISCV_TASK_H
+#ifndef _ASM_RISCV_TASK_H
+#define _ASM_RISCV_TASK_H
 
 /* RV64 offsets from struct task; keep in sync with task and task_context. */
 #define TASK_KSTACK  40
@@ -67,4 +67,4 @@ static __always_inline struct task *current_task(void)
 
 #endif /* __ASSEMBLER__ */
 
-#endif /* _NUVIX_RISCV_TASK_H */
+#endif /* _ASM_RISCV_TASK_H */

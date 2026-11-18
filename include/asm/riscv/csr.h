@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_CSR_H
-#define _NUVIX_RISCV_CSR_H
+#ifndef _ASM_RISCV_CSR_H
+#define _ASM_RISCV_CSR_H
 
 /* RV64 status fields; vector and optional privileged extensions are omitted. */
 #define SSTATUS_SIE               (1 << 1)
@@ -125,4 +125,4 @@
 
 #endif /* __ASSEMBLER__ */
 
-#endif /* _NUVIX_RISCV_CSR_H */
+#endif /* _ASM_RISCV_CSR_H */

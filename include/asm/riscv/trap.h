@@ -1,7 +1,7 @@
-#ifndef _NUVIX_RISCV_TRAP_H
-#define _NUVIX_RISCV_TRAP_H
+#ifndef _ASM_RISCV_TRAP_H
+#define _ASM_RISCV_TRAP_H
 
-#include <asm/csr.h>
+#include <asm/riscv/csr.h>
 
 /* RV64 register slots; keep the assembly layout and C frame in agreement. */
 #define TRAP_REG_SIZE 8
@@ -43,4 +43,4 @@ void trap_handler(struct trap_frame *frame);
 
 #endif /* __ASSEMBLER__ */
 
-#endif /* _NUVIX_RISCV_TRAP_H */
+#endif /* _ASM_RISCV_TRAP_H */

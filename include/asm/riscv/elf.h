@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_ELF_H
-#define _NUVIX_RISCV_ELF_H
+#ifndef _ASM_RISCV_ELF_H
+#define _ASM_RISCV_ELF_H
 
 #include <nuvix/elf.h>
 
@@ -33,4 +33,4 @@ static inline bool elf_check_arch(const struct elf64_ehdr *ehdr)
            !(ehdr->e_flags & ~(EF_RISCV_RVC | EF_RISCV_FLOAT_ABI));
 }
 
-#endif /* _NUVIX_RISCV_ELF_H */
+#endif /* _ASM_RISCV_ELF_H */

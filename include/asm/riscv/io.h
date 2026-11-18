@@ -1,9 +1,9 @@
-#ifndef _NUVIX_RISCV_IO_H
-#define _NUVIX_RISCV_IO_H
+#ifndef _ASM_RISCV_IO_H
+#define _ASM_RISCV_IO_H
 
 #include <nuvix/ctypes.h>
 #include <nuvix/compiler.h>
-#include <asm/barrier.h>
+#include <asm/riscv/barrier.h>
 
 static __always_inline uint8_t readb(const volatile void *addr)
 {
@@ -39,4 +39,4 @@ static __always_inline void writel(uint32_t value, volatile void *addr)
     io_mb();
 }
 
-#endif /* _NUVIX_RISCV_IO_H */
+#endif /* _ASM_RISCV_IO_H */

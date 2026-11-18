@@ -1,7 +1,7 @@
-#ifndef _NUVIX_RISCV_PGTABLE_H
-#define _NUVIX_RISCV_PGTABLE_H
+#ifndef _ASM_RISCV_PGTABLE_H
+#define _ASM_RISCV_PGTABLE_H
 
-#include <asm/layout.h>
+#include <asm/riscv/layout.h>
 
 #define PT_INDEX_BITS    9
 #define PT_INDEX_MASK    ((1 << PT_INDEX_BITS) - 1)
@@ -101,4 +101,4 @@ static inline void pte_write(pte_t *entry, pte_t value)
 }
 #endif
 
-#endif /* _NUVIX_RISCV_PGTABLE_H */
+#endif /* _ASM_RISCV_PGTABLE_H */

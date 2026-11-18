@@ -7,7 +7,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/assert.h>
 #include <nuvix/string.h>
-#include <asm/csr.h>
+#include <asm/riscv/csr.h>
 
 static inline pte_t *pgtable_ptr(paddr_t paddr)
 {

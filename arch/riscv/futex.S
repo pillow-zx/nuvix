@@ -1,4 +1,4 @@
-#include <asm/csr.h>
+#include <asm/riscv/csr.h>
 #include <nuvix/errno.h>
 
     .section .text, "ax"

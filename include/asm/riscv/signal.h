@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_SIGNAL_H
-#define _NUVIX_RISCV_SIGNAL_H
+#ifndef _ASM_RISCV_SIGNAL_H
+#define _ASM_RISCV_SIGNAL_H
 
 #include <nuvix/signal.h>
 
@@ -40,4 +40,4 @@ struct trap_frame;
 
 void arch_do_signal(struct trap_frame *frame, const siginfo_t *fault);
 
-#endif
+#endif /* _ASM_RISCV_SIGNAL_H */

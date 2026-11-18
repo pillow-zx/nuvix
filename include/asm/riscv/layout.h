@@ -1,5 +1,5 @@
-#ifndef _NUVIX_RISCV_LAYOUT_H
-#define _NUVIX_RISCV_LAYOUT_H
+#ifndef _ASM_RISCV_LAYOUT_H
+#define _ASM_RISCV_LAYOUT_H
 
 #define PAGE_SHIFT        12
 #define PAGE_SIZE         (1 << PAGE_SHIFT)
@@ -33,4 +33,4 @@
 
 #define BOOT_STACK_SIZE   (4 * PAGE_SIZE)
 
-#endif /* _NUVIX_RISCV_LAYOUT_H */
+#endif /* _ASM_RISCV_LAYOUT_H */
