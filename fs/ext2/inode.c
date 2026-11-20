@@ -58,7 +58,7 @@ static int ext2_read_inode(struct super_block *sb, uint32_t ino,
     mutex_unlock(&cp->mutex);
     if (!raw->i_mode)
         return -ENOENT;
-    if (S_ISCHR(raw->i_mode) && raw->i_block[0])
+    if (S_ISCHR(raw->i_mode) && !raw->i_block[0] && raw->i_block[1])
         return -EOPNOTSUPP;
     return 0;
 }
@@ -317,8 +317,10 @@ struct inode *ext2_iget(struct super_block *sb, uint32_t ino)
         inode->i_fops = &ext2_dir_operations;
     else if (S_ISREG(inode->i_mode))
         inode->i_fops = &ext2_file_operations;
-    else if (S_ISCHR(inode->i_mode))
-        chardev_init(inode, raw.i_block[1]);
+    else if (S_ISCHR(inode->i_mode)) {
+        uint16_t dev = raw.i_block[0];
+        chardev_init(inode, MKDEV(dev >> 8, dev & 0xff));
+    }
     icache_ready(inode);
     return inode;
 }
