@@ -188,15 +188,12 @@ static void virtblk_done(struct virtqueue *vq)
             case VIRTIO_BLK_S_OK:
                 req->result = 0;
                 break;
-            case VIRTIO_BLK_S_IOERR:
-                req->result = -EIO;
-                break;
             case VIRTIO_BLK_S_UNSUPP:
                 req->result = -EOPNOTSUPP;
                 break;
             default:
-                panic("invalid request status %u\n",
-                      (unsigned int)req->wire->status);
+                req->result = -EIO;
+                break;
             }
         }
         completed[count++] = req;
