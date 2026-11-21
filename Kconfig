@@ -73,7 +73,7 @@ config CC_OPT
 
 config DEBUG_INFO
 	bool "Enable debug information"
-	default y
+	default n
 
 endmenu
 
