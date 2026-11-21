@@ -299,19 +299,25 @@ void mapping_purge(struct mapping *m, uint64_t start, uint64_t end)
 {
     mapping_assert_locked(m);
     for (;;) {
-        struct cache_page *cp;
         struct cache_page *victim = NULL;
-        unsigned int bucket;
         bool dirty = false;
 
         mutex_lock(&cache.mutex);
-        hash_for_each (cache.table, bucket, cp, hash) {
-            if (cp->mapping == m && cp->index >= start && cp->index < end) {
-                victim = cp;
-                refcount_inc(&cp->refs);
-                break;
+        if (end - start == 1) {
+            victim = mapping_find(m, start);
+        } else {
+            struct cache_page *cp;
+            unsigned int bucket;
+
+            hash_for_each (cache.table, bucket, cp, hash) {
+                if (cp->mapping == m && cp->index >= start && cp->index < end) {
+                    victim = cp;
+                    break;
+                }
             }
         }
+        if (victim)
+            refcount_inc(&victim->refs);
         mutex_unlock(&cache.mutex);
         if (!victim)
             break;
