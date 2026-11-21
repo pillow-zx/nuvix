@@ -185,13 +185,16 @@ static int ext2_setsize(struct inode *inode, loff_t nsize)
 
 static int ext2_setattr(struct inode *inode, const struct iattr *attr)
 {
-    int ret = 0;
+    struct ext2_inode_info *info = ext2_i(inode);
+    int ret;
 
+    if (!(attr->ia_valid & ATTR_SIZE))
+        return 0;
+    mutex_lock(&info->wlock);
     mutex_lock(&inode->mutex);
-    if (attr->ia_valid & ATTR_SIZE)
-        ret = ext2_setsize(inode, attr->ia_size);
+    ret = ext2_setsize(inode, attr->ia_size);
     mutex_unlock(&inode->mutex);
-
+    mutex_unlock(&info->wlock);
     return ret;
 }
 
@@ -217,6 +220,7 @@ static struct inode *ext2_alloc_inode_info(struct super_block *sb)
     info = kzalloc(sizeof(*info));
     if (!info)
         return NULL;
+    mutex_init(&info->wlock);
     inode = &info->vfs_inode;
     inode->i_ops = &ext2_inode_ops;
     info->mapping = MAPPING_INIT(sb->s_bdev, ext2_file_mapping_operations, inode);

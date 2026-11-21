@@ -14,6 +14,10 @@
 #include <nuvix/uaccess.h>
 #include <asm/trap.h>
 
+#define VFS_SUPPORTED_OPEN_FLAGS                                               \
+    (O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | O_NONBLOCK |          \
+     O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+
 struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
 {
     struct path resolved = {0};
@@ -25,8 +29,7 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
 
     if (!*path)
         return ERR_PTR(-ENOENT);
-    if (flags & ~(O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_NONBLOCK |
-                  O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC))
+    if (flags & ~VFS_SUPPORTED_OPEN_FLAGS)
         return ERR_PTR(-EOPNOTSUPP);
     if (access == O_ACCMODE)
         return ERR_PTR(-EINVAL);
@@ -657,10 +660,14 @@ long sys_fcntl(struct trap_frame *frame)
         fd_set_cloexec(fdt, fd, arg & FD_CLOEXEC);
         return 0;
     case F_GETFL:
-        return file->f_flags;
-    case F_SETFL:
-        file->f_flags = (file->f_flags & ~O_NONBLOCK) | (arg & O_NONBLOCK);
+        return READ_ONCE(file->f_flags);
+    case F_SETFL: {
+        unsigned int mask = O_APPEND | O_NONBLOCK;
+
+        WRITE_ONCE(file->f_flags,
+                   (READ_ONCE(file->f_flags) & ~mask) | (arg & mask));
         return 0;
+    }
     default:
         return -EINVAL;
     }

@@ -127,6 +127,7 @@ struct ext2_sb_info {
 };
 
 struct ext2_inode_info {
+    struct mutex wlock;
     struct mapping mapping;
     uint32_t data[EXT2_N_BLOCKS];
     struct inode vfs_inode;

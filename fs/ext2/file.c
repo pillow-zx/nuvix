@@ -234,6 +234,7 @@ out:
 static ssize_t ext2_file_write(struct kiocb *iocb, struct kiov *iov)
 {
     struct inode *inode = iocb->file->f_path.dentry->d_inode;
+    struct ext2_inode_info *info = ext2_i(inode);
     struct page *page __free(page) = NULL;
     loff_t pos = iocb->pos;
     size_t len = iov->count;
@@ -241,15 +242,27 @@ static ssize_t ext2_file_write(struct kiocb *iocb, struct kiov *iov)
     char *buf;
     int ret = 0;
 
-    if (pos < 0)
-        return -EINVAL;
     if (!len)
         return 0;
-    if ((uint64_t)pos > UINT32_MAX || len > UINT32_MAX - (uint64_t)pos)
-        return -EFBIG;
+    mutex_lock(&info->wlock);
+    if (READ_ONCE(iocb->file->f_flags) & O_APPEND) {
+        mutex_lock(&inode->mutex);
+        pos = inode->i_size;
+        mutex_unlock(&inode->mutex);
+    }
+    if (pos < 0) {
+        ret = -EINVAL;
+        goto out;
+    }
+    if ((uint64_t)pos > UINT32_MAX || len > UINT32_MAX - (uint64_t)pos) {
+        ret = -EFBIG;
+        goto out;
+    }
     page = alloc_page();
-    if (!page)
-        return -ENOMEM;
+    if (!page) {
+        ret = -ENOMEM;
+        goto out;
+    }
     buf = (char *)__va(page_to_phys(page));
     while (done < len) {
         size_t off = pos % PAGE_SIZE;
@@ -272,6 +285,8 @@ static ssize_t ext2_file_write(struct kiocb *iocb, struct kiov *iov)
             break;
         }
     }
+out:
+    mutex_unlock(&info->wlock);
     return done ? (ssize_t)done : ret;
 }
 
