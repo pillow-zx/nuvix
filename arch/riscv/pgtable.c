@@ -41,7 +41,7 @@ static int walk_pte(pte_t *pgd, vaddr_t addr, pte_t **pte)
     return 0;
 }
 
-static int walk_pte_create(pte_t *pgd, vaddr_t addr, pte_t **pte)
+static int walk_pte_create(pte_t *pgd, vaddr_t addr, pte_t **pte, bool *noleaf)
 {
     pte_t entry = pte_read(&pgd[PGD_INDEX(addr)]);
     pte_t *pmd;
@@ -54,6 +54,8 @@ static int walk_pte_create(pte_t *pgd, vaddr_t addr, pte_t **pte)
             return ret;
         entry = pte_make(paddr, PTE_TABLE);
         pte_write(&pgd[PGD_INDEX(addr)], entry);
+        if (noleaf)
+            *noleaf = false;
     }
     pmd = pgtable_ptr(pte_paddr(entry)) + PMD_INDEX(addr);
     entry = pte_read(pmd);
@@ -63,15 +65,18 @@ static int walk_pte_create(pte_t *pgd, vaddr_t addr, pte_t **pte)
             return ret;
         entry = pte_make(paddr, PTE_TABLE);
         pte_write(pmd, entry);
+        if (noleaf)
+            *noleaf = false;
     }
     *pte = pgtable_ptr(pte_paddr(entry)) + PTE_INDEX(addr);
     return 0;
 }
 
-static int map_page(pte_t *pgd, vaddr_t addr, paddr_t paddr, uint64_t prot)
+static int map_page(pte_t *pgd, vaddr_t addr, paddr_t paddr, uint64_t prot,
+                    bool *noleaf)
 {
     pte_t *pte;
-    int ret = walk_pte_create(pgd, addr, &pte);
+    int ret = walk_pte_create(pgd, addr, &pte, noleaf);
 
     if (ret)
         return ret;
@@ -165,6 +170,7 @@ int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
 {
     uint64_t prot;
     unsigned long flags;
+    bool noleaf = true;
     int ret;
 
     might_sleep();
@@ -176,10 +182,13 @@ int pgtable_map_page(struct mm_struct *mm, vaddr_t addr, struct page *page,
     if (prot & PTE_X)
         flush_icache_all();
     spin_lock_irqsave(&mm->pgtable_lock, flags);
-    ret = map_page(pgtable_ptr(mm->pgd), addr, page_to_phys(page), prot);
+    ret =
+        map_page(pgtable_ptr(mm->pgd), addr, page_to_phys(page), prot, &noleaf);
     spin_unlock_irqrestore(&mm->pgtable_lock, flags);
-    if (!ret)
+    if (!noleaf)
         flush_tlb_all();
+    else if (!ret)
+        flush_tlb_page(addr);
     return ret;
 }
 
@@ -203,7 +212,7 @@ int pgtable_move(struct mm_struct *mm, vaddr_t old, vaddr_t new, size_t len)
             spin_unlock_irqrestore(&mm->pgtable_lock, flags);
             continue;
         }
-        ret = walk_pte_create(pgd, new + offset, &dst);
+        ret = walk_pte_create(pgd, new + offset, &dst, NULL);
         if (!ret)
             Assert(pte_none(pte_read(dst)),
                    "page table move requires an empty destination\n");
@@ -327,7 +336,7 @@ int pgtable_map_io(struct mm_struct *mm, vaddr_t vaddr, paddr_t paddr,
     if (!mm) {
         for (offset = 0; offset < size; offset += PAGE_SIZE) {
             ret = map_page(pgtable_ptr(kernel_pgd), vaddr + offset,
-                           paddr + offset, PTE_KERNEL_RW);
+                           paddr + offset, PTE_KERNEL_RW, NULL);
             if (ret)
                 break;
         }
@@ -339,7 +348,7 @@ int pgtable_map_io(struct mm_struct *mm, vaddr_t vaddr, paddr_t paddr,
     prot = vma_to_pte(vm_flags) | PTE_IO;
     spin_lock_irqsave(&mm->pgtable_lock, flags);
     for (offset = 0; offset < size; offset += PAGE_SIZE) {
-        ret = map_page(pgd, vaddr + offset, paddr + offset, prot);
+        ret = map_page(pgd, vaddr + offset, paddr + offset, prot, NULL);
         if (ret)
             break;
     }
@@ -392,7 +401,7 @@ int pgtable_clone(struct mm_struct *dst, struct mm_struct *src)
                     spin_unlock_irqrestore(&src->pgtable_lock, flags);
                     ret =
                         map_page(pgtable_ptr(dst->pgd), addr, pte_paddr(entry),
-                                 entry & (BIT(PTE_PPN_SHIFT) - 1));
+                                 entry & (BIT(PTE_PPN_SHIFT) - 1), NULL);
                     if (ret)
                         goto out;
                     continue;
@@ -403,7 +412,7 @@ int pgtable_clone(struct mm_struct *dst, struct mm_struct *src)
                 spin_unlock_irqrestore(&src->pgtable_lock, flags);
                 paddr = pte_paddr(value);
                 ret = map_page(pgtable_ptr(dst->pgd), addr, paddr,
-                               value & (BIT(PTE_PPN_SHIFT) - 1));
+                               value & (BIT(PTE_PPN_SHIFT) - 1), NULL);
                 if (ret)
                     goto out;
                 refcount_inc(&phys_to_page(paddr)->refcount);

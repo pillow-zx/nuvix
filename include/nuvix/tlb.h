@@ -8,6 +8,7 @@
 
 /* All CPUs, after SMP is ready and outside short locks. */
 void flush_tlb_all(void);
+void flush_tlb_page(vaddr_t addr);
 void flush_icache_all(void);
 
 #endif /* _NUVIX_TLB_H */

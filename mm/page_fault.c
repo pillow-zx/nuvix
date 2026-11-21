@@ -32,7 +32,7 @@ int handle_page_fault(struct mm_struct *mm, vaddr_t addr, unsigned long access)
     Assert(!ret || ret == -ENOENT, "fault requires a valid user address\n");
     if (!ret && refcount_read(&phys_to_page(paddr)->refcount) == 1) {
         pgtable_protect_page(mm, addr, vma->vm_flags);
-        flush_tlb_all();
+        flush_tlb_page(addr);
         goto out;
     }
     page = alloc_page();
