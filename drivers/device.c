@@ -9,7 +9,6 @@ static LIST_HEAD(drivers);
 
 void device_register(struct device *dev)
 {
-    Assert(local_irqs_disabled(), "device registration requires IRQs off\n");
     dev->state = DEV_UNBOUND;
     dev->drv = NULL;
     dev->drvdata = NULL;
@@ -18,7 +17,6 @@ void device_register(struct device *dev)
 
 void driver_register(struct driver *drv)
 {
-    Assert(local_irqs_disabled(), "driver registration requires IRQs off\n");
     list_add_tail(&drv->node, &drivers);
 }
 
