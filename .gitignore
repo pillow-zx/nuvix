@@ -6,9 +6,13 @@
 !Makefile
 !LICENSE
 !Kconfig
+!README.md
+!AGENTS.md
 !.clang-format
 !.editorconfig
 !.gitignore
+!docs/
+!docs/*
 !arch/riscv/
 !arch/riscv/*.[chsSl]
 !arch/riscv/configs/
