@@ -340,7 +340,7 @@ long sys_futex(struct trap_frame *frame)
     unsigned int val = syscallarg(frame, 2);
     int cmd = op & FUTEX_CMD_MASK;
 
-    if (op & FUTEX_CLOCK_REALTIME)
+    if ((op & FUTEX_CLOCK_REALTIME) && cmd != FUTEX_WAIT_BITSET)
         return -ENOSYS;
     if ((uintptr_t)uaddr & (sizeof(*uaddr) - 1))
         return -EINVAL;
@@ -367,6 +367,32 @@ long sys_futex(struct trap_frame *frame)
                 deadline = UINT64_MAX;
         }
         return futex_wait(uaddr, val, utime ? &deadline : NULL);
+    }
+    case FUTEX_WAIT_BITSET: {
+        const struct timespec64 *utime =
+            (const struct timespec64 *)syscallarg(frame, 3);
+        unsigned int bitset = syscallarg(frame, 5);
+        struct timespec64 ts;
+        uint64_t deadline;
+        int ret;
+
+        if (!bitset)
+            return -EINVAL;
+        if (bitset != FUTEX_BITSET_MATCH_ANY)
+            return -ENOSYS;
+        if (!utime)
+            return futex_wait(uaddr, val, NULL);
+        if (copy_from_user(&ts, utime, sizeof(ts)))
+            return -EFAULT;
+        if (op & FUTEX_CLOCK_REALTIME)
+            ret = time_realtime_to_ticks(&ts, &deadline);
+        else
+            ret = time_ticks_from_timespec(&ts, &deadline);
+        if (ret == -EOVERFLOW)
+            deadline = UINT64_MAX;
+        else if (ret)
+            return ret;
+        return futex_wait(uaddr, val, &deadline);
     }
     case FUTEX_WAKE:
         return futex_wake(uaddr, val);
