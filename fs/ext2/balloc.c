@@ -117,9 +117,10 @@ int ext2_free_block(struct super_block *sb, uint32_t blk)
     uint32_t bblk;
     int ret = 0;
 
+    if (!blk || blk < es->s_first_data_block || blk >= es->s_blocks_count)
+        return -EUCLEAN;
+
     mutex_lock(&sbi->mutex);
-    Assert(blk && blk >= es->s_first_data_block && blk < es->s_blocks_count,
-           "freeing a block outside the filesystem\n");
     grp = (blk - es->s_first_data_block) / es->s_blocks_per_group;
     bit = (blk - es->s_first_data_block) % es->s_blocks_per_group;
     dp = ext2_get_grp_desc(sbi, grp, &off);
@@ -137,9 +138,16 @@ int ext2_free_block(struct super_block *sb, uint32_t blk)
         ret = PTR_ERR(move(bp));
         goto out;
     }
+    mutex_lock(&bp->mutex);
+    if (!test_bit(bit, mapping_data(bp))) {
+        mutex_unlock(&bp->mutex);
+        ret = -EUCLEAN;
+        goto out;
+    }
+    mutex_unlock(&bp->mutex);
+
     mapping_purge(&sbi->mapping, blk, (uint64_t)blk + 1);
     mutex_lock(&bp->mutex);
-    Assert(test_bit(bit, mapping_data(bp)), "freeing an unused block\n");
     clear_bit(bit, mapping_data(bp));
     mapping_dirty(bp);
     mutex_unlock(&bp->mutex);

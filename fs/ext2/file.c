@@ -42,6 +42,7 @@ static int ext2_write_file_page(struct cache_page *cp)
 {
     struct mapping *m = cp->mapping;
     struct inode *inode = m->m_host;
+    struct ext2_sb_info *sbi = ext2_sb_info(inode->i_sb);
     uint32_t blk;
     uint64_t sect;
     int ret;
@@ -49,7 +50,9 @@ static int ext2_write_file_page(struct cache_page *cp)
     ret = ext2_bmap(inode, (uint32_t)cp->index, &blk);
     if (ret)
         return ret;
-    Assert(blk, "writeback requires an allocated file block\n");
+    if (!blk || blk < sbi->s_es->s_first_data_block ||
+        blk >= sbi->s_es->s_blocks_count)
+        return -EIO;
 
     sect = (uint64_t)blk * PAGE_SIZE / BLK_SECTOR_SIZE;
     return blk_write(m->m_bdev, sect, cp->page, 0, PAGE_SIZE);
