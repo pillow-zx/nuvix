@@ -5,6 +5,7 @@
 #include <nuvix/ctypes.h>
 #include <nuvix/cleanup.h>
 #include <nuvix/list.h>
+#include <nuvix/macro.h>
 #include <nuvix/refcount.h>
 #include <nuvix/pid.h>
 #include <nuvix/signal.h>
@@ -54,6 +55,7 @@ struct task {
 
     struct pid *pids[PIDTYPE_MAX];
     struct hlist_node pid_links[PIDTYPE_MAX];
+    IFDEF(CONFIG_TRACE, char name[32]);
 
     struct mm_struct *mm;
     struct fdtable *fdtable;

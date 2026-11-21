@@ -2,7 +2,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/pid.h>
 #include <nuvix/printk.h>
-#include <asm/task.h>
+#include <nuvix/task.h>
 #include <asm/trap.h>
 
 #define __SYSCALL_ENTRY(name) [__NR_##name] = sys_##name,
@@ -20,18 +20,18 @@ static inline void syscall_trace_enter(pid_t tid, unsigned long nr,
                                        const char *name,
                                        struct trap_frame *frame)
 {
-    pr_debug("[syscall] tid=%d enter nr=%lu name=%s "
+    pr_debug("[syscall] tid=%d comm=%s enter nr=%lu name=%s "
              "args=[%#lx, %#lx, %#lx, %#lx, %#lx, %#lx]\n",
-             tid, nr, name, syscallarg(frame, 0), syscallarg(frame, 1),
-             syscallarg(frame, 2), syscallarg(frame, 3), syscallarg(frame, 4),
-             syscallarg(frame, 5));
+             tid, current->name, nr, name, syscallarg(frame, 0),
+             syscallarg(frame, 1), syscallarg(frame, 2), syscallarg(frame, 3),
+             syscallarg(frame, 4), syscallarg(frame, 5));
 }
 
 static inline void syscall_trace_leave(pid_t tid, unsigned long nr,
                                        const char *name, long ret)
 {
-    pr_debug("[syscall] tid=%d leave nr=%lu name=%s ret=%ld\n", tid, nr, name,
-             ret);
+    pr_debug("[syscall] tid=%d comm=%s leave nr=%lu name=%s ret=%ld\n", tid,
+             current->name, nr, name, ret);
 }
 
 #endif

@@ -379,6 +379,18 @@ out:
     return ret;
 }
 
+#ifdef CONFIG_TRACE
+static void exec_setcomm(struct task *task, const char *path)
+{
+    const char *slash = strrchr(path, '/');
+    const char *name = slash ? slash + 1 : path;
+    size_t len = strnlen(name, sizeof(task->name) - 1);
+
+    memcpy(task->name, name, len);
+    task->name[len] = '\0';
+}
+#endif
+
 int init_execve(const char *path, const char *const argv[],
                 const char *const envp[])
 {
@@ -413,6 +425,7 @@ int init_execve(const char *path, const char *const argv[],
     if (ret)
         return ret;
 
+    IFDEF(CONFIG_TRACE, exec_setcomm(task, path));
     init = move(task);
     sched_publish(init);
     return 0;
@@ -504,6 +517,7 @@ long sys_execve(struct trap_frame *frame)
     if (ret)
         return ret;
 
+    IFDEF(CONFIG_TRACE, exec_setcomm(current, path));
     signal_clone();
     task_clear_flag(current, TF_FORKNOEXEC);
     fdtable_close_on_exec(current->fdtable);
