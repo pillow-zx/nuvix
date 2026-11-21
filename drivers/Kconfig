@@ -32,9 +32,9 @@ config VIRTIO_GPU
 	bool "virtio-gpu"
 	default y
 
-config VIRTIO_KEYBOARD
+config VIRTIO_INPUT
 	depends on VIRTIO
-	bool "virtio-keyboard"
+	bool "virtio-input"
 	default y
 
 endmenu

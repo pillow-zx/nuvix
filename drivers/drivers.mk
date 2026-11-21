@@ -14,5 +14,5 @@ obj-$(CONFIG_VIRTIO_BLK) += drivers/block/virtblk.c
 obj-$(CONFIG_VIRTIO_RNG) += drivers/rng/virtrng.c
 obj-$(CONFIG_VIRTIO_SND) += drivers/sound/virtsnd.c
 obj-$(CONFIG_VIRTIO_GPU) += drivers/gpu/virtgpu.c
-obj-$(CONFIG_VIRTIO_KEYBOARD) += drivers/input/virtkey.c
+obj-$(CONFIG_VIRTIO_INPUT) += drivers/input/virtinput.c
 
