@@ -2,6 +2,7 @@
 #include <nuvix/module.h>
 #include <nuvix/assert.h>
 #include <nuvix/errno.h>
+#include <nuvix/printk.h>
 #include <nuvix/slab.h>
 #include <nuvix/trace.h>
 
@@ -99,10 +100,12 @@ int irq_disable(unsigned int irq)
 
 void irq_dispatch(unsigned int irq)
 {
-    Assert(irq && irq <= nr_sources, "invalid interrupt source %u\n", irq);
     struct irq_action *action = &irq_actions[irq];
 
-    Assert(action->handler, "unhandled interrupt source %u\n", irq);
+    if (!action->handler) {
+        pr_warn("unhandled interrupt source %u\n", irq);
+        return;
+    }
     IFDEF(CONFIG_TRACE_CPURING, trace_irq_enter(irq));
     action->handler(action->data);
     IFDEF(CONFIG_TRACE_CPURING, trace_irq_leave(irq));
