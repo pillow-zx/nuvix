@@ -22,24 +22,16 @@ void path_put(struct path *path)
     path->dentry = NULL;
 }
 
-int vfs_lookone(const struct path *base, const char *name, struct path *result)
+int vfs_lookone(const struct path *base, const char *name, size_t len,
+                struct path *result)
 {
     struct dentry *dentry;
     struct dentry *found;
     struct inode *dir = base->dentry->d_inode;
-    size_t len;
 
     Assert(dir && S_ISDIR(dir->i_mode),
            "locked lookup requires a positive directory\n");
     assert_mutex_locked(&dir->mutex);
-
-    len = strnlen(name, (size_t)VFS_NAME_MAX + 1);
-    if (!len)
-        return -ENOENT;
-    if (len > (size_t)VFS_NAME_MAX)
-        return -ENAMETOOLONG;
-    if (strchr(name, '/'))
-        return -EINVAL;
 
     if (len == 1 && name[0] == '.') {
         path_get(base);
@@ -130,17 +122,10 @@ int vfs_lookup(int dirfd, const char *path, unsigned int flags,
     ret = path_start(dirfd, path, &cur);
     if (ret)
         return ret;
-    pending = kmalloc(PATH_MAX);
-    if (!pending) {
-        ret = -ENOMEM;
-        goto out;
-    }
-    memcpy(pending, path, len + 1);
-    cursor = pending;
+    cursor = path;
 
     for (;;) {
         struct inode *dir = cur.dentry->d_inode;
-        char name[VFS_NAME_MAX + 1];
         const char *tail;
         const char *end;
         bool slash;
@@ -158,8 +143,6 @@ int vfs_lookup(int dirfd, const char *path, unsigned int flags,
             ret = -ENAMETOOLONG;
             goto out;
         }
-        memcpy(name, cursor, len);
-        name[len] = '\0';
         slash = *tail == '/';
         end = tail;
         while (*end == '/')
@@ -170,7 +153,7 @@ int vfs_lookup(int dirfd, const char *path, unsigned int flags,
             goto out;
         }
         mutex_lock(&dir->mutex);
-        ret = vfs_lookone(&cur, name, &next);
+        ret = vfs_lookone(&cur, cursor, len, &next);
         if (!ret && last) {
             if (next.dentry->d_inode && (flags & PATH_EXCL)) {
                 ret = -EEXIST;
@@ -215,6 +198,13 @@ int vfs_lookup(int dirfd, const char *path, unsigned int flags,
             if ((size_t)nr + rest >= PATH_MAX) {
                 ret = -ENAMETOOLONG;
                 goto out;
+            }
+            if (!pending) {
+                pending = kmalloc(PATH_MAX);
+                if (!pending) {
+                    ret = -ENOMEM;
+                    goto out;
+                }
             }
             memmove(pending + nr, tail, rest + 1);
             memcpy(pending, link, nr);

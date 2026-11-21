@@ -189,7 +189,6 @@ static struct dentry *start_creating(int dirfd, const char *path,
     struct path target = {0};
     struct inode *dir;
     const char *last;
-    char name[VFS_NAME_MAX + 1];
     size_t len;
     int ret;
 
@@ -201,11 +200,9 @@ static struct dentry *start_creating(int dirfd, const char *path,
         ret = -EEXIST;
         goto out;
     }
-    memcpy(name, last, len);
-    name[len] = '\0';
     dir = parent->dentry->d_inode;
     mutex_lock(&dir->mutex);
-    ret = vfs_lookone(parent, name, &target);
+    ret = vfs_lookone(parent, last, len, &target);
     if (ret)
         goto unlock;
     if (target.dentry->d_inode) {
@@ -272,7 +269,6 @@ long sys_unlinkat(struct trap_frame *frame)
     struct inode *dir;
     struct inode *inode;
     const char *last;
-    char name[VFS_NAME_MAX + 1];
     size_t len;
     int ret;
 
@@ -293,11 +289,9 @@ long sys_unlinkat(struct trap_frame *frame)
         ret = directory ? (len == 1 ? -EINVAL : -ENOTEMPTY) : -EISDIR;
         goto out;
     }
-    memcpy(name, last, len);
-    name[len] = '\0';
     dir = parent.dentry->d_inode;
     mutex_lock(&dir->mutex);
-    ret = vfs_lookone(&parent, name, &target);
+    ret = vfs_lookone(&parent, last, len, &target);
     if (ret)
         goto unlock;
     inode = target.dentry->d_inode;
@@ -421,6 +415,7 @@ struct renamedata {
     struct inode *dir;
     struct inode *inode;
     const char *name;
+    size_t len;
     bool slash;
 };
 
@@ -434,7 +429,7 @@ static bool is_ancestor(const struct dentry *ancestor,
     return false;
 }
 
-static int resolve_lastname(int dirfd, char *path, struct renamedata *data)
+static int resolve_lastname(int dirfd, const char *path, struct renamedata *data)
 {
     const char *last;
     size_t len;
@@ -447,8 +442,8 @@ static int resolve_lastname(int dirfd, char *path, struct renamedata *data)
         (len == 2 && last[0] == '.' && last[1] == '.'))
         return -EBUSY;
     data->slash = last[len] == '/';
-    ((char *)last)[len] = '\0';
     data->name = last;
+    data->len = len;
     return 0;
 }
 
@@ -501,10 +496,10 @@ long sys_renameat2(struct trap_frame *frame)
         mutex_lock(&new.dir->mutex);
         mutex_lock(&old.dir->mutex);
     }
-    ret = vfs_lookone(&old.parent, old.name, &old.entry);
+    ret = vfs_lookone(&old.parent, old.name, old.len, &old.entry);
     if (ret)
         goto dirs;
-    ret = vfs_lookone(&new.parent, new.name, &new.entry);
+    ret = vfs_lookone(&new.parent, new.name, new.len, &new.entry);
     if (ret)
         goto dirs;
 

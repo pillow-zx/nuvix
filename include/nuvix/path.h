@@ -24,7 +24,8 @@ int vfs_lookup(int fd, const char *path, unsigned int flags, struct path *out);
 int vfs_lookparent(int fd, const char *path, struct path *dir,
                    const char **name, size_t *len);
 
-int vfs_lookone(const struct path *dir, const char *name, struct path *out);
+int vfs_lookone(const struct path *dir, const char *name, size_t len,
+                struct path *out);
 
 #define vfs_look(path, out) vfs_lookup(AT_FDCWD, (path), PATH_FOLLOW, (out))
 
