@@ -7,9 +7,10 @@
 #define MSEC_PER_SEC    1000UL
 #define NSEC_PER_SEC    1000000000UL
 
-#define CLOCK_REALTIME      0
-#define CLOCK_MONOTONIC     1
-#define CLOCK_MONOTONIC_RAW 4
+#define CLOCK_REALTIME        0
+#define CLOCK_MONOTONIC       1
+#define CLOCK_MONOTONIC_RAW   4
+#define CLOCK_REALTIME_COARSE 5
 
 #define TIMER_ABSTIME   1
 

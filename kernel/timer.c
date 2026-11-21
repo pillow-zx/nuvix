@@ -166,6 +166,7 @@ long sys_clock_gettime(struct trap_frame *frame)
         time_get_monotonic(&ts);
         break;
     case CLOCK_REALTIME:
+    case CLOCK_REALTIME_COARSE:
         ret = time_get_realtime(&ts);
         if (ret)
             return ret;

@@ -432,7 +432,8 @@ static bool is_ancestor(const struct dentry *ancestor,
     return false;
 }
 
-static int resolve_lastname(int dirfd, const char *path, struct renamedata *data)
+static int resolve_lastname(int dirfd, const char *path,
+                            struct renamedata *data)
 {
     const char *last;
     size_t len;
