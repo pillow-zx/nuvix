@@ -11,7 +11,7 @@ config MAX_ORDER
 config USTACK_PAGES
 	int "Initial user stack reservation in pages"
 	range 1 256
-	default 16
+	default 128
 	help
 	  Main user stack size in 4 KiB pages, with an unmapped guard below it.
 	  Only pages containing startup arguments are allocated during creation.
