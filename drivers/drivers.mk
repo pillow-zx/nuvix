@@ -6,6 +6,8 @@ obj-y += drivers/char/tty.c
 obj-y += drivers/device.c
 obj-y += drivers/platform.c
 
+obj-$(CONFIG_RTC_DEVICE) += drivers/rtc/goldfish.c
+
 obj-$(CONFIG_VIRTIO) += drivers/virtio/virtqueue.c
 obj-$(CONFIG_VIRTIO) += drivers/virtio/virtio.c
 obj-$(CONFIG_VIRTIO_BLK) += drivers/block/virtblk.c

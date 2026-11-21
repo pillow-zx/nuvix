@@ -27,6 +27,7 @@
 /* A separate permanent boot mapping window, beyond the PLIC register range. */
 #define VIRTIO_MMIO_VBASE (IOREMAP_VBASE + 0x10000000)
 #define VIRTIO_MMIO_SIZE  0x100000
+#define RTC_VBASE         (VIRTIO_MMIO_VBASE + VIRTIO_MMIO_SIZE)
 
 #define KSTACK_ORDER      2
 #define KSTACK_SIZE       (PAGE_SIZE << KSTACK_ORDER)

@@ -16,21 +16,6 @@ struct timers {
 
 static struct timers timers[CONFIG_NR_CPUS];
 
-/* Boot-only, after CPU and clock setup, before starting SMP. */
-static int timers_init(void)
-{
-    for (unsigned int cpu_id = 0; cpu_id < nr_cpus; ++cpu_id) {
-        struct timers *base = &timers[cpu_id];
-
-        wait_queue_init(&base->drain);
-        base->root = RB_ROOT;
-        base->first = NULL;
-        base->next_sequence = 0;
-    }
-    return 0;
-}
-MODULE_INIT(timers_init, 50);
-
 void timer_init(struct timer *timer, unsigned int cpu_id,
                 void (*callback)(struct timer *timer))
 {
@@ -173,11 +158,36 @@ long sys_clock_gettime(struct trap_frame *frame)
     int clock_id = syscallarg(frame, 0);
     struct timespec64 *result = (struct timespec64 *)syscallarg(frame, 1);
     struct timespec64 ts;
+    int ret;
 
-    if (clock_id != CLOCK_MONOTONIC)
+    switch (clock_id) {
+    case CLOCK_MONOTONIC:
+    case CLOCK_MONOTONIC_RAW:
+        time_get_monotonic(&ts);
+        break;
+    case CLOCK_REALTIME:
+        ret = time_get_realtime(&ts);
+        if (ret)
+            return ret;
+        break;
+    default:
         return -EINVAL;
-    time_get_monotonic(&ts);
+    }
     if (copy_to_user(result, &ts, sizeof(ts)))
         return -EFAULT;
     return 0;
 }
+
+static int timers_init(void)
+{
+    for (unsigned int cpu_id = 0; cpu_id < nr_cpus; ++cpu_id) {
+        struct timers *base = &timers[cpu_id];
+
+        wait_queue_init(&base->drain);
+        base->root = RB_ROOT;
+        base->first = NULL;
+        base->next_sequence = 0;
+    }
+    return 0;
+}
+MODULE_INIT(timers_init, 50);

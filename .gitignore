@@ -24,6 +24,7 @@
 !drivers/gpu/*.[chsSl]
 !drivers/input/*.[chsSl]
 !drivers/rng/*.[chsSl]
+!drivers/rtc/*.[chsSl]
 !drivers/sound/*.[chsSl]
 !drivers/virtio/*.[chsSl]
 !fs/*/

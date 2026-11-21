@@ -1,5 +1,11 @@
 menu "Device Drivers"
 
+config RTC_DEVICE
+	bool "rtc-drivers"
+	default y
+	help
+	  Read wall-clock time from the Goldfish RTC on QEMU virt.
+
 config VIRTIO
 	bool "virtio-drivers"
 	default y

@@ -7,8 +7,9 @@
 #define MSEC_PER_SEC    1000UL
 #define NSEC_PER_SEC    1000000000UL
 
-#define CLOCK_REALTIME  0
-#define CLOCK_MONOTONIC 1
+#define CLOCK_REALTIME      0
+#define CLOCK_MONOTONIC     1
+#define CLOCK_MONOTONIC_RAW 4
 
 #define TIMER_ABSTIME   1
 
@@ -40,6 +41,10 @@ int time_ticks_from_ns(uint64_t ns, uint64_t *ticks);
 
 /* Hardware-based monotonic time, without subtracting a boot-time origin. */
 void time_get_monotonic(struct timespec64 *ts);
+/* Wall time from the RTC sample taken at boot. */
+int time_get_realtime(struct timespec64 *ts);
+/* Absolute wall time to hardware ticks; zero if before the RTC sample. */
+int time_realtime_to_ticks(const struct timespec64 *ts, uint64_t *ticks);
 /* Relative nanosecond duration to an absolute deadline, sampled once. */
 int time_deadline_from_ns(uint64_t ns, uint64_t *deadline);
 

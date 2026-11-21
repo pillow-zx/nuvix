@@ -7,25 +7,13 @@
 #include <nuvix/timer.h>
 #include <nuvix/errno.h>
 #include <nuvix/printk.h>
+#include <nuvix/rtc.h>
 
 static uint32_t timebase_frequency;
 static uint64_t tick_period;
 
-/* Boot-only clock setup, before CPU startup. */
-static int tick_init(void)
-{
-    int ret = dtb_get_u32("/cpus", "timebase-frequency", &timebase_frequency);
-
-    if (ret)
-        return ret;
-    if (timebase_frequency < MSEC_PER_SEC)
-        return -EINVAL;
-    tick_period = timebase_frequency / MSEC_PER_SEC;
-    pr_info("clock: timebase=%u Hz, tick_period=%u\n", timebase_frequency,
-            (unsigned int)tick_period);
-    return 0;
-}
-MODULE_INIT(tick_init, 40);
+IFDEF(CONFIG_RTC_DEVICE, static uint64_t rt_base_ns);
+IFDEF(CONFIG_RTC_DEVICE, static uint64_t rt_base_ticks);
 
 uint64_t time_ticks_from_ms(unsigned int ms)
 {
@@ -111,7 +99,6 @@ void tick_handle(void)
     struct cpu *cpu = &cpus[current_cpu_id()];
     uint64_t now = time_read();
 
-    /* Advance the absolute plan past missed ticks, without replaying them. */
     if (now >= cpu->next_tick)
         cpu->next_tick +=
             ((now - cpu->next_tick) / tick_period + 1) * tick_period;
@@ -119,3 +106,90 @@ void tick_handle(void)
     timer_tick(now);
     sched_tick(now);
 }
+
+static int tick_init(void)
+{
+    int ret = dtb_get_u32("/cpus", "timebase-frequency", &timebase_frequency);
+
+    if (ret)
+        return ret;
+    if (timebase_frequency < MSEC_PER_SEC)
+        return -EINVAL;
+    tick_period = timebase_frequency / MSEC_PER_SEC;
+    pr_info("clock: timebase=%u Hz, tick_period=%u\n", timebase_frequency,
+            (unsigned int)tick_period);
+    return 0;
+}
+MODULE_INIT(tick_init, 40);
+
+#ifdef CONFIG_RTC_DEVICE
+int time_get_realtime(struct timespec64 *ts)
+{
+    uint64_t elapsed_ns, ns;
+    int ret;
+
+    ret = time_ns_from_ticks(time_read() - rt_base_ticks, &elapsed_ns);
+    if (ret)
+        return ret;
+    if (check_add_overflow(rt_base_ns, elapsed_ns, &ns))
+        return -EOVERFLOW;
+    ts->tv_sec = ns / NSEC_PER_SEC;
+    ts->tv_nsec = ns % NSEC_PER_SEC;
+    return 0;
+}
+
+int time_realtime_to_ticks(const struct timespec64 *ts, uint64_t *ticks)
+{
+    struct timespec64 elapsed;
+    uint64_t delta;
+    int ret;
+
+    if (ts->tv_sec < 0 || ts->tv_nsec < 0 ||
+        ts->tv_nsec >= (int64_t)NSEC_PER_SEC)
+        return -EINVAL;
+
+    elapsed.tv_sec = ts->tv_sec - (int64_t)(rt_base_ns / NSEC_PER_SEC);
+    elapsed.tv_nsec = ts->tv_nsec - (int64_t)(rt_base_ns % NSEC_PER_SEC);
+    if (elapsed.tv_nsec < 0) {
+        --elapsed.tv_sec;
+        elapsed.tv_nsec += (int64_t)NSEC_PER_SEC;
+    }
+    if (elapsed.tv_sec < 0) {
+        *ticks = 0;
+        return 0;
+    }
+    ret = time_ticks_from_timespec(&elapsed, &delta);
+    if (ret)
+        return ret;
+    if (check_add_overflow(rt_base_ticks, delta, &delta))
+        return -EOVERFLOW;
+    *ticks = delta;
+    return 0;
+}
+#else
+int time_get_realtime(struct timespec64 *ts)
+{
+    (void)ts;
+    return -ENODEV;
+}
+
+int time_realtime_to_ticks(const struct timespec64 *ts, uint64_t *ticks)
+{
+    (void)ts;
+    (void)ticks;
+    return -ENODEV;
+}
+#endif
+
+#ifdef CONFIG_RTC_DEVICE
+static int realtime_init(void)
+{
+    int ret = rtc_read_ns(&rt_base_ns);
+
+    if (ret)
+        return ret;
+    rt_base_ticks = time_read();
+    return 0;
+}
+MODULE_INIT(realtime_init, 80);
+#endif
