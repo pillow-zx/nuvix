@@ -412,6 +412,8 @@ out:
     return ret;
 }
 
+static DEFINE_MUTEX(remutex);
+
 struct renamedata {
     struct path parent;
     struct path entry;
@@ -460,9 +462,9 @@ long sys_renameat2(struct trap_frame *frame)
     unsigned int flags = syscallarg(frame, 4);
     char *oldpath __free(kfree) = NULL;
     char *newpath __free(kfree) = NULL;
+    char *newname __free(kfree) = NULL;
     struct renamedata old = {0};
     struct renamedata new = {0};
-    struct inode *dead = NULL;
     int ret;
 
     if (flags & ~RENAME_NOREPLACE)
@@ -491,9 +493,12 @@ long sys_renameat2(struct trap_frame *frame)
         goto out;
     }
 
+    mutex_lock(&remutex);
     if (old.dir == new.dir) {
         mutex_lock(&old.dir->mutex);
-    } else if ((uintptr_t)old.dir < (uintptr_t)new.dir) {
+    } else if (is_ancestor(old.parent.dentry, new.parent.dentry) ||
+               (!is_ancestor(new.parent.dentry, old.parent.dentry) &&
+                (uintptr_t)old.dir < (uintptr_t)new.dir)) {
         mutex_lock(&old.dir->mutex);
         mutex_lock(&new.dir->mutex);
     } else {
@@ -550,31 +555,43 @@ long sys_renameat2(struct trap_frame *frame)
         ret = -ENOTEMPTY;
         goto dirs;
     }
+    if ((flags & RENAME_NOREPLACE) && new.inode) {
+        ret = -EEXIST;
+        goto dirs;
+    }
+    if (old.inode == new.inode) {
+        ret = 0;
+        goto dirs;
+    }
+
+    newname = kmalloc(new.len + 1);
+    if (!newname) {
+        ret = -ENOMEM;
+        goto dirs;
+    }
+    memcpy(newname, new.name, new.len);
+    newname[new.len] = '\0';
 
     if (new.inode && (uintptr_t)new.inode < (uintptr_t)old.inode) {
         mutex_lock(&new.inode->mutex);
         mutex_lock(&old.inode->mutex);
     } else {
         mutex_lock(&old.inode->mutex);
-        if (new.inode && new.inode != old.inode)
+        if (new.inode)
             mutex_lock(&new.inode->mutex);
     }
     ret = old.dir->i_ops->rename(old.dir, old.entry.dentry, new.dir,
                                  new.entry.dentry, flags);
-    if (!ret && old.inode != new.inode) {
-        dcache_drop(old.entry.dentry);
-        ihold(old.inode);
-        new.entry.dentry->d_inode = old.inode;
-        dead = new.inode;
-    }
+    if (!ret)
+        d_move(old.entry.dentry, new.entry.dentry, move(newname));
     mutex_unlock(&old.inode->mutex);
-    if (new.inode && new.inode != old.inode)
+    if (new.inode)
         mutex_unlock(&new.inode->mutex);
 dirs:
     mutex_unlock(&old.dir->mutex);
     if (new.dir != old.dir)
         mutex_unlock(&new.dir->mutex);
-    iput(dead);
+    mutex_unlock(&remutex);
 out:
     path_put(&old.parent);
     path_put(&old.entry);
@@ -744,19 +761,9 @@ long sys_getcwd(struct trap_frame *frame)
     if (!buffer)
         return -ENOMEM;
 
-    pos = buffer + PATH_MAX;
-    *--pos = '\0';
-    for (; dentry->d_parent; dentry = dentry->d_parent) {
-        size_t n = dentry->d_nlen;
-
-        if ((size_t)(pos - buffer) < n + 1)
-            return -ENAMETOOLONG;
-        pos -= n;
-        memcpy(pos, dentry->d_name, n);
-        *--pos = '/';
-    }
-    if (current->cwd.dentry->d_parent == NULL)
-        *--pos = '/';
+    pos = dentry_path(dentry, buffer, PATH_MAX);
+    if (IS_ERR(pos))
+        return PTR_ERR(pos);
 
     len = (size_t)(buffer + PATH_MAX - pos);
     if (len > size)

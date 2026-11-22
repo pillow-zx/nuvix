@@ -217,6 +217,12 @@ void dget(struct dentry *dentry);
 
 void dput(struct dentry *dentry);
 
+struct dentry *dget_parent(struct dentry *dentry);
+
+void d_move(struct dentry *dentry, struct dentry *target, char *new_name);
+
+char *dentry_path(struct dentry *dentry, char *buffer, size_t size);
+
 struct dentry *dcache_find(struct dentry *parent, const char *name,
                            unsigned int len);
 

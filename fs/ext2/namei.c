@@ -300,10 +300,6 @@ int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
         assert_mutex_locked(&victim->mutex);
     if (flags & ~RENAME_NOREPLACE)
         return -EINVAL;
-    if ((flags & RENAME_NOREPLACE) && victim)
-        return -EEXIST;
-    if (inode == victim)
-        return 0;
 
     if (is_dir) {
         if (victim) {
@@ -341,12 +337,10 @@ int ext2_rename(struct inode *old_dir, struct dentry *old_dentry,
 
     if (victim) {
         ext2_set_dirent(new_dir, new_cp, new_off, inode);
-        if (is_dir) {
+        if (is_dir)
             victim->i_nlink = 0;
-            victim->i_size = 0;
-        } else {
+        else
             victim->i_nlink--;
-        }
         ext2_write_inode(victim, victim_ip, victim_ioff);
     } else {
         ret = ext2_add_dirent(new_dir, new_dentry->d_name, new_dentry->d_nlen,

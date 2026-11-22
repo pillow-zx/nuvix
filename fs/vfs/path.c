@@ -40,10 +40,11 @@ int vfs_lookone(const struct path *base, const char *name, size_t len,
     }
 
     if (len == 2 && name[0] == '.' && name[1] == '.') {
-        dentry = base->dentry->d_parent;
-        if (!dentry)
+        dentry = dget_parent(base->dentry);
+        if (!dentry) {
             dentry = base->dentry;
-        dget(dentry);
+            dget(dentry);
+        }
         result->dentry = dentry;
         return 0;
     }

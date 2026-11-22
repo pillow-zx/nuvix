@@ -61,6 +61,47 @@ void dput(struct dentry *dentry)
     }
 }
 
+struct dentry *dget_parent(struct dentry *dentry)
+{
+    struct dentry *parent;
+
+    spin_lock(&dcache_lock);
+    parent = dentry->d_parent;
+    if (parent)
+        dget(parent);
+    spin_unlock(&dcache_lock);
+    return parent;
+}
+
+char *dentry_path(struct dentry *dentry, char *buffer, size_t size)
+{
+    char *pos = buffer + size;
+
+    if (size < 2)
+        return ERR_PTR(-ENAMETOOLONG);
+    *--pos = '\0';
+    spin_lock(&dcache_lock);
+    for (; dentry->d_parent; dentry = dentry->d_parent) {
+        size_t len = dentry->d_nlen;
+
+        if (!hash_hashed(&dentry->d_hash)) {
+            pos = ERR_PTR(-ENOENT);
+            break;
+        }
+        if ((size_t)(pos - buffer) < len + 1) {
+            pos = ERR_PTR(-ENAMETOOLONG);
+            break;
+        }
+        pos -= len;
+        memcpy(pos, dentry->d_name, len);
+        *--pos = '/';
+    }
+    spin_unlock(&dcache_lock);
+    if (pos == buffer + size - 1)
+        *--pos = '/';
+    return pos;
+}
+
 static uint64_t dentry_key(struct dentry *parent, const char *name,
                            unsigned int len)
 {
@@ -122,6 +163,28 @@ struct dentry *dcache_insert(struct dentry *dentry)
              dentry_key(dentry->d_parent, dentry->d_name, dentry->d_nlen));
     spin_unlock(&dcache_lock);
     return dentry;
+}
+
+void d_move(struct dentry *dentry, struct dentry *target, char *new_name)
+{
+    struct dentry *old_parent;
+    char *old_name;
+
+    spin_lock(&dcache_lock);
+    old_parent = dentry->d_parent;
+    old_name = dentry->d_name;
+    hash_del(&dentry->d_hash);
+    hash_del(&target->d_hash);
+    dget(target->d_parent);
+    dentry->d_parent = target->d_parent;
+    dentry->d_name = new_name;
+    dentry->d_nlen = target->d_nlen;
+    hash_add(dcache, &dentry->d_hash,
+             dentry_key(dentry->d_parent, dentry->d_name, dentry->d_nlen));
+    spin_unlock(&dcache_lock);
+
+    kfree(old_name);
+    dput(old_parent);
 }
 
 void dcache_drop(struct dentry *dentry)
