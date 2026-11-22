@@ -1,3 +1,4 @@
+#include <nuvix/chardev.h>
 #include <nuvix/errno.h>
 #include <nuvix/math.h>
 #include <nuvix/string.h>
@@ -42,6 +43,43 @@ int ext2_create(struct inode *dir, struct dentry *dentry)
 
     mutex_lock(&inode->mutex);
     ret = ext2_add_dirent(dir, dentry->d_name, dentry->d_nlen, inode);
+    if (ret)
+        inode->i_nlink = 0;
+    mutex_unlock(&inode->mutex);
+    if (!ret)
+        dentry->d_inode = move(inode);
+    return ret;
+}
+
+int ext2_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
+{
+    struct cache_page *ip __free(cache_page) = NULL;
+    struct inode *inode __free(iput) = NULL;
+    uint32_t off;
+    int ret;
+
+    assert_mutex_locked(&dir->mutex);
+    inode = ext2_alloc_inode(dir, mode);
+    if (IS_ERR(inode))
+        return PTR_ERR(move(inode));
+
+    mutex_lock(&inode->mutex);
+    ip = ext2_get_inode_page(inode, &off);
+    if (IS_ERR(ip)) {
+        ret = PTR_ERR(move(ip));
+        goto out;
+    }
+    if (S_ISCHR(mode))
+        chardev_init(inode, dev);
+    else
+        inode->i_rdev = dev;
+    if (MAJOR(dev) < 256 && MINOR(dev) < 256)
+        ext2_i(inode)->data[0] = dev;
+    else
+        ext2_i(inode)->data[1] = dev;
+    ext2_write_inode(inode, ip, off);
+    ret = ext2_add_dirent(dir, dentry->d_name, dentry->d_nlen, inode);
+out:
     if (ret)
         inode->i_nlink = 0;
     mutex_unlock(&inode->mutex);

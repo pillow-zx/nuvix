@@ -140,6 +140,7 @@ struct inode_operations {
     ssize_t (*readlink)(struct inode *, char *, size_t);
     struct dentry *(*mkdir)(struct inode *, struct dentry *);
     int (*rmdir)(struct inode *, struct dentry *);
+    int (*mknod)(struct inode *, struct dentry *, umode_t, dev_t);
     int (*rename)(struct inode *, struct dentry *, struct inode *, struct dentry *, unsigned int);
 };
 

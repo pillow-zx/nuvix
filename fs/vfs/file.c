@@ -243,6 +243,43 @@ static void end_creating(struct path *parent, struct dentry *dentry)
     path_put(parent);
 }
 
+long sys_mknodat(struct trap_frame *frame)
+{
+    int dirfd = (int)syscallarg(frame, 0);
+    const char *upath = (const char *)syscallarg(frame, 1);
+    umode_t mode = (umode_t)syscallarg(frame, 2);
+    dev_t dev = (dev_t)syscallarg(frame, 3);
+    char *path __free(kfree) = NULL;
+    struct path parent = {0};
+    struct dentry *dentry;
+    struct inode *dir;
+    int ret;
+
+    switch (mode & S_IFMT) {
+    case S_IFCHR:
+    case S_IFBLK:
+        break;
+    case 0:
+    case S_IFREG:
+    case S_IFIFO:
+    case S_IFSOCK:
+        return -EOPNOTSUPP;
+    default:
+        return -EINVAL;
+    }
+
+    path = get_pathname(upath);
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    dentry = start_creating(dirfd, path, false, &parent);
+    if (IS_ERR(dentry))
+        return PTR_ERR(dentry);
+    dir = parent.dentry->d_inode;
+    ret = dir->i_ops->mknod ? dir->i_ops->mknod(dir, dentry, mode, dev) : -EPERM;
+    end_creating(&parent, dentry);
+    return ret;
+}
+
 long sys_mkdirat(struct trap_frame *frame)
 {
     int dirfd = (int)syscallarg(frame, 0);

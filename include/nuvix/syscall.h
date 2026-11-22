@@ -68,6 +68,7 @@
     X(ioctl)                                                                   \
     X(lseek)                                                                   \
     X(set_tid_address)                                                         \
+    X(mknodat)                                                                 \
     X(mkdirat)                                                                 \
     X(unlinkat)                                                                \
     X(symlinkat)                                                               \

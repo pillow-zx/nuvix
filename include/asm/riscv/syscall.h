@@ -6,6 +6,7 @@
 #define __NR_dup3            24
 #define __NR_fcntl           25
 #define __NR_ioctl           29
+#define __NR_mknodat         33
 #define __NR_mkdirat         34
 #define __NR_unlinkat        35
 #define __NR_symlinkat       36
