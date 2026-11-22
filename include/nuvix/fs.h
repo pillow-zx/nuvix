@@ -2,6 +2,7 @@
 #define _NUVIX_FS_H
 
 #include <nuvix/ctypes.h>
+#include <nuvix/macro.h>
 #include <nuvix/mutex.h>
 #include <nuvix/refcount.h>
 #include <nuvix/stat.h>
@@ -56,10 +57,16 @@ struct inode_operations;
 struct super_operations;
 struct vm_struct;
 
+#define IOCB_APPEND (1U << 0)
+
 struct kiocb {
     struct file *file;
     loff_t pos;
+    unsigned int flags;
 };
+
+#define kiocb_flags(file)                                                      \
+    ((READ_ONCE((file)->f_flags) & O_APPEND) ? IOCB_APPEND : 0U)
 
 #define DT_UNKNOWN 0
 #define DT_FIFO    1

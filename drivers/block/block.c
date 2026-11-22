@@ -1,6 +1,7 @@
 #include <nuvix/assert.h>
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
+#include <nuvix/fs.h>
 
 static LIST_HEAD(blkdevs);
 
@@ -26,6 +27,23 @@ void blkdev_register(struct blkdev *dev)
     Assert(!blkdev_find(dev->dev), "duplicate block device number\n");
     list_add_tail(&dev->node, &blkdevs);
 }
+
+static int blkdev_file_open(struct file *file)
+{
+    struct blkdev *dev = blkdev_find(file->f_inode->i_rdev);
+
+    if (!dev)
+        return -ENXIO;
+    if (!dev->fops)
+        return -EOPNOTSUPP;
+    file->f_ops = dev->fops;
+    file->f_private = dev;
+    return file->f_ops->open ? file->f_ops->open(file) : 0;
+}
+
+const struct file_operations blkdev_file_operations = {
+    .open = blkdev_file_open,
+};
 
 static int blk_validate(const struct blkdev *dev, uint64_t sector,
                         const struct page *page, size_t offset, size_t length)

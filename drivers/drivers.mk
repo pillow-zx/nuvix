@@ -1,4 +1,5 @@
 obj-y += drivers/block/block.c
+obj-y += drivers/block/loop.c
 obj-y += drivers/char/chardev.c
 obj-y += drivers/char/mem.c
 obj-y += drivers/char/ns16550a.c

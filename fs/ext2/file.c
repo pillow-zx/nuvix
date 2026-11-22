@@ -245,7 +245,7 @@ static ssize_t ext2_file_write(struct kiocb *iocb, struct kiov *iov)
     if (!len)
         return 0;
     mutex_lock(&info->wlock);
-    if (READ_ONCE(iocb->file->f_flags) & O_APPEND) {
+    if (iocb->flags & IOCB_APPEND) {
         mutex_lock(&inode->mutex);
         pos = inode->i_size;
         mutex_unlock(&inode->mutex);

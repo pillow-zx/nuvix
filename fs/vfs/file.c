@@ -1,3 +1,4 @@
+#include <nuvix/blkdev.h>
 #include <nuvix/kiov.h>
 #include <nuvix/path.h>
 #include <nuvix/vfs.h>
@@ -22,6 +23,7 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
 {
     struct path resolved = {0};
     struct file *file __free(kfree) = NULL;
+    const struct file_operations *fops;
     unsigned int access = flags & O_ACCMODE;
     unsigned int lookup = flags & O_NOFOLLOW ? 0 : PATH_FOLLOW;
     struct inode *inode;
@@ -58,7 +60,8 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
         ret = -ELOOP;
         goto fail;
     }
-    if (!inode->i_fops) {
+    fops = S_ISBLK(inode->i_mode) ? &blkdev_file_operations : inode->i_fops;
+    if (!fops) {
         ret = -EOPNOTSUPP;
         goto fail;
     }
@@ -84,7 +87,7 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
     file->f_flags = flags & ~(O_CREAT | O_EXCL | O_TRUNC | O_CLOEXEC);
     file->f_pos = 0;
     file->f_inode = inode;
-    file->f_ops = inode->i_fops;
+    file->f_ops = fops;
     file->f_path = move(resolved);
 
     if (file->f_ops->open) {
@@ -1098,6 +1101,7 @@ static ssize_t file_write(struct file *file, struct kiov *iov)
     if (ret)
         return ret;
     iocb.pos = file->f_pos;
+    iocb.flags = kiocb_flags(file);
     ret = vfs_write(&iocb, iov);
     if (ret > 0)
         file->f_pos = iocb.pos;
@@ -1181,6 +1185,7 @@ long sys_pwrite64(struct trap_frame *frame)
     if (!FILE_WRITE(file))
         return -EBADF;
 
+    iocb.flags = kiocb_flags(file);
     kiov_init(&iov, &vec, 1, len, true);
     return vfs_write(&iocb, &iov);
 }
