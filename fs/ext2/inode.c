@@ -1,4 +1,5 @@
 #include <nuvix/ctypes.h>
+#include <nuvix/blkdev.h>
 #include <nuvix/chardev.h>
 #include <nuvix/cleanup.h>
 #include <nuvix/errno.h>
@@ -93,7 +94,7 @@ void ext2_write_inode(struct inode *inode, struct cache_page *cp, uint32_t off)
 static int ext2_getattr(struct inode *inode, struct kstat *stat)
 {
     mutex_lock(&inode->mutex);
-    stat->dev = 0;
+    stat->dev = inode->i_sb->s_bdev->dev;
     stat->ino = inode->i_ino;
     stat->rdev = inode->i_rdev;
     stat->mode = (inode->i_mode & S_IFMT) | 0777;

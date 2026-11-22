@@ -10,6 +10,8 @@
 #define __NR_unlinkat        35
 #define __NR_symlinkat       36
 #define __NR_linkat          37
+#define __NR_umount2         39
+#define __NR_mount           40
 #define __NR_ftruncate       46
 #define __NR_faccessat       48
 #define __NR_chdir           49

@@ -2,6 +2,7 @@
 #define _NUVIX_VFS_H
 
 #include <nuvix/fs.h>
+#include <nuvix/mount.h>
 #include <nuvix/cleanup.h>
 
 #define PATH_MAX            4096
@@ -12,9 +13,17 @@
 
 #define UIO_MAXIOV          64
 
-int vfs_mount(void);
+struct file_system_type {
+    const char *name;
+    int (*open)(struct super_block *sb, unsigned int flags);
+    void (*close)(struct super_block *sb);
+    struct list_head node;
+};
 
-int vfs_get_root(struct path *path);
+void vfs_register(struct file_system_type *type);
+struct super_block *vfs_open_bdev(struct blkdev *dev, const char *name,
+                                  unsigned int flags);
+void vfs_close_bdev(struct super_block *sb, unsigned int flags);
 
 char *get_pathname(const char *upath);
 
@@ -23,9 +32,5 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags);
 ssize_t vfs_read(struct kiocb *, struct kiov *);
 
 ssize_t vfs_write(struct kiocb *, struct kiov *);
-
-#ifdef CONFIG_EXT2_FS
-int ext2_mount(struct super_block *sb);
-#endif
 
 #endif /* ifndef _NUVIX_VFS_H */

@@ -37,6 +37,14 @@ struct module_initcall {
     }                                                                          \
     MODULE_INIT(name##_init, order)
 
+#define MODULE_FILESYSTEM_INIT(name, order)                                    \
+    static __always_inline int name##_init(void)                               \
+    {                                                                          \
+        vfs_register(&name##_type);                                            \
+        return 0;                                                              \
+    }                                                                          \
+    MODULE_INIT(name##_init, order)
+
 /* Called once after enabling the MMU. Panics on the first initialization error. */
 void module_init(void);
 

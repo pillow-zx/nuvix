@@ -4,8 +4,10 @@
 #include <nuvix/cleanup.h>
 
 struct dentry;
+struct mount;
 
 struct path {
+    struct mount *mnt;
     struct dentry *dentry;
 };
 

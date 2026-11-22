@@ -64,6 +64,11 @@ int mapping_writeback(struct cache_page *cp);
 
 int mapping_flush(struct mapping *m);
 
+void mapping_wblock(void);
+void mapping_wbunlock(void);
+
+void mapping_sync_all(void);
+
 void mapping_purge(struct mapping *m, uint64_t start, uint64_t end);
 
 DECLARE_FREE(cache_page, struct cache_page *, if (_T) mapping_put(_T))

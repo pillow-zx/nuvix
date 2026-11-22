@@ -81,6 +81,8 @@
     X(ppoll)                                                                   \
     X(readlinkat)                                                              \
     X(fsync)                                                                   \
+    X(umount2)                                                                 \
+    X(mount)                                                                   \
     X(waitid)                                                                  \
     X(sigaltstack)                                                             \
     X(reboot)                                                                  \

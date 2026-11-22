@@ -3,6 +3,7 @@
 
 #include <nuvix/ctypes.h>
 #include <nuvix/layout.h>
+#include <nuvix/list.h>
 
 #define BLK_SECTOR_SIZE 512
 #define BLK_MAX_IO_SIZE PAGE_SIZE
@@ -21,12 +22,15 @@ struct blkdev_ops {
 
 /* Immutable after boot; the device and its ops remain alive permanently. */
 struct blkdev {
+    dev_t dev;
+    struct list_head node;
     uint64_t sectors;
     const struct blkdev_ops *ops;
 };
 
-/* Published at boot after the root driver starts successfully; NULL until then. */
-extern struct blkdev *root_bdev;
+void blkdev_register(struct blkdev *dev);
+struct blkdev *blkdev_find(dev_t dev);
+struct blkdev *blkdev_first(void);
 
 /*
  * Ordinary sleepable context, with no caller short locks/preempt-disable levels;

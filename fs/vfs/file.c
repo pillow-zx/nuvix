@@ -68,6 +68,11 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
         goto fail;
     }
 
+    if (!(resolved.mnt->flags & MNT_WRITE) && S_ISREG(inode->i_mode) &&
+        (access != O_RDONLY || (flags & O_TRUNC))) {
+        ret = -EROFS;
+        goto fail;
+    }
     file = kzalloc(sizeof(*file));
     if (!file) {
         ret = -ENOMEM;
@@ -216,6 +221,11 @@ static struct dentry *start_creating(int dirfd, const char *path,
         ret = -ENOENT;
         goto unlock;
     }
+    if (!(parent->mnt->flags & MNT_WRITE)) {
+        ret = -EROFS;
+        goto unlock;
+    }
+    mnt_put(target.mnt);
     return target.dentry;
 
 unlock:
@@ -293,6 +303,7 @@ long sys_unlinkat(struct trap_frame *frame)
         goto out;
     }
     dir = parent.dentry->d_inode;
+    mutex_lock(&mntmutex);
     mutex_lock(&dir->mutex);
     ret = vfs_lookone(&parent, last, len, &target);
     if (ret)
@@ -310,6 +321,14 @@ long sys_unlinkat(struct trap_frame *frame)
         ret = S_ISDIR(inode->i_mode) ? -EISDIR : -ENOTDIR;
         goto unlock;
     }
+    if (vfs_is_mountpoint(&target)) {
+        ret = -EBUSY;
+        goto unlock;
+    }
+    if (!(parent.mnt->flags & MNT_WRITE)) {
+        ret = -EROFS;
+        goto unlock;
+    }
     mutex_lock(&inode->mutex);
     if (directory)
         ret =
@@ -322,6 +341,7 @@ long sys_unlinkat(struct trap_frame *frame)
     mutex_unlock(&inode->mutex);
 unlock:
     mutex_unlock(&dir->mutex);
+    mutex_unlock(&mntmutex);
 out:
     path_put(&target);
     path_put(&parent);
@@ -396,7 +416,7 @@ long sys_linkat(struct trap_frame *frame)
     }
     inode = source.dentry->d_inode;
     dir = parent.dentry->d_inode;
-    if (dir->i_sb != inode->i_sb) {
+    if (parent.mnt != source.mnt) {
         ret = -EXDEV;
     } else if (S_ISDIR(inode->i_mode) || !dir->i_ops->link) {
         ret = -EPERM;
@@ -411,8 +431,6 @@ out:
     path_put(&source);
     return ret;
 }
-
-static DEFINE_MUTEX(remutex);
 
 struct renamedata {
     struct path parent;
@@ -484,7 +502,7 @@ long sys_renameat2(struct trap_frame *frame)
 
     old.dir = old.parent.dentry->d_inode;
     new.dir = new.parent.dentry->d_inode;
-    if (old.dir->i_sb != new.dir->i_sb) {
+    if (old.parent.mnt != new.parent.mnt) {
         ret = -EXDEV;
         goto out;
     }
@@ -493,7 +511,7 @@ long sys_renameat2(struct trap_frame *frame)
         goto out;
     }
 
-    mutex_lock(&remutex);
+    mutex_lock(&mntmutex);
     if (old.dir == new.dir) {
         mutex_lock(&old.dir->mutex);
     } else if (is_ancestor(old.parent.dentry, new.parent.dentry) ||
@@ -541,8 +559,12 @@ long sys_renameat2(struct trap_frame *frame)
             goto dirs;
         }
     }
-    if (!old.entry.dentry->d_parent) {
+    if (vfs_is_mountpoint(&old.entry) || vfs_is_mountpoint(&new.entry)) {
         ret = -EBUSY;
+        goto dirs;
+    }
+    if (!(old.parent.mnt->flags & MNT_WRITE)) {
+        ret = -EROFS;
         goto dirs;
     }
 
@@ -591,7 +613,7 @@ dirs:
     mutex_unlock(&old.dir->mutex);
     if (new.dir != old.dir)
         mutex_unlock(&new.dir->mutex);
-    mutex_unlock(&remutex);
+    mutex_unlock(&mntmutex);
 out:
     path_put(&old.parent);
     path_put(&old.entry);
@@ -761,7 +783,7 @@ long sys_getcwd(struct trap_frame *frame)
     if (!buffer)
         return -ENOMEM;
 
-    pos = dentry_path(dentry, buffer, PATH_MAX);
+    pos = dentry_path(&current->cwd, buffer, PATH_MAX);
     if (IS_ERR(pos))
         return PTR_ERR(pos);
 
@@ -876,6 +898,8 @@ long sys_ftruncate(struct trap_frame *frame)
 
     if (!S_ISREG(inode->i_mode) || !FILE_WRITE(file))
         return -EINVAL;
+    if (!(file->f_path.mnt->flags & MNT_WRITE))
+        return -EROFS;
 
     if (!inode->i_ops->setattr)
         return -ENOTSUPP;

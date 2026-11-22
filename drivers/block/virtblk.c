@@ -205,6 +205,8 @@ static void virtblk_done(struct virtqueue *vq)
 
 static int virtblk_probe(struct device *device)
 {
+    static unsigned int minor;
+
     struct virtio_dev *dev = to_virtio_device(device);
     struct virtio_blk *blk __free(kfree) = NULL;
     struct virtblk_wire *wire;
@@ -257,8 +259,10 @@ static int virtblk_probe(struct device *device)
         dma_free_coherent(wire, 0);
         return ret;
     }
-    if (!root_bdev)
-        root_bdev = &blk->bdev;
+
+    blk->bdev.dev = MKDEV(240, minor);
+    minor++;
+    blkdev_register(&blk->bdev);
     pr_info("device: %llu sectors, queue=%u, requests=%u\n",
             (unsigned long long)blk->bdev.sectors, VIRTIO_BLK_QUEUE_SIZE,
             VIRTIO_BLK_SLOTS);

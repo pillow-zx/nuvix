@@ -4,6 +4,7 @@
 #include <nuvix/mapping.h>
 #include <nuvix/module.h>
 #include <nuvix/page.h>
+#include <nuvix/printk.h>
 #include <nuvix/sched.h>
 #include <nuvix/slab.h>
 #include <nuvix/sleep.h>
@@ -21,6 +22,7 @@ struct mapping_cache {
 };
 
 static struct mapping_cache cache;
+static DEFINE_MUTEX(wbmutex);
 
 static void mapping_assert_locked(struct mapping *m)
 {
@@ -342,28 +344,55 @@ void mapping_purge(struct mapping *m, uint64_t start, uint64_t end)
     }
 }
 
-static int mapping_flusher(void *arg)
+static void mapping_writeback_all(void)
 {
     static struct cache_page *pages[MAPPING_CACHE_PAGES];
+    unsigned int nr;
 
+    assert_mutex_locked(&wbmutex);
+    nr = mapping_collect(NULL, pages);
+    for (unsigned int i = 0; i < nr; i++) {
+        struct cache_page *cp = pages[i];
+        struct mapping *m = cp->mapping;
+        int ret;
+
+        if (m->mutex)
+            mutex_lock(m->mutex);
+        ret = mapping_writeback(cp);
+        if (m->mutex)
+            mutex_unlock(m->mutex);
+        if (ret)
+            pr_warn("mapping writeback failed (%d)\n", ret);
+        mapping_put(cp);
+        mapping_release(m);
+    }
+}
+
+void mapping_wblock(void)
+{
+    mutex_lock(&wbmutex);
+}
+
+void mapping_wbunlock(void)
+{
+    mutex_unlock(&wbmutex);
+}
+
+void mapping_sync_all(void)
+{
+    mapping_writeback_all();
+    /* Inode eviction during the first pass can dirty metadata. */
+    mapping_writeback_all();
+}
+
+static int mapping_flusher(void *arg)
+{
     (void)arg;
     for (;;) {
-        unsigned int nr;
-
         (void)sleep_ns(NSEC_PER_SEC);
-        nr = mapping_collect(NULL, pages);
-        for (unsigned int i = 0; i < nr; i++) {
-            struct cache_page *cp = pages[i];
-            struct mapping *m = cp->mapping;
-
-            if (m->mutex)
-                mutex_lock(m->mutex);
-            (void)mapping_writeback(cp);
-            if (m->mutex)
-                mutex_unlock(m->mutex);
-            mapping_put(cp);
-            mapping_release(m);
-        }
+        mutex_lock(&wbmutex);
+        mapping_writeback_all();
+        mutex_unlock(&wbmutex);
     }
     return 0;
 }

@@ -1,7 +1,31 @@
+#include <nuvix/assert.h>
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 
-struct blkdev *root_bdev;
+static LIST_HEAD(blkdevs);
+
+struct blkdev *blkdev_first(void)
+{
+    if (list_empty(&blkdevs))
+        return NULL;
+    return list_first_entry(&blkdevs, struct blkdev, node);
+}
+
+struct blkdev *blkdev_find(dev_t dev)
+{
+    struct blkdev *entry;
+
+    list_for_each_entry (entry, &blkdevs, node)
+        if (entry->dev == dev)
+            return entry;
+    return NULL;
+}
+
+void blkdev_register(struct blkdev *dev)
+{
+    Assert(!blkdev_find(dev->dev), "duplicate block device number\n");
+    list_add_tail(&dev->node, &blkdevs);
+}
 
 static int blk_validate(const struct blkdev *dev, uint64_t sector,
                         const struct page *page, size_t offset, size_t length)

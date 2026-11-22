@@ -2,6 +2,7 @@
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
 #include <nuvix/macro.h>
+#include <nuvix/mount.h>
 #include <nuvix/slab.h>
 #include <nuvix/string.h>
 #include <nuvix/spinlock.h>
@@ -73,17 +74,26 @@ struct dentry *dget_parent(struct dentry *dentry)
     return parent;
 }
 
-char *dentry_path(struct dentry *dentry, char *buffer, size_t size)
+char *dentry_path(const struct path *path, char *buffer, size_t size)
 {
+    struct dentry *dentry = path->dentry;
+    struct mount *mnt = path->mnt;
     char *pos = buffer + size;
 
     if (size < 2)
         return ERR_PTR(-ENAMETOOLONG);
     *--pos = '\0';
     spin_lock(&dcache_lock);
-    for (; dentry->d_parent; dentry = dentry->d_parent) {
-        size_t len = dentry->d_nlen;
+    for (;;) {
+        size_t len;
 
+        if (dentry == mnt->sb->s_root) {
+            if (!mnt->parent)
+                break;
+            dentry = mnt->mntpoint;
+            mnt = mnt->parent;
+        }
+        len = dentry->d_nlen;
         if (!hash_hashed(&dentry->d_hash)) {
             pos = ERR_PTR(-ENOENT);
             break;
@@ -95,6 +105,7 @@ char *dentry_path(struct dentry *dentry, char *buffer, size_t size)
         pos -= len;
         memcpy(pos, dentry->d_name, len);
         *--pos = '/';
+        dentry = dentry->d_parent;
     }
     spin_unlock(&dcache_lock);
     if (pos == buffer + size - 1)

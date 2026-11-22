@@ -50,6 +50,7 @@ struct inode;
 struct dentry;
 struct dirctx;
 struct super_block;
+struct file_system_type;
 struct file_operations;
 struct inode_operations;
 struct super_operations;
@@ -175,7 +176,8 @@ struct super_block {
     struct blkdev *s_bdev;
     struct dentry *s_root;
     const struct super_operations *s_ops;
-    void *s_fs_info;
+    const struct file_system_type *s_type;
+    void *s_private;
 };
 
 struct dentry {
@@ -221,7 +223,7 @@ struct dentry *dget_parent(struct dentry *dentry);
 
 void d_move(struct dentry *dentry, struct dentry *target, char *new_name);
 
-char *dentry_path(struct dentry *dentry, char *buffer, size_t size);
+char *dentry_path(const struct path *path, char *buffer, size_t size);
 
 struct dentry *dcache_find(struct dentry *parent, const char *name,
                            unsigned int len);

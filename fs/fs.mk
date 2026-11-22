@@ -4,6 +4,7 @@ obj-y 										+= fs/vfs/poll.c
 obj-y 										+= fs/vfs/file.c
 obj-y 									  += fs/vfs/kiov.c
 obj-y 										+= fs/vfs/super.c
+obj-y 										+= fs/vfs/mount.c
 obj-y 										+= fs/vfs/path.c
 obj-y 										+= fs/vfs/dentry.c
 obj-y 									 	+= fs/vfs/inode.c

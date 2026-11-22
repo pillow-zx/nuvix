@@ -12,14 +12,19 @@
 
 void path_get(const struct path *path)
 {
-    dget(path->dentry);
+    if (path->dentry) {
+        dget(path->dentry);
+        refcount_inc(&path->mnt->refs);
+    }
 }
 
 void path_put(struct path *path)
 {
-    if (path->dentry)
+    if (path->dentry) {
         dput(path->dentry);
-    path->dentry = NULL;
+        mnt_put(path->mnt);
+    }
+    *path = (struct path){0};
 }
 
 int vfs_lookone(const struct path *base, const char *name, size_t len,
@@ -35,7 +40,7 @@ int vfs_lookone(const struct path *base, const char *name, size_t len,
 
     if (len == 1 && name[0] == '.') {
         path_get(base);
-        result->dentry = base->dentry;
+        *result = *base;
         return 0;
     }
 
@@ -45,7 +50,8 @@ int vfs_lookone(const struct path *base, const char *name, size_t len,
             dentry = base->dentry;
             dget(dentry);
         }
-        result->dentry = dentry;
+        refcount_inc(&base->mnt->refs);
+        *result = (struct path){.mnt = base->mnt, .dentry = dentry};
         return 0;
     }
 
@@ -74,7 +80,8 @@ int vfs_lookone(const struct path *base, const char *name, size_t len,
 out:
     if (IS_ERR(found))
         return PTR_ERR(found);
-    result->dentry = found;
+    refcount_inc(&base->mnt->refs);
+    *result = (struct path){.mnt = base->mnt, .dentry = found};
     return 0;
 }
 
@@ -97,7 +104,7 @@ static int path_start(int dirfd, const char *name, struct path *result)
         *result = file->f_path;
     }
     if (*name && !S_ISDIR(result->dentry->d_inode->i_mode)) {
-        result->dentry = NULL;
+        *result = (struct path){0};
         return -ENOTDIR;
     }
     path_get(result);
@@ -153,23 +160,36 @@ int vfs_lookup(int dirfd, const char *path, unsigned int flags,
             ret = -EISDIR;
             goto out;
         }
-        mutex_lock(&dir->mutex);
-        ret = vfs_lookone(&cur, cursor, len, &next);
-        if (!ret && last) {
-            if (next.dentry->d_inode && (flags & PATH_EXCL)) {
-                ret = -EEXIST;
-            } else if (!next.dentry->d_inode && (flags & PATH_CREATE)) {
-                ret = dir->i_ops->create ? dir->i_ops->create(dir, next.dentry)
-                                         : -EACCES;
+        if (len == 2 && cursor[0] == '.' && cursor[1] == '.' &&
+            cur.dentry == cur.mnt->sb->s_root && cur.mnt->parent) {
+            next.mnt = cur.mnt->parent;
+            refcount_inc(&next.mnt->refs);
+            next.dentry = dget_parent(cur.mnt->mntpoint);
+            ret = last && (flags & PATH_EXCL) ? -EEXIST : 0;
+        } else {
+            mutex_lock(&dir->mutex);
+            ret = vfs_lookone(&cur, cursor, len, &next);
+            if (!ret && last) {
+                if (next.dentry->d_inode && (flags & PATH_EXCL)) {
+                    ret = -EEXIST;
+                } else if (!next.dentry->d_inode && (flags & PATH_CREATE)) {
+                    if (!(cur.mnt->flags & MNT_WRITE))
+                        ret = -EROFS;
+                    else
+                        ret = dir->i_ops->create
+                                  ? dir->i_ops->create(dir, next.dentry) : -EACCES;
+                }
             }
+            mutex_unlock(&dir->mutex);
         }
-        mutex_unlock(&dir->mutex);
         if (ret)
             goto out;
         if (!next.dentry->d_inode) {
             ret = -ENOENT;
             goto out;
         }
+        if (!(len == 1 && cursor[0] == '.'))
+            vfs_follow_mount(&next);
         if (S_ISLNK(next.dentry->d_inode->i_mode) &&
             (slash || (flags & PATH_FOLLOW))) {
             struct inode *inode = next.dentry->d_inode;

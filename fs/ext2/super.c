@@ -1,12 +1,12 @@
 #include <nuvix/blkdev.h>
 #include <nuvix/errno.h>
 #include <nuvix/fs.h>
+#include <nuvix/module.h>
 #include <nuvix/page.h>
+#include <nuvix/slab.h>
 #include <nuvix/vfs.h>
 
 #include "ext2.h"
-
-static struct ext2_sb_info ext2_data;
 
 struct cache_page *ext2_get_grp_desc(struct ext2_sb_info *sbi, uint32_t grp,
                                      uint32_t *off)
@@ -51,8 +51,10 @@ static int ext2_check_super(struct ext2_sb_info *sbi)
     uint32_t isize;
 
     if (es->s_magic != EXT2_SUPER_MAGIC)
-        return -EINVAL;
-    if (es->s_log_block_size != 2)
+        return -ENODATA;
+    if ((es->s_feature_incompat & ~EXT2_FEATURE_INCOMPAT_FILETYPE) ||
+        (es->s_feature_compat & EXT2_FEATURE_COMPAT_HAS_JOURNAL) ||
+        es->s_log_block_size != 2)
         return -EOPNOTSUPP;
 
     bsize = 1024U << es->s_log_block_size;
@@ -91,24 +93,20 @@ static struct dentry *ext2_get_root(struct super_block *sb)
     return root;
 }
 
-int ext2_mount(struct super_block *sb)
+static int ext2_open(struct super_block *sb, unsigned int flags)
 {
     struct ext2_super_block *es;
-    struct ext2_sb_info *sbi = &ext2_data;
+    struct ext2_sb_info *sbi __free(kfree) = kzalloc(sizeof(*sbi));
     struct dentry *root;
     int ret;
 
-    if (!sb->s_bdev)
-        return -ENODEV;
-
+    if (!sbi)
+        return -ENOMEM;
     mutex_init(&sbi->mutex);
     sbi->mapping = MAPPING_INIT(sb->s_bdev, ext2_metadata_mapping_ops, sbi);
     sbi->s_sbh = mapping_get(&sbi->mapping, 0);
-    if (IS_ERR(sbi->s_sbh)) {
-        ret = PTR_ERR(sbi->s_sbh);
-        sbi->s_sbh = NULL;
-        return ret;
-    }
+    if (IS_ERR(sbi->s_sbh))
+        return PTR_ERR(sbi->s_sbh);
     mutex_lock(&sbi->s_sbh->mutex);
     es = (struct ext2_super_block *)((char *)mapping_data(sbi->s_sbh) +
                                      EXT2_SUPER_OFFSET);
@@ -117,7 +115,18 @@ int ext2_mount(struct super_block *sb)
     ret = ext2_check_super(sbi);
     if (ret)
         goto fail;
-    sb->s_fs_info = sbi;
+    if (sbi->s_es->s_blocks_count >
+        sb->s_bdev->sectors / (PAGE_SIZE / BLK_SECTOR_SIZE)) {
+        ret = -EINVAL;
+        goto fail;
+    }
+    if ((flags & MNT_WRITE) && (sbi->s_es->s_feature_ro_compat &
+                                ~(EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER |
+                                  EXT2_FEATURE_RO_COMPAT_LARGE_FILE))) {
+        ret = -EOPNOTSUPP;
+        goto fail;
+    }
+    sb->s_private = sbi;
     sb->s_ops = &ext2_super_operations;
 
     root = ext2_get_root(sb);
@@ -126,14 +135,28 @@ int ext2_mount(struct super_block *sb)
         goto fail;
     }
     sb->s_root = root;
+    keep(sbi);
     return 0;
 
 fail:
     mapping_purge(&sbi->mapping, 0, UINT64_MAX);
     mapping_put(sbi->s_sbh);
-    sbi->s_sbh = NULL;
-    sbi->s_es = NULL;
-    sb->s_fs_info = NULL;
-    sb->s_ops = NULL;
     return ret;
 }
+
+static void ext2_close(struct super_block *sb)
+{
+    struct ext2_sb_info *sbi = ext2_sb_info(sb);
+
+    mapping_purge(&sbi->mapping, 0, UINT64_MAX);
+    mapping_put(sbi->s_sbh);
+    kfree(sbi);
+}
+
+static struct file_system_type ext2_type = {
+    .name = "ext2",
+    .open = ext2_open,
+    .close = ext2_close,
+};
+
+MODULE_FILESYSTEM_INIT(ext2, 80);
