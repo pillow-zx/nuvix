@@ -16,8 +16,8 @@
 #include <asm/trap.h>
 
 #define VFS_SUPPORTED_OPEN_FLAGS                                               \
-    (O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | O_NONBLOCK |          \
-     O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+    (O_ACCMODE | O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC | O_APPEND |             \
+     O_NONBLOCK | O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
 
 struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
 {
@@ -84,7 +84,7 @@ struct file *vfs_open(int dirfd, const char *path, unsigned long flags)
 
     refcount_set(&file->f_count, 1);
     mutex_init(&file->f_pos_lock);
-    file->f_flags = flags & ~(O_CREAT | O_EXCL | O_TRUNC | O_CLOEXEC);
+    file->f_flags = flags & ~(O_CREAT | O_EXCL | O_NOCTTY | O_TRUNC | O_CLOEXEC);
     file->f_pos = 0;
     file->f_inode = inode;
     file->f_ops = fops;
