@@ -58,14 +58,12 @@ static void tty_receive(struct tty *tty, const char *data, size_t count)
 
         if ((tty->termios.c_lflag & ISIG) && tty->termios.c_cc[VINTR] &&
             (unsigned char)c == tty->termios.c_cc[VINTR]) {
-            struct pid *pgrp = tty->pgrp;
+            struct pid *pgrp = pid_get(tty->pgrp);
             siginfo_t info = {.si_signo = SIGINT, .si_code = SI_KERNEL};
 
-            if (pgrp)
-                refcount_inc(&pgrp->refcount);
             spin_unlock_irqrestore(&tty->rwait.lock, flags);
             if (pgrp) {
-                (void)send_group_signal(pgrp->nr, &info);
+                (void)send_group_signal_pid(pgrp, &info);
                 pid_put(pgrp);
             }
             spin_lock_irqsave(&tty->rwait.lock, flags);

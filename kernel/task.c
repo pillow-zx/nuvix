@@ -116,6 +116,7 @@ static void free_resource(struct task *task)
 void task_free(struct task *task)
 {
     Assert(task->state == TASK_NEW, "cannot discard a published task\n");
+    pid_discard(task);
     if (task->parent)
         free_resource(task);
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);

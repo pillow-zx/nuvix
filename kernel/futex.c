@@ -428,7 +428,7 @@ long sys_get_robust_list(struct trap_frame *frame)
         task = current;
         task_get(task);
     } else
-        task = pid_get_task(tid, PIDTYPE_TID);
+        task = pid_lookup_task(tid, PIDTYPE_TID);
 
     if (!task)
         return -ESRCH;

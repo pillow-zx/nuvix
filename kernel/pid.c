@@ -14,7 +14,7 @@ static unsigned int next_pid = PID_INIT;
 static DEFINE_HASHTABLE(pid_table, 8);
 static DEFINE_SPINLOCK(pid_lock);
 
-struct pid *pid_alloc(void)
+static struct pid *pid_alloc(void)
 {
     struct pid *pid __free(kfree) = kzalloc(sizeof(*pid));
     unsigned long nr;
@@ -40,17 +40,6 @@ struct pid *pid_alloc(void)
     return move(pid);
 }
 
-void pid_put(struct pid *pid)
-{
-    if (!refcount_dec_and_test(&pid->refcount))
-        return;
-    Assert(hlist_unhashed(&pid->hash_node), "cannot free a published ID\n");
-    spin_lock(&pid_lock);
-    clear_bit(pid->nr, pidmap);
-    spin_unlock(&pid_lock);
-    kfree(pid);
-}
-
 static struct pid *find_pid_locked(pid_t nr)
 {
     struct pid *pid;
@@ -72,15 +61,29 @@ static struct task *pid_task_locked(struct pid *pid, enum pid_type type)
                             pid_links[type]);
 }
 
-struct task *pid_get_task(pid_t nr, enum pid_type type)
+struct task *pid_lookup_task(pid_t nr, enum pid_type type)
 {
     struct task *task;
+    struct pid *pid;
+
     spin_lock(&pid_lock);
-    task = pid_task_locked(find_pid_locked(nr), type);
+    pid = find_pid_locked(nr);
+    task = pid_task_locked(pid, type);
     if (task)
         task_get(task);
     spin_unlock(&pid_lock);
+    return task;
+}
 
+struct task *pid_get_task(struct pid *pid, enum pid_type type)
+{
+    struct task *task;
+
+    spin_lock(&pid_lock);
+    task = pid_task_locked(pid, type);
+    if (task)
+        task_get(task);
+    spin_unlock(&pid_lock);
     return task;
 }
 
@@ -153,24 +156,24 @@ struct pid *pid_get_group(pid_t pgid)
     spin_lock(&pid_lock);
     pgrp = pgid ? find_pid_locked(pgid) : current->pids[PIDTYPE_PGID];
     if (pgrp && !hlist_empty(&pgrp->tasks[PIDTYPE_PGID]))
-        refcount_inc(&pgrp->refcount);
+        pid_get(pgrp);
     else
         pgrp = NULL;
     spin_unlock(&pid_lock);
     return pgrp;
 }
 
-int send_group_signal(pid_t pgid, const struct siginfo *info)
+static int signal_group(struct pid *pgrp, pid_t pgid,
+                        const struct siginfo *info)
 {
     struct task **tasks __free(kfree) = NULL;
-    struct pid *pgrp;
     struct task *task;
     size_t count = 0, index = 0;
     int ret = -ESRCH;
 
     spin_lock(&pid_lock);
-    pgrp = pgid ? find_pid_locked(pgid) : current->pids[PIDTYPE_PGID];
-
+    if (!pgrp)
+        pgrp = pgid ? find_pid_locked(pgid) : current->pids[PIDTYPE_PGID];
     if (!pgrp)
         goto out;
     hlist_for_each_entry (task, &pgrp->tasks[PIDTYPE_PGID],
@@ -200,6 +203,18 @@ out:
     return ret;
 }
 
+int send_group_signal(pid_t pgid, const struct siginfo *info)
+{
+    return signal_group(NULL, pgid, info);
+}
+
+int send_group_signal_pid(struct pid *pgrp, const struct siginfo *info)
+{
+    if (!pgrp)
+        return -ESRCH;
+    return signal_group(pgrp, 0, info);
+}
+
 pid_t task_pid_nr(const struct task *task, enum pid_type type)
 {
     pid_t nr;
@@ -210,21 +225,47 @@ pid_t task_pid_nr(const struct task *task, enum pid_type type)
     return nr;
 }
 
+static inline void pid_add_user(struct pid *pid)
+{
+    pid_get(pid);
+    ++pid->nr_users;
+}
+
+static inline void pid_drop_user(struct pid *pid)
+{
+    assert_spin_locked(&pid_lock);
+    Assert(pid->nr_users, "cannot release an unreserved ID\n");
+    if (--pid->nr_users)
+        return;
+    Assert(hlist_unhashed(&pid->hash_node), "cannot release a published ID\n");
+    clear_bit(pid->nr, pidmap);
+}
+
 int pid_prepare(struct task *task, struct task *parent)
 {
     struct pid *pid __free(pid_put) = pid_alloc();
 
     if (IS_ERR(pid))
         return PTR_ERR(move(pid));
+    spin_lock(&pid_lock);
     task->pids[PIDTYPE_TID] = pid;
     task->pids[PIDTYPE_TGID] = pid;
-    spin_lock(&pid_lock);
     task->pids[PIDTYPE_PGID] = parent ? parent->pids[PIDTYPE_PGID] : pid;
     task->pids[PIDTYPE_SID] = parent ? parent->pids[PIDTYPE_SID] : pid;
     for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type)
-        refcount_inc(&task->pids[type]->refcount);
+        pid_add_user(task->pids[type]);
     spin_unlock(&pid_lock);
     return 0;
+}
+
+void pid_discard(struct task *task)
+{
+    if (!task->pids[PIDTYPE_TID])
+        return;
+    spin_lock(&pid_lock);
+    for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type)
+        pid_drop_user(task->pids[type]);
+    spin_unlock(&pid_lock);
 }
 
 void pid_publish(struct task *task)
@@ -262,8 +303,11 @@ void pid_unpublish(struct task *task)
     Assert(!hlist_unhashed(&task->pid_links[PIDTYPE_TID]),
            "ID removal requires a published user task\n");
     for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type) {
+        struct pid *pid = task->pids[type];
+
         hlist_del(&task->pid_links[type]);
-        unhash_unused_pid(task->pids[type]);
+        unhash_unused_pid(pid);
+        pid_drop_user(pid);
     }
     spin_unlock(&pid_lock);
 }
@@ -280,11 +324,14 @@ static void change_pid(struct task *task, enum pid_type type, struct pid *pid)
     struct pid *old = task->pids[type];
 
     assert_spin_locked(&pid_lock);
+    if (old == pid)
+        return;
     hlist_del(&task->pid_links[type]);
-    refcount_inc(&pid->refcount);
+    pid_add_user(pid);
     task->pids[type] = pid;
     hlist_add_head(&task->pid_links[type], &pid->tasks[type]);
     unhash_unused_pid(old);
+    pid_drop_user(old);
     refcount_dec(&old->refcount);
 }
 

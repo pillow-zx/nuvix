@@ -4,6 +4,7 @@
 #include <nuvix/cleanup.h>
 #include <nuvix/hlist.h>
 #include <nuvix/refcount.h>
+#include <nuvix/slab.h>
 
 typedef int pid_t;
 
@@ -21,6 +22,7 @@ enum pid_type {
 struct pid {
     refcount_t refcount;
     pid_t nr;
+    unsigned int nr_users;
     struct hlist_node hash_node;
     struct hlist_head tasks[PIDTYPE_MAX];
 };
@@ -28,13 +30,27 @@ struct pid {
 struct task;
 struct siginfo;
 
-struct pid *pid_alloc(void);
+static inline struct pid *pid_get(struct pid *pid)
+{
+    if (pid)
+        refcount_inc(&pid->refcount);
+    return pid;
+}
 
-void pid_put(struct pid *pid);
+static inline void pid_put(struct pid *pid)
+{
+    if (!pid || !refcount_dec_and_test(&pid->refcount))
+        return;
+    Assert(!pid->nr_users && hlist_unhashed(&pid->hash_node),
+           "cannot free a reserved ID\n");
+    kfree(pid);
+}
 
 pid_t task_pid_nr(const struct task *task, enum pid_type type);
 
 int pid_prepare(struct task *task, struct task *parent);
+
+void pid_discard(struct task *task);
 
 void pid_publish(struct task *task);
 
@@ -46,12 +62,16 @@ int pid_setsid(struct task *task);
 
 DECLARE_FREE(pid_put, struct pid *, if (_T) pid_put(_T))
 
-struct task *pid_get_task(pid_t nr, enum pid_type type);
+struct task *pid_lookup_task(pid_t nr, enum pid_type type);
+
+struct task *pid_get_task(struct pid *pid, enum pid_type type);
 
 struct pid *pid_get_group(pid_t pgid);
 
 int broadcast_signal(const struct siginfo *info);
 
 int send_group_signal(pid_t pgid, const struct siginfo *info);
+
+int send_group_signal_pid(struct pid *pgrp, const struct siginfo *info);
 
 #endif /* _NUVIX_PID_H */

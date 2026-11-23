@@ -276,7 +276,7 @@ long sys_kill(struct trap_frame *frame)
     if (pid == -1)
         return broadcast_signal(&info);
 
-    task = pid_get_task(pid, PIDTYPE_TGID);
+    task = pid_lookup_task(pid, PIDTYPE_TGID);
     if (!task)
         return -ESRCH;
 
@@ -293,7 +293,7 @@ long sys_tkill(struct trap_frame *frame)
     if (tid <= 0 || !IN_RANGE(sig, 0, SIG_MAX))
         return -EINVAL;
 
-    task = pid_get_task(tid, PIDTYPE_TID);
+    task = pid_lookup_task(tid, PIDTYPE_TID);
     if (!task)
         return -ESRCH;
 
@@ -317,7 +317,7 @@ long sys_tgkill(struct trap_frame *frame)
     if (tgid <= 0 || tid <= 0 || !IN_RANGE(sig, 0, SIG_MAX))
         return -EINVAL;
 
-    task = pid_get_task(tid, PIDTYPE_TID);
+    task = pid_lookup_task(tid, PIDTYPE_TID);
     if (!task)
         return -ESRCH;
 
