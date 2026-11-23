@@ -22,12 +22,12 @@ struct mount {
     bool unmounting;
 };
 
-extern struct mutex mntmutex;
+extern struct mutex mount_mutex;
 
 int vfs_mount(void);
 int vfs_get_root(struct path *path);
 void mnt_put(struct mount *mnt);
 void vfs_follow_mount(struct path *path);
-bool vfs_is_mountpoint(const struct path *path);
+bool is_mntpoint(const struct path *path);
 
 #endif

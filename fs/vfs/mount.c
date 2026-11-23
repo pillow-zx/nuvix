@@ -14,7 +14,7 @@
 static LIST_HEAD(mounts);
 static DEFINE_SPINLOCK(mntlock);
 static struct mount *rootmnt;
-DEFINE_MUTEX(mntmutex);
+DEFINE_MUTEX(mount_mutex);
 
 static struct mount *find_mount(const struct path *path)
 {
@@ -27,11 +27,11 @@ static struct mount *find_mount(const struct path *path)
     return NULL;
 }
 
-bool vfs_is_mountpoint(const struct path *path)
+bool is_mntpoint(const struct path *path)
 {
     bool found;
 
-    assert_mutex_locked(&mntmutex);
+    assert_mutex_locked(&mount_mutex);
     spin_lock(&mntlock);
     found = find_mount(path) != NULL;
     spin_unlock(&mntlock);
@@ -60,8 +60,8 @@ void vfs_follow_mount(struct path *path)
         if (!mnt->unmounting)
             break;
         spin_unlock(&mntlock);
-        mutex_lock(&mntmutex);
-        mutex_unlock(&mntmutex);
+        mutex_lock(&mount_mutex);
+        mutex_unlock(&mount_mutex);
     }
 
     next = (struct path){.mnt = mnt, .dentry = mnt->sb->s_root};
@@ -77,7 +77,7 @@ static int mnt_get(struct blkdev *dev, const char *type,
     struct mount *mnt __free(kfree) = NULL;
     struct mount *entry;
 
-    assert_mutex_locked(&mntmutex);
+    assert_mutex_locked(&mount_mutex);
     list_for_each_entry (entry, &mounts, node)
         if (entry->sb->s_bdev == dev)
             return -EBUSY;
@@ -109,9 +109,9 @@ int vfs_mount(void)
 {
     int ret;
 
-    mutex_lock(&mntmutex);
+    mutex_lock(&mount_mutex);
     ret = mnt_get(blkdev_first(), NULL, NULL, MNT_READ | MNT_WRITE);
-    mutex_unlock(&mntmutex);
+    mutex_unlock(&mount_mutex);
     return ret;
 }
 
@@ -177,7 +177,7 @@ long sys_mount(struct trap_frame *frame)
     if (!dev)
         return ret;
 
-    mutex_lock(&mntmutex);
+    mutex_lock(&mount_mutex);
     ret = vfs_look(target, &dst);
     if (ret)
         goto out;
@@ -191,7 +191,7 @@ long sys_mount(struct trap_frame *frame)
     mutex_unlock(&inode->mutex);
     if (ret)
         goto out;
-    if (dst.dentry == dst.mnt->sb->s_root || vfs_is_mountpoint(&dst)) {
+    if (dst.dentry == dst.mnt->sb->s_root || is_mntpoint(&dst)) {
         ret = -EBUSY;
         goto out;
     }
@@ -199,7 +199,7 @@ long sys_mount(struct trap_frame *frame)
         mntflags |= MNT_WRITE;
     ret = mnt_get(dev, type, &dst, mntflags);
 out:
-    mutex_unlock(&mntmutex);
+    mutex_unlock(&mount_mutex);
     path_put(&dst);
     return ret;
 }
@@ -219,7 +219,7 @@ long sys_umount2(struct trap_frame *frame)
     if (IS_ERR(target))
         return PTR_ERR(move(target));
 
-    mutex_lock(&mntmutex);
+    mutex_lock(&mount_mutex);
     ret = vfs_look(target, &dst);
     if (ret)
         goto out;
@@ -247,7 +247,7 @@ long sys_umount2(struct trap_frame *frame)
     kfree(mnt);
     ret = 0;
 out:
-    mutex_unlock(&mntmutex);
+    mutex_unlock(&mount_mutex);
     path_put(&dst);
     return ret;
 }

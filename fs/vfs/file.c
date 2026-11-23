@@ -343,7 +343,7 @@ long sys_unlinkat(struct trap_frame *frame)
         goto out;
     }
     dir = parent.dentry->d_inode;
-    mutex_lock(&mntmutex);
+    mutex_lock(&mount_mutex);
     mutex_lock(&dir->mutex);
     ret = vfs_lookone(&parent, last, len, &target);
     if (ret)
@@ -361,7 +361,7 @@ long sys_unlinkat(struct trap_frame *frame)
         ret = S_ISDIR(inode->i_mode) ? -EISDIR : -ENOTDIR;
         goto unlock;
     }
-    if (vfs_is_mountpoint(&target)) {
+    if (is_mntpoint(&target)) {
         ret = -EBUSY;
         goto unlock;
     }
@@ -381,7 +381,7 @@ long sys_unlinkat(struct trap_frame *frame)
     mutex_unlock(&inode->mutex);
 unlock:
     mutex_unlock(&dir->mutex);
-    mutex_unlock(&mntmutex);
+    mutex_unlock(&mount_mutex);
 out:
     path_put(&target);
     path_put(&parent);
@@ -551,7 +551,7 @@ long sys_renameat2(struct trap_frame *frame)
         goto out;
     }
 
-    mutex_lock(&mntmutex);
+    mutex_lock(&mount_mutex);
     if (old.dir == new.dir) {
         mutex_lock(&old.dir->mutex);
     } else if (is_ancestor(old.parent.dentry, new.parent.dentry) ||
@@ -599,7 +599,7 @@ long sys_renameat2(struct trap_frame *frame)
             goto dirs;
         }
     }
-    if (vfs_is_mountpoint(&old.entry) || vfs_is_mountpoint(&new.entry)) {
+    if (is_mntpoint(&old.entry) || is_mntpoint(&new.entry)) {
         ret = -EBUSY;
         goto dirs;
     }
@@ -653,7 +653,7 @@ dirs:
     mutex_unlock(&old.dir->mutex);
     if (new.dir != old.dir)
         mutex_unlock(&new.dir->mutex);
-    mutex_unlock(&mntmutex);
+    mutex_unlock(&mount_mutex);
 out:
     path_put(&old.parent);
     path_put(&old.entry);
