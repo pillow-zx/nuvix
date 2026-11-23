@@ -14,19 +14,7 @@ static unsigned int next_pid = PID_INIT;
 static DEFINE_HASHTABLE(pid_table, 8);
 static DEFINE_SPINLOCK(pid_lock);
 
-#ifdef CONFIG_PROC_FS
-static uint64_t procs_created;
-
-uint64_t pid_procs_created(void)
-{
-    uint64_t total;
-
-    spin_lock(&pid_lock);
-    total = procs_created;
-    spin_unlock(&pid_lock);
-    return total;
-}
-#endif
+IFDEF(CONFIG_PROC_FS, static uint64_t procs_created);
 
 static struct pid *pid_alloc(void)
 {
@@ -76,6 +64,16 @@ static struct task *pid_task_locked(struct pid *pid, enum pid_type type)
 }
 
 #ifdef CONFIG_PROC_FS
+uint64_t pid_procs_created(void)
+{
+    uint64_t total;
+
+    spin_lock(&pid_lock);
+    total = procs_created;
+    spin_unlock(&pid_lock);
+    return total;
+}
+
 pid_t pid_next_proc(pid_t start)
 {
     unsigned long nr;
