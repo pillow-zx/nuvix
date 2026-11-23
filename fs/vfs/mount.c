@@ -71,23 +71,27 @@ void vfs_follow_mount(struct path *path)
     *path = next;
 }
 
-static int mnt_get(struct blkdev *dev, const char *type,
+static int mnt_get(struct blkdev *dev, const struct file_system_type *type,
                    const struct path *target, unsigned int flags)
 {
     struct mount *mnt __free(kfree) = NULL;
     struct mount *entry;
 
     assert_mutex_locked(&mount_mutex);
-    list_for_each_entry (entry, &mounts, node)
-        if (entry->sb->s_bdev == dev)
-            return -EBUSY;
+    if (dev) {
+        list_for_each_entry (entry, &mounts, node)
+            if (entry->sb->s_bdev == dev)
+                return -EBUSY;
+    }
 
     mnt = kzalloc(sizeof(*mnt));
     if (!mnt)
         return -ENOMEM;
-    mnt->sb = vfs_open_bdev(dev, type, flags);
+    mnt->sb = vfs_open_super(dev, type, flags);
     if (IS_ERR(mnt->sb))
         return PTR_ERR(mnt->sb);
+    if (SB_IS_RDONLY(mnt->sb))
+        flags &= ~MNT_WRITE;
     mnt->flags = flags;
     refcount_set(&mnt->refs, 1);
     if (target) {
@@ -138,10 +142,10 @@ long sys_mount(struct trap_frame *frame)
     char *source __free(kfree) = NULL;
     char *target __free(kfree) = NULL;
     char *type __free(kfree) = NULL;
-    struct path src = {0};
+    const struct file_system_type *fstype;
     struct path dst = {0};
     struct inode *inode;
-    struct blkdev *dev;
+    struct blkdev *dev = NULL;
     unsigned int mntflags = MNT_READ;
     int ret;
 
@@ -157,25 +161,36 @@ long sys_mount(struct trap_frame *frame)
         if (option)
             return -EINVAL;
     }
-    source = get_pathname(usource);
-    if (IS_ERR(source))
-        return PTR_ERR(move(source));
+    if (usource) {
+        source = get_pathname(usource);
+        if (IS_ERR(source))
+            return PTR_ERR(move(source));
+    }
     target = get_pathname(utarget);
     if (IS_ERR(target))
         return PTR_ERR(move(target));
     type = get_pathname(utype);
     if (IS_ERR(type))
         return PTR_ERR(move(type));
+    fstype = vfs_find_type(type);
+    if (!fstype)
+        return -ENODEV;
 
-    ret = vfs_look(source, &src);
-    if (ret)
-        return ret;
-    inode = src.dentry->d_inode;
-    dev = S_ISBLK(inode->i_mode) ? blkdev_find(inode->i_rdev) : NULL;
-    ret = S_ISBLK(inode->i_mode) ? -ENXIO : -ENOTBLK;
-    path_put(&src);
-    if (!dev)
-        return ret;
+    if (!fstype->nodev) {
+        struct path src = {0};
+
+        if (!source)
+            return -EINVAL;
+        ret = vfs_look(source, &src);
+        if (ret)
+            return ret;
+        inode = src.dentry->d_inode;
+        dev = S_ISBLK(inode->i_mode) ? blkdev_find(inode->i_rdev) : NULL;
+        ret = S_ISBLK(inode->i_mode) ? -ENXIO : -ENOTBLK;
+        path_put(&src);
+        if (!dev)
+            return ret;
+    }
 
     mutex_lock(&mount_mutex);
     ret = vfs_look(target, &dst);
@@ -197,7 +212,7 @@ long sys_mount(struct trap_frame *frame)
     }
     if (!(flags & MS_RDONLY))
         mntflags |= MNT_WRITE;
-    ret = mnt_get(dev, type, &dst, mntflags);
+    ret = mnt_get(dev, fstype, &dst, mntflags);
 out:
     mutex_unlock(&mount_mutex);
     path_put(&dst);
@@ -238,7 +253,7 @@ long sys_umount2(struct trap_frame *frame)
     spin_unlock(&mntlock);
 
     path_put(&dst);
-    vfs_close_bdev(mnt->sb, mnt->flags);
+    vfs_close_super(mnt->sb, mnt->flags);
     spin_lock(&mntlock);
     list_del(&mnt->node);
     spin_unlock(&mntlock);

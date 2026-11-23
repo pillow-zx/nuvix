@@ -181,9 +181,13 @@ struct super_operations {
     void (*destroy_inode)(struct inode *);
 };
 
+#define SB_RDONLY        (1U << 0)
+#define SB_IS_RDONLY(sb) (!!((sb)->s_flags & SB_RDONLY))
+
 struct super_block {
     struct blkdev *s_bdev;
     struct dentry *s_root;
+    unsigned int s_flags;
     const struct super_operations *s_ops;
     const struct file_system_type *s_type;
     void *s_private;
