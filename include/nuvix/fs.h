@@ -193,10 +193,15 @@ struct super_block {
     void *s_private;
 };
 
+struct dentry_operations {
+    bool (*d_revalidate)(struct dentry *);
+};
+
 struct dentry {
     refcount_t d_count;
     struct dentry *d_parent;
     struct inode *d_inode;
+    const struct dentry_operations *d_ops;
     char *d_name;
     unsigned int d_nlen;
     struct hlist_node d_hash;

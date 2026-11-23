@@ -61,8 +61,13 @@ int vfs_lookone(const struct path *base, const char *name, size_t len,
         return -EOPNOTSUPP;
 
     found = dcache_find(base->dentry, name, len);
-    if (found)
-        goto out;
+    if (found) {
+        if (!found->d_ops || !found->d_ops->d_revalidate ||
+            found->d_ops->d_revalidate(found))
+            goto out;
+        dcache_drop(found);
+        dput(found);
+    }
 
     dentry = d_alloc(base->dentry, name, len);
     if (IS_ERR(dentry)) {
