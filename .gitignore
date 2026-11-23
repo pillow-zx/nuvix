@@ -31,6 +31,7 @@
 !fs/*.[chsSl]
 !fs/vfs/*.[chsSl]
 !fs/ext2/*.[chsSl]
+!fs/proc/*.[chsSl]
 !include/*/
 !include/*/*/
 !include/*/*.[chsSl]

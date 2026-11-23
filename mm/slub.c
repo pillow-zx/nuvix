@@ -20,6 +20,7 @@ struct kmem_cache {
     spinlock_t lock;
     struct list_head partial;
     struct list_head full;
+    IFDEF(CONFIG_PROC_FS, unsigned long nr_pages);
 };
 
 static struct kmem_cache caches[KMALLOC_SHIFT_HIGH - KMALLOC_SHIFT_LOW + 1];
@@ -107,6 +108,7 @@ static void *cache_alloc(struct kmem_cache *cache)
             return NULL;
         spin_lock_irqsave(&cache->lock, flags);
         list_add(&page->node, &cache->partial);
+        IFDEF(CONFIG_PROC_FS, ++cache->nr_pages);
     }
     page = list_first_entry(&cache->partial, struct page, node);
     object = page->slab.freelist;
@@ -190,8 +192,10 @@ void kfree(const void *ptr)
     page->slab.freelist = (void *)ptr;
     --page->slab.inuse;
     empty = !page->slab.inuse;
-    if (empty)
+    if (empty) {
         list_del(&page->node);
+        IFDEF(CONFIG_PROC_FS, --cache->nr_pages);
+    }
     spin_unlock_irqrestore(&cache->lock, flags);
 
     if (empty) {
@@ -202,7 +206,23 @@ void kfree(const void *ptr)
     }
 }
 
-/* Boot-only, after buddy_init(); caches acquire pages on demand. */
+#ifdef CONFIG_PROC_FS
+unsigned long slab_pages(void)
+{
+    unsigned long total = 0;
+
+    for (int i = 0; i < ARRLEN(caches); ++i) {
+        struct kmem_cache *cache = &caches[i];
+        unsigned long flags;
+
+        spin_lock_irqsave(&cache->lock, flags);
+        total += cache->nr_pages;
+        spin_unlock_irqrestore(&cache->lock, flags);
+    }
+    return total;
+}
+#endif
+
 static int slub_init(void)
 {
     for (unsigned int i = 0; i < sizeof(caches) / sizeof(caches[0]); ++i) {

@@ -273,7 +273,7 @@ long sys_clone(struct trap_frame *frame)
         if (ret)
             return ret;
     }
-    IFDEF(CONFIG_TRACE, memcpy(child->name, current->name, sizeof(child->name)));
+    memcpy(child->name, current->name, sizeof(child->name));
     fdtable_clone(child->fdtable, current->fdtable);
     child->cwd = current->cwd;
     path_get(&child->cwd);

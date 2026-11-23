@@ -26,6 +26,7 @@ struct rq {
     struct list_head ready_list;
     /* Includes the ordinary current task, but never idle. */
     atomic_t nr_runnable;
+    IFDEF(CONFIG_PROC_FS, uint64_t nr_switches);
     uint64_t quantum_deadline;
 } __aligned(SMP_CACHE_BYTES);
 
@@ -59,6 +60,10 @@ static inline struct rq *this_rq(void)
 
 /* Boot-only, once after cpu_init() and tick_init(), before concurrent rq use. */
 void sched_init(void);
+
+#ifdef CONFIG_PROC_FS
+void sched_stats(uint64_t *switches, unsigned int *runnable);
+#endif
 
 /*
  * Boot-only registration of a prepared NEW kernel task. Takes a permanent

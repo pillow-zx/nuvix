@@ -13,6 +13,20 @@ static unsigned int next_cpu;
 #endif
 static uint64_t quantum_ticks;
 
+#ifdef CONFIG_PROC_FS
+void sched_stats(uint64_t *switches, unsigned int *runnable)
+{
+    *switches = 0;
+    *runnable = 0;
+    for (unsigned int id = 0; id < nr_cpus; ++id) {
+        struct rq *rq = cpu_rq(id);
+
+        *switches += READ_ONCE(rq->nr_switches);
+        *runnable += atomic_read(&rq->nr_runnable);
+    }
+}
+#endif
+
 static void enqueue_task(struct rq *rq, struct task *task)
 {
     Assert(!task->on_rq && task != rq->idle,
@@ -274,6 +288,7 @@ struct mm_struct *sched_finish_switch_locked(struct rq *rq, struct task *prev)
           Assert(local_irqs_disabled() && preempt_count() == 1,
                  "invalid switch finish context\n"));
     Assert(prev != rq->curr, "switch finish requires a real switch\n");
+    IFDEF(CONFIG_PROC_FS, WRITE_ONCE(rq->nr_switches, rq->nr_switches + 1));
     prev->on_cpu = false;
     mm = rq->prev_mm;
     rq->prev_mm = NULL;

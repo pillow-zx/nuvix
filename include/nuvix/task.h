@@ -35,6 +35,7 @@ struct completion;
 #define TASK_KILLABLE        (1U << 5)
 
 #define TASK_NORMAL          (TASK_INTERRUPTIBLE | TASK_UNINTERRUPTIBLE)
+#define TASK_NAME_LEN        32
 
 struct task {
     refcount_t refcount;
@@ -55,7 +56,7 @@ struct task {
 
     struct pid *pids[PIDTYPE_MAX];
     struct hlist_node pid_links[PIDTYPE_MAX];
-    IFDEF(CONFIG_TRACE, char name[32]);
+    char name[TASK_NAME_LEN];
 
     struct mm_struct *mm;
     struct fdtable *fdtable;

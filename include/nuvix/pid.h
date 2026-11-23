@@ -74,4 +74,10 @@ int send_group_signal(pid_t pgid, const struct siginfo *info);
 
 int send_group_signal_pid(struct pid *pgrp, const struct siginfo *info);
 
+#ifdef CONFIG_PROC_FS
+uint64_t pid_procs_created(void);
+pid_t pid_next_proc(pid_t start);
+pid_t task_ppid_nr(const struct task *task);
+#endif
+
 #endif /* _NUVIX_PID_H */

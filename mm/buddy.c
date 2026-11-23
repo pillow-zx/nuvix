@@ -70,12 +70,28 @@ static unsigned long snapshot(unsigned long *counts)
 
     spin_lock_irqsave(&buddy_lock, flags);
     for (unsigned int order = 0; order < CONFIG_MAX_ORDER; ++order) {
-        counts[order] = free_area[order].nr_free;
-        total += counts[order] << order;
+        unsigned long blocks = free_area[order].nr_free;
+
+        if (counts)
+            counts[order] = blocks;
+        total += blocks << order;
     }
     spin_unlock_irqrestore(&buddy_lock, flags);
     return total;
 }
+
+#ifdef CONFIG_PROC_FS
+void buddy_meminfo(unsigned long *total, unsigned long *free)
+{
+    *total = managed_pages;
+    *free = snapshot(NULL);
+}
+
+void buddy_free_areas(unsigned long counts[CONFIG_MAX_ORDER])
+{
+    snapshot(counts);
+}
+#endif
 
 static void buddy_dump(void)
 {

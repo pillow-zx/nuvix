@@ -4,6 +4,10 @@ config EXT2_FS
 	bool "The Extended 2 (ext2) filesystem"
 	default y
 
+config PROC_FS
+	bool "The /proc filesystem"
+	default y
+
 endmenu
 
 

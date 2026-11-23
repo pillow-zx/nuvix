@@ -42,6 +42,11 @@ extern unsigned long min_pfn, max_pfn;
  */
 int page_init(void);
 
+#ifdef CONFIG_PROC_FS
+void buddy_meminfo(unsigned long *total, unsigned long *free);
+void buddy_free_areas(unsigned long counts[CONFIG_MAX_ORDER]);
+#endif
+
 /*
  * Requires buddy_init(). Only the block head owns a reference;
  * interior pages must not be referenced.

@@ -14,6 +14,20 @@ static unsigned int next_pid = PID_INIT;
 static DEFINE_HASHTABLE(pid_table, 8);
 static DEFINE_SPINLOCK(pid_lock);
 
+#ifdef CONFIG_PROC_FS
+static uint64_t procs_created;
+
+uint64_t pid_procs_created(void)
+{
+    uint64_t total;
+
+    spin_lock(&pid_lock);
+    total = procs_created;
+    spin_unlock(&pid_lock);
+    return total;
+}
+#endif
+
 static struct pid *pid_alloc(void)
 {
     struct pid *pid __free(kfree) = kzalloc(sizeof(*pid));
@@ -60,6 +74,33 @@ static struct task *pid_task_locked(struct pid *pid, enum pid_type type)
     return hlist_entry_safe(pid->tasks[type].first, struct task,
                             pid_links[type]);
 }
+
+#ifdef CONFIG_PROC_FS
+pid_t pid_next_proc(pid_t start)
+{
+    unsigned long nr;
+
+    spin_lock(&pid_lock);
+    for (nr = find_next_bit(pidmap, PID_MAX, start); nr < PID_MAX;
+         nr = find_next_bit(pidmap, PID_MAX, nr + 1)) {
+        if (pid_task_locked(find_pid_locked(nr), PIDTYPE_TGID))
+            break;
+    }
+    spin_unlock(&pid_lock);
+    return (pid_t)nr;
+}
+
+pid_t task_ppid_nr(const struct task *task)
+{
+    pid_t nr = 0;
+
+    spin_lock(&pid_lock);
+    if (!hlist_unhashed(&task->pid_links[PIDTYPE_TGID]) && task != init)
+        nr = task->parent->pids[PIDTYPE_TGID]->nr;
+    spin_unlock(&pid_lock);
+    return nr;
+}
+#endif
 
 struct task *pid_lookup_task(pid_t nr, enum pid_type type)
 {
@@ -284,6 +325,7 @@ void pid_publish(struct task *task)
             hash_add(pid_table, &pid->hash_node, pid->nr);
         hlist_add_head(&task->pid_links[type], &pid->tasks[type]);
     }
+    IFDEF(CONFIG_PROC_FS, ++procs_created);
     spin_unlock(&pid_lock);
 }
 

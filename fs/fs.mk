@@ -18,3 +18,10 @@ obj-$(CONFIG_EXT2_FS) 		+= fs/ext2/balloc.c
 obj-$(CONFIG_EXT2_FS) 		+= fs/ext2/ialloc.c
 obj-$(CONFIG_EXT2_FS) 		+= fs/ext2/namei.c
 
+obj-$(CONFIG_PROC_FS) 		+= fs/proc/proc.c
+obj-$(CONFIG_PROC_FS) 		+= fs/proc/mem.c
+obj-$(CONFIG_PROC_FS) 		+= fs/proc/stat.c
+obj-$(CONFIG_PROC_FS) 		+= fs/proc/base.c
+obj-$(CONFIG_PROC_FS) 		+= fs/proc/fs.c
+obj-$(CONFIG_PROC_FS) 		+= fs/proc/pid.c
+
