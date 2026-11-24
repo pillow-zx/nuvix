@@ -21,6 +21,30 @@
                         sigmask(SIGURG) | sigmask(SIGWINCH))
 // clang-format on
 
+struct sighand *sighand_alloc(void)
+{
+    struct sighand *sighand = kzalloc(sizeof(*sighand));
+
+    if (!sighand)
+        return NULL;
+    spin_lock_init(&sighand->lock);
+    refcount_set(&sighand->refs, 1);
+    return sighand;
+}
+
+void sighand_put(struct sighand *sighand)
+{
+    if (sighand && refcount_dec_and_test(&sighand->refs))
+        kfree(sighand);
+}
+
+static void sighand_clone(struct sighand *dst, struct sighand *src)
+{
+    spin_lock(&src->lock);
+    memcpy(dst->actions, src->actions, sizeof(dst->actions));
+    spin_unlock(&src->lock);
+}
+
 static inline bool signal_ignored(const struct sigaction *action, int sig)
 {
     return action->sa_handler == SIG_IGN ||
@@ -60,8 +84,22 @@ void signal_task_init(struct task *task)
     task->pending.signal = 0;
     task->blocked = 0;
     task->sigstack = (stack_t){.ss_flags = SS_DISABLE};
-    for (unsigned int i = 0; i < SIG_MAX; ++i)
-        task->actions[i] = (struct sigaction){.sa_handler = SIG_DFL};
+}
+
+int signal_task_clone(struct task *child, bool share)
+{
+    struct sighand *sighand = current->sighand;
+
+    if (share) {
+        refcount_inc(&sighand->refs);
+        child->sighand = sighand;
+    } else {
+        child->sighand = sighand_alloc();
+        if (!child->sighand)
+            return -ENOMEM;
+        sighand_clone(child->sighand, sighand);
+    }
+    return 0;
 }
 
 void signal_task_free(struct task *task)
@@ -74,6 +112,7 @@ void signal_task_free(struct task *task)
         list_del_init(&entry->list);
     }
     task->pending.signal = 0;
+    sighand_put(move(task->sighand));
 }
 
 static void flush_signals_locked(struct task *task, sigset_t mask)
@@ -93,6 +132,7 @@ static void flush_signals_locked(struct task *task, sigset_t mask)
 int send_signal(struct task *task, const siginfo_t *info)
 {
     struct sigqueue *queue __free(kfree) = NULL;
+    struct sighand *sighand;
     int sig = info->si_signo;
     bool notify;
 
@@ -110,15 +150,18 @@ int send_signal(struct task *task, const siginfo_t *info)
         flush_signals_locked(task, SIG_STOPMASK);
     if (sig == SIGCONT || sig == SIGKILL)
         task_clear_flag(task, TF_STOPPENDING);
+    sighand = task->sighand;
+    spin_lock(&sighand->lock);
     if (sig_valid(task, sig) &&
         ((task->blocked & sigmask(sig)) ||
-         !signal_ignored(&task->actions[sig - 1], sig))) {
+         !signal_ignored(&sighand->actions[sig - 1], sig))) {
         if (queue) {
             list_add_tail(&queue->list, &task->pending.list);
             keep(queue);
         }
         task->pending.signal |= sigmask(sig);
     }
+    spin_unlock(&sighand->lock);
     recalc_sigpending(task);
     if (sig == SIGCONT || sig == SIGKILL)
         sched_resume(task);
@@ -168,6 +211,54 @@ static void wait_for_signal(void)
     }
 }
 
+static int pick_signal_locked(struct task *task, siginfo_t *info,
+                              const siginfo_t *fault)
+{
+    sigset_t pending;
+    int sig;
+
+    if (fault) {
+        sig = fault->si_signo;
+        *info = *fault;
+        if (sig_pending(task, sig))
+            dequeue_signal_locked(task, sig, info);
+        return sig;
+    }
+
+    pending = task->pending.signal & ~task->blocked;
+    if (!pending)
+        return 0;
+    sig = (pending & sigmask(SIGKILL)) ? SIGKILL
+                                       : find_first_bit(&pending, SIG_MAX) + 1;
+    dequeue_signal_locked(task, sig, info);
+    return sig;
+}
+
+static bool prepare_signal_locked(struct task *task, struct ksignal *signal,
+                                  int sig, bool fault)
+{
+    struct sighand *sighand = task->sighand;
+    sighandler_t handler;
+    bool fatal;
+
+    spin_lock(&sighand->lock);
+    signal->action = sighand->actions[sig - 1];
+    handler = signal->action.sa_handler;
+    signal->oldmask = task_test_flag(task, TF_SIGSUSPEND | TF_RESIGMASK)
+                          ? task->sigmask : task->blocked;
+    fatal = fault && ((task->blocked & sigmask(sig)) || handler == SIG_DFL ||
+                      handler == SIG_IGN);
+    if (!fatal && handler != SIG_DFL && handler != SIG_IGN &&
+        (signal->action.sa_flags & SA_RESETHAND))
+        sighand->actions[sig - 1].sa_handler = SIG_DFL;
+    spin_unlock(&sighand->lock);
+
+    if (handler == SIG_DFL && (SIG_STOPMASK & sigmask(sig)))
+        task_set_flag(task, TF_STOPPENDING);
+    recalc_sigpending(task);
+    return fatal;
+}
+
 bool get_signal(struct ksignal *signal, const siginfo_t *fault)
 {
     struct task *task = current;
@@ -177,50 +268,24 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
         bool fatal;
 
         spin_lock(&task->signal_lock);
-        if (fault) {
-            sig = fault->si_signo;
-            signal->info = *fault;
-            if (sig_pending(task, sig))
-                dequeue_signal_locked(task, sig, &signal->info);
-        } else {
-            sigset_t pending = task->pending.signal & ~task->blocked;
-
-            if (!pending) {
-                if (task_test_flag(task, TF_RESIGMASK)) {
-                    task->blocked = task->sigmask;
-                    task_clear_flag(task, TF_RESIGMASK);
-                    recalc_sigpending(task);
-                    spin_unlock(&task->signal_lock);
-                    continue;
-                }
+        sig = pick_signal_locked(task, &signal->info, fault);
+        if (!sig) {
+            if (task_test_flag(task, TF_RESIGMASK)) {
+                task->blocked = task->sigmask;
+                task_clear_flag(task, TF_RESIGMASK);
+                recalc_sigpending(task);
                 spin_unlock(&task->signal_lock);
-                if (task_test_flag(task, TF_SIGSUSPEND)) {
-                    wait_for_signal();
-                    continue;
-                }
-                return false;
+                continue;
             }
-            sig = (pending & sigmask(SIGKILL))
-                      ? SIGKILL
-                      : find_first_bit(&pending, SIG_MAX) + 1;
-            dequeue_signal_locked(task, sig, &signal->info);
+            spin_unlock(&task->signal_lock);
+            if (task_test_flag(task, TF_SIGSUSPEND)) {
+                wait_for_signal();
+                continue;
+            }
+            return false;
         }
 
-        signal->action = task->actions[sig - 1];
-        signal->oldmask = task_test_flag(task, TF_SIGSUSPEND | TF_RESIGMASK)
-                              ? task->sigmask
-                              : task->blocked;
-        fatal = fault && ((task->blocked & sigmask(sig)) ||
-                          signal->action.sa_handler == SIG_DFL ||
-                          signal->action.sa_handler == SIG_IGN);
-        if (!fatal && signal->action.sa_handler != SIG_DFL &&
-            signal->action.sa_handler != SIG_IGN &&
-            (signal->action.sa_flags & SA_RESETHAND))
-            task->actions[sig - 1].sa_handler = SIG_DFL;
-        if (signal->action.sa_handler == SIG_DFL &&
-            (SIG_STOPMASK & sigmask(sig)))
-            task_set_flag(task, TF_STOPPENDING);
-        recalc_sigpending(task);
+        fatal = prepare_signal_locked(task, signal, sig, fault != NULL);
         spin_unlock(&task->signal_lock);
 
         if (fatal)
@@ -367,6 +432,7 @@ long sys_rt_sigaction(struct trap_frame *frame)
 
     struct task *task = current;
     struct sigaction new, old;
+    struct sighand *sighand;
 
     if (sigsetsize != SIGSET_SIZE || sig == 0 || !IN_RANGE(sig, 0, SIG_MAX))
         return -EINVAL;
@@ -380,13 +446,16 @@ long sys_rt_sigaction(struct trap_frame *frame)
     }
 
     spin_lock(&task->signal_lock);
-    old = task->actions[sig - 1];
+    sighand = task->sighand;
+    spin_lock(&sighand->lock);
+    old = sighand->actions[sig - 1];
     if (act) {
-        task->actions[sig - 1] = new;
+        sighand->actions[sig - 1] = new;
         if (signal_ignored(&new, sig))
             flush_signals_locked(task, sigmask(sig));
         recalc_sigpending(task);
     }
+    spin_unlock(&sighand->lock);
     spin_unlock(&task->signal_lock);
 
     if (oldact) {
@@ -517,14 +586,20 @@ long sys_sigaltstack(struct trap_frame *frame)
     return 0;
 }
 
-void signal_clone(void)
+void signal_exec(struct sighand *new)
 {
     struct task *task = current;
+    struct sighand *old = NULL;
 
     spin_lock(&task->signal_lock);
+    if (new) {
+        old = task->sighand;
+        sighand_clone(new, old);
+        task->sighand = new;
+    }
     task->sigstack = (stack_t){.ss_flags = SS_DISABLE};
     for (unsigned int i = 0; i < SIG_MAX; ++i) {
-        struct sigaction *action = &task->actions[i];
+        struct sigaction *action = &task->sighand->actions[i];
 
         if (action->sa_handler != SIG_IGN)
             action->sa_handler = SIG_DFL;
@@ -532,4 +607,5 @@ void signal_clone(void)
         action->sa_mask = 0;
     }
     spin_unlock(&task->signal_lock);
+    sighand_put(old);
 }

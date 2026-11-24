@@ -34,6 +34,9 @@ static DEFINE_WAIT_QUEUE(child_wait);
 #define P_PGID               2
 
 #define CLONE_VM             0x00000100UL
+#define CLONE_FS             0x00000200UL
+#define CLONE_FILES          0x00000400UL
+#define CLONE_SIGHAND        0x00000800UL
 #define CLONE_VFORK          0x00004000UL
 #define CLONE_SETTLS         0x00080000UL
 #define CLONE_PARENT_SETTID  0x00100000UL
@@ -65,16 +68,10 @@ struct task *task_alloc(bool user)
     if (!page)
         return NULL;
     struct mm_struct *mm __free(mm_put) = NULL;
-    struct fdtable *files __free(kfree) = NULL;
 
     if (user) {
         mm = mm_alloc();
         if (!mm)
-            return NULL;
-        files = kzalloc(sizeof(*files));
-        if (!files)
-            return NULL;
-        if (fdtable_init(files))
             return NULL;
     }
 
@@ -89,7 +86,6 @@ struct task *task_alloc(bool user)
     task->kstack = (void *)__va(page_to_phys(move(page)));
     task->ctx.sp = (vaddr_t)task->kstack + KSTACK_SIZE;
     task->mm = move(mm);
-    task->fdtable = move(files);
     if (user) {
         signal_task_init(task);
         task_set_flag(task, TF_FORKNOEXEC);
@@ -105,11 +101,11 @@ void task_get(struct task *task)
 static void free_resource(struct task *task)
 {
     struct fdtable *fdt = move(task->fdtable);
+    struct fs_struct *fs = move(task->fs);
     struct mm_struct *mm = move(task->mm);
 
-    fdtable_destroy(fdt);
-    path_put(&task->cwd);
-    kfree(fdt);
+    fdtable_put(fdt);
+    fs_put(fs);
     mm_put(mm);
 }
 
@@ -254,12 +250,15 @@ long sys_clone(struct trap_frame *frame)
     unsigned long uflags = syscallarg(frame, 0);
     unsigned long sp = syscallarg(frame, 1);
     unsigned long tls = (uflags & CLONE_SETTLS) ? syscallarg(frame, 3) : 0;
+
     struct task *child __free(task) = NULL;
     DEFINE_COMPLETION(done);
     unsigned long flags;
     pid_t pid;
     int ret;
 
+    if ((uflags & CLONE_SIGHAND) && !(uflags & CLONE_VM))
+        return -EINVAL;
     child = task_alloc(true);
     if (!child)
         return -ENOMEM;
@@ -273,15 +272,30 @@ long sys_clone(struct trap_frame *frame)
         if (ret)
             return ret;
     }
+    if (uflags & CLONE_FILES) {
+        fdtable_get(current->fdtable);
+        child->fdtable = current->fdtable;
+    } else {
+        child->fdtable = fdtable_clone(current->fdtable);
+        if (!child->fdtable)
+            return -ENOMEM;
+    }
+    if (uflags & CLONE_FS) {
+        fs_get(current->fs);
+        child->fs = current->fs;
+    } else {
+        child->fs = fs_clone(current->fs);
+        if (!child->fs)
+            return -ENOMEM;
+    }
     memcpy(child->name, current->name, sizeof(child->name));
-    fdtable_clone(child->fdtable, current->fdtable);
-    child->cwd = current->cwd;
-    path_get(&child->cwd);
+    ret = signal_task_clone(child, uflags & CLONE_SIGHAND);
+    if (ret)
+        return ret;
     spin_lock(&current->signal_lock);
     child->blocked = current->blocked;
     if (!(uflags & CLONE_VM) || (uflags & CLONE_VFORK))
         child->sigstack = current->sigstack;
-    memcpy(child->actions, current->actions, sizeof(child->actions));
     spin_unlock(&current->signal_lock);
     ret = pid_prepare(child, current);
     if (ret)

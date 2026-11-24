@@ -5,6 +5,7 @@
 #include <nuvix/module.h>
 #include <nuvix/vfs.h>
 #include <nuvix/fdtable.h>
+#include <nuvix/bitops.h>
 #include <nuvix/slab.h>
 #include <nuvix/errno.h>
 #include <nuvix/layout.h>
@@ -531,8 +532,9 @@ int init_stdio(struct fdtable *fdt)
     if (IS_ERR(error))
         return PTR_ERR(move(error));
 
-    fd_install(fdt, stdin, move(input));
-    fd_install(fdt, stdout, move(output));
-    fd_install(fdt, stderr, move(error));
+    fdt->bitmap = BIT(stdin) | BIT(stdout) | BIT(stderr);
+    fd_install(fdt, stdin, move(input), false);
+    fd_install(fdt, stdout, move(output), false);
+    fd_install(fdt, stderr, move(error), false);
     return 0;
 }

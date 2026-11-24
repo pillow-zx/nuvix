@@ -3,11 +3,14 @@
 
 #include <nuvix/assert.h>
 #include <nuvix/ctypes.h>
+#include <nuvix/cleanup.h>
+#include <nuvix/refcount.h>
 #include <nuvix/spinlock.h>
 
 struct file;
 
 struct fdtable {
+    refcount_t refs;
     spinlock_t lock;
     struct file **files;
     unsigned long bitmap;
@@ -18,12 +21,15 @@ struct fdtable {
 #define stdout 1
 #define stderr 2
 
-int fdtable_init(struct fdtable *fdt);
+struct fdtable *fdtable_alloc(void);
+struct fdtable *fdtable_clone(struct fdtable *src);
 
-void fdtable_destroy(struct fdtable *fdt);
-void fdtable_clone(struct fdtable *dst, struct fdtable *src);
+void fdtable_get(struct fdtable *fdt);
+void fdtable_put(struct fdtable *fdt);
 
-void fdtable_close_on_exec(struct fdtable *fdt);
+DECLARE_FREE(fdtable, struct fdtable *, fdtable_put(_T));
+
+void fdtable_cloexec(struct fdtable *fdt);
 
 int fd_alloc(struct fdtable *fdt);
 
@@ -31,10 +37,8 @@ int fd_alloc_from(struct fdtable *fdt, unsigned long min);
 
 void fd_release(struct fdtable *fdt, unsigned long fd);
 
-void fd_install(struct fdtable *fdt, unsigned long fd, struct file *file);
-
-struct file *fd_replace(struct fdtable *fdt, unsigned long fd,
-                        struct file *file, bool cloexec);
+void fd_install(struct fdtable *fdt, unsigned long fd, struct file *file,
+                bool cloexec);
 
 struct file *fd_open(struct fdtable *fdt, unsigned long fd);
 

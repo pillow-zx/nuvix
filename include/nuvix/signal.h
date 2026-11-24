@@ -2,6 +2,8 @@
 #define _NUVIX_SIGNAL_H
 
 #include <nuvix/assert.h>
+#include <nuvix/cleanup.h>
+#include <nuvix/spinlock.h>
 #include <nuvix/ctypes.h>
 #include <nuvix/list.h>
 #include <nuvix/pid.h>
@@ -118,9 +120,9 @@ typedef struct siginfo {
     } fields;
 } siginfo_t;
 
-#define si_pid  fields.kill.pid
-#define si_uid  fields.kill.uid
-#define si_addr fields.fault.addr
+#define si_pid    fields.kill.pid
+#define si_uid    fields.kill.uid
+#define si_addr   fields.fault.addr
 #define si_status fields.child.status
 
 struct ksignal {
@@ -141,12 +143,25 @@ struct sigpending {
 
 struct task;
 
+struct sighand {
+    spinlock_t lock;
+    refcount_t refs;
+    struct sigaction actions[SIG_MAX];
+};
+
 #define sig_valid(task, sig)   (!(((task)->pending.signal) & sigmask((sig))))
 #define sig_pending(task, sig) (!!(((task)->pending.signal) & sigmask((sig))))
 
+struct sighand *sighand_alloc(void);
+void sighand_put(struct sighand *sighand);
+
+DECLARE_FREE(sighand, struct sighand *, sighand_put(_T));
+
 void signal_task_init(struct task *task);
 void signal_task_free(struct task *task);
-void signal_clone(void);
+int signal_task_clone(struct task *child, bool share);
+
+void signal_exec(struct sighand *new);
 
 int signal_stack_flags(unsigned long sp);
 int signal_set_stack(const stack_t *stack, unsigned long sp);

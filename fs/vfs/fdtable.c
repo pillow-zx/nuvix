@@ -9,33 +9,35 @@
 #include <nuvix/task.h>
 #include <asm/trap.h>
 
-int fdtable_init(struct fdtable *fdt)
+struct fdtable *fdtable_alloc(void)
 {
-    struct file **files __free(kfree) = NULL;
+    struct fdtable *fdt __free(kfree) = kzalloc(sizeof(*fdt));
 
-    files = kzalloc(BITS_PER_LONG * sizeof(*files));
-    if (!files)
-        return -ENOMEM;
-
+    if (!fdt)
+        return NULL;
+    fdt->files = kzalloc(BITS_PER_LONG * sizeof(*fdt->files));
+    if (!fdt->files)
+        return NULL;
+    refcount_set(&fdt->refs, 1);
     spin_lock_init(&fdt->lock);
-    bitmap_zero(&fdt->bitmap, BITS_PER_LONG);
-    bitmap_zero(&fdt->cloexec, BITS_PER_LONG);
-    fdt->files = move(files);
-    set_bit(stdin, &fdt->bitmap);
-    set_bit(stdout, &fdt->bitmap);
-    set_bit(stderr, &fdt->bitmap);
-    return 0;
+    return move(fdt);
 }
 
-void fdtable_destroy(struct fdtable *fdt)
+void fdtable_get(struct fdtable *fdt)
+{
+    refcount_inc(&fdt->refs);
+}
+
+void fdtable_put(struct fdtable *fdt)
 {
     unsigned long fd;
-    for_each_set_bit (fd, &fdt->bitmap, BITS_PER_LONG) {
-        struct file *file = fdt->files[fd];
-        if (file)
-            fput(file);
-    }
+
+    if (!fdt || !refcount_dec_and_test(&fdt->refs))
+        return;
+    for_each_set_bit (fd, &fdt->bitmap, BITS_PER_LONG)
+        fput(fdt->files[fd]);
     kfree(fdt->files);
+    kfree(fdt);
 }
 
 int fd_alloc_from(struct fdtable *fdt, unsigned long min)
@@ -74,38 +76,27 @@ void fd_release(struct fdtable *fdt, unsigned long fd)
     spin_unlock_irqrestore(&fdt->lock, flags);
 }
 
-void fd_install(struct fdtable *fdt, unsigned long fd, struct file *file)
+static void fd_set_cloexec_locked(struct fdtable *fdt, unsigned long fd,
+                                  bool cloexec)
+{
+    if (cloexec)
+        set_bit(fd, &fdt->cloexec);
+    else
+        clear_bit(fd, &fdt->cloexec);
+}
+
+void fd_install(struct fdtable *fdt, unsigned long fd, struct file *file,
+                bool cloexec)
 {
     unsigned long flags;
 
     spin_lock_irqsave(&fdt->lock, flags);
     Assert(file && !IS_ERR(file) && fd < BITS_PER_LONG &&
-               test_bit(fd, &fdt->bitmap),
+               test_bit(fd, &fdt->bitmap) && !fdt->files[fd],
            "fd installation requires a reserved slot and an opened file\n");
     fdt->files[fd] = file;
+    fd_set_cloexec_locked(fdt, fd, cloexec);
     spin_unlock_irqrestore(&fdt->lock, flags);
-}
-
-struct file *fd_replace(struct fdtable *fdt, unsigned long fd,
-                        struct file *file, bool cloexec)
-{
-    struct file *replaced;
-    unsigned long flags;
-
-    Assert(file && !IS_ERR(file) && fd < BITS_PER_LONG,
-           "fd installation requires an opened file and a valid fd\n");
-
-    spin_lock_irqsave(&fdt->lock, flags);
-    replaced = fdt->files[fd];
-    fdt->files[fd] = file;
-    set_bit(fd, &fdt->bitmap);
-    if (cloexec)
-        set_bit(fd, &fdt->cloexec);
-    else
-        clear_bit(fd, &fdt->cloexec);
-    spin_unlock_irqrestore(&fdt->lock, flags);
-
-    return replaced;
 }
 
 struct file *fd_open(struct fdtable *fdt, unsigned long fd)
@@ -141,19 +132,28 @@ int fd_close(struct fdtable *fdt, unsigned long fd)
     return fput(file);
 }
 
-void fdtable_clone(struct fdtable *dst, struct fdtable *src)
+struct fdtable *fdtable_clone(struct fdtable *src)
 {
-    unsigned long flags;
+    struct fdtable *dst = fdtable_alloc();
+    unsigned long fd, flags;
 
+    if (!dst)
+        return NULL;
     spin_lock_irqsave(&src->lock, flags);
-    dst->bitmap = src->bitmap;
-    dst->cloexec = src->cloexec;
-    for (unsigned long fd = 0; fd < BITS_PER_LONG; ++fd)
-        dst->files[fd] = fget(src->files[fd]);
+    for_each_set_bit (fd, &src->bitmap, BITS_PER_LONG) {
+        struct file *file = src->files[fd];
+
+        if (!file)
+            continue;
+        dst->files[fd] = fget(file);
+        set_bit(fd, &dst->bitmap);
+    }
+    dst->cloexec = src->cloexec & dst->bitmap;
     spin_unlock_irqrestore(&src->lock, flags);
+    return dst;
 }
 
-void fdtable_close_on_exec(struct fdtable *fdt)
+void fdtable_cloexec(struct fdtable *fdt)
 {
     unsigned long fd;
 
@@ -168,10 +168,7 @@ void fd_set_cloexec(struct fdtable *fdt, unsigned long fd, bool enable)
     Assert(fd < BITS_PER_LONG, "fd cloexec update requires a valid fd\n");
 
     spin_lock_irqsave(&fdt->lock, flags);
-    if (enable)
-        set_bit(fd, &fdt->cloexec);
-    else
-        clear_bit(fd, &fdt->cloexec);
+    fd_set_cloexec_locked(fdt, fd, enable);
     spin_unlock_irqrestore(&fdt->lock, flags);
 }
 
@@ -203,7 +200,7 @@ long sys_dup(struct trap_frame *frame)
     if (newfd < 0)
         return newfd;
 
-    fd_install(fdt, (unsigned long)newfd, move(file));
+    fd_install(fdt, (unsigned long)newfd, move(file), false);
     return newfd;
 }
 
@@ -213,22 +210,34 @@ long sys_dup3(struct trap_frame *frame)
     unsigned int newfd = syscallarg(frame, 1);
     unsigned int flags = syscallarg(frame, 2);
     struct fdtable *fdt = current->fdtable;
-    struct file *file __free(fput) = NULL;
-    struct file *replaced;
+    struct file *file, *replaced = NULL;
+    unsigned long irqflags;
+    long ret;
 
     if (flags & ~O_CLOEXEC)
         return -EINVAL;
     if (oldfd == newfd)
         return -EINVAL;
-    if (newfd >= BITS_PER_LONG)
+    if (oldfd >= BITS_PER_LONG || newfd >= BITS_PER_LONG)
         return -EBADF;
 
-    file = fd_open(fdt, oldfd);
-    if (!file)
-        return -EBADF;
-
-    replaced = fd_replace(fdt, newfd, move(file), flags & O_CLOEXEC);
+    spin_lock_irqsave(&fdt->lock, irqflags);
+    file = fdt->files[oldfd];
+    if (!file) {
+        ret = -EBADF;
+        goto out;
+    }
+    if (!fdt->files[newfd] && test_bit(newfd, &fdt->bitmap)) {
+        ret = -EBUSY;
+        goto out;
+    }
+    replaced = fdt->files[newfd];
+    fdt->files[newfd] = fget(file);
+    set_bit(newfd, &fdt->bitmap);
+    fd_set_cloexec_locked(fdt, newfd, flags & O_CLOEXEC);
+    ret = newfd;
+out:
+    spin_unlock_irqrestore(&fdt->lock, irqflags);
     fput(replaced);
-
-    return newfd;
+    return ret;
 }

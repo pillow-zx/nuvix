@@ -2,6 +2,8 @@
 #define _NUVIX_PATH_H
 
 #include <nuvix/cleanup.h>
+#include <nuvix/refcount.h>
+#include <nuvix/spinlock.h>
 
 struct dentry;
 struct mount;
@@ -10,6 +12,20 @@ struct path {
     struct mount *mnt;
     struct dentry *dentry;
 };
+
+struct fs_struct {
+    refcount_t refs;
+    spinlock_t lock;
+    struct path cwd;
+};
+
+struct fs_struct *fs_alloc(void);
+struct fs_struct *fs_clone(struct fs_struct *src);
+void fs_get(struct fs_struct *fs);
+void fs_put(struct fs_struct *fs);
+
+struct path fs_get_cwd(struct fs_struct *fs);
+void fs_set_cwd(struct fs_struct *fs, struct path cwd);
 
 #define AT_FDCWD    (-100)
 #define PATH_FOLLOW (1U << 0)

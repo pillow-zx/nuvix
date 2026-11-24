@@ -175,7 +175,7 @@ long sys_openat(struct trap_frame *frame)
         fd_release(current->fdtable, fd);
         return PTR_ERR(move(file));
     }
-    fd_replace(current->fdtable, (unsigned long)fd, move(file), cloexec);
+    fd_install(current->fdtable, (unsigned long)fd, move(file), cloexec);
     return fd;
 }
 
@@ -730,7 +730,7 @@ long sys_fcntl(struct trap_frame *frame)
         newfd = fd_alloc_from(fdt, (unsigned long)min);
         if (newfd < 0)
             return newfd;
-        fd_replace(fdt, (unsigned long)newfd, move(file),
+        fd_install(fdt, (unsigned long)newfd, move(file),
                    cmd == F_DUPFD_CLOEXEC);
         return newfd;
     }
@@ -779,8 +779,7 @@ long sys_chdir(struct trap_frame *frame)
         goto fail;
     }
 
-    path_put(&current->cwd);
-    current->cwd = move(resolved);
+    fs_set_cwd(current->fs, move(resolved));
     return 0;
 
 fail:
@@ -799,9 +798,8 @@ long sys_fchdir(struct trap_frame *frame)
     if (!S_ISDIR(file->f_inode->i_mode))
         return -ENOTDIR;
 
-    path_put(&current->cwd);
     path_get(&file->f_path);
-    current->cwd = file->f_path;
+    fs_set_cwd(current->fs, file->f_path);
     return 0;
 }
 
@@ -809,21 +807,21 @@ long sys_getcwd(struct trap_frame *frame)
 {
     char *ubuf = (char *)syscallarg(frame, 0);
     size_t size = syscallarg(frame, 1);
-    struct dentry *dentry = current->cwd.dentry;
+    struct path cwd;
     char *buffer __free(kfree) = NULL;
     char *pos;
     size_t len;
 
     if (!size)
         return -EINVAL;
-    if (!dentry)
-        return -ENOENT;
 
     buffer = kmalloc(PATH_MAX);
     if (!buffer)
         return -ENOMEM;
 
-    pos = dentry_path(&current->cwd, buffer, PATH_MAX);
+    cwd = fs_get_cwd(current->fs);
+    pos = dentry_path(&cwd, buffer, PATH_MAX);
+    path_put(&cwd);
     if (IS_ERR(pos))
         return PTR_ERR(pos);
 

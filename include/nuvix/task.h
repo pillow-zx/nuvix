@@ -10,11 +10,11 @@
 #include <nuvix/pid.h>
 #include <nuvix/signal.h>
 #include <nuvix/spinlock.h>
-#include <nuvix/path.h>
 #include <nuvix/futex.h>
 #include <asm/task.h>
 
 struct fdtable;
+struct fs_struct;
 struct completion;
 
 #define TASK_CPU_NONE        ((unsigned int)-1)
@@ -61,7 +61,7 @@ struct task {
     struct mm_struct *mm;
     struct fdtable *fdtable;
     struct completion *vfork_done;
-    struct path cwd;
+    struct fs_struct *fs;
 
     /*
      * NULL for kernel tasks; user tasks self-parent until attached to a parent,
@@ -80,7 +80,7 @@ struct task {
     sigset_t blocked;
     sigset_t sigmask;
     stack_t sigstack;
-    struct sigaction actions[SIG_MAX];
+    struct sighand *sighand;
 };
 
 extern struct task boot_task;
@@ -102,7 +102,6 @@ void task_get(struct task *task);
 
 void task_put(struct task *task);
 
-/* Called by the architecture's kernel task entry assembly. */
 __noreturn void ktask_entry(struct task *prev, int (*fn)(void *), void *arg);
 
 DECLARE_FREE(task_put, struct task *, if (_T) task_put(_T));
@@ -112,31 +111,24 @@ DECLARE_FREE(task, struct task *, if (_T) task_free(_T));
 #define task_set_flag(task, mask)   atomic_or((mask), &(task)->flags)
 #define task_clear_flag(task, mask) atomic_and(~(mask), &(task)->flags)
 
-static __always_inline bool task_need_resched(const struct task *task)
-{
-    return task_test_flag(task, TF_NEED_RESCHED);
-}
+// clang-format off
+#define task_need_resched(t)        task_test_flag((t), TF_NEED_RESCHED)
+#define task_set_need_resched(t, v)                                            \
+    do {                                                                       \
+        if (v) task_set_flag((t), TF_NEED_RESCHED);                            \
+        else task_clear_flag((t), TF_NEED_RESCHED);                            \
+    } while (0)
 
-static __always_inline void task_set_need_resched(struct task *task, bool value)
-{
-    if (value)
-        task_set_flag(task, TF_NEED_RESCHED);
-    else
-        task_clear_flag(task, TF_NEED_RESCHED);
-}
-
-static __always_inline bool signal_pending(const struct task *task)
-{
-    return task_test_flag(task, TF_SIGPENDING);
-}
-
-static inline bool signal_pending_state(unsigned int state,
-                                        const struct task *task)
-{
-    return ((state & TASK_INTERRUPTIBLE) && signal_pending(task)) ||
-           ((state & TASK_KILLABLE) &&
-            (READ_ONCE(task->pending.signal) & sigmask(SIGKILL)));
-}
+#define signal_pending(t) task_test_flag((t), TF_SIGPENDING)
+#define signal_pending_state(s, t)                                             \
+    ({                                                                         \
+        unsigned int __s = (s);                                                \
+        const struct task *__t = (t);                                          \
+        ((__s & TASK_INTERRUPTIBLE) && signal_pending(__t)) ||                 \
+        ((__s & TASK_KILLABLE) &&                                              \
+             (READ_ONCE(__t->pending.signal) & sigmask(SIGKILL)));             \
+    })
+// clang-format on
 
 static inline unsigned int current_cpu_id(void)
 {

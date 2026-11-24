@@ -402,12 +402,21 @@ int init_execve(const char *path, const char *const argv[],
     task = task_alloc(true);
     if (!task)
         return -ENOMEM;
+    task->fdtable = fdtable_alloc();
+    if (!task->fdtable)
+        return -ENOMEM;
+    task->sighand = sighand_alloc();
+    if (!task->sighand)
+        return -ENOMEM;
 
     ret = pid_prepare(task, NULL);
     if (ret)
         return ret;
 
-    ret = vfs_get_root(&task->cwd);
+    task->fs = fs_alloc();
+    if (!task->fs)
+        return -ENOMEM;
+    ret = vfs_get_root(&task->fs->cwd);
     if (ret)
         return ret;
 
@@ -440,6 +449,8 @@ long sys_execve(struct trap_frame *frame)
     char *strings __free(kfree) = NULL;
     const char **pointers __free(kfree) = NULL;
     struct mm_struct *mm __free(mm_put) = NULL;
+    struct fdtable *files __free(fdtable) = NULL;
+    struct sighand *sighand __free(sighand) = NULL;
     struct exec_params params = {.path = path};
     size_t nr_pointers = 0;
     size_t string_bytes = 0;
@@ -513,14 +524,30 @@ long sys_execve(struct trap_frame *frame)
     if (ret)
         return ret;
 
+    if (refcount_read(&current->fdtable->refs) > 1) {
+        files = fdtable_clone(current->fdtable);
+        if (!files)
+            return -ENOMEM;
+    }
+    if (refcount_read(&current->sighand->refs) > 1) {
+        sighand = sighand_alloc();
+        if (!sighand)
+            return -ENOMEM;
+    }
     ret = arch_utask_init(current, mm, entry, params.sp);
     if (ret)
         return ret;
 
+    if (files) {
+        struct fdtable *old = current->fdtable;
+
+        current->fdtable = move(files);
+        fdtable_put(old);
+    }
     exec_setcomm(current, path);
-    signal_clone();
+    signal_exec(move(sighand));
     task_clear_flag(current, TF_FORKNOEXEC);
-    fdtable_close_on_exec(current->fdtable);
+    fdtable_cloexec(current->fdtable);
     task_mm_release();
     switch_mm(move(mm));
     task_vfork_done(current);

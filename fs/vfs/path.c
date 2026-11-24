@@ -27,6 +27,61 @@ void path_put(struct path *path)
     *path = (struct path){0};
 }
 
+struct fs_struct *fs_alloc(void)
+{
+    struct fs_struct *fs = kzalloc(sizeof(*fs));
+
+    if (!fs)
+        return NULL;
+    refcount_set(&fs->refs, 1);
+    spin_lock_init(&fs->lock);
+    return fs;
+}
+
+struct fs_struct *fs_clone(struct fs_struct *src)
+{
+    struct fs_struct *fs = fs_alloc();
+
+    if (fs)
+        fs->cwd = fs_get_cwd(src);
+    return fs;
+}
+
+void fs_get(struct fs_struct *fs)
+{
+    refcount_inc(&fs->refs);
+}
+
+void fs_put(struct fs_struct *fs)
+{
+    if (!fs || !refcount_dec_and_test(&fs->refs))
+        return;
+    path_put(&fs->cwd);
+    kfree(fs);
+}
+
+struct path fs_get_cwd(struct fs_struct *fs)
+{
+    struct path cwd;
+
+    spin_lock(&fs->lock);
+    cwd = fs->cwd;
+    path_get(&cwd);
+    spin_unlock(&fs->lock);
+    return cwd;
+}
+
+void fs_set_cwd(struct fs_struct *fs, struct path cwd)
+{
+    struct path old;
+
+    spin_lock(&fs->lock);
+    old = fs->cwd;
+    fs->cwd = cwd;
+    spin_unlock(&fs->lock);
+    path_put(&old);
+}
+
 int vfs_lookone(const struct path *base, const char *name, size_t len,
                 struct path *result)
 {
@@ -97,21 +152,19 @@ static int path_start(int dirfd, const char *name, struct path *result)
     if (*name == '/')
         return vfs_get_root(result);
     if (dirfd == AT_FDCWD) {
-        if (!current->cwd.dentry)
+        if (!current->fs)
             return -ENOENT;
-        *result = current->cwd;
-    } else {
-        file = fd_open(current->fdtable, dirfd);
-        if (!file)
-            return -EBADF;
-        if (!file->f_path.dentry)
-            return *name ? -ENOTDIR : -ENOENT;
-        *result = file->f_path;
+        *result = fs_get_cwd(current->fs);
+        return 0;
     }
-    if (*name && !S_ISDIR(result->dentry->d_inode->i_mode)) {
-        *result = (struct path){0};
+    file = fd_open(current->fdtable, dirfd);
+    if (!file)
+        return -EBADF;
+    if (!file->f_path.dentry)
+        return *name ? -ENOTDIR : -ENOENT;
+    if (*name && !S_ISDIR(file->f_path.dentry->d_inode->i_mode))
         return -ENOTDIR;
-    }
+    *result = file->f_path;
     path_get(result);
     return 0;
 }

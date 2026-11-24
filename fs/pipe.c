@@ -328,8 +328,8 @@ long sys_pipe2(struct trap_frame *frame)
         goto fail;
     }
 
-    fd_replace(fdt, (unsigned long)fd[0], move(rfile), flags & O_CLOEXEC);
-    fd_replace(fdt, (unsigned long)fd[1], move(wfile), flags & O_CLOEXEC);
+    fd_install(fdt, (unsigned long)fd[0], move(rfile), flags & O_CLOEXEC);
+    fd_install(fdt, (unsigned long)fd[1], move(wfile), flags & O_CLOEXEC);
     return 0;
 
 fail:
