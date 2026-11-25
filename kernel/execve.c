@@ -435,8 +435,13 @@ int init_execve(const char *path, const char *const argv[],
         return ret;
 
     exec_setcomm(task, path);
-    init = move(task);
-    sched_publish(init);
+    init = task;
+    ret = sched_publish(task);
+    if (ret) {
+        init = NULL;
+        return ret;
+    }
+    keep(task);
     return 0;
 }
 

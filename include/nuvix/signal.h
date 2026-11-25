@@ -163,7 +163,7 @@ int signal_task_clone(struct task *child, bool share);
 
 void signal_exec(struct sighand *new);
 
-int signal_stack_flags(unsigned long sp);
+int sigstack_flags(unsigned long sp);
 int signal_set_stack(const stack_t *stack, unsigned long sp);
 
 bool get_signal(struct ksignal *signal, const siginfo_t *fault);

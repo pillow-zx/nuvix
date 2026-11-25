@@ -7,6 +7,7 @@ obj-y += kernel/dtb.c
 obj-y += kernel/irq.c
 obj-y += kernel/cpu.c
 obj-y += kernel/pid.c
+obj-y += kernel/proc.c
 obj-y += kernel/task.c
 obj-y += kernel/sched.c
 obj-y += kernel/wait.c

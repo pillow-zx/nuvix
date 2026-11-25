@@ -1,16 +1,16 @@
 #include <nuvix/sched.h>
 #include <nuvix/assert.h>
+#include <nuvix/errno.h>
 #include <nuvix/tick.h>
 #include <nuvix/mm.h>
 #include <nuvix/pgtable.h>
+#include <nuvix/proc.h>
 #include <nuvix/trace.h>
 
 struct rq runqueues[CONFIG_NR_CPUS];
 
-#ifdef CONFIG_SMP
-static DEFINE_SPINLOCK(placement_lock);
-static unsigned int next_cpu;
-#endif
+IFDEF(CONFIG_SMP, static DEFINE_SPINLOCK(placement_lock));
+IFDEF(CONFIG_SMP, static unsigned int next_cpu);
 static uint64_t quantum_ticks;
 
 #ifdef CONFIG_PROC_FS
@@ -99,7 +99,7 @@ void sched_init_idle(unsigned int cpu_id, struct task *idle)
 {
     struct rq *rq = cpu_rq(cpu_id);
 
-    Assert(!rq->idle && idle->state == TASK_NEW && !idle->parent,
+    Assert(!rq->idle && idle->state == TASK_NEW && !idle->proc,
            "idle registration requires an unregistered NEW kernel task\n");
     task_get(idle);
     idle->cpu_id = cpu_id;
@@ -111,14 +111,14 @@ void sched_init_idle(unsigned int cpu_id, struct task *idle)
     rq->curr = idle;
 }
 
-void sched_publish(struct task *task)
+int sched_publish(struct task *task)
 {
+    struct proc *proc = task->proc;
     struct rq *rq;
     unsigned int cpu_id;
     unsigned long flags, rq_flags;
-#ifdef CONFIG_SMP
-    bool notify_idle;
-#endif
+    int ret = 0;
+    IFDEF(CONFIG_SMP, bool notify = false);
 
     Assert(task->state == TASK_NEW, "task already published\n");
 #ifdef CONFIG_SMP
@@ -129,6 +129,13 @@ void sched_publish(struct task *task)
     preempt_disable();
     cpu_id = 0;
 #endif
+    if (proc) {
+        spin_lock(&proc->lock);
+        if (atomic_read(&proc->exiting)) {
+            ret = -EINTR;
+            goto out;
+        }
+    }
     rq = cpu_rq(cpu_id);
     task->cpu_id = cpu_id;
     pid_publish(task);
@@ -137,18 +144,22 @@ void sched_publish(struct task *task)
     task->state = TASK_RUNNABLE;
     enqueue_task(rq, task);
     atomic_inc(&rq->nr_runnable);
-#ifdef CONFIG_SMP
-    notify_idle = rq->curr == rq->idle && cpu_id != current_cpu_id();
-#endif
+    if (proc)
+        proc_add_thread_locked(task);
+    IFDEF(CONFIG_SMP, notify = rq->curr == rq->idle && cpu_id != current_cpu_id());
     spin_unlock_irqrestore(&rq->lock, rq_flags);
+out:
+    if (proc)
+        spin_unlock(&proc->lock);
 #ifdef CONFIG_SMP
     spin_unlock_irqrestore(&placement_lock, flags);
-    if (notify_idle)
+    if (notify)
         cpu_send_resched(cpu_id);
 #else
     local_irq_restore(flags);
     preempt_enable();
 #endif
+    return ret;
 }
 
 static bool wake_task(struct task *task, unsigned int states)
@@ -156,9 +167,7 @@ static bool wake_task(struct task *task, unsigned int states)
     struct rq *rq = task_rq(task);
     unsigned long flags;
     bool woke = false;
-#ifdef CONFIG_SMP
-    bool notify_idle = false;
-#endif
+    IFDEF(CONFIG_SMP, bool notify = false);
 
     spin_lock_irqsave(&rq->lock, flags);
     if (states & task->state) {
@@ -167,19 +176,14 @@ static bool wake_task(struct task *task, unsigned int states)
         if (!task->on_cpu) {
             enqueue_task(rq, task);
             atomic_inc(&rq->nr_runnable);
-#ifdef CONFIG_SMP
-            notify_idle =
-                rq->curr == rq->idle && task->cpu_id != current_cpu_id();
-#endif
+            IFDEF(CONFIG_SMP, notify = rq->curr == rq->idle &&
+                                       task->cpu_id != current_cpu_id());
         }
         IFDEF(CONFIG_TRACE_CPURING, trace_wake(task, old_state));
         woke = true;
     }
     spin_unlock_irqrestore(&rq->lock, flags);
-#ifdef CONFIG_SMP
-    if (notify_idle)
-        cpu_send_resched(task->cpu_id);
-#endif
+    IFDEF(CONFIG_SMP, if (notify) cpu_send_resched(task->cpu_id));
     return woke;
 }
 
@@ -202,6 +206,11 @@ bool sched_wake_signal(struct task *task, int sig)
     return wake_task(task, states);
 }
 
+void sched_wake_group_exit(struct task *task)
+{
+    wake_task(task, TASK_INTERRUPTIBLE | TASK_KILLABLE | TASK_STOPPED);
+}
+
 bool sched_resume(struct task *task)
 {
     return wake_task(task, TASK_STOPPED);
@@ -217,7 +226,8 @@ void sched_stop(void)
     spin_lock_irqsave(&rq->lock, flags);
     if (task_test_flag(current, TF_STOPPENDING)) {
         task_clear_flag(current, TF_STOPPENDING);
-        current->state = TASK_STOPPED;
+        if (!task_group_exiting(current))
+            current->state = TASK_STOPPED;
     }
     spin_unlock_irqrestore(&rq->lock, flags);
     sched_park();

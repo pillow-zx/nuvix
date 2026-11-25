@@ -8,6 +8,7 @@
 #include <nuvix/macro.h>
 #include <nuvix/refcount.h>
 #include <nuvix/pid.h>
+#include <nuvix/proc.h>
 #include <nuvix/signal.h>
 #include <nuvix/spinlock.h>
 #include <nuvix/futex.h>
@@ -54,8 +55,10 @@ struct task {
     void *kstack;
     struct task_context ctx;
 
-    struct pid *pids[PIDTYPE_MAX];
+    struct pid *tid;
+    struct proc *proc;
     struct hlist_node pid_links[PIDTYPE_MAX];
+    struct list_head thread;
     char name[TASK_NAME_LEN];
 
     struct mm_struct *mm;
@@ -63,13 +66,6 @@ struct task {
     struct completion *vfork_done;
     struct fs_struct *fs;
 
-    /*
-     * NULL for kernel tasks; user tasks self-parent until attached to a parent,
-     * and init remains self-parented. Detaching restores self-parenting.
-     */
-    struct task *parent;
-    struct list_head children;
-    struct list_head sibling;
     int exit;
 
     struct robust_list_head *robust;
@@ -92,6 +88,10 @@ void task_free(struct task *task);
 
 __noreturn void task_exit(int status);
 
+__noreturn void task_exit_group(int status);
+
+void task_check_group_exit(void);
+
 void task_mm_release(void);
 
 void task_vfork_done(struct task *task);
@@ -111,6 +111,11 @@ DECLARE_FREE(task, struct task *, if (_T) task_free(_T));
 #define task_set_flag(task, mask)   atomic_or((mask), &(task)->flags)
 #define task_clear_flag(task, mask) atomic_and(~(mask), &(task)->flags)
 
+static inline bool task_group_exiting(const struct task *task)
+{
+    return task->proc && atomic_read_acquire(&task->proc->exiting);
+}
+
 // clang-format off
 #define task_need_resched(t)        task_test_flag((t), TF_NEED_RESCHED)
 #define task_set_need_resched(t, v)                                            \
@@ -119,14 +124,20 @@ DECLARE_FREE(task, struct task *, if (_T) task_free(_T));
         else task_clear_flag((t), TF_NEED_RESCHED);                            \
     } while (0)
 
-#define signal_pending(t) task_test_flag((t), TF_SIGPENDING)
+#define signal_pending(t)                                                      \
+    ({                                                                         \
+        const struct task *__pending_task = (t);                               \
+        task_test_flag(__pending_task, TF_SIGPENDING) ||                        \
+            task_group_exiting(__pending_task);                                \
+    })
 #define signal_pending_state(s, t)                                             \
     ({                                                                         \
         unsigned int __s = (s);                                                \
         const struct task *__t = (t);                                          \
         ((__s & TASK_INTERRUPTIBLE) && signal_pending(__t)) ||                 \
-        ((__s & TASK_KILLABLE) &&                                              \
-             (READ_ONCE(__t->pending.signal) & sigmask(SIGKILL)));             \
+            ((__s & TASK_KILLABLE) &&                                          \
+             ((READ_ONCE(__t->pending.signal) & sigmask(SIGKILL)) ||            \
+              task_group_exiting(__t)));                                      \
     })
 // clang-format on
 

@@ -159,7 +159,7 @@ static void do_exception(struct trap_frame *frame, siginfo_t *fault)
         return;
     if (ret == -ENOMEM) {
         local_irq_enable();
-        task_exit(SIGSEGV);
+        task_exit_group(SIGSEGV);
     }
     if (ret == -EFAULT)
         set_fault_signal(frame, fault, SIGSEGV, SEGV_MAPERR, frame->stval);

@@ -38,7 +38,7 @@ void sighand_put(struct sighand *sighand)
         kfree(sighand);
 }
 
-static void sighand_clone(struct sighand *dst, struct sighand *src)
+static inline void sighand_clone(struct sighand *dst, struct sighand *src)
 {
     spin_lock(&src->lock);
     memcpy(dst->actions, src->actions, sizeof(dst->actions));
@@ -64,7 +64,7 @@ static inline void signal_default(int sig)
         sched_stop();
         return;
     default:
-        task_exit(sig);
+        task_exit_group(sig);
     }
 }
 
@@ -267,6 +267,7 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
         int sig;
         bool fatal;
 
+        task_check_group_exit();
         spin_lock(&task->signal_lock);
         sig = pick_signal_locked(task, &signal->info, fault);
         if (!sig) {
@@ -289,7 +290,7 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
         spin_unlock(&task->signal_lock);
 
         if (fatal)
-            task_exit(sig);
+            task_exit_group(sig);
         if (signal->action.sa_handler == SIG_IGN)
             continue;
         if (signal->action.sa_handler == SIG_DFL) {
@@ -533,7 +534,7 @@ long sys_rt_sigpending(struct trap_frame *frame)
     return 0;
 }
 
-int signal_stack_flags(unsigned long sp)
+int sigstack_flags(unsigned long sp)
 {
     const stack_t *stack = &current->sigstack;
     unsigned long base = (unsigned long)stack->ss_sp;
@@ -545,7 +546,7 @@ int signal_stack_flags(unsigned long sp)
 
 int signal_set_stack(const stack_t *stack, unsigned long sp)
 {
-    if (signal_stack_flags(sp) == SS_ONSTACK)
+    if (sigstack_flags(sp) == SS_ONSTACK)
         return -EPERM;
     if (stack->ss_flags != 0 && stack->ss_flags != SS_DISABLE &&
         stack->ss_flags != SS_ONSTACK)
@@ -575,7 +576,7 @@ long sys_sigaltstack(struct trap_frame *frame)
         return -EFAULT;
     old.ss_sp = current->sigstack.ss_sp;
     old.ss_size = current->sigstack.ss_size;
-    old.ss_flags = signal_stack_flags(sp);
+    old.ss_flags = sigstack_flags(sp);
     if (uss) {
         ret = signal_set_stack(&new, sp);
         if (ret)

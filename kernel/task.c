@@ -4,6 +4,7 @@
 #include <nuvix/page.h>
 #include <nuvix/slab.h>
 #include <nuvix/pid.h>
+#include <nuvix/proc.h>
 #include <nuvix/layout.h>
 #include <nuvix/assert.h>
 #include <nuvix/preempt.h>
@@ -50,8 +51,7 @@ struct task boot_task = {
     .state = TASK_NEW,
     .on_cpu = true,
     .rq_node = LIST_INIT_HEAD(boot_task.rq_node),
-    .children = LIST_INIT_HEAD(boot_task.children),
-    .sibling = LIST_INIT_HEAD(boot_task.sibling),
+    .thread = LIST_INIT_HEAD(boot_task.thread),
     .preempt_count = INIT_PREEMPT_COUNT,
     .flags = ATOMIC_INIT(0),
     .kstack = boot_stack,
@@ -59,29 +59,33 @@ struct task boot_task = {
 
 struct task *task_alloc(bool user)
 {
-    struct task *task __free(kfree) = kzalloc(sizeof(*task));
+    struct task *task __free(kfree) = NULL;
+    struct page *page __free(kstack) = NULL;
+    struct mm_struct *mm __free(mm_put) = NULL;
 
+    task = kzalloc(sizeof(*task));
     if (!task)
         return NULL;
-    struct page *page __free(kstack) = alloc_pages(KSTACK_ORDER);
 
+    page = alloc_pages(KSTACK_ORDER);
     if (!page)
         return NULL;
-    struct mm_struct *mm __free(mm_put) = NULL;
 
     if (user) {
         mm = mm_alloc();
         if (!mm)
             return NULL;
+        task->proc = proc_alloc();
+        if (!task->proc)
+            return NULL;
+        task->proc->leader = task;
     }
 
     refcount_set(&task->refcount, 1);
-    task->parent = user ? task : NULL;
     task->cpu_id = TASK_CPU_NONE;
     task->state = TASK_NEW;
     INIT_LIST_HEAD(&task->rq_node);
-    INIT_LIST_HEAD(&task->children);
-    INIT_LIST_HEAD(&task->sibling);
+    INIT_LIST_HEAD(&task->thread);
     task->preempt_count = INIT_PREEMPT_COUNT;
     task->kstack = (void *)__va(page_to_phys(move(page)));
     task->ctx.sp = (vaddr_t)task->kstack + KSTACK_SIZE;
@@ -113,39 +117,58 @@ void task_free(struct task *task)
 {
     Assert(task->state == TASK_NEW, "cannot discard a published task\n");
     pid_discard(task);
-    if (task->parent)
+    if (task->proc)
         free_resource(task);
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
     task->kstack = NULL;
     task_put(task);
 }
 
-static void notify_parent(struct task *task)
+static bool proc_waitable(struct proc *proc)
 {
-    siginfo_t info = {0};
+    bool empty;
 
     assert_spin_locked(&child_wait.lock);
+    spin_lock(&proc->lock);
+    empty = list_empty(&proc->threads);
+    spin_unlock(&proc->lock);
+
+    return !proc->leader->kstack && proc->leader->state == TASK_ZOMBIE && empty;
+}
+
+static int proc_status(const struct proc *proc)
+{
+    assert_spin_locked(&child_wait.lock);
+    if (atomic_read_acquire(&proc->exiting))
+        return proc->status;
+    return proc->leader->exit;
+}
+
+static void notify_parent(struct proc *proc)
+{
+    siginfo_t info = {0};
+    int status = proc_status(proc);
+
     info.si_signo = SIGCHLD;
-    info.si_pid = task_pid_nr(task, PIDTYPE_TGID);
-    info.si_code = (task->exit & 0x7f) ? CLD_KILLED : CLD_EXITED;
-    info.si_status = (task->exit & 0x7f) ? task->exit & 0x7f : task->exit >> 8;
-    send_signal(task->parent, &info);
+    info.si_pid = task_pid_nr(proc->leader, PIDTYPE_TGID);
+    info.si_code = (status & 0x7f) ? CLD_KILLED : CLD_EXITED;
+    info.si_status = (status & 0x7f) ? status & 0x7f : status >> 8;
+    send_signal(proc->parent->leader, &info);
     wake_up_all_locked(&child_wait);
 }
 
-static void reparent_children(struct task *task)
+static void reparent_children(struct proc *proc)
 {
-    struct task *child, *next;
-    unsigned long flags;
+    struct proc *child, *next;
+    struct proc *reaper = init->proc;
 
-    spin_lock_irqsave(&child_wait.lock, flags);
-    list_for_each_entry_safe (child, next, &task->children, sibling) {
-        pid_reparent(child, init);
-        list_move_tail(&child->sibling, &init->children);
-        if (!child->kstack && child->state == TASK_ZOMBIE)
+    assert_spin_locked(&child_wait.lock);
+    list_for_each_entry_safe (child, next, &proc->children, sibling) {
+        pid_reparent(child, reaper);
+        list_move_tail(&child->sibling, &reaper->children);
+        if (proc_waitable(child))
             notify_parent(child);
     }
-    spin_unlock_irqrestore(&child_wait.lock, flags);
 }
 
 void task_vfork_done(struct task *task)
@@ -178,15 +201,39 @@ __noreturn void task_exit(int status)
 
     might_sleep();
     task->exit = status;
-    if (task->parent) {
+    if (task->proc) {
         Assert(task != init, "init cannot exit\n");
         task_mm_release();
         free_resource(task);
         task_vfork_done(task);
-        reparent_children(task);
     }
     preempt_disable();
     sched_exit();
+}
+
+__noreturn void task_exit_group(int status)
+{
+    struct proc *proc = current->proc;
+    struct task *task;
+
+    spin_lock(&proc->lock);
+    if (!atomic_read(&proc->exiting)) {
+        proc->status = status;
+        atomic_set_release(&proc->exiting, 1);
+        list_for_each_entry (task, &proc->threads, thread) {
+            if (task != current)
+                sched_wake_group_exit(task);
+        }
+    }
+    status = proc->status;
+    spin_unlock(&proc->lock);
+    task_exit(status);
+}
+
+void task_check_group_exit(void)
+{
+    if (task_group_exiting(current))
+        task_exit(current->proc->status);
 }
 
 void task_finish_exit(struct task *task)
@@ -195,12 +242,15 @@ void task_finish_exit(struct task *task)
                list_empty(&task->rq_node) && !task->mm && !task->fdtable,
            "task exit requires completed resource cleanup and switch\n");
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
-    if (task->parent) {
+    if (task->proc) {
         unsigned long flags;
 
         spin_lock_irqsave(&child_wait.lock, flags);
         task->kstack = NULL;
-        notify_parent(task);
+        if (proc_remove_thread(task)) {
+            reparent_children(task->proc);
+            notify_parent(task->proc);
+        }
         spin_unlock_irqrestore(&child_wait.lock, flags);
     } else {
         task->kstack = NULL;
@@ -212,20 +262,10 @@ void task_put(struct task *task)
 {
     if (!refcount_dec_and_test(&task->refcount))
         return;
-    Assert((task->state == TASK_NEW || task->state == TASK_ZOMBIE) &&
-               !task->on_cpu && !task->on_rq && list_empty(&task->rq_node) &&
-               !task->kstack && !task->mm && !task->fdtable,
-           "cannot destroy a task before resource and scheduler teardown\n");
-    Assert((!task->parent || task->parent == task) &&
-               list_empty(&task->children) && list_empty(&task->sibling),
-           "cannot destroy a task linked in the process tree\n");
-    if (task->parent)
+    if (task->proc)
         signal_task_free(task);
-    for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type) {
-        Assert(hlist_unhashed(&task->pid_links[type]),
-               "cannot destroy a task with published identities\n");
-        struct pid *pid __free(pid_put) = move(task->pids[type]);
-    }
+    pid_put(task->tid);
+    proc_put(task->proc);
     kfree(task);
 }
 
@@ -236,7 +276,7 @@ long sys_exit(struct trap_frame *frame)
 
 long sys_exit_group(struct trap_frame *frame)
 {
-    task_exit((syscallarg(frame, 0) & 0xff) << 8);
+    task_exit_group((syscallarg(frame, 0) & 0xff) << 8);
 }
 
 long sys_set_tid_address(struct trap_frame *frame)
@@ -252,6 +292,7 @@ long sys_clone(struct trap_frame *frame)
     unsigned long tls = (uflags & CLONE_SETTLS) ? syscallarg(frame, 3) : 0;
 
     struct task *child __free(task) = NULL;
+    struct task *vfork_child __free(task_put) = NULL;
     DEFINE_COMPLETION(done);
     unsigned long flags;
     pid_t pid;
@@ -309,20 +350,30 @@ long sys_clone(struct trap_frame *frame)
     }
     if (uflags & CLONE_CHILD_CLEARTID)
         child->clear_child_tid = (uint32_t *)syscallarg(frame, 4);
-    if (uflags & CLONE_VFORK)
-        child->vfork_done = &done;
-    spin_lock_irqsave(&child_wait.lock, flags);
-    child->parent = current;
-    list_add_tail(&child->sibling, &current->children);
-    spin_unlock_irqrestore(&child_wait.lock, flags);
-    sched_publish(child);
     if (uflags & CLONE_VFORK) {
-        (void)wait_for_completion_killable(&done);
-        spin_lock(&child->signal_lock);
-        child->vfork_done = NULL;
-        spin_unlock(&child->signal_lock);
+        child->vfork_done = &done;
+        task_get(child);
+        vfork_child = child;
     }
-    keep(child);
+    spin_lock_irqsave(&child_wait.lock, flags);
+    pid_reparent(child->proc, current->proc);
+    list_add_tail(&child->proc->sibling, &current->proc->children);
+    ret = sched_publish(child);
+    if (ret) {
+        list_del_init(&child->proc->sibling);
+        pid_reparent(child->proc, NULL);
+    } else {
+        keep(child);
+    }
+    spin_unlock_irqrestore(&child_wait.lock, flags);
+    if (ret)
+        return ret;
+    if (vfork_child) {
+        (void)wait_for_completion_killable(&done);
+        spin_lock(&vfork_child->signal_lock);
+        vfork_child->vfork_done = NULL;
+        spin_unlock(&vfork_child->signal_lock);
+    }
     return pid;
 }
 
@@ -350,7 +401,8 @@ static bool wait_matches(enum wait_mode mode, pid_t id,
 static long wait_child(enum wait_mode mode, pid_t id, int options,
                        struct wait_event *event)
 {
-    struct task *child, *dead = NULL;
+    struct proc *child;
+    struct task *dead = NULL;
     struct wait_entry wait;
     unsigned long flags;
     long ret;
@@ -361,20 +413,22 @@ static long wait_child(enum wait_mode mode, pid_t id, int options,
         spin_lock_irqsave(&child_wait.lock, flags);
         finish_wait_locked(&child_wait, &wait);
         ret = -ECHILD;
-        list_for_each_entry (child, &current->children, sibling) {
-            if (!wait_matches(mode, id, child))
+        list_for_each_entry (child, &current->proc->children, sibling) {
+            struct task *leader = child->leader;
+
+            if (!wait_matches(mode, id, leader))
                 continue;
             ret = 0;
-            if (child->kstack || child->state != TASK_ZOMBIE)
+            if (!proc_waitable(child))
                 continue;
-            event->pid = task_pid_nr(child, PIDTYPE_TGID);
-            event->exit = child->exit;
+            event->pid = task_pid_nr(leader, PIDTYPE_TGID);
+            event->exit = proc_status(child);
             ret = event->pid;
             if (!(options & WNOWAIT)) {
-                dead = child;
-                pid_unpublish(child);
+                dead = leader;
+                pid_unpublish(leader);
                 list_del_init(&child->sibling);
-                child->parent = child;
+                pid_reparent(child, NULL);
             }
             break;
         }

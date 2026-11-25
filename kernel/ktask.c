@@ -9,7 +9,7 @@
 
 static __noreturn void ktask_exit(void)
 {
-    Assert(!current->parent, "kernel thread exit requires a kernel task\n");
+    Assert(!current->proc, "kernel thread exit requires a kernel task\n");
     task_exit(0);
 }
 
@@ -52,7 +52,7 @@ static int ktask_init(void)
     if (!kinit)
         return -ENOMEM;
     arch_ktask_init(&kinit->ctx, kernel_init, NULL);
-    sched_publish(kinit);
+    Assert(!sched_publish(kinit), "cannot publish kernel init task\n");
 
     return 0;
 }

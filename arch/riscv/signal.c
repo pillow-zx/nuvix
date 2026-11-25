@@ -16,7 +16,7 @@ static void setup_signal_frame(struct trap_frame *frame,
     struct rt_sigframe *usf;
     const stack_t *stack = &current->sigstack;
     unsigned long sp = frame->regs[2];
-    int stack_flags = signal_stack_flags(sp);
+    int stack_flags = sigstack_flags(sp);
     bool on_sigstack = stack_flags == SS_ONSTACK;
 
     sf.info = signal->info;
@@ -37,16 +37,16 @@ static void setup_signal_frame(struct trap_frame *frame,
     if ((signal->action.sa_flags & SA_ONSTACK) && !stack_flags) {
         if (check_add_overflow((unsigned long)stack->ss_sp, stack->ss_size,
                                &sp))
-            task_exit(SIGSEGV);
+            task_exit_group(SIGSEGV);
         on_sigstack = true;
     }
     if (sp < sizeof(sf))
-        task_exit(SIGSEGV);
+        task_exit_group(SIGSEGV);
     sp = ALIGN_DOWN(sp - sizeof(sf), SIGNAL_STACK_ALIGN);
     if (on_sigstack && sp < (unsigned long)stack->ss_sp)
-        task_exit(SIGSEGV);
+        task_exit_group(SIGSEGV);
     if (copy_to_user((void *)sp, &sf, sizeof(sf)))
-        task_exit(SIGSEGV);
+        task_exit_group(SIGSEGV);
 
     signal_delivered(signal);
     usf = (void *)sp;
@@ -76,7 +76,7 @@ long sys_rt_sigreturn(struct trap_frame *frame)
     const struct sigcontext *sc;
 
     if (copy_from_user(&sf, (void *)frame->regs[2], sizeof(sf)))
-        task_exit(SIGSEGV);
+        task_exit_group(SIGSEGV);
 
     sc = &sf.uc.uc_mcontext;
     frame->sepc = sc->sc_regs[0];

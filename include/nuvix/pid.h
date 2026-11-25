@@ -28,6 +28,7 @@ struct pid {
 };
 
 struct task;
+struct proc;
 struct siginfo;
 
 static inline struct pid *pid_get(struct pid *pid)
@@ -56,7 +57,7 @@ void pid_publish(struct task *task);
 
 void pid_unpublish(struct task *task);
 
-void pid_reparent(struct task *task, struct task *parent);
+void pid_reparent(struct proc *proc, struct proc *parent);
 
 int pid_setsid(struct task *task);
 
@@ -74,10 +75,11 @@ int send_group_signal(pid_t pgid, const struct siginfo *info);
 
 int send_group_signal_pid(struct pid *pgrp, const struct siginfo *info);
 
+pid_t task_ppid_nr(const struct task *task);
+
 #ifdef CONFIG_PROC_FS
 uint64_t pid_procs_created(void);
 pid_t pid_next_proc(pid_t start);
-pid_t task_ppid_nr(const struct task *task);
 #endif
 
 #endif /* _NUVIX_PID_H */

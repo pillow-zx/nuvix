@@ -57,6 +57,10 @@ void utask_entry(struct task *prev)
 {
     sched_finish_switch(prev);
     preempt_enable_no_resched();
+    if (task_group_exiting(current)) {
+        local_irq_enable();
+        task_exit(current->proc->status);
+    }
 }
 
 void arch_task_clone(struct task *task, const struct trap_frame *frame,

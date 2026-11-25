@@ -1,6 +1,6 @@
 #include <nuvix/errno.h>
 #include <nuvix/math.h>
-#include <nuvix/pid.h>
+#include <nuvix/proc.h>
 #include <nuvix/sched.h>
 #include <nuvix/string.h>
 #include "proc.h"
@@ -188,7 +188,7 @@ struct dentry *proc_lookup_pid(struct inode *dir, struct dentry *dentry)
     inode->i_nlink = 2;
     inode->i_ops = &proc_pid_iops;
     inode->i_fops = &proc_pid_fops;
-    proc_i(inode)->pid = pid_get(task->pids[PIDTYPE_TGID]);
+    proc_i(inode)->pid = pid_get(task->proc->pids[PIDTYPE_TGID]);
     dentry->d_inode = inode;
     dentry->d_ops = &proc_pid_dops;
     return dentry;
