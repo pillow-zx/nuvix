@@ -5,6 +5,7 @@
 #include <nuvix/list.h>
 #include <nuvix/pid.h>
 #include <nuvix/refcount.h>
+#include <nuvix/signal.h>
 #include <nuvix/spinlock.h>
 
 struct proc {
@@ -14,6 +15,8 @@ struct proc {
     atomic_t exiting;
     int status;
     struct pid *pids[PIDTYPE_MAX];
+
+    struct sigpending pending;
 
     struct task *leader;
     struct proc *parent;
@@ -27,8 +30,13 @@ void proc_get(struct proc *proc);
 
 void proc_put(struct proc *proc);
 
+void proc_kill(struct proc *proc);
+
 int proc_add_thread(struct task *task);
 
 bool proc_remove_thread(struct task *task);
+
+#define for_each_thread(proc, task)                                            \
+    list_for_each_entry (task, &(proc)->threads, thread)
 
 #endif

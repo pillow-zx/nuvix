@@ -89,10 +89,10 @@ long sys_rt_sigreturn(struct trap_frame *frame)
     frame->sstatus = (frame->sstatus & ~SSTATUS_FS) | SSTATUS_FS_CLEAN;
     frame->scause = -1UL;
 
-    spin_lock(&task->signal_lock);
-    task->blocked = sf.uc.uc_sigmask & ~SIG_UNBLOCKMASK;
+    spin_lock(&task->proc->lock);
+    WRITE_ONCE(task->blocked, sf.uc.uc_sigmask & ~SIG_UNBLOCKMASK);
     recalc_sigpending(task);
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->proc->lock);
 
     return frame->regs[10];
 }

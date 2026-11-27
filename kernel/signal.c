@@ -32,17 +32,31 @@ struct sighand *sighand_alloc(void)
     return sighand;
 }
 
+void sighand_get(struct sighand *sighand)
+{
+    refcount_inc(&sighand->refs);
+}
+
 void sighand_put(struct sighand *sighand)
 {
     if (sighand && refcount_dec_and_test(&sighand->refs))
         kfree(sighand);
 }
 
-static inline void sighand_clone(struct sighand *dst, struct sighand *src)
+static void sighand_copy(struct sighand *dst, struct sighand *src)
 {
     spin_lock(&src->lock);
     memcpy(dst->actions, src->actions, sizeof(dst->actions));
     spin_unlock(&src->lock);
+}
+
+struct sighand *sighand_clone(struct sighand *src)
+{
+    struct sighand *dst = sighand_alloc();
+
+    if (dst)
+        sighand_copy(dst, src);
+    return dst;
 }
 
 static inline bool signal_ignored(const struct sigaction *action, int sig)
@@ -51,135 +65,174 @@ static inline bool signal_ignored(const struct sigaction *action, int sig)
            (action->sa_handler == SIG_DFL && (SIG_IGNORED & sigmask(sig)));
 }
 
-static inline void signal_default(int sig)
+static void update_sigpending(struct task *task)
 {
-    if (SIG_IGNORED & sigmask(sig))
-        return;
+    sigset_t pending = task->pending.signal | task->proc->pending.signal;
 
-    switch (sig) {
-    case SIGSTOP:
-    case SIGTSTP:
-    case SIGTTIN:
-    case SIGTTOU:
-        sched_stop();
-        return;
-    default:
-        task_exit_group(sig);
-    }
-}
-
-void recalc_sigpending(struct task *task)
-{
-    assert_spin_locked(&task->signal_lock);
-    if (task->pending.signal & ~task->blocked)
+    if (!task_test_flag(task, TF_EXITING) && (pending & ~task->blocked))
         task_set_flag(task, TF_SIGPENDING);
     else
         task_clear_flag(task, TF_SIGPENDING);
 }
 
+static void wake_proc_signals(struct proc *proc)
+{
+    struct task *task;
+    sigset_t pending = proc->pending.signal;
+
+    if (!pending || atomic_read(&proc->exiting))
+        return;
+    for_each_thread (proc, task) {
+        sigset_t ready = pending & ~task->blocked;
+
+        if (!ready || task_test_flag(task, TF_EXITING) ||
+            !(READ_ONCE(task->state) & (TASK_RUNNABLE | TASK_INTERRUPTIBLE)))
+            continue;
+        task_set_flag(task, TF_SIGPENDING);
+        if (ready & SIG_STOPMASK)
+            sched_wake_stop(task);
+        else
+            sched_wake_interruptible(task);
+        pending &= ~ready;
+        if (!pending)
+            break;
+    }
+}
+
+void recalc_sigpending(struct task *task)
+{
+    assert_spin_locked(&task->proc->lock);
+    update_sigpending(task);
+    wake_proc_signals(task->proc);
+}
+
 void signal_task_init(struct task *task)
 {
-    spin_lock_init(&task->signal_lock);
     INIT_LIST_HEAD(&task->pending.list);
     task->pending.signal = 0;
     task->blocked = 0;
     task->sigstack = (stack_t){.ss_flags = SS_DISABLE};
 }
 
-int signal_task_clone(struct task *child, bool share)
-{
-    struct sighand *sighand = current->sighand;
-
-    if (share) {
-        refcount_inc(&sighand->refs);
-        child->sighand = sighand;
-    } else {
-        child->sighand = sighand_alloc();
-        if (!child->sighand)
-            return -ENOMEM;
-        sighand_clone(child->sighand, sighand);
-    }
-    return 0;
-}
-
 void signal_task_free(struct task *task)
 {
-    struct sigqueue *queue, *next;
-
-    list_for_each_entry_safe (queue, next, &task->pending.list, list) {
-        struct sigqueue *entry __free(kfree) = queue;
-
-        list_del_init(&entry->list);
-    }
-    task->pending.signal = 0;
+    flush_sigpending(&task->pending, ~(sigset_t)0);
     sighand_put(move(task->sighand));
 }
 
-static void flush_signals_locked(struct task *task, sigset_t mask)
+void flush_sigpending(struct sigpending *pending, sigset_t mask)
 {
     struct sigqueue *queue, *next;
 
-    assert_spin_locked(&task->signal_lock);
-    list_for_each_entry_safe (queue, next, &task->pending.list, list) {
+    list_for_each_entry_safe (queue, next, &pending->list, list) {
         if (!(mask & sigmask(queue->info.si_signo)))
             continue;
         list_del_init(&queue->list);
         kfree(queue);
     }
-    task->pending.signal &= ~mask;
+    WRITE_ONCE(pending->signal, pending->signal & ~mask);
 }
 
-int send_signal(struct task *task, const siginfo_t *info)
+static void flush_proc_sigpending(struct proc *proc, sigset_t mask)
+{
+    struct task *thread;
+
+    flush_sigpending(&proc->pending, mask);
+    for_each_thread (proc, thread) {
+        flush_sigpending(&thread->pending, mask);
+        update_sigpending(thread);
+    }
+}
+
+static void handle_jobctl(struct proc *proc, int sig)
+{
+    struct task *thread;
+
+    if (SIG_STOPMASK & sigmask(sig)) {
+        flush_proc_sigpending(proc, sigmask(SIGCONT));
+    } else if (sig == SIGCONT) {
+        flush_sigpending(&proc->pending, SIG_STOPMASK);
+        for_each_thread (proc, thread) {
+            flush_sigpending(&thread->pending, SIG_STOPMASK);
+            update_sigpending(thread);
+            task_clear_flag(thread, TF_STOPPENDING);
+            sched_resume(thread);
+        }
+    }
+}
+
+static void queue_signal(struct proc *proc, struct task *task, int sig,
+                         struct sigqueue *entry)
+{
+    struct sigqueue *queue __free(kfree) = entry;
+    struct sigpending *pending = task ? &task->pending : &proc->pending;
+    struct sighand *sighand = task ? task->sighand : proc->leader->sighand;
+    sigset_t mask = sigmask(sig);
+    struct task *thread;
+    bool blocked = false;
+
+    if (pending->signal & mask)
+        return;
+    if (task) {
+        blocked = task->blocked & mask;
+    } else {
+        for_each_thread (proc, thread) {
+            if (thread->blocked & mask) {
+                blocked = true;
+                break;
+            }
+        }
+    }
+    spin_lock(&sighand->lock);
+    if (blocked || !signal_ignored(&sighand->actions[sig - 1], sig)) {
+        if (queue) {
+            list_add_tail(&queue->list, &pending->list);
+            keep(queue);
+        }
+        WRITE_ONCE(pending->signal, pending->signal | mask);
+    }
+    spin_unlock(&sighand->lock);
+}
+
+int send_signal(struct proc *proc, struct task *task, const siginfo_t *info)
 {
     struct sigqueue *queue __free(kfree) = NULL;
-    struct sighand *sighand;
     int sig = info->si_signo;
-    bool notify;
 
     if (!sig)
         return 0;
-
+    if (!task && sig == SIGKILL) {
+        proc_kill(proc);
+        return 0;
+    }
     queue = kmalloc(sizeof(*queue));
     if (queue)
         queue->info = *info;
 
-    spin_lock(&task->signal_lock);
-    if (SIG_STOPMASK & sigmask(sig))
-        flush_signals_locked(task, sigmask(SIGCONT));
-    else if (sig == SIGCONT)
-        flush_signals_locked(task, SIG_STOPMASK);
-    if (sig == SIGCONT || sig == SIGKILL)
-        task_clear_flag(task, TF_STOPPENDING);
-    sighand = task->sighand;
-    spin_lock(&sighand->lock);
-    if (sig_valid(task, sig) &&
-        ((task->blocked & sigmask(sig)) ||
-         !signal_ignored(&sighand->actions[sig - 1], sig))) {
-        if (queue) {
-            list_add_tail(&queue->list, &task->pending.list);
-            keep(queue);
-        }
-        task->pending.signal |= sigmask(sig);
+    spin_lock(&proc->lock);
+    if (atomic_read(&proc->exiting) || list_empty(&proc->threads) ||
+        (task && task_test_flag(task, TF_EXITING)))
+        goto out;
+    handle_jobctl(proc, sig);
+    queue_signal(proc, task, sig, move(queue));
+    if (task) {
+        update_sigpending(task);
+        if (signal_pending(task))
+            sched_wake_signal(task, sig);
     }
-    spin_unlock(&sighand->lock);
-    recalc_sigpending(task);
-    if (sig == SIGCONT || sig == SIGKILL)
-        sched_resume(task);
-    notify = signal_pending(task);
-    spin_unlock(&task->signal_lock);
-
-    if (notify)
-        sched_wake_signal(task, sig);
+    wake_proc_signals(proc);
+out:
+    spin_unlock(&proc->lock);
     return 0;
 }
 
-static void dequeue_signal_locked(struct task *task, int sig, siginfo_t *info)
+static void dequeue_signal_locked(struct sigpending *pending, int sig,
+                                  siginfo_t *info)
 {
     struct sigqueue *queue;
 
-    assert_spin_locked(&task->signal_lock);
-    task->pending.signal &= ~sigmask(sig);
-    list_for_each_entry (queue, &task->pending.list, list) {
+    WRITE_ONCE(pending->signal, pending->signal & ~sigmask(sig));
+    list_for_each_entry (queue, &pending->list, list) {
         if (queue->info.si_signo != sig)
             continue;
         *info = queue->info;
@@ -214,6 +267,7 @@ static void wait_for_signal(void)
 static int pick_signal_locked(struct task *task, siginfo_t *info,
                               const siginfo_t *fault)
 {
+    struct sigpending *queue = &task->pending;
     sigset_t pending;
     int sig;
 
@@ -221,16 +275,20 @@ static int pick_signal_locked(struct task *task, siginfo_t *info,
         sig = fault->si_signo;
         *info = *fault;
         if (sig_pending(task, sig))
-            dequeue_signal_locked(task, sig, info);
+            dequeue_signal_locked(queue, sig, info);
         return sig;
     }
 
-    pending = task->pending.signal & ~task->blocked;
+    pending = queue->signal & ~task->blocked;
+    if (!pending) {
+        queue = &task->proc->pending;
+        pending = queue->signal & ~task->blocked;
+    }
     if (!pending)
         return 0;
     sig = (pending & sigmask(SIGKILL)) ? SIGKILL
                                        : find_first_bit(&pending, SIG_MAX) + 1;
-    dequeue_signal_locked(task, sig, info);
+    dequeue_signal_locked(queue, sig, info);
     return sig;
 }
 
@@ -245,7 +303,8 @@ static bool prepare_signal_locked(struct task *task, struct ksignal *signal,
     signal->action = sighand->actions[sig - 1];
     handler = signal->action.sa_handler;
     signal->oldmask = task_test_flag(task, TF_SIGSUSPEND | TF_RESIGMASK)
-                          ? task->sigmask : task->blocked;
+                          ? task->sigmask
+                          : task->blocked;
     fatal = fault && ((task->blocked & sigmask(sig)) || handler == SIG_DFL ||
                       handler == SIG_IGN);
     if (!fatal && handler != SIG_DFL && handler != SIG_IGN &&
@@ -253,9 +312,7 @@ static bool prepare_signal_locked(struct task *task, struct ksignal *signal,
         sighand->actions[sig - 1].sa_handler = SIG_DFL;
     spin_unlock(&sighand->lock);
 
-    if (handler == SIG_DFL && (SIG_STOPMASK & sigmask(sig)))
-        task_set_flag(task, TF_STOPPENDING);
-    recalc_sigpending(task);
+    update_sigpending(task);
     return fatal;
 }
 
@@ -263,22 +320,32 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
 {
     struct task *task = current;
 
+    might_sleep();
     for (;;) {
         int sig;
         bool fatal;
 
-        task_check_group_exit();
-        spin_lock(&task->signal_lock);
+        spin_lock(&task->proc->lock);
+        if (fatal_signal_pending(task)) {
+            spin_unlock(&task->proc->lock);
+            task_exit_group(SIGKILL);
+        }
+        if (task_test_flag(task, TF_STOPPENDING)) {
+            spin_unlock(&task->proc->lock);
+            sched_stop();
+            continue;
+        }
         sig = pick_signal_locked(task, &signal->info, fault);
         if (!sig) {
             if (task_test_flag(task, TF_RESIGMASK)) {
-                task->blocked = task->sigmask;
+                WRITE_ONCE(task->blocked, task->sigmask);
                 task_clear_flag(task, TF_RESIGMASK);
                 recalc_sigpending(task);
-                spin_unlock(&task->signal_lock);
+                spin_unlock(&task->proc->lock);
                 continue;
             }
-            spin_unlock(&task->signal_lock);
+            update_sigpending(task);
+            spin_unlock(&task->proc->lock);
             if (task_test_flag(task, TF_SIGSUSPEND)) {
                 wait_for_signal();
                 continue;
@@ -287,15 +354,22 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
         }
 
         fatal = prepare_signal_locked(task, signal, sig, fault != NULL);
-        spin_unlock(&task->signal_lock);
+        if (!fatal && signal->action.sa_handler == SIG_DFL &&
+            (SIG_STOPMASK & sigmask(sig))) {
+            task_set_flag(task, TF_STOPPENDING);
+            spin_unlock(&task->proc->lock);
+            continue;
+        }
+        spin_unlock(&task->proc->lock);
 
         if (fatal)
             task_exit_group(sig);
         if (signal->action.sa_handler == SIG_IGN)
             continue;
         if (signal->action.sa_handler == SIG_DFL) {
-            signal_default(sig);
-            continue;
+            if (SIG_IGNORED & sigmask(sig))
+                continue;
+            task_exit_group(sig);
         }
         return true;
     }
@@ -304,14 +378,16 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
 void signal_delivered(const struct ksignal *signal)
 {
     struct task *task = current;
+    sigset_t blocked;
 
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->proc->lock);
     task_clear_flag(task, TF_SIGSUSPEND | TF_RESIGMASK);
-    task->blocked |= signal->action.sa_mask;
+    blocked = task->blocked | signal->action.sa_mask;
     if (!(signal->action.sa_flags & SA_NODEFER))
-        task->blocked |= sigmask(signal->info.si_signo);
+        blocked |= sigmask(signal->info.si_signo);
+    WRITE_ONCE(task->blocked, blocked);
     recalc_sigpending(task);
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->proc->lock);
 }
 
 long sys_kill(struct trap_frame *frame)
@@ -346,7 +422,7 @@ long sys_kill(struct trap_frame *frame)
     if (!task)
         return -ESRCH;
 
-    return send_signal(task, &info);
+    return send_signal(task->proc, NULL, &info);
 }
 
 long sys_tkill(struct trap_frame *frame)
@@ -369,7 +445,7 @@ long sys_tkill(struct trap_frame *frame)
     info.si_pid = task_pid_nr(current, PIDTYPE_TGID);
     info.si_uid = 0;
 
-    return send_signal(task, &info);
+    return send_signal(task->proc, task, &info);
 }
 
 long sys_tgkill(struct trap_frame *frame)
@@ -396,7 +472,7 @@ long sys_tgkill(struct trap_frame *frame)
     info.si_pid = task_pid_nr(current, PIDTYPE_TGID);
     info.si_uid = 0;
 
-    return send_signal(task, &info);
+    return send_signal(task->proc, task, &info);
 }
 
 long sys_rt_sigsuspend(struct trap_frame *frame)
@@ -412,12 +488,12 @@ long sys_rt_sigsuspend(struct trap_frame *frame)
     if (copy_from_user(&set, mask, sizeof(set)))
         return -EFAULT;
 
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->proc->lock);
     task->sigmask = task->blocked;
-    task->blocked = set & ~SIG_UNBLOCKMASK;
+    WRITE_ONCE(task->blocked, set & ~SIG_UNBLOCKMASK);
     task_set_flag(task, TF_SIGSUSPEND);
     recalc_sigpending(task);
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->proc->lock);
 
     wait_for_signal();
     return -EINTR;
@@ -446,18 +522,17 @@ long sys_rt_sigaction(struct trap_frame *frame)
         new.sa_mask &= ~SIG_UNBLOCKMASK;
     }
 
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->proc->lock);
     sighand = task->sighand;
     spin_lock(&sighand->lock);
     old = sighand->actions[sig - 1];
     if (act) {
         sighand->actions[sig - 1] = new;
         if (signal_ignored(&new, sig))
-            flush_signals_locked(task, sigmask(sig));
-        recalc_sigpending(task);
+            flush_proc_sigpending(task->proc, sigmask(sig));
     }
     spin_unlock(&sighand->lock);
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->proc->lock);
 
     if (oldact) {
         if (copy_to_user(oldact, &old, sizeof(old)))
@@ -485,28 +560,28 @@ long sys_rt_sigprocmask(struct trap_frame *frame)
         new &= ~SIG_UNBLOCKMASK;
     }
 
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->proc->lock);
     old = task->blocked;
 
     if (set) {
         switch (how) {
         case SIG_BLOCK:
-            task->blocked |= new;
+            WRITE_ONCE(task->blocked, old | new);
             break;
         case SIG_UNBLOCK:
-            task->blocked &= ~new;
+            WRITE_ONCE(task->blocked, old & ~new);
             break;
         case SIG_SETMASK:
-            task->blocked = new;
+            WRITE_ONCE(task->blocked, new);
             break;
         default:
-            spin_unlock(&task->signal_lock);
+            spin_unlock(&task->proc->lock);
             return -EINVAL;
         }
         recalc_sigpending(task);
     }
 
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->proc->lock);
 
     if (oldset && copy_to_user(oldset, &old, sizeof(old)))
         return -EFAULT;
@@ -524,9 +599,9 @@ long sys_rt_sigpending(struct trap_frame *frame)
     if (sigsetsize > sizeof(ret))
         return -EINVAL;
 
-    spin_lock(&task->signal_lock);
-    ret = task->pending.signal & task->blocked;
-    spin_unlock(&task->signal_lock);
+    spin_lock(&task->proc->lock);
+    ret = (task->pending.signal | task->proc->pending.signal) & task->blocked;
+    spin_unlock(&task->proc->lock);
 
     if (copy_to_user(set, &ret, sigsetsize))
         return -EFAULT;
@@ -592,13 +667,14 @@ void signal_exec(struct sighand *new)
     struct task *task = current;
     struct sighand *old = NULL;
 
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->proc->lock);
     if (new) {
         old = task->sighand;
-        sighand_clone(new, old);
+        sighand_copy(new, old);
         task->sighand = new;
     }
     task->sigstack = (stack_t){.ss_flags = SS_DISABLE};
+    spin_lock(&task->sighand->lock);
     for (unsigned int i = 0; i < SIG_MAX; ++i) {
         struct sigaction *action = &task->sighand->actions[i];
 
@@ -607,6 +683,7 @@ void signal_exec(struct sighand *new)
         action->sa_flags = 0;
         action->sa_mask = 0;
     }
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->sighand->lock);
+    spin_unlock(&task->proc->lock);
     sighand_put(old);
 }

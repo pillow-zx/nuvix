@@ -65,13 +65,13 @@ static const char *proc_task_state(struct task *task)
 
 static void proc_task_name(struct task *task, char *out)
 {
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->lock);
     for (const char *name = task->name; *name; ++name) {
         if (*name == '\n' || *name == '\\')
             *out++ = '\\';
         *out++ = *name == '\n' ? 'n' : *name;
     }
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->lock);
     *out = '\0';
 }
 

@@ -176,11 +176,11 @@ static int poll_swap_sigmask(const sigset_t *umask, size_t sigsetsize,
         return -EINVAL;
     if (copy_from_user(&set, umask, sizeof(set)))
         return -EFAULT;
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->proc->lock);
     *saved = task->blocked;
-    task->blocked = set & ~SIG_UNBLOCKMASK;
+    WRITE_ONCE(task->blocked, set & ~SIG_UNBLOCKMASK);
     recalc_sigpending(task);
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->proc->lock);
     return 0;
 }
 
@@ -188,15 +188,15 @@ static void poll_restore_sigmask(sigset_t saved, bool interrupted)
 {
     struct task *task = current;
 
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->proc->lock);
     if (interrupted) {
         task->sigmask = saved;
         task_set_flag(task, TF_RESIGMASK);
     } else {
-        task->blocked = saved;
+        WRITE_ONCE(task->blocked, saved);
         recalc_sigpending(task);
     }
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->proc->lock);
 }
 
 long sys_ppoll(struct trap_frame *frame)

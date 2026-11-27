@@ -153,6 +153,7 @@ __ktask_entry:
     .globl __utask_entry
     .type __utask_entry, @function
 __utask_entry:
+    mv          a1, sp
     call        utask_entry
     j           __trapret
     .size __utask_entry, . - __utask_entry

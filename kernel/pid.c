@@ -142,7 +142,7 @@ static int signal_tasks(struct task **tasks, size_t count,
 
     for (size_t i = 0; i < count; ++i) {
         struct task *task __free(task_put) = tasks[i];
-        int err = send_signal(task, info);
+        int err = send_signal(task->proc, NULL, info);
 
         if (ret)
             ret = err;

@@ -37,6 +37,8 @@ struct completion;
 #define TF_SIGSUSPEND        (1U << 4)
 #define TF_RESIGMASK         (1U << 5)
 
+#define TF_EXITING           (1U << 6)
+
 #define TASK_NEW             0U
 #define TASK_RUNNABLE        (1U << 0)
 #define TASK_INTERRUPTIBLE   (1U << 1)
@@ -81,7 +83,7 @@ struct task {
     struct robust_list_head *robust;
     uint32_t *clear_child_tid;
 
-    spinlock_t signal_lock;
+    spinlock_t lock;
     struct sigpending pending;
     sigset_t blocked;
     sigset_t sigmask;
@@ -101,8 +103,6 @@ void task_free(struct task *task);
 __noreturn void task_exit(int status);
 
 __noreturn void task_exit_group(int status);
-
-void task_check_group_exit(void);
 
 void task_mm_release(void);
 
@@ -128,6 +128,18 @@ static inline bool task_group_exiting(const struct task *task)
     return task->proc && atomic_read_acquire(&task->proc->exiting);
 }
 
+static inline bool fatal_signal_pending(const struct task *task)
+{
+    return (READ_ONCE(task->pending.signal) & sigmask(SIGKILL)) ||
+           task_group_exiting(task);
+}
+
+static inline bool task_proc_sigpending(const struct task *task)
+{
+    return task->proc && !task_test_flag(task, TF_EXITING) &&
+           (READ_ONCE(task->proc->pending.signal) & ~READ_ONCE(task->blocked));
+}
+
 // clang-format off
 #define task_need_resched(t)        task_test_flag((t), TF_NEED_RESCHED)
 #define task_set_need_resched(t, v)                                            \
@@ -135,23 +147,19 @@ static inline bool task_group_exiting(const struct task *task)
         if (v) task_set_flag((t), TF_NEED_RESCHED);                            \
         else task_clear_flag((t), TF_NEED_RESCHED);                            \
     } while (0)
-
-#define signal_pending(t)                                                      \
-    ({                                                                         \
-        const struct task *__pending_task = (t);                               \
-        task_test_flag(__pending_task, TF_SIGPENDING) ||                        \
-            task_group_exiting(__pending_task);                                \
-    })
-#define signal_pending_state(s, t)                                             \
-    ({                                                                         \
-        unsigned int __s = (s);                                                \
-        const struct task *__t = (t);                                          \
-        ((__s & TASK_INTERRUPTIBLE) && signal_pending(__t)) ||                 \
-            ((__s & TASK_KILLABLE) &&                                          \
-             ((READ_ONCE(__t->pending.signal) & sigmask(SIGKILL)) ||            \
-              task_group_exiting(__t)));                                      \
-    })
 // clang-format on
+
+static inline bool signal_pending(const struct task *task)
+{
+    return task_test_flag(task, TF_SIGPENDING | TF_STOPPENDING) ||
+           task_proc_sigpending(task) || task_group_exiting(task);
+}
+
+static inline bool signal_pending_state(unsigned int state, const struct task *task)
+{
+    return ((state & TASK_INTERRUPTIBLE) && signal_pending(task)) ||
+           ((state & TASK_KILLABLE) && fatal_signal_pending(task));
+}
 
 static inline unsigned int current_cpu_id(void)
 {

@@ -385,10 +385,10 @@ static void exec_setcomm(struct task *task, const char *path)
     const char *name = slash ? slash + 1 : path;
     size_t len = strnlen(name, sizeof(task->name) - 1);
 
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->lock);
     memcpy(task->name, name, len);
     task->name[len] = '\0';
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->lock);
 }
 
 int init_execve(const char *path, const char *const argv[],

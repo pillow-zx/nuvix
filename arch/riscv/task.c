@@ -58,14 +58,13 @@ int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
     return 0;
 }
 
-void utask_entry(struct task *prev)
+void utask_entry(struct task *prev, struct trap_frame *frame)
 {
     sched_finish_switch(prev);
     preempt_enable_no_resched();
-    if (task_group_exiting(current)) {
-        local_irq_enable();
-        task_exit(current->proc->status);
-    }
+    local_irq_enable();
+    arch_do_signal(frame, NULL);
+    local_irq_disable();
 }
 
 void arch_task_clone(struct task *task)

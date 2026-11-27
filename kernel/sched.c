@@ -146,7 +146,7 @@ void sched_publish(struct task *task)
 #endif
 }
 
-static bool wake_task(struct task *task, unsigned int states)
+static bool wake_task(struct task *task, unsigned int states, bool kick)
 {
     unsigned int cpu_id = READ_ONCE(task->cpu_id);
     struct rq *rq;
@@ -169,6 +169,8 @@ static bool wake_task(struct task *task, unsigned int states)
         }
         IFDEF(CONFIG_TRACE_CPURING, trace_wake(task, old_state));
         woke = true;
+    } else if (kick && task->state == TASK_RUNNABLE && task->on_cpu) {
+        IFDEF(CONFIG_SMP, notify = task->cpu_id != current_cpu_id());
     }
     spin_unlock_irqrestore(&rq->lock, flags);
     IFDEF(CONFIG_SMP, if (notify) cpu_send_resched(task->cpu_id));
@@ -177,12 +179,12 @@ static bool wake_task(struct task *task, unsigned int states)
 
 bool sched_wake(struct task *task)
 {
-    return wake_task(task, TASK_NORMAL | TASK_KILLABLE);
+    return wake_task(task, TASK_NORMAL | TASK_KILLABLE, false);
 }
 
 bool sched_wake_interruptible(struct task *task)
 {
-    return wake_task(task, TASK_INTERRUPTIBLE);
+    return wake_task(task, TASK_INTERRUPTIBLE, false);
 }
 
 bool sched_wake_signal(struct task *task, int sig)
@@ -190,18 +192,23 @@ bool sched_wake_signal(struct task *task, int sig)
     unsigned int states = TASK_INTERRUPTIBLE;
 
     if (sig == SIGKILL)
-        states |= TASK_KILLABLE;
-    return wake_task(task, states);
+        states |= TASK_KILLABLE | TASK_STOPPED;
+    return wake_task(task, states, SIG_STOPMASK & sigmask(sig));
 }
 
 void sched_wake_group_exit(struct task *task)
 {
-    wake_task(task, TASK_INTERRUPTIBLE | TASK_KILLABLE | TASK_STOPPED);
+    wake_task(task, TASK_INTERRUPTIBLE | TASK_KILLABLE | TASK_STOPPED, false);
+}
+
+void sched_wake_stop(struct task *task)
+{
+    wake_task(task, TASK_INTERRUPTIBLE, true);
 }
 
 bool sched_resume(struct task *task)
 {
-    return wake_task(task, TASK_STOPPED);
+    return wake_task(task, TASK_STOPPED, false);
 }
 
 void sched_stop(void)
@@ -353,11 +360,19 @@ void preempt_schedule(void)
 
 void sched_park(void)
 {
+    struct task *task = current;
+
     IFDEF(CONFIG_DEBUG_CONTEXT,
           Assert(preempt_count() == 1 && !local_irqs_disabled() &&
                      !cpus[current_cpu_id()].irq_depth &&
                      current != this_rq()->idle,
                  "invalid park context\n"));
+    if (task->proc &&
+        (READ_ONCE(task->state) & (TASK_UNINTERRUPTIBLE | TASK_KILLABLE))) {
+        spin_lock(&task->proc->lock);
+        recalc_sigpending(task);
+        spin_unlock(&task->proc->lock);
+    }
     sched_switch(false);
     if (preemptible() && task_need_resched(current))
         preempt_schedule();

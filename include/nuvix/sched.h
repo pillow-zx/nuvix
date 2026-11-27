@@ -88,6 +88,8 @@ bool sched_wake_signal(struct task *task, int sig);
 
 void sched_wake_group_exit(struct task *task);
 
+void sched_wake_stop(struct task *task);
+
 bool sched_resume(struct task *task);
 
 void sched_stop(void);

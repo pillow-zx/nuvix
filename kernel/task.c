@@ -64,6 +64,7 @@ static struct task *task_new(void)
     refcount_set(&task->refcount, 1);
     task->cpu_id = TASK_CPU_NONE;
     task->state = TASK_NEW;
+    spin_lock_init(&task->lock);
     INIT_LIST_HEAD(&task->rq_node);
     INIT_LIST_HEAD(&task->thread);
     task->preempt_count = INIT_PREEMPT_COUNT;
@@ -148,7 +149,7 @@ static void notify_parent(struct proc *proc)
     info.si_pid = task_pid_nr(proc->leader, PIDTYPE_TGID);
     info.si_code = (status & 0x7f) ? CLD_KILLED : CLD_EXITED;
     info.si_status = (status & 0x7f) ? status & 0x7f : status >> 8;
-    send_signal(proc->parent->leader, &info);
+    send_signal(proc->parent, NULL, &info);
     wake_up_all_locked(&child_wait);
 }
 
@@ -168,12 +169,12 @@ static void reparent_children(struct proc *proc)
 
 void task_vfork_done(struct task *task)
 {
-    spin_lock(&task->signal_lock);
+    spin_lock(&task->lock);
     struct completion *done = move(task->vfork_done);
 
     if (done)
         complete(done);
-    spin_unlock(&task->signal_lock);
+    spin_unlock(&task->lock);
 }
 
 void task_mm_release(void)
@@ -198,6 +199,10 @@ __noreturn void task_exit(int status)
     task->exit = status;
     if (task->proc) {
         Assert(task != init, "init cannot exit\n");
+        spin_lock(&task->proc->lock);
+        task_set_flag(task, TF_EXITING);
+        recalc_sigpending(task);
+        spin_unlock(&task->proc->lock);
         task_mm_release();
         free_resource(task);
         task_vfork_done(task);
@@ -206,29 +211,41 @@ __noreturn void task_exit(int status)
     sched_exit();
 }
 
+static void start_group_exit(struct proc *proc, int status)
+{
+    struct task *task;
+
+    assert_spin_locked(&proc->lock);
+    if (atomic_read(&proc->exiting))
+        return;
+    proc->status = status;
+    atomic_set_release(&proc->exiting, 1);
+    for_each_thread (proc, task) {
+        task_clear_flag(task, TF_STOPPENDING);
+        if (task != current)
+            sched_wake_group_exit(task);
+    }
+}
+
+void proc_kill(struct proc *proc)
+{
+    spin_lock(&proc->lock);
+    if (!list_empty(&proc->threads))
+        start_group_exit(proc, SIGKILL);
+    spin_unlock(&proc->lock);
+}
+
 __noreturn void task_exit_group(int status)
 {
     struct proc *proc = current->proc;
-    struct task *task;
 
     spin_lock(&proc->lock);
-    if (!atomic_read(&proc->exiting)) {
-        proc->status = status;
-        atomic_set_release(&proc->exiting, 1);
-        list_for_each_entry (task, &proc->threads, thread) {
-            if (task != current)
-                sched_wake_group_exit(task);
-        }
-    }
-    status = proc->status;
+    if (atomic_read(&proc->exiting))
+        status = proc->status;
+    else
+        start_group_exit(proc, status);
     spin_unlock(&proc->lock);
     task_exit(status);
-}
-
-void task_check_group_exit(void)
-{
-    if (task_group_exiting(current))
-        task_exit(current->proc->status);
 }
 
 void task_finish_exit(struct task *task)
@@ -324,15 +341,19 @@ static int copy_files(struct task *child, unsigned long uflags)
 
 static int copy_signals(struct task *child, unsigned long uflags)
 {
-    int ret = signal_task_clone(child, uflags & CLONE_SIGHAND);
-
-    if (ret)
-        return ret;
-    spin_lock(&current->signal_lock);
+    if (uflags & CLONE_SIGHAND) {
+        sighand_get(current->sighand);
+        child->sighand = current->sighand;
+    } else {
+        child->sighand = sighand_clone(current->sighand);
+        if (!child->sighand)
+            return -ENOMEM;
+    }
+    spin_lock(&current->proc->lock);
     child->blocked = current->blocked;
     if (!(uflags & CLONE_VM) || (uflags & CLONE_VFORK))
         child->sigstack = current->sigstack;
-    spin_unlock(&current->signal_lock);
+    spin_unlock(&current->proc->lock);
     return 0;
 }
 
@@ -348,9 +369,9 @@ static int copy_task(struct task *child, unsigned long flags)
     ret = copy_files(child, flags);
     if (ret)
         return ret;
-    spin_lock(&current->signal_lock);
+    spin_lock(&current->lock);
     memcpy(child->name, current->name, sizeof(child->name));
-    spin_unlock(&current->signal_lock);
+    spin_unlock(&current->lock);
     ret = copy_signals(child, flags);
     if (ret)
         return ret;
@@ -415,9 +436,9 @@ long sys_clone(struct trap_frame *frame)
     keep(child);
     if (vfork_child) {
         (void)wait_for_completion_killable(&done);
-        spin_lock(&vfork_child->signal_lock);
+        spin_lock(&vfork_child->lock);
         vfork_child->vfork_done = NULL;
-        spin_unlock(&vfork_child->signal_lock);
+        spin_unlock(&vfork_child->lock);
     }
     return pid;
 }

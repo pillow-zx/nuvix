@@ -14,6 +14,7 @@ struct proc *proc_alloc(struct task *leader)
     spin_lock_init(&proc->lock);
     atomic_set(&proc->exiting, 0);
     INIT_LIST_HEAD(&proc->threads);
+    INIT_LIST_HEAD(&proc->pending.list);
     INIT_LIST_HEAD(&proc->children);
     INIT_LIST_HEAD(&proc->sibling);
     return proc;
@@ -30,6 +31,7 @@ void proc_put(struct proc *proc)
         return;
     for (enum pid_type type = PIDTYPE_TGID; type < PIDTYPE_MAX; ++type)
         pid_put(proc->pids[type]);
+    flush_sigpending(&proc->pending, ~(sigset_t)0);
     kfree(proc);
 }
 
@@ -44,6 +46,7 @@ int proc_add_thread(struct task *task)
     }
     list_add_tail(&task->thread, &proc->threads);
     pid_publish(task);
+    recalc_sigpending(task);
     spin_unlock(&proc->lock);
     return 0;
 }

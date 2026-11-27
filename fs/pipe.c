@@ -32,7 +32,7 @@ static void pipe_sigpipe(void)
     info.si_signo = SIGPIPE;
     info.si_code = SI_USER;
     info.si_pid = task_pid_nr(current, PIDTYPE_TGID);
-    send_signal(current, &info);
+    send_signal(current->proc, current, &info);
 }
 
 static ssize_t pipe_read(struct kiocb *iocb, struct kiov *iov)

@@ -70,6 +70,7 @@ ForEachMacros:
   - 'hash_for_each_safe'
   - 'hash_for_each_possible'
   - 'hash_for_each_possible_safe'
+  - 'for_each_thread'
   - 'for_each_set_bit'
   - 'for_each_clear_bit'
   - 'rb_for_each'

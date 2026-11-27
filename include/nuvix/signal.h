@@ -142,6 +142,7 @@ struct sigpending {
 };
 
 struct task;
+struct proc;
 
 struct sighand {
     spinlock_t lock;
@@ -153,13 +154,14 @@ struct sighand {
 #define sig_pending(task, sig) (!!(((task)->pending.signal) & sigmask((sig))))
 
 struct sighand *sighand_alloc(void);
+struct sighand *sighand_clone(struct sighand *src);
+void sighand_get(struct sighand *sighand);
 void sighand_put(struct sighand *sighand);
 
 DECLARE_FREE(sighand, struct sighand *, sighand_put(_T));
 
 void signal_task_init(struct task *task);
 void signal_task_free(struct task *task);
-int signal_task_clone(struct task *child, bool share);
 
 void signal_exec(struct sighand *new);
 
@@ -169,10 +171,9 @@ int signal_set_stack(const stack_t *stack, unsigned long sp);
 bool get_signal(struct ksignal *signal, const siginfo_t *fault);
 void signal_delivered(const struct ksignal *signal);
 
-/* signal_lock held; pair every pending/mask/action change with this update. */
 void recalc_sigpending(struct task *task);
+void flush_sigpending(struct sigpending *pending, sigset_t mask);
 
-/* Published user task held alive by caller; no PID, signal or rq locks held. */
-int send_signal(struct task *task, const siginfo_t *info);
+int send_signal(struct proc *proc, struct task *task, const siginfo_t *info);
 
 #endif
