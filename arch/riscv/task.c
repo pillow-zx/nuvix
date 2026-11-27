@@ -17,6 +17,11 @@ void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg)
     ctx->s[1] = (unsigned long)arg;
 }
 
+static inline struct trap_frame *task_uframe(const struct task *task)
+{
+    return (struct trap_frame *)((vaddr_t)task->kstack + KSTACK_SIZE) - 1;
+}
+
 int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
                     vaddr_t sp)
 {
@@ -40,7 +45,7 @@ int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
         return ret;
     keep(page);
 
-    frame = (void *)((vaddr_t)task->kstack + KSTACK_SIZE - sizeof(*frame));
+    frame = task_uframe(task);
     memset(frame, 0, sizeof(*frame));
     frame->regs[2] = sp;
     frame->sepc = entry;
@@ -63,19 +68,18 @@ void utask_entry(struct task *prev)
     }
 }
 
-void arch_task_clone(struct task *task, const struct trap_frame *frame,
-                     unsigned long sp, unsigned long tls)
+void arch_task_clone(struct task *task)
 {
-    struct trap_frame *child =
-        (void *)((vaddr_t)task->kstack + KSTACK_SIZE - sizeof(*child));
+    const struct trap_frame *frame = task_uframe(current);
+    struct trap_frame *child = task_uframe(task);
 
     *child = *frame;
     child->task = task;
     child->regs[10] = 0;
-    if (sp)
-        child->regs[2] = sp;
-    if (tls)
-        child->regs[4] = tls;
+    if (syscallarg(frame, 1))
+        child->regs[2] = syscallarg(frame, 1);
+    if (syscallarg(frame, 0) & CLONE_SETTLS)
+        child->regs[4] = syscallarg(frame, 3);
     task->ctx.sp = (vaddr_t)child;
     task->ctx.ra = (unsigned long)__utask_entry;
 }

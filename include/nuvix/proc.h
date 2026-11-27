@@ -21,13 +21,13 @@ struct proc {
     struct list_head sibling;
 };
 
-struct proc *proc_alloc(void);
+struct proc *proc_alloc(struct task *leader);
 
 void proc_get(struct proc *proc);
 
 void proc_put(struct proc *proc);
 
-void proc_add_thread_locked(struct task *task);
+int proc_add_thread(struct task *task);
 
 bool proc_remove_thread(struct task *task);
 

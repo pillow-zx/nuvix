@@ -20,6 +20,16 @@ struct completion;
 
 #define TASK_CPU_NONE        ((unsigned int)-1)
 
+#define CLONE_VM             0x00000100UL
+#define CLONE_FS             0x00000200UL
+#define CLONE_FILES          0x00000400UL
+#define CLONE_SIGHAND        0x00000800UL
+#define CLONE_VFORK          0x00004000UL
+#define CLONE_THREAD         0x00010000UL
+#define CLONE_SETTLS         0x00080000UL
+#define CLONE_PARENT_SETTID  0x00100000UL
+#define CLONE_CHILD_CLEARTID 0x00200000UL
+
 #define TF_NEED_RESCHED      (1U << 0)
 #define TF_FORKNOEXEC        (1U << 1)
 #define TF_SIGPENDING        (1U << 2)
@@ -82,7 +92,9 @@ struct task {
 extern struct task boot_task;
 extern struct task *init;
 
-struct task *task_alloc(bool user);
+struct task *task_alloc(void);
+
+struct task *ktask_alloc(int (*fn)(void *), void *arg);
 
 void task_free(struct task *task);
 

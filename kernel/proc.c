@@ -1,13 +1,15 @@
 #include <nuvix/proc.h>
+#include <nuvix/errno.h>
 #include <nuvix/slab.h>
 #include <nuvix/task.h>
 
-struct proc *proc_alloc(void)
+struct proc *proc_alloc(struct task *leader)
 {
     struct proc *proc = kzalloc(sizeof(*proc));
 
     if (!proc)
         return NULL;
+    proc->leader = leader;
     refcount_set(&proc->refs, 1);
     spin_lock_init(&proc->lock);
     atomic_set(&proc->exiting, 0);
@@ -31,12 +33,19 @@ void proc_put(struct proc *proc)
     kfree(proc);
 }
 
-void proc_add_thread_locked(struct task *task)
+int proc_add_thread(struct task *task)
 {
     struct proc *proc = task->proc;
 
-    assert_spin_locked(&proc->lock);
+    spin_lock(&proc->lock);
+    if (atomic_read(&proc->exiting)) {
+        spin_unlock(&proc->lock);
+        return -EINTR;
+    }
     list_add_tail(&task->thread, &proc->threads);
+    pid_publish(task);
+    spin_unlock(&proc->lock);
+    return 0;
 }
 
 bool proc_remove_thread(struct task *task)

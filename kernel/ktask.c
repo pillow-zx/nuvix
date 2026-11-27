@@ -48,11 +48,10 @@ static int ktask_init(void)
 {
     struct task *kinit __free(task_put) = NULL;
 
-    kinit = task_alloc(false);
+    kinit = ktask_alloc(kernel_init, NULL);
     if (!kinit)
         return -ENOMEM;
-    arch_ktask_init(&kinit->ctx, kernel_init, NULL);
-    Assert(!sched_publish(kinit), "cannot publish kernel init task\n");
+    sched_publish(kinit);
 
     return 0;
 }

@@ -48,15 +48,7 @@ static const struct dentry_operations proc_pid_dops = {
 
 static const char *proc_task_state(struct task *task)
 {
-    struct rq *rq = task_rq(task);
-    unsigned long flags;
-    unsigned int state;
-
-    spin_lock_irqsave(&rq->lock, flags);
-    state = task->state;
-    spin_unlock_irqrestore(&rq->lock, flags);
-
-    switch (state) {
+    switch (READ_ONCE(task->state)) {
     case TASK_INTERRUPTIBLE:
         return "S (sleeping)";
     case TASK_UNINTERRUPTIBLE:

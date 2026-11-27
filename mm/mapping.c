@@ -406,10 +406,9 @@ static int mapping_init(void)
     INIT_LIST_HEAD(&cache.lru);
     mutex_init(&cache.mutex);
 
-    flusher = task_alloc(false);
+    flusher = ktask_alloc(mapping_flusher, NULL);
     if (!flusher)
         return -ENOMEM;
-    arch_ktask_init(&flusher->ctx, mapping_flusher, NULL);
     sched_publish(flusher);
     return 0;
 }

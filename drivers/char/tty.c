@@ -508,10 +508,9 @@ int tty_init(void)
     if (ret)
         return ret;
 
-    task = task_alloc(false);
+    task = ktask_alloc(tty_task, &gtty);
     if (!task)
         return -ENOMEM;
-    arch_ktask_init(&task->ctx, tty_task, &gtty);
     sched_publish(task);
     return 0;
 }

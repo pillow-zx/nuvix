@@ -34,15 +34,6 @@ static DEFINE_WAIT_QUEUE(child_wait);
 #define P_PID                1
 #define P_PGID               2
 
-#define CLONE_VM             0x00000100UL
-#define CLONE_FS             0x00000200UL
-#define CLONE_FILES          0x00000400UL
-#define CLONE_SIGHAND        0x00000800UL
-#define CLONE_VFORK          0x00004000UL
-#define CLONE_SETTLS         0x00080000UL
-#define CLONE_PARENT_SETTID  0x00100000UL
-#define CLONE_CHILD_CLEARTID 0x00200000UL
-
 extern char boot_stack[];
 
 struct task boot_task = {
@@ -57,11 +48,10 @@ struct task boot_task = {
     .kstack = boot_stack,
 };
 
-struct task *task_alloc(bool user)
+static struct task *task_new(void)
 {
     struct task *task __free(kfree) = NULL;
     struct page *page __free(kstack) = NULL;
-    struct mm_struct *mm __free(mm_put) = NULL;
 
     task = kzalloc(sizeof(*task));
     if (!task)
@@ -71,16 +61,6 @@ struct task *task_alloc(bool user)
     if (!page)
         return NULL;
 
-    if (user) {
-        mm = mm_alloc();
-        if (!mm)
-            return NULL;
-        task->proc = proc_alloc();
-        if (!task->proc)
-            return NULL;
-        task->proc->leader = task;
-    }
-
     refcount_set(&task->refcount, 1);
     task->cpu_id = TASK_CPU_NONE;
     task->state = TASK_NEW;
@@ -89,12 +69,27 @@ struct task *task_alloc(bool user)
     task->preempt_count = INIT_PREEMPT_COUNT;
     task->kstack = (void *)__va(page_to_phys(move(page)));
     task->ctx.sp = (vaddr_t)task->kstack + KSTACK_SIZE;
-    task->mm = move(mm);
-    if (user) {
+    return move(task);
+}
+
+struct task *ktask_alloc(int (*fn)(void *), void *arg)
+{
+    struct task *task = task_new();
+
+    if (task)
+        arch_ktask_init(&task->ctx, fn, arg);
+    return task;
+}
+
+struct task *task_alloc(void)
+{
+    struct task *task = task_new();
+
+    if (task) {
         signal_task_init(task);
         task_set_flag(task, TF_FORKNOEXEC);
     }
-    return move(task);
+    return task;
 }
 
 void task_get(struct task *task)
@@ -285,34 +280,29 @@ long sys_set_tid_address(struct trap_frame *frame)
     return task_pid_nr(current, PIDTYPE_TID);
 }
 
-long sys_clone(struct trap_frame *frame)
+static int copy_proc(struct task *child)
 {
-    unsigned long uflags = syscallarg(frame, 0);
-    unsigned long sp = syscallarg(frame, 1);
-    unsigned long tls = (uflags & CLONE_SETTLS) ? syscallarg(frame, 3) : 0;
-
-    struct task *child __free(task) = NULL;
-    struct task *vfork_child __free(task_put) = NULL;
-    DEFINE_COMPLETION(done);
-    unsigned long flags;
-    pid_t pid;
-    int ret;
-
-    if ((uflags & CLONE_SIGHAND) && !(uflags & CLONE_VM))
-        return -EINVAL;
-    child = task_alloc(true);
-    if (!child)
+    child->proc = proc_alloc(child);
+    if (!child->proc)
         return -ENOMEM;
-    if (uflags & CLONE_VM) {
-        struct mm_struct *mm __free(mm_put) = move(child->mm);
+    return 0;
+}
 
+static int copy_mm(struct task *child, unsigned long uflags)
+{
+    if (uflags & CLONE_VM) {
         mm_get(current->mm);
         child->mm = current->mm;
-    } else {
-        ret = mm_clone(child->mm, current->mm);
-        if (ret)
-            return ret;
+        return 0;
     }
+    child->mm = mm_alloc();
+    if (!child->mm)
+        return -ENOMEM;
+    return mm_clone(child->mm, current->mm);
+}
+
+static int copy_files(struct task *child, unsigned long uflags)
+{
     if (uflags & CLONE_FILES) {
         fdtable_get(current->fdtable);
         child->fdtable = current->fdtable;
@@ -329,8 +319,13 @@ long sys_clone(struct trap_frame *frame)
         if (!child->fs)
             return -ENOMEM;
     }
-    memcpy(child->name, current->name, sizeof(child->name));
-    ret = signal_task_clone(child, uflags & CLONE_SIGHAND);
+    return 0;
+}
+
+static int copy_signals(struct task *child, unsigned long uflags)
+{
+    int ret = signal_task_clone(child, uflags & CLONE_SIGHAND);
+
     if (ret)
         return ret;
     spin_lock(&current->signal_lock);
@@ -338,10 +333,69 @@ long sys_clone(struct trap_frame *frame)
     if (!(uflags & CLONE_VM) || (uflags & CLONE_VFORK))
         child->sigstack = current->sigstack;
     spin_unlock(&current->signal_lock);
-    ret = pid_prepare(child, current);
+    return 0;
+}
+
+static int copy_task(struct task *child, unsigned long flags)
+{
+    int ret = copy_proc(child);
+
     if (ret)
         return ret;
-    arch_task_clone(child, frame, sp, tls);
+    ret = copy_mm(child, flags);
+    if (ret)
+        return ret;
+    ret = copy_files(child, flags);
+    if (ret)
+        return ret;
+    spin_lock(&current->signal_lock);
+    memcpy(child->name, current->name, sizeof(child->name));
+    spin_unlock(&current->signal_lock);
+    ret = copy_signals(child, flags);
+    if (ret)
+        return ret;
+    return pid_prepare(child, current);
+}
+
+static int publish_child(struct task *child)
+{
+    unsigned long flags;
+    int ret;
+
+    spin_lock_irqsave(&child_wait.lock, flags);
+    if (child->proc != current->proc) {
+        pid_reparent(child->proc, current->proc);
+        list_add_tail(&child->proc->sibling, &current->proc->children);
+    }
+    ret = proc_add_thread(child);
+    if (ret && child->proc != current->proc) {
+        list_del_init(&child->proc->sibling);
+        pid_reparent(child->proc, NULL);
+    }
+    spin_unlock_irqrestore(&child_wait.lock, flags);
+    if (!ret)
+        sched_publish(child);
+    return ret;
+}
+
+long sys_clone(struct trap_frame *frame)
+{
+    unsigned long uflags = syscallarg(frame, 0);
+    struct task *child __free(task) = NULL;
+    struct task *vfork_child __free(task_put) = NULL;
+    DEFINE_COMPLETION(done);
+    pid_t pid;
+    int ret;
+
+    if ((uflags & CLONE_SIGHAND) && !(uflags & CLONE_VM))
+        return -EINVAL;
+    child = task_alloc();
+    if (!child)
+        return -ENOMEM;
+    ret = copy_task(child, uflags);
+    if (ret)
+        return ret;
+    arch_task_clone(child);
     pid = task_pid_nr(child, PIDTYPE_TID);
     if (uflags & CLONE_PARENT_SETTID) {
         pid_t *parent_tid = (pid_t *)syscallarg(frame, 2);
@@ -355,19 +409,10 @@ long sys_clone(struct trap_frame *frame)
         task_get(child);
         vfork_child = child;
     }
-    spin_lock_irqsave(&child_wait.lock, flags);
-    pid_reparent(child->proc, current->proc);
-    list_add_tail(&child->proc->sibling, &current->proc->children);
-    ret = sched_publish(child);
-    if (ret) {
-        list_del_init(&child->proc->sibling);
-        pid_reparent(child->proc, NULL);
-    } else {
-        keep(child);
-    }
-    spin_unlock_irqrestore(&child_wait.lock, flags);
+    ret = publish_child(child);
     if (ret)
         return ret;
+    keep(child);
     if (vfork_child) {
         (void)wait_for_completion_killable(&done);
         spin_lock(&vfork_child->signal_lock);

@@ -399,8 +399,14 @@ int init_execve(const char *path, const char *const argv[],
     vaddr_t entry;
     int ret;
 
-    task = task_alloc(true);
+    task = task_alloc();
     if (!task)
+        return -ENOMEM;
+    task->proc = proc_alloc(task);
+    if (!task->proc)
+        return -ENOMEM;
+    task->mm = mm_alloc();
+    if (!task->mm)
         return -ENOMEM;
     task->fdtable = fdtable_alloc();
     if (!task->fdtable)
@@ -436,11 +442,12 @@ int init_execve(const char *path, const char *const argv[],
 
     exec_setcomm(task, path);
     init = task;
-    ret = sched_publish(task);
+    ret = proc_add_thread(task);
     if (ret) {
         init = NULL;
         return ret;
     }
+    sched_publish(task);
     keep(task);
     return 0;
 }

@@ -111,13 +111,11 @@ void sched_init_idle(unsigned int cpu_id, struct task *idle)
     rq->curr = idle;
 }
 
-int sched_publish(struct task *task)
+void sched_publish(struct task *task)
 {
-    struct proc *proc = task->proc;
     struct rq *rq;
     unsigned int cpu_id;
     unsigned long flags, rq_flags;
-    int ret = 0;
     IFDEF(CONFIG_SMP, bool notify = false);
 
     Assert(task->state == TASK_NEW, "task already published\n");
@@ -129,28 +127,15 @@ int sched_publish(struct task *task)
     preempt_disable();
     cpu_id = 0;
 #endif
-    if (proc) {
-        spin_lock(&proc->lock);
-        if (atomic_read(&proc->exiting)) {
-            ret = -EINTR;
-            goto out;
-        }
-    }
     rq = cpu_rq(cpu_id);
-    task->cpu_id = cpu_id;
-    pid_publish(task);
     spin_lock_irqsave(&rq->lock, rq_flags);
+    WRITE_ONCE(task->cpu_id, cpu_id);
     task_get(task);
     task->state = TASK_RUNNABLE;
     enqueue_task(rq, task);
     atomic_inc(&rq->nr_runnable);
-    if (proc)
-        proc_add_thread_locked(task);
     IFDEF(CONFIG_SMP, notify = rq->curr == rq->idle && cpu_id != current_cpu_id());
     spin_unlock_irqrestore(&rq->lock, rq_flags);
-out:
-    if (proc)
-        spin_unlock(&proc->lock);
 #ifdef CONFIG_SMP
     spin_unlock_irqrestore(&placement_lock, flags);
     if (notify)
@@ -159,16 +144,19 @@ out:
     local_irq_restore(flags);
     preempt_enable();
 #endif
-    return ret;
 }
 
 static bool wake_task(struct task *task, unsigned int states)
 {
-    struct rq *rq = task_rq(task);
+    unsigned int cpu_id = READ_ONCE(task->cpu_id);
+    struct rq *rq;
     unsigned long flags;
     bool woke = false;
     IFDEF(CONFIG_SMP, bool notify = false);
 
+    if (cpu_id == TASK_CPU_NONE)
+        return false;
+    rq = cpu_rq(cpu_id);
     spin_lock_irqsave(&rq->lock, flags);
     if (states & task->state) {
         IFDEF(CONFIG_TRACE_CPURING, unsigned int old_state = task->state);

@@ -78,7 +78,7 @@ void sched_init_idle(unsigned int cpu_id, struct task *idle);
  * Current must be bound before locking. Publication and wakeup mark an idle
  * current for rescheduling and notify remote idle CPUs after unlocking.
  */
-int sched_publish(struct task *task);
+void sched_publish(struct task *task);
 
 bool sched_wake(struct task *task);
 

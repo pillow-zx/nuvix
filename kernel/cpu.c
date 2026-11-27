@@ -76,13 +76,15 @@ int cpu_local_init(void)
 /* After allocator and tick setup, IRQ off, on the boot task's initial depth. */
 static int cpu_startup(void)
 {
+    int ret;
+
     sched_init();
     sched_init_idle(0, &boot_task);
     boot_task.on_cpu = true;
-#ifdef CONFIG_SMP
-    return smp_init();
-#else
-    return cpu_local_init();
-#endif
+
+    IFDEF(CONFIG_SMP, ret = smp_init());
+    IFNDEF(CONFIG_SMP, ret = cpu_local_init());
+
+    return ret;
 }
 MODULE_INIT(cpu_startup, 90);
