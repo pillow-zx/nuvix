@@ -86,6 +86,11 @@ static inline int list_empty(const struct list_head *head)
     return READ_ONCE(head->next) == head;
 }
 
+static inline int list_is_singular(const struct list_head *head)
+{
+    return !list_empty(head) && head->next == head->prev;
+}
+
 #define list_for_each(pos, head)                                               \
     for (pos = (head)->next; pos != (head); pos = pos->next)
 

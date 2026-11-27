@@ -172,6 +172,7 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault);
 void signal_delivered(const struct ksignal *signal);
 
 void recalc_sigpending(struct task *task);
+void signal_kill(struct task *task);
 void flush_sigpending(struct sigpending *pending, sigset_t mask);
 
 int send_signal(struct proc *proc, struct task *task, const siginfo_t *info);

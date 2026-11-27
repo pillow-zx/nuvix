@@ -291,6 +291,11 @@ static inline void pid_drop_user(struct pid *pid)
     clear_bit(pid->nr, pidmap);
 }
 
+static inline enum pid_type pid_link_limit(const struct task *task)
+{
+    return task == task->proc->leader ? PIDTYPE_MAX : PIDTYPE_TID + 1;
+}
+
 int pid_prepare(struct task *task, struct task *parent)
 {
     struct proc *proc = task->proc;
@@ -300,10 +305,12 @@ int pid_prepare(struct task *task, struct task *parent)
         return PTR_ERR(move(pid));
     spin_lock(&pid_lock);
     task->tid = pid;
-    proc->pids[PIDTYPE_TGID] = pid;
-    proc->pids[PIDTYPE_PGID] = parent ? parent->proc->pids[PIDTYPE_PGID] : pid;
-    proc->pids[PIDTYPE_SID] = parent ? parent->proc->pids[PIDTYPE_SID] : pid;
-    for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type)
+    if (task == proc->leader) {
+        proc->pids[PIDTYPE_TGID] = pid;
+        proc->pids[PIDTYPE_PGID] = parent ? parent->proc->pids[PIDTYPE_PGID] : pid;
+        proc->pids[PIDTYPE_SID] = parent ? parent->proc->pids[PIDTYPE_SID] : pid;
+    }
+    for (enum pid_type type = PIDTYPE_TID; type < pid_link_limit(task); ++type)
         pid_add_user(task_pid_locked(task, type));
     spin_unlock(&pid_lock);
     return 0;
@@ -314,7 +321,7 @@ void pid_discard(struct task *task)
     if (!task->tid)
         return;
     spin_lock(&pid_lock);
-    for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type)
+    for (enum pid_type type = PIDTYPE_TID; type < pid_link_limit(task); ++type)
         pid_drop_user(task_pid_locked(task, type));
     spin_unlock(&pid_lock);
 }
@@ -326,7 +333,7 @@ void pid_publish(struct task *task)
     spin_lock(&pid_lock);
     Assert(hlist_empty(&task->tid->tasks[PIDTYPE_TID]),
            "TID already has a task\n");
-    for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type) {
+    for (enum pid_type type = PIDTYPE_TID; type < pid_link_limit(task); ++type) {
         struct pid *pid = task_pid_locked(task, type);
 
         Assert(hlist_unhashed(&task->pid_links[type]),
@@ -335,7 +342,7 @@ void pid_publish(struct task *task)
             hash_add(pid_table, &pid->hash_node, pid->nr);
         hlist_add_head(&task->pid_links[type], &pid->tasks[type]);
     }
-    IFDEF(CONFIG_PROC_FS, ++procs_created);
+    IFDEF(CONFIG_PROC_FS, procs_created += task == task->proc->leader);
     spin_unlock(&pid_lock);
 }
 
@@ -354,13 +361,35 @@ void pid_unpublish(struct task *task)
     spin_lock(&pid_lock);
     Assert(!hlist_unhashed(&task->pid_links[PIDTYPE_TID]),
            "ID removal requires a published user task\n");
-    for (enum pid_type type = 0; type < PIDTYPE_MAX; ++type) {
+    for (enum pid_type type = PIDTYPE_TID; type < pid_link_limit(task); ++type) {
         struct pid *pid = task_pid_locked(task, type);
 
         hlist_del(&task->pid_links[type]);
         unhash_unused_pid(pid);
         pid_drop_user(pid);
     }
+    spin_unlock(&pid_lock);
+}
+
+void pid_take_leader(struct task *task, struct task *old)
+{
+    struct pid *tid;
+
+    assert_spin_locked(&task->proc->lock);
+    spin_lock(&pid_lock);
+    tid = task->tid;
+    hlist_del(&task->pid_links[PIDTYPE_TID]);
+    unhash_unused_pid(tid);
+    pid_drop_user(tid);
+    task->tid = old->tid;
+    old->tid = tid;
+    for (enum pid_type type = PIDTYPE_TID; type < PIDTYPE_MAX; ++type) {
+        struct pid *pid = task_pid_locked(task, type);
+
+        hlist_del(&old->pid_links[type]);
+        hlist_add_head(&task->pid_links[type], &pid->tasks[type]);
+    }
+    task->proc->leader = task;
     spin_unlock(&pid_lock);
 }
 

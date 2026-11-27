@@ -17,15 +17,8 @@ void arch_ktask_init(struct task_context *ctx, int (*fn)(void *), void *arg)
     ctx->s[1] = (unsigned long)arg;
 }
 
-static inline struct trap_frame *task_uframe(const struct task *task)
+int arch_utask_prepare(struct mm_struct *mm)
 {
-    return (struct trap_frame *)((vaddr_t)task->kstack + KSTACK_SIZE) - 1;
-}
-
-int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
-                    vaddr_t sp)
-{
-    struct trap_frame *frame;
     struct page *page __free(page) = NULL;
     void *code;
     int ret;
@@ -44,8 +37,18 @@ int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
     if (ret)
         return ret;
     keep(page);
+    return 0;
+}
 
-    frame = task_uframe(task);
+static inline struct trap_frame *task_uframe(const struct task *task)
+{
+    return (struct trap_frame *)((vaddr_t)task->kstack + KSTACK_SIZE) - 1;
+}
+
+void arch_utask_init(struct task *task, vaddr_t entry, vaddr_t sp)
+{
+    struct trap_frame *frame = task_uframe(task);
+
     memset(frame, 0, sizeof(*frame));
     frame->regs[2] = sp;
     frame->sepc = entry;
@@ -55,7 +58,6 @@ int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
 
     task->ctx.sp = (vaddr_t)frame;
     task->ctx.ra = (unsigned long)__utask_entry;
-    return 0;
 }
 
 void utask_entry(struct task *prev, struct trap_frame *frame)

@@ -80,7 +80,7 @@ static void wake_proc_signals(struct proc *proc)
     struct task *task;
     sigset_t pending = proc->pending.signal;
 
-    if (!pending || atomic_read(&proc->exiting))
+    if (!pending || atomic_read(&proc->state) == PROC_EXITING)
         return;
     for_each_thread (proc, task) {
         sigset_t ready = pending & ~task->blocked;
@@ -104,6 +104,14 @@ void recalc_sigpending(struct task *task)
     assert_spin_locked(&task->proc->lock);
     update_sigpending(task);
     wake_proc_signals(task->proc);
+}
+
+void signal_kill(struct task *task)
+{
+    assert_spin_locked(&task->proc->lock);
+    WRITE_ONCE(task->pending.signal, task->pending.signal | sigmask(SIGKILL));
+    update_sigpending(task);
+    sched_wake_group_exit(task);
 }
 
 void signal_task_init(struct task *task)
@@ -151,6 +159,10 @@ static void handle_jobctl(struct proc *proc, int sig)
     if (SIG_STOPMASK & sigmask(sig)) {
         flush_proc_sigpending(proc, sigmask(SIGCONT));
     } else if (sig == SIGCONT) {
+        if (atomic_read(&proc->state) == PROC_STOPPING)
+            atomic_set(&proc->state, PROC_NORMAL);
+        proc->sigstop = 0;
+        proc->remaining = 0;
         flush_sigpending(&proc->pending, SIG_STOPMASK);
         for_each_thread (proc, thread) {
             flush_sigpending(&thread->pending, SIG_STOPMASK);
@@ -210,7 +222,7 @@ int send_signal(struct proc *proc, struct task *task, const siginfo_t *info)
         queue->info = *info;
 
     spin_lock(&proc->lock);
-    if (atomic_read(&proc->exiting) || list_empty(&proc->threads) ||
+    if (atomic_read(&proc->state) == PROC_EXITING || list_empty(&proc->threads) ||
         (task && task_test_flag(task, TF_EXITING)))
         goto out;
     handle_jobctl(proc, sig);
@@ -292,6 +304,25 @@ static int pick_signal_locked(struct task *task, siginfo_t *info,
     return sig;
 }
 
+static void start_group_stop_locked(struct proc *proc, int sig)
+{
+    struct task *thread;
+
+    assert_spin_locked(&proc->lock);
+    if (atomic_read(&proc->state) != PROC_NORMAL || proc->done)
+        return;
+    atomic_set(&proc->state, PROC_STOPPING);
+    proc->sigstop = sig;
+    for_each_thread (proc, thread) {
+        if (task_test_flag(thread, TF_EXITING))
+            continue;
+        task_set_flag(thread, TF_STOPPENDING);
+        ++thread->proc->remaining;
+        if (thread != current)
+            sched_wake_stop(thread);
+    }
+}
+
 static bool prepare_signal_locked(struct task *task, struct ksignal *signal,
                                   int sig, bool fault)
 {
@@ -331,8 +362,7 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
             task_exit_group(SIGKILL);
         }
         if (task_test_flag(task, TF_STOPPENDING)) {
-            spin_unlock(&task->proc->lock);
-            sched_stop();
+            sched_stop_unlock();
             continue;
         }
         sig = pick_signal_locked(task, &signal->info, fault);
@@ -356,7 +386,7 @@ bool get_signal(struct ksignal *signal, const siginfo_t *fault)
         fatal = prepare_signal_locked(task, signal, sig, fault != NULL);
         if (!fatal && signal->action.sa_handler == SIG_DFL &&
             (SIG_STOPMASK & sigmask(sig))) {
-            task_set_flag(task, TF_STOPPENDING);
+            start_group_stop_locked(task->proc, sig);
             spin_unlock(&task->proc->lock);
             continue;
         }

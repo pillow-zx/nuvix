@@ -8,14 +8,23 @@
 #include <nuvix/signal.h>
 #include <nuvix/spinlock.h>
 
+enum proc_state {
+    PROC_NORMAL,
+    PROC_STOPPING,
+    PROC_EXITING,
+};
+
 struct proc {
     refcount_t refs;
     spinlock_t lock;
     struct list_head threads;
-    atomic_t exiting;
+    atomic_t state;
     int status;
+    struct completion *done;
     struct pid *pids[PIDTYPE_MAX];
 
+    int sigstop;
+    unsigned int remaining;
     struct sigpending pending;
 
     struct task *leader;
@@ -35,6 +44,8 @@ void proc_kill(struct proc *proc);
 int proc_add_thread(struct task *task);
 
 bool proc_remove_thread(struct task *task);
+
+bool proc_finish_stop_locked(struct task *task);
 
 #define for_each_thread(proc, task)                                            \
     list_for_each_entry (task, &(proc)->threads, thread)

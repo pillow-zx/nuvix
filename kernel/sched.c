@@ -211,20 +211,23 @@ bool sched_resume(struct task *task)
     return wake_task(task, TASK_STOPPED, false);
 }
 
-void sched_stop(void)
+void sched_stop_unlock(void)
 {
     struct rq *rq = this_rq();
+    struct proc *proc = current->proc;
     unsigned long flags;
+    bool stopped;
 
-    might_sleep();
+    assert_spin_locked(&proc->lock);
     preempt_disable();
     spin_lock_irqsave(&rq->lock, flags);
-    if (task_test_flag(current, TF_STOPPENDING)) {
-        task_clear_flag(current, TF_STOPPENDING);
-        if (!task_group_exiting(current))
-            current->state = TASK_STOPPED;
-    }
+    current->state = TASK_STOPPED;
     spin_unlock_irqrestore(&rq->lock, flags);
+    stopped = proc_finish_stop_locked(current);
+    recalc_sigpending(current);
+    spin_unlock(&proc->lock);
+    if (stopped)
+        wake_child_waiters();
     sched_park();
 }
 

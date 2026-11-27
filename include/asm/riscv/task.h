@@ -23,8 +23,8 @@ struct mm_struct;
 
 struct task *__switch_to(struct task *prev, struct task *next);
 
-int arch_utask_init(struct task *task, struct mm_struct *mm, vaddr_t entry,
-                         vaddr_t sp);
+int arch_utask_prepare(struct mm_struct *mm);
+void arch_utask_init(struct task *task, vaddr_t entry, vaddr_t sp);
 void arch_task_clone(struct task *task);
 void utask_entry(struct task *prev, struct trap_frame *frame);
 __noreturn void __utask_entry(void);

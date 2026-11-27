@@ -1,4 +1,5 @@
 #include <nuvix/proc.h>
+#include <nuvix/completion.h>
 #include <nuvix/errno.h>
 #include <nuvix/slab.h>
 #include <nuvix/task.h>
@@ -12,7 +13,7 @@ struct proc *proc_alloc(struct task *leader)
     proc->leader = leader;
     refcount_set(&proc->refs, 1);
     spin_lock_init(&proc->lock);
-    atomic_set(&proc->exiting, 0);
+    atomic_set(&proc->state, PROC_NORMAL);
     INIT_LIST_HEAD(&proc->threads);
     INIT_LIST_HEAD(&proc->pending.list);
     INIT_LIST_HEAD(&proc->children);
@@ -35,14 +36,30 @@ void proc_put(struct proc *proc)
     kfree(proc);
 }
 
+bool proc_finish_stop_locked(struct task *task)
+{
+    struct proc *proc = task->proc;
+
+    assert_spin_locked(&proc->lock);
+    if (!task_test_flag(task, TF_STOPPENDING))
+        return false;
+    Assert(proc->remaining, "pending stop requires a remaining thread\n");
+    task_clear_flag(task, TF_STOPPENDING);
+    return --proc->remaining == 0;
+}
+
 int proc_add_thread(struct task *task)
 {
     struct proc *proc = task->proc;
 
     spin_lock(&proc->lock);
-    if (atomic_read(&proc->exiting)) {
+    if (atomic_read(&proc->state) == PROC_EXITING || proc->done) {
         spin_unlock(&proc->lock);
         return -EINTR;
+    }
+    if (atomic_read(&proc->state) == PROC_STOPPING) {
+        task_set_flag(task, TF_STOPPENDING);
+        ++proc->remaining;
     }
     list_add_tail(&task->thread, &proc->threads);
     pid_publish(task);
@@ -59,6 +76,10 @@ bool proc_remove_thread(struct task *task)
     spin_lock(&proc->lock);
     list_del_init(&task->thread);
     empty = list_empty(&proc->threads);
+    if (empty && atomic_read(&proc->state) != PROC_EXITING)
+        proc->status = task->exit;
+    if (proc->done && list_is_singular(&proc->threads))
+        complete(proc->done);
     spin_unlock(&proc->lock);
     return empty;
 }

@@ -36,7 +36,6 @@ struct completion;
 #define TF_STOPPENDING       (1U << 3)
 #define TF_SIGSUSPEND        (1U << 4)
 #define TF_RESIGMASK         (1U << 5)
-
 #define TF_EXITING           (1U << 6)
 
 #define TASK_NEW             0U
@@ -75,7 +74,7 @@ struct task {
 
     struct mm_struct *mm;
     struct fdtable *fdtable;
-    struct completion *vfork_done;
+    struct completion *done;
     struct fs_struct *fs;
 
     int exit;
@@ -92,7 +91,7 @@ struct task {
 };
 
 extern struct task boot_task;
-extern struct task *init;
+extern struct proc *init;
 
 struct task *task_alloc(void);
 
@@ -104,11 +103,15 @@ __noreturn void task_exit(int status);
 
 __noreturn void task_exit_group(int status);
 
-void task_mm_release(void);
+int de_thread(struct proc *proc);
+
+int exec_mm_release(void);
 
 void task_vfork_done(struct task *task);
 
 void task_finish_exit(struct task *task);
+
+void wake_child_waiters(void);
 
 void task_get(struct task *task);
 
@@ -125,7 +128,7 @@ DECLARE_FREE(task, struct task *, if (_T) task_free(_T));
 
 static inline bool task_group_exiting(const struct task *task)
 {
-    return task->proc && atomic_read_acquire(&task->proc->exiting);
+    return task->proc && atomic_read_acquire(&task->proc->state) == PROC_EXITING;
 }
 
 static inline bool fatal_signal_pending(const struct task *task)

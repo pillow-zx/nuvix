@@ -57,6 +57,8 @@ void pid_publish(struct task *task);
 
 void pid_unpublish(struct task *task);
 
+void pid_take_leader(struct task *task, struct task *old);
+
 void pid_reparent(struct proc *proc, struct proc *parent);
 
 int pid_setsid(struct task *task);

@@ -24,15 +24,16 @@ static_assert(KSTACK_ORDER < CONFIG_MAX_ORDER,
 
 static DEFINE_WAIT_QUEUE(child_wait);
 
-#define WNOHANG              1
-#define WSTOPPED             2
-#define WEXITED              4
-#define WCONTINUED           8
-#define WNOWAIT              0x01000000
+#define WNOHANG    1
+#define WUNTRACED  2
+#define WSTOPPED   WUNTRACED
+#define WEXITED    4
+#define WCONTINUED 8
+#define WNOWAIT    0x01000000
 
-#define P_ALL                0
-#define P_PID                1
-#define P_PGID               2
+#define P_ALL      0
+#define P_PID      1
+#define P_PGID     2
 
 extern char boot_stack[];
 
@@ -135,9 +136,29 @@ static bool proc_waitable(struct proc *proc)
 static int proc_status(const struct proc *proc)
 {
     assert_spin_locked(&child_wait.lock);
-    if (atomic_read_acquire(&proc->exiting))
-        return proc->status;
-    return proc->leader->exit;
+    return proc->status;
+}
+
+static bool wait_stopped(struct proc *proc, int *status)
+{
+    int sig = 0;
+
+    assert_spin_locked(&child_wait.lock);
+    spin_lock(&proc->lock);
+    if (atomic_read(&proc->state) == PROC_STOPPING && !proc->remaining) {
+        sig = proc->sigstop;
+        proc->sigstop = 0;
+    }
+    spin_unlock(&proc->lock);
+    if (!sig)
+        return false;
+    *status = (sig << 8) | 0x7f;
+    return true;
+}
+
+void wake_child_waiters(void)
+{
+    wake_up_all(&child_wait);
 }
 
 static void notify_parent(struct proc *proc)
@@ -156,7 +177,7 @@ static void notify_parent(struct proc *proc)
 static void reparent_children(struct proc *proc)
 {
     struct proc *child, *next;
-    struct proc *reaper = init->proc;
+    struct proc *reaper = init;
 
     assert_spin_locked(&child_wait.lock);
     list_for_each_entry_safe (child, next, &proc->children, sibling) {
@@ -170,14 +191,14 @@ static void reparent_children(struct proc *proc)
 void task_vfork_done(struct task *task)
 {
     spin_lock(&task->lock);
-    struct completion *done = move(task->vfork_done);
+    struct completion *done = move(task->done);
 
     if (done)
         complete(done);
     spin_unlock(&task->lock);
 }
 
-void task_mm_release(void)
+static void task_mm_release(void)
 {
     uint32_t *addr;
 
@@ -198,11 +219,15 @@ __noreturn void task_exit(int status)
     might_sleep();
     task->exit = status;
     if (task->proc) {
-        Assert(task != init, "init cannot exit\n");
+        bool stopped;
+
         spin_lock(&task->proc->lock);
         task_set_flag(task, TF_EXITING);
+        stopped = proc_finish_stop_locked(task);
         recalc_sigpending(task);
         spin_unlock(&task->proc->lock);
+        if (stopped)
+            wake_child_waiters();
         task_mm_release();
         free_resource(task);
         task_vfork_done(task);
@@ -216,10 +241,12 @@ static void start_group_exit(struct proc *proc, int status)
     struct task *task;
 
     assert_spin_locked(&proc->lock);
-    if (atomic_read(&proc->exiting))
+    if (atomic_read(&proc->state) == PROC_EXITING)
         return;
     proc->status = status;
-    atomic_set_release(&proc->exiting, 1);
+    proc->sigstop = 0;
+    proc->remaining = 0;
+    atomic_set_release(&proc->state, PROC_EXITING);
     for_each_thread (proc, task) {
         task_clear_flag(task, TF_STOPPENDING);
         if (task != current)
@@ -240,12 +267,65 @@ __noreturn void task_exit_group(int status)
     struct proc *proc = current->proc;
 
     spin_lock(&proc->lock);
-    if (atomic_read(&proc->exiting))
+    if (atomic_read(&proc->state) == PROC_EXITING)
         status = proc->status;
+    else if (proc->done)
+        status = 0;
     else
         start_group_exit(proc, status);
     spin_unlock(&proc->lock);
     task_exit(status);
+}
+
+int de_thread(struct proc *proc)
+{
+    struct task *thread;
+    DEFINE_COMPLETION(done);
+    int ret = 0;
+
+    spin_lock(&proc->lock);
+    if (proc->done || fatal_signal_pending(current)) {
+        spin_unlock(&proc->lock);
+        return -EAGAIN;
+    }
+    proc->done = &done;
+    if (!list_is_singular(&proc->threads)) {
+        for_each_thread (proc, thread) {
+            if (thread != current && !task_test_flag(thread, TF_EXITING))
+                signal_kill(thread);
+        }
+        spin_unlock(&proc->lock);
+        ret = wait_for_completion_killable(&done);
+        spin_lock(&proc->lock);
+    }
+    if (fatal_signal_pending(current))
+        ret = -EAGAIN;
+    proc->done = NULL;
+    spin_unlock(&proc->lock);
+    return ret;
+}
+
+int exec_mm_release(void)
+{
+    struct proc *proc = current->proc;
+    struct task *old;
+    unsigned long flags;
+    int ret = de_thread(proc);
+
+    if (ret)
+        return ret;
+    task_mm_release();
+    if (proc->leader == current)
+        return 0;
+
+    spin_lock_irqsave(&child_wait.lock, flags);
+    spin_lock(&proc->lock);
+    old = proc->leader;
+    pid_take_leader(current, old);
+    spin_unlock(&proc->lock);
+    spin_unlock_irqrestore(&child_wait.lock, flags);
+    task_put(old);
+    return 0;
 }
 
 void task_finish_exit(struct task *task)
@@ -256,14 +336,22 @@ void task_finish_exit(struct task *task)
     free_pages(phys_to_page(__pa((vaddr_t)task->kstack)), KSTACK_ORDER);
     if (task->proc) {
         unsigned long flags;
+        bool leader;
 
         spin_lock_irqsave(&child_wait.lock, flags);
         task->kstack = NULL;
+        leader = task == task->proc->leader;
+
+        if (!leader)
+            pid_unpublish(task);
         if (proc_remove_thread(task)) {
+            Assert(task->proc != init, "init cannot exit\n");
             reparent_children(task->proc);
             notify_parent(task->proc);
         }
         spin_unlock_irqrestore(&child_wait.lock, flags);
+        if (!leader)
+            task_put(task);
     } else {
         task->kstack = NULL;
     }
@@ -297,11 +385,16 @@ long sys_set_tid_address(struct trap_frame *frame)
     return task_pid_nr(current, PIDTYPE_TID);
 }
 
-static int copy_proc(struct task *child)
+static int copy_proc(struct task *child, unsigned long uflags)
 {
-    child->proc = proc_alloc(child);
-    if (!child->proc)
-        return -ENOMEM;
+    if (uflags & CLONE_THREAD) {
+        proc_get(current->proc);
+        child->proc = current->proc;
+    } else {
+        child->proc = proc_alloc(child);
+        if (!child->proc)
+            return -ENOMEM;
+    }
     return 0;
 }
 
@@ -359,7 +452,7 @@ static int copy_signals(struct task *child, unsigned long uflags)
 
 static int copy_task(struct task *child, unsigned long flags)
 {
-    int ret = copy_proc(child);
+    int ret = copy_proc(child, flags);
 
     if (ret)
         return ret;
@@ -410,6 +503,8 @@ long sys_clone(struct trap_frame *frame)
 
     if ((uflags & CLONE_SIGHAND) && !(uflags & CLONE_VM))
         return -EINVAL;
+    if ((uflags & CLONE_THREAD) && !(uflags & CLONE_SIGHAND))
+        return -EINVAL;
     child = task_alloc();
     if (!child)
         return -ENOMEM;
@@ -426,7 +521,7 @@ long sys_clone(struct trap_frame *frame)
     if (uflags & CLONE_CHILD_CLEARTID)
         child->clear_child_tid = (uint32_t *)syscallarg(frame, 4);
     if (uflags & CLONE_VFORK) {
-        child->vfork_done = &done;
+        child->done = &done;
         task_get(child);
         vfork_child = child;
     }
@@ -437,7 +532,7 @@ long sys_clone(struct trap_frame *frame)
     if (vfork_child) {
         (void)wait_for_completion_killable(&done);
         spin_lock(&vfork_child->lock);
-        vfork_child->vfork_done = NULL;
+        vfork_child->done = NULL;
         spin_unlock(&vfork_child->lock);
     }
     return pid;
@@ -445,7 +540,7 @@ long sys_clone(struct trap_frame *frame)
 
 struct wait_event {
     pid_t pid;
-    int exit;
+    int status;
 };
 
 enum wait_mode {
@@ -481,16 +576,20 @@ static long wait_child(enum wait_mode mode, pid_t id, int options,
         ret = -ECHILD;
         list_for_each_entry (child, &current->proc->children, sibling) {
             struct task *leader = child->leader;
+            bool exited;
 
             if (!wait_matches(mode, id, leader))
                 continue;
             ret = 0;
-            if (!proc_waitable(child))
+            exited = proc_waitable(child);
+            if (exited)
+                event->status = proc_status(child);
+            else if (!(options & WUNTRACED) ||
+                     !wait_stopped(child, &event->status))
                 continue;
             event->pid = task_pid_nr(leader, PIDTYPE_TGID);
-            event->exit = proc_status(child);
             ret = event->pid;
-            if (!(options & WNOWAIT)) {
+            if (exited && !(options & WNOWAIT)) {
                 dead = leader;
                 pid_unpublish(leader);
                 list_del_init(&child->sibling);
@@ -524,14 +623,14 @@ long sys_wait4(struct trap_frame *frame)
     struct wait_event event = {0};
     long ret;
 
-    if ((pid != -1 && pid <= 0) || (options & ~(WNOHANG | WSTOPPED)))
+    if ((pid != -1 && pid <= 0) || (options & ~(WNOHANG | WUNTRACED)))
         return -EINVAL;
     if (rusage)
         return -EOPNOTSUPP;
 
     ret = wait_child(pid == -1 ? WAIT_ALL : WAIT_PID, pid, options, &event);
     if (ret > 0 && status &&
-        copy_to_user(status, &event.exit, sizeof(event.exit)))
+        copy_to_user(status, &event.status, sizeof(event.status)))
         return -EFAULT;
     return ret;
 }
@@ -580,9 +679,9 @@ long sys_waitid(struct trap_frame *frame)
     if (ret > 0) {
         info.si_signo = SIGCHLD;
         info.si_pid = event.pid;
-        info.si_code = (event.exit & 0x7f) ? CLD_KILLED : CLD_EXITED;
+        info.si_code = (event.status & 0x7f) ? CLD_KILLED : CLD_EXITED;
         info.si_status =
-            (event.exit & 0x7f) ? event.exit & 0x7f : event.exit >> 8;
+            (event.status & 0x7f) ? event.status & 0x7f : event.status >> 8;
     }
     if (infop && copy_to_user(infop, &info, sizeof(info)))
         return -EFAULT;

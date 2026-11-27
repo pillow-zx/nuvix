@@ -75,17 +75,41 @@ static void proc_task_name(struct task *task, char *out)
     *out = '\0';
 }
 
+static struct task *proc_state_task(struct task *leader)
+{
+    struct proc *proc = leader->proc;
+    struct task *task = leader;
+    struct task *thread;
+
+    spin_lock(&proc->lock);
+    if (list_empty(&leader->thread) ||
+        READ_ONCE(leader->state) == TASK_ZOMBIE) {
+        for_each_thread (proc, thread) {
+            if (READ_ONCE(thread->state) != TASK_ZOMBIE) {
+                task = thread;
+                break;
+            }
+        }
+    }
+    task_get(task);
+    spin_unlock(&proc->lock);
+    return task;
+}
+
 static int status_show(struct inode *inode, char *buf)
 {
     struct pid *pid = proc_i(inode)->pid;
-    struct task *task __free(task_put) = pid_get_task(pid, PIDTYPE_TGID);
+    struct task *task __free(task_put) = NULL;
+    struct task *state_task __free(task_put) = NULL;
     char name[2 * TASK_NAME_LEN];
 
+    task = pid_get_task(pid, PIDTYPE_TGID);
     if (!task)
         return -ESRCH;
+    state_task = proc_state_task(task);
     proc_task_name(task, name);
-    return proc_format(buf, STATUS_FORMAT, name, proc_task_state(task), pid->nr,
-                       task_ppid_nr(task));
+    return proc_format(buf, STATUS_FORMAT, name, proc_task_state(state_task),
+                       pid->nr, task_ppid_nr(task));
 }
 
 static int status_open(struct file *file)

@@ -19,7 +19,7 @@
 
 #define ELF_MAGIC_NUMBER 0x9e3779b97f4a7c15ULL
 
-struct task *init;
+struct proc *init;
 
 static const uint64_t initial_random[ELF_RANDOM_SIZE / sizeof(uint64_t)] = {
     ELF_MAGIC_NUMBER, ELF_MAGIC_NUMBER};
@@ -431,9 +431,10 @@ int init_execve(const char *path, const char *const argv[],
     if (ret)
         return ret;
 
-    ret = arch_utask_init(task, task->mm, entry, params.sp);
+    ret = arch_utask_prepare(task->mm);
     if (ret)
         return ret;
+    arch_utask_init(task, entry, params.sp);
 
     task_clear_flag(task, TF_FORKNOEXEC);
     ret = init_stdio(task->fdtable);
@@ -441,7 +442,7 @@ int init_execve(const char *path, const char *const argv[],
         return ret;
 
     exec_setcomm(task, path);
-    init = task;
+    init = task->proc;
     ret = proc_add_thread(task);
     if (ret) {
         init = NULL;
@@ -452,87 +453,51 @@ int init_execve(const char *path, const char *const argv[],
     return 0;
 }
 
-long sys_execve(struct trap_frame *frame)
+struct arg_buffer {
+    char *strings;
+    const char **pointers;
+    size_t bytes;
+    size_t count;
+};
+
+static int copy_strings(struct arg_buffer *buf, const char *const *vector)
 {
-    const char *upath = (const char *)syscallarg(frame, 0);
-    const char *const *uargv = (const void *)syscallarg(frame, 1);
-    const char *const *uenvp = (const void *)syscallarg(frame, 2);
-    char *path __free(kfree) = get_pathname(upath);
-    char *strings __free(kfree) = NULL;
-    const char **pointers __free(kfree) = NULL;
-    struct mm_struct *mm __free(mm_put) = NULL;
+    for (;;) {
+        const char *str = NULL;
+        size_t capacity = USTACK_SIZE - buf->bytes;
+        ssize_t len;
+
+        if (buf->count == USTACK_SIZE / sizeof(*buf->pointers))
+            return -E2BIG;
+        if (vector && copy_from_user(&str, vector++, sizeof(str)))
+            return -EFAULT;
+        if (!str) {
+            buf->pointers[buf->count++] = NULL;
+            return 0;
+        }
+        len = strncpy_from_user(buf->strings + buf->bytes, str, capacity);
+        if (len < 0)
+            return len;
+        if ((size_t)len == capacity)
+            return -E2BIG;
+        buf->pointers[buf->count++] = buf->strings + buf->bytes;
+        buf->bytes += len + 1;
+    }
+}
+
+static int exec_program(struct exec_params *params)
+{
+    struct mm_struct *mm __free(mm_put) = mm_alloc();
     struct fdtable *files __free(fdtable) = NULL;
     struct sighand *sighand __free(sighand) = NULL;
-    struct exec_params params = {.path = path};
-    size_t nr_pointers = 0;
-    size_t string_bytes = 0;
-    size_t env_start;
     vaddr_t entry;
-    long ret;
+    int ret;
 
-    if (IS_ERR(path))
-        return PTR_ERR(move(path));
-    strings = kmalloc(USTACK_SIZE);
-    pointers = kmalloc(USTACK_SIZE);
-    if (!strings || !pointers)
-        return -ENOMEM;
-
-    for (;;) {
-        const char *str = NULL;
-        size_t capacity = USTACK_SIZE - string_bytes;
-        ssize_t length;
-
-        if (nr_pointers == USTACK_SIZE / sizeof(*pointers))
-            return -E2BIG;
-        if (uargv && copy_from_user(&str, uargv++, sizeof(str)))
-            return -EFAULT;
-        pointers[nr_pointers++] = NULL;
-        if (!str)
-            break;
-        length = strncpy_from_user(strings + string_bytes, str, capacity);
-        if (length < 0)
-            return length;
-        if ((size_t)length == capacity)
-            return -E2BIG;
-        pointers[nr_pointers - 1] = strings + string_bytes;
-        string_bytes += length + 1;
-    }
-
-    if (nr_pointers == 1) {
-        pointers[0] = "";
-        pointers[1] = NULL;
-        nr_pointers = 2;
-    }
-    env_start = nr_pointers;
-
-    for (;;) {
-        const char *str = NULL;
-        size_t capacity = USTACK_SIZE - string_bytes;
-        ssize_t length;
-
-        if (nr_pointers == USTACK_SIZE / sizeof(*pointers))
-            return -E2BIG;
-        if (uenvp && copy_from_user(&str, uenvp++, sizeof(str)))
-            return -EFAULT;
-        pointers[nr_pointers++] = NULL;
-        if (!str)
-            break;
-        length = strncpy_from_user(strings + string_bytes, str, capacity);
-        if (length < 0)
-            return length;
-        if ((size_t)length == capacity)
-            return -E2BIG;
-        pointers[nr_pointers - 1] = strings + string_bytes;
-        string_bytes += length + 1;
-    }
-    mm = mm_alloc();
     if (!mm)
         return -ENOMEM;
 
-    params.mm = mm;
-    params.argv = pointers;
-    params.envp = pointers + env_start;
-    ret = load_exec(&params, &entry);
+    params->mm = mm;
+    ret = load_exec(params, &entry);
     if (ret)
         return ret;
 
@@ -546,9 +511,13 @@ long sys_execve(struct trap_frame *frame)
         if (!sighand)
             return -ENOMEM;
     }
-    ret = arch_utask_init(current, mm, entry, params.sp);
+    ret = arch_utask_prepare(mm);
     if (ret)
         return ret;
+    ret = exec_mm_release();
+    if (ret)
+        return ret;
+    arch_utask_init(current, entry, params->sp);
 
     if (files) {
         struct fdtable *old = current->fdtable;
@@ -556,12 +525,46 @@ long sys_execve(struct trap_frame *frame)
         current->fdtable = move(files);
         fdtable_put(old);
     }
-    exec_setcomm(current, path);
+    exec_setcomm(current, params->path);
     signal_exec(move(sighand));
     task_clear_flag(current, TF_FORKNOEXEC);
     fdtable_cloexec(current->fdtable);
-    task_mm_release();
     switch_mm(move(mm));
     task_vfork_done(current);
     return 0;
+}
+
+long sys_execve(struct trap_frame *frame)
+{
+    const char *upath = (const char *)syscallarg(frame, 0);
+    const char *const *uargv = (const void *)syscallarg(frame, 1);
+    const char *const *uenvp = (const void *)syscallarg(frame, 2);
+    char *path __free(kfree) = get_pathname(upath);
+    char *strings __free(kfree) = NULL;
+    const char **pointers __free(kfree) = NULL;
+    struct exec_params params = {.path = path};
+    struct arg_buffer buf = {0};
+    int ret;
+
+    if (IS_ERR(path))
+        return PTR_ERR(move(path));
+    strings = kmalloc(USTACK_SIZE);
+    pointers = kmalloc(USTACK_SIZE);
+    if (!strings || !pointers)
+        return -ENOMEM;
+    buf.strings = strings;
+    buf.pointers = pointers;
+    ret = copy_strings(&buf, uargv);
+    if (ret)
+        return ret;
+    if (buf.count == 1) {
+        pointers[0] = "";
+        pointers[buf.count++] = NULL;
+    }
+    params.argv = pointers;
+    params.envp = pointers + buf.count;
+    ret = copy_strings(&buf, uenvp);
+    if (ret)
+        return ret;
+    return exec_program(&params);
 }

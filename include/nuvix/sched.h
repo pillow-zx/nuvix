@@ -92,7 +92,7 @@ void sched_wake_stop(struct task *task);
 
 bool sched_resume(struct task *task);
 
-void sched_stop(void);
+void sched_stop_unlock(void);
 
 /* Local ordinary current, IRQ off and rq.lock held; no load change yet. */
 void sched_set_sleep_locked(struct rq *rq, unsigned int state);
