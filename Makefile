@@ -52,8 +52,12 @@ endif
 # a configuration file re-syncs the generated output.
 
 KCONFIG         := Kconfig
-KCONFIG_SOURCES := Kconfig kernel/Kconfig arch/$(ARCH)/Kconfig \
-                   mm/Kconfig drivers/Kconfig fs/Kconfig
+KCONFIG_SOURCES := Kconfig
+KCONFIG_SOURCES += kernel/Kconfig
+KCONFIG_SOURCES += arch/$(ARCH)/Kconfig
+KCONFIG_SOURCES += mm/Kconfig
+KCONFIG_SOURCES += drivers/Kconfig
+KCONFIG_SOURCES += fs/Kconfig
 
 DEFCONFIG       ?= defconfig
 KCONFIG_CONFIG  := .config

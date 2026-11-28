@@ -79,7 +79,7 @@
     X(fchdir)                                                                  \
     X(pread64)                                                                 \
     X(pwrite64)                                                                \
-    X(pselect6)                                                                 \
+    X(pselect6)                                                                \
     X(ppoll)                                                                   \
     X(readlinkat)                                                              \
     X(fsync)                                                                   \
