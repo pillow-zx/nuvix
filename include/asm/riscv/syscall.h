@@ -29,6 +29,7 @@
 #define __NR_writev          66
 #define __NR_pread64         67
 #define __NR_pwrite64        68
+#define __NR_pselect6        72
 #define __NR_ppoll           73
 #define __NR_readlinkat      78
 #define __NR_newfstatat      79

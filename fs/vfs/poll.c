@@ -26,6 +26,9 @@ struct poll_entry {
 };
 
 struct poll_sleep {
+    struct poll_entry *entries;
+    unsigned int count;
+    uint64_t deadline;
     struct timer timer;
     struct task *task;
 };
@@ -56,90 +59,147 @@ static poll_t poll_file(struct file *file, struct poll_table *table)
     return (FILE_READ(file) ? POLLIN : 0) | (FILE_WRITE(file) ? POLLOUT : 0);
 }
 
-static int poll_wait(struct pollfd *fds, struct poll_entry *entries,
-                     unsigned int nfds, uint64_t deadline)
+static int poll_initwait(struct poll_sleep *sleep, unsigned int count,
+                         uint64_t deadline)
 {
-    struct task *task = current;
-    struct poll_table table;
+    sleep->count = count;
+    sleep->task = current;
+    sleep->deadline = deadline;
+    if (count) {
+        sleep->entries = kzalloc(count * sizeof(*sleep->entries));
+        if (!sleep->entries)
+            return -ENOMEM;
+        for (unsigned int i = 0; i < count; ++i)
+            wait_entry_init(&sleep->entries[i].wait);
+    }
+    if (deadline != UINT64_MAX) {
+        timer_init(&sleep->timer, current_cpu_id(), poll_timeout);
+        timer_start(&sleep->timer, deadline);
+    }
+    return 0;
+}
+
+static void poll_prepare(void)
+{
     struct rq *rq;
     unsigned long flags;
 
-    for (;;) {
-        unsigned int ready = 0;
+    preempt_disable();
+    rq = this_rq();
+    spin_lock_irqsave(&rq->lock, flags);
+    sched_set_sleep_locked(rq, TASK_INTERRUPTIBLE);
+    spin_unlock_irqrestore(&rq->lock, flags);
+}
 
-        preempt_disable();
-        rq = this_rq();
-        spin_lock_irqsave(&rq->lock, flags);
-        sched_set_sleep_locked(rq, TASK_INTERRUPTIBLE);
-        spin_unlock_irqrestore(&rq->lock, flags);
-        for (unsigned int i = 0; i < nfds; ++i) {
-            struct poll_entry *entry = &entries[i];
-            poll_t mask;
-
-            if (fds[i].fd < 0) {
-                fds[i].revents = 0;
-                continue;
-            }
-            if (!entry->file) {
-                fds[i].revents = POLLNVAL;
-                ++ready;
-                continue;
-            }
-            table.entry = entry;
-            mask = poll_file(entry->file, &table);
-            mask &= fds[i].events | POLLERR | POLLHUP;
-            fds[i].revents = (short)mask;
-            ready += mask != 0;
-        }
-        if (!ready && !signal_pending(task) && time_read() < deadline) {
+static bool poll_sched(struct poll_sleep *sleep, int *result)
+{
+    if (!*result) {
+        if (signal_pending(sleep->task))
+            *result = -EINTR;
+        else if (time_read() < sleep->deadline) {
             sched_park();
-            continue;
+            return true;
         }
-        (void)sched_wake(task);
-        preempt_enable();
-        if (ready)
-            return (int)ready;
-        if (signal_pending(task))
-            return -EINTR;
-        if (time_read() >= deadline)
-            return 0;
     }
+    sched_wake(sleep->task);
+    preempt_enable();
+    return false;
+}
+
+static void poll_freewait(struct poll_sleep *sleep)
+{
+    unsigned long flags;
+
+    if (sleep->deadline != UINT64_MAX)
+        timer_cancel_sync(&sleep->timer);
+    for (unsigned int i = 0; i < sleep->count; ++i) {
+        struct poll_entry *entry = &sleep->entries[i];
+
+        if (entry->queue) {
+            spin_lock_irqsave(&entry->queue->lock, flags);
+            finish_wait_locked(entry->queue, &entry->wait);
+            spin_unlock_irqrestore(&entry->queue->lock, flags);
+        }
+        fput(entry->file);
+    }
+    kfree(sleep->entries);
 }
 
 static int do_poll(struct pollfd *fds, unsigned int nfds, uint64_t deadline)
 {
-    struct poll_entry *entries __free(kfree) = NULL;
-    struct poll_sleep sleep = {.task = current};
-    bool timed = deadline != UINT64_MAX;
-    unsigned long flags;
+    struct poll_sleep sleep = {0};
+    int ret = poll_initwait(&sleep, nfds, deadline);
+
+    if (ret)
+        return ret;
+    for (unsigned int i = 0; i < nfds; ++i)
+        sleep.entries[i].file = fd_open(current->fdtable, fds[i].fd);
+    do {
+        ret = 0;
+        poll_prepare();
+        for (unsigned int i = 0; i < nfds; ++i) {
+            struct poll_entry *entry = &sleep.entries[i];
+            struct poll_table table = {.entry = entry};
+
+            if (fds[i].fd < 0)
+                fds[i].revents = 0;
+            else if (!entry->file)
+                fds[i].revents = POLLNVAL;
+            else
+                fds[i].revents = poll_file(entry->file, &table) &
+                                 (fds[i].events | POLLERR | POLLHUP);
+            ret += fds[i].revents != 0;
+        }
+    } while (poll_sched(&sleep, &ret));
+    poll_freewait(&sleep);
+    return ret;
+}
+
+static int do_select(unsigned int nfds, const unsigned long requested[3],
+                     unsigned long ready[3], uint64_t deadline)
+{
+    const short events[] = {POLLIN | POLLERR | POLLHUP, POLLOUT | POLLERR,
+                            POLLPRI};
+    unsigned long selected = requested[0] | requested[1] | requested[2];
+    struct poll_sleep sleep = {0};
     int ret;
 
-    if (nfds) {
-        entries = kzalloc(nfds * sizeof(*entries));
-        if (!entries)
-            return -ENOMEM;
-        for (unsigned int i = 0; i < nfds; ++i) {
-            wait_entry_init(&entries[i].wait);
-            entries[i].file = fd_open(current->fdtable, fds[i].fd);
-        }
+    if (nfds > BITS_PER_LONG)
+        nfds = BITS_PER_LONG;
+    if (nfds < BITS_PER_LONG)
+        selected &= (1UL << nfds) - 1;
+    ret = poll_initwait(&sleep, selected ? nfds : 0, deadline);
+    if (ret)
+        return ret;
+    for (unsigned int fd = 0; fd < sleep.count; ++fd) {
+        if (selected & (1UL << fd))
+            sleep.entries[fd].file = fd_open(current->fdtable, fd);
     }
-    if (timed) {
-        timer_init(&sleep.timer, current_cpu_id(), poll_timeout);
-        timer_start(&sleep.timer, deadline);
-    }
+    do {
+        ret = 0;
+        poll_prepare();
+        for (unsigned int fd = 0; fd < sleep.count; ++fd) {
+            unsigned long bit = 1UL << fd;
+            struct poll_entry *entry = &sleep.entries[fd];
+            struct poll_table table = {.entry = entry};
+            poll_t mask;
 
-    ret = poll_wait(fds, entries, nfds, deadline);
-
-    if (timed)
-        timer_cancel_sync(&sleep.timer);
-    for (unsigned int i = 0; i < nfds; ++i) {
-        if (entries[i].queue) {
-            spin_lock_irqsave(&entries[i].queue->lock, flags);
-            finish_wait_locked(entries[i].queue, &entries[i].wait);
-            spin_unlock_irqrestore(&entries[i].queue->lock, flags);
+            if (!(selected & bit))
+                continue;
+            if (!entry->file) {
+                ret = -EBADF;
+                break;
+            }
+            mask = poll_file(entry->file, &table);
+            for (int i = 0; i < 3; ++i) {
+                if ((requested[i] & bit) && (mask & events[i])) {
+                    ready[i] |= bit;
+                    ++ret;
+                }
+            }
         }
-        fput(entries[i].file);
-    }
+    } while (poll_sched(&sleep, &ret));
+    poll_freewait(&sleep);
     return ret;
 }
 
@@ -232,3 +292,57 @@ long sys_ppoll(struct trap_frame *frame)
     return ret;
 }
 
+long sys_pselect6(struct trap_frame *frame)
+{
+    int nfds = syscallarg(frame, 0);
+    unsigned long *sets[] = {
+        (unsigned long *)syscallarg(frame, 1),
+        (unsigned long *)syscallarg(frame, 2),
+        (unsigned long *)syscallarg(frame, 3),
+    };
+    struct timespec64 *utmo = (struct timespec64 *)syscallarg(frame, 4);
+    const void *uarg = (const void *)syscallarg(frame, 5);
+    struct {
+        const sigset_t *mask;
+        size_t size;
+    } arg = {0};
+    unsigned long requested[3] = {0}, ready[3] = {0};
+    uint64_t deadline;
+    sigset_t saved = 0;
+    int ret;
+
+    if (nfds < 0)
+        return -EINVAL;
+    if (uarg && copy_from_user(&arg, uarg, sizeof(arg)))
+        return -EFAULT;
+    ret = poll_deadline(utmo, &deadline);
+    if (ret)
+        return ret;
+    for (int i = 0; i < 3; ++i)
+        if (nfds && sets[i] &&
+            copy_from_user(&requested[i], sets[i], sizeof(unsigned long)))
+            return -EFAULT;
+    ret = poll_swap_sigmask(arg.mask, arg.size, &saved);
+    if (ret)
+        return ret;
+    ret = do_select(nfds, requested, ready, deadline);
+    if (arg.mask)
+        poll_restore_sigmask(saved, ret == -EINTR);
+    if (utmo && deadline != UINT64_MAX && (ret >= 0 || ret == -EINTR || ret == -EBADF)) {
+        struct timespec64 remaining;
+        uint64_t now = time_read();
+
+        time_timespec_from_ticks(now < deadline ? deadline - now : 0, &remaining);
+
+        /* bypass around the `unused-result` check of gcc */
+        int tmp = copy_to_user(utmo, &remaining, sizeof(remaining));
+        (void)tmp;
+    }
+    if (ret < 0)
+        return ret;
+    for (int i = 0; i < 3; ++i)
+        if (nfds && sets[i] &&
+            copy_to_user(sets[i], &ready[i], sizeof(unsigned long)))
+            return -EFAULT;
+    return ret;
+}
